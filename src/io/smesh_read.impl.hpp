@@ -178,7 +178,6 @@ int mesh_block_from_folder(const Path &folder, int *nnodesxelem_out,
 template <typename geom_t>
 int mesh_coordinates_from_folder(const Path &folder, int *spatial_dim_out,
                                  geom_t ***points_out, ptrdiff_t *nnodes_out) {
-
   ptrdiff_t n_nodes = 0;
 
   std::vector<Path> x_file = detect_files(
@@ -212,16 +211,12 @@ int mesh_coordinates_from_folder(const Path &folder, int *spatial_dim_out,
     return SMESH_FAILURE;
   }
 
-  ////////////////////////////////////////////////////////////////////////////////
-  // Read coordinates
-  ////////////////////////////////////////////////////////////////////////////////
-
   geom_t **points = (geom_t **)malloc(sizeof(geom_t *) * ndims);
   for (int d = 0; d < ndims; d++) {
     points[d] = 0;
   }
 
-  std::vector<Path> points_paths = {x_file};
+  std::vector<Path> points_paths = x_file;
   if (!y_file.empty()) {
     points_paths.push_back(y_file[0]);
   }
@@ -230,7 +225,6 @@ int mesh_coordinates_from_folder(const Path &folder, int *spatial_dim_out,
   }
 
   int ret = SMESH_SUCCESS;
-
   for (int d = 0; d < ndims; ++d) {
     geom_t *points_d = 0;
     if (array_read_convert_from_extension(points_paths[d], &points_d,
@@ -244,7 +238,7 @@ int mesh_coordinates_from_folder(const Path &folder, int *spatial_dim_out,
     for (int d = 0; d < ndims; d++) {
       free(points[d]);
     }
-    
+
     free(points);
     *points_out = nullptr;
     *spatial_dim_out = 0;

@@ -23,9 +23,6 @@ static const char PATH_SEPARATOR = '/';
 namespace smesh {
 
     Path::Path(std::string_view path) : path_(path) { resolve_path_separators(path_); }
-
-    // Path::Path(const char *path) : path_(path) { resolve_path_separators(path_); }
-
     Path::~Path() = default;
 
     void Path::resolve_path_separators(std::string &path) {

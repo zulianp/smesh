@@ -187,6 +187,7 @@ static int create_crs_graph_from_n2e(
     const count_t *const SMESH_RESTRICT n2eptr,
     const element_idx_t *const SMESH_RESTRICT elindex, count_t **out_rowptr,
     idx_t **out_colidx) {
+      SMESH_UNUSED(nelements);
   count_t *rowptr = (count_t *)malloc((nnodes + 1) * sizeof(count_t));
   idx_t *colidx = 0;
 
@@ -585,7 +586,8 @@ static int create_dual_graph_mem_conservative(
         if (connection_counter[e_adj] == 0) {
           const ptrdiff_t write_pos =
               static_cast<ptrdiff_t>(offset) + static_cast<ptrdiff_t>(count_common);
-          assert(write_pos < n_overestimated_connections + extra_buffer_space);
+          assert(write_pos < n_overestimated_connections + extra_buffer_space); SMESH_UNUSED(write_pos);
+
           elist[count_common++] = e_adj;
         }
 
@@ -644,6 +646,7 @@ static int create_crs_graph_upper_triangular_from_n2e(
     const count_t *const SMESH_RESTRICT n2eptr,
     const element_idx_t *const SMESH_RESTRICT elindex, count_t **out_rowptr,
     idx_t **out_colidx) {
+  SMESH_UNUSED(nelements);
   count_t *rowptr = (count_t *)malloc((nnodes + 1) * sizeof(count_t));
   idx_t *colidx = 0;
 

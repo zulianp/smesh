@@ -146,5 +146,4 @@ if(DOXYGEN_FOUND)
         docs
         COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_BINARY_DIR}/Doxyfile.txt
         SOURCES ${CMAKE_BINARY_DIR}/Doxyfile.txt)
-
 endif()

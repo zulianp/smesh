@@ -7,6 +7,7 @@ include(CMakePackageConfigHelpers)
 include(cmake/SMESHDependencies.cmake)
 include(cmake/SMESHOptions.cmake)
 
+
 if(SMESH_ENABLE_PYTHON)
     include(cmake/SMESHPython.cmake)
 endif()
