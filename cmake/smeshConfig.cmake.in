@@ -1,0 +1,5 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/smeshTargets.cmake")
+
+check_required_components(smesh)
