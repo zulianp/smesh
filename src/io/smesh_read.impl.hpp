@@ -105,6 +105,7 @@ int array_read_convert_from_extension(const Path &path, T **data,
   } else {
     SMESH_ERROR("Unsupported file extension %s for file %s\n", ext.c_str(),
                 path.c_str());
+    return SMESH_FAILURE;
   }
 }
 
