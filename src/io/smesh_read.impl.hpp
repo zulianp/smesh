@@ -85,7 +85,7 @@ int array_read_convert(const Path &path, TargetType **data,
 
 template <typename T>
 int array_read_convert_from_extension(const Path &path, T **data,
-                                ptrdiff_t *n_elements) {
+                                      ptrdiff_t *n_elements) {
   auto ext = path.extension();
   if (ext == ".raw") {
     // We trust the user that the raw file is of the correct type.
@@ -103,20 +103,81 @@ int array_read_convert_from_extension(const Path &path, T **data,
   } else if (ext == "int64") {
     return array_read_convert<i64, T>(path, data, n_elements);
   } else {
-    SMESH_ERROR("Unsupported file extension %s for file %s\n", ext.c_str(), path.c_str());
+    SMESH_ERROR("Unsupported file extension %s for file %s\n", ext.c_str(),
+                path.c_str());
   }
 }
 
-template <typename idx_t, typename geom_t>
-int mesh_from_folder(const Path &folder, int *nnodesxelem_out,
-                     ptrdiff_t *nelements_out, idx_t ***elems_out,
-                     int *spatial_dim_out, ptrdiff_t *nnodes_out,
-                     geom_t ***points_out) {
+template <typename idx_t>
+int mesh_block_from_folder(const Path &folder, int *nnodesxelem_out,
+                           ptrdiff_t *nelements_out, idx_t ***elems_out) {
   ptrdiff_t n_elements = 0;
-  ptrdiff_t n_nodes = 0;
 
   std::vector<Path> i_files =
       detect_files(folder / "i*.*", {".raw", ".int16", ".int32", ".int64"});
+
+  int nnodesxelem = i_files.size();
+
+  idx_t **elems = (idx_t **)calloc(nnodesxelem, sizeof(idx_t *));
+  for (int d = 0; d < nnodesxelem; d++) {
+    elems[d] = nullptr;
+  }
+
+  int ret = SMESH_SUCCESS;
+  {
+    ptrdiff_t n_elements0 = 0;
+    for (int d = 0; d < nnodesxelem; ++d) {
+      Path i_path = i_files[d];
+      std::string filename = i_path.file_name();
+      int ii = std::stoi(filename.substr(1, filename.find_last_of('.')));
+
+      idx_t *idx = 0;
+      if (array_read_convert_from_extension<idx_t>(i_path, &idx, &n_elements) !=
+          SMESH_SUCCESS) {
+        SMESH_ERROR("Failed to read index file %s\n", i_path.c_str());
+        ret = SMESH_FAILURE;
+      }
+      // End of Selection
+      elems[ii] = idx;
+
+      if (d == 0) {
+        n_elements0 = n_elements;
+      } else {
+        assert(n_elements0 == n_elements);
+
+        if (n_elements0 != n_elements) {
+          SMESH_ERROR("Inconsistent lenghts in input %ld != %ld\n",
+                      (long)n_elements0, (long)n_elements);
+          ret = SMESH_FAILURE;
+        }
+      }
+    }
+  }
+
+  if (ret == SMESH_FAILURE) {
+    for (int d = 0; d < nnodesxelem; d++) {
+      free(elems[d]);
+    }
+    free(elems);
+    *elems_out = nullptr;
+    *nnodesxelem_out = 0;
+    *nelements_out = 0;
+    return SMESH_FAILURE;
+  }
+
+  *nnodesxelem_out = nnodesxelem;
+  *nelements_out = n_elements;
+  *elems_out = elems;
+
+  return SMESH_SUCCESS;
+}
+
+template <typename geom_t>
+int mesh_coordinates_from_folder(const Path &folder, int *spatial_dim_out,
+                                 geom_t ***points_out, ptrdiff_t *nnodes_out) {
+
+  ptrdiff_t n_nodes = 0;
+
   std::vector<Path> x_file = detect_files(
       folder / "x.*", {".raw", ".float16", ".float32", ".float64"});
   std::vector<Path> y_file = detect_files(
@@ -139,45 +200,13 @@ int mesh_from_folder(const Path &folder, int *nnodesxelem_out,
                           {".raw", ".float16", ".float32", ".float64"});
   }
 
-  int nnodesxelem = i_files.size();
   int ndims = x_file.empty() ? 0 : 1; // x only
   ndims += y_file.empty() ? 0 : 1;    // x and y
   ndims += z_file.empty() ? 0 : 1;    // x, y and z
 
   if (!ndims) {
     SMESH_ERROR("No coordinates found in input folder %s\n", folder.c_str());
-  }
-
-  idx_t **elems = (idx_t **)calloc(nnodesxelem, sizeof(idx_t *));
-  for (int d = 0; d < nnodesxelem; d++) {
-    elems[d] = nullptr;
-  }
-
-  {
-    ptrdiff_t n_elements0 = 0;
-    for (int d = 0; d < nnodesxelem; ++d) {
-      Path i_path = i_files[d];
-      std::string filename = i_path.file_name();
-      int ii = std::stoi(filename.substr(1, filename.find_last_of('.')));
-
-      idx_t *idx = 0;
-      if (array_read_convert_from_extension<idx_t>(i_path, &idx, &n_elements) != SMESH_SUCCESS) {
-        SMESH_ERROR("Failed to read index file %s\n", i_path.c_str());
-      }
-      // End of Selection
-      elems[ii] = idx;
-
-      if (d == 0) {
-        n_elements0 = n_elements;
-      } else {
-        assert(n_elements0 == n_elements);
-
-        if (n_elements0 != n_elements) {
-          SMESH_ERROR("Inconsistent lenghts in input %ld != %ld\n",
-                      (long)n_elements0, (long)n_elements);
-        }
-      }
-    }
+    return SMESH_FAILURE;
   }
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -197,20 +226,49 @@ int mesh_from_folder(const Path &folder, int *nnodesxelem_out,
     points_paths.push_back(z_file[0]);
   }
 
+  int ret = SMESH_SUCCESS;
+
   for (int d = 0; d < ndims; ++d) {
     geom_t *points_d = 0;
-    if (array_read_convert_from_extension(points_paths[d], &points_d, &n_nodes) != SMESH_SUCCESS) {
-      return SMESH_FAILURE;
+    if (array_read_convert_from_extension(points_paths[d], &points_d,
+                                          &n_nodes) != SMESH_SUCCESS) {
+      ret = SMESH_FAILURE;
     }
     points[d] = points_d;
   }
 
-  *nnodesxelem_out = nnodesxelem;
+  if (ret == SMESH_FAILURE) {
+    for (int d = 0; d < ndims; d++) {
+      free(points[d]);
+    }
+    free(points);
+    *points_out = nullptr;
+    *spatial_dim_out = 0;
+    *nnodes_out = 0;
+    return SMESH_FAILURE;
+  }
+
   *spatial_dim_out = ndims;
-  *nelements_out = n_elements;
-  *elems_out = elems;
   *nnodes_out = n_nodes;
   *points_out = points;
+  return SMESH_SUCCESS;
+}
+
+template <typename idx_t, typename geom_t>
+int mesh_from_folder(const Path &folder, int *nnodesxelem_out,
+                     ptrdiff_t *nelements_out, idx_t ***elems_out,
+                     int *spatial_dim_out, ptrdiff_t *nnodes_out,
+                     geom_t ***points_out) {
+
+  if (mesh_block_from_folder(folder, nnodesxelem_out, nelements_out,
+                             elems_out) != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+
+  if (mesh_coordinates_from_folder(folder, spatial_dim_out, points_out,
+                                   nnodes_out) != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
 
   return SMESH_SUCCESS;
 }
