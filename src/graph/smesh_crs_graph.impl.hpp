@@ -98,49 +98,6 @@ int create_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
   return SMESH_SUCCESS;
 }
 
-template <typename idx_t, typename count_t>
-int create_n2ln(const ptrdiff_t nelements, const ptrdiff_t nnodes,
-                const int nnodesxelem,
-                idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
-                count_t **out_n2ln_ptr, count_t **out_ln_index) {
-  using element_idx_t_local = ptrdiff_t;
-
-  count_t *n2eptr;
-  element_idx_t_local *elindex;
-  create_n2e<idx_t, count_t, element_idx_t_local>(
-      nelements, nnodes, nnodesxelem, elems, &n2eptr, &elindex);
-
-  count_t *ln_index =
-      (count_t *)malloc(static_cast<size_t>(n2eptr[nnodes]) * sizeof(count_t));
-
-  for (ptrdiff_t node = 0; node < nnodes; ++node) {
-    count_t ebegin = n2eptr[node];
-    count_t eend = n2eptr[node + 1];
-    int book_keeping = 0;
-
-    for (count_t e = ebegin; e < eend; ++e) {
-      element_idx_t_local eidx = elindex[e];
-      assert(eidx < nelements);
-
-      for (int edof_i = 0; edof_i < nnodesxelem; ++edof_i) {
-        idx_t lnode = elems[edof_i][eidx];
-        if (lnode == node) {
-          ln_index[ebegin + book_keeping++] =
-              static_cast<count_t>(eidx * nnodesxelem + edof_i);
-          break;
-        }
-      }
-    }
-
-    assert(book_keeping == eend - ebegin);
-  }
-
-  *out_n2ln_ptr = n2eptr;
-  *out_ln_index = ln_index;
-  free(elindex);
-  return SMESH_SUCCESS;
-}
-
 template <typename idx_t, typename count_t, typename element_idx_t>
 static int create_n2e_for_elem_type(
     const enum ElemType element_type, const ptrdiff_t nelements,

@@ -13,12 +13,6 @@ int create_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
                count_t **out_n2eptr, element_idx_t **out_elindex);
 
 template <typename idx_t, typename count_t>
-int create_n2ln(const ptrdiff_t nelements, const ptrdiff_t nnodes,
-                const int nnodesxelem,
-                idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
-                count_t **out_n2ln_ptr, count_t **out_ln_index);
-
-template <typename idx_t, typename count_t>
 int create_crs_graph_for_elem_type(
     const enum ElemType element_type, const ptrdiff_t nelements,
     const ptrdiff_t nnodes,

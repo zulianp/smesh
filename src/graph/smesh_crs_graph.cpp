@@ -8,9 +8,6 @@
   template int create_n2e<T, T, T>(                                            \
       ptrdiff_t, ptrdiff_t, int,                                               \
       T *const SMESH_RESTRICT * const SMESH_RESTRICT, T **, T **);             \
-  template int create_n2ln<T, T>(                                              \
-      ptrdiff_t, ptrdiff_t, int,                                               \
-      T *const SMESH_RESTRICT * const SMESH_RESTRICT, T **, T **);             \
   template int create_crs_graph_for_elem_type<T, T>(                            \
       enum ElemType, ptrdiff_t, ptrdiff_t,                                     \
       T *const SMESH_RESTRICT * const SMESH_RESTRICT, T **, T **);             \
