@@ -122,7 +122,7 @@ namespace smesh {
         const std::filesystem::path p{path_};
         return std::filesystem::exists(p);
 #else
-        struct stat st = {0};
+        struct stat st = {};
         if (stat(path_.c_str(), &st) == -1) {
             return false;
         }

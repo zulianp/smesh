@@ -21,7 +21,8 @@ int array_read(const Path &path, T **data, ptrdiff_t *n_elements) {
   *data = (T *)malloc(*n_elements * sizeof(T));
 
   int ret = SMESH_SUCCESS;
-  if (fread(*data, sizeof(T), *n_elements, fp) != *n_elements) {
+  const size_t n = static_cast<size_t>(*n_elements);
+  if (fread(*data, sizeof(T), n, fp) != n) {
     free(*data);
     *data = nullptr;
     fprintf(stderr, "Failed to read file %s\n", path.c_str());
@@ -51,9 +52,10 @@ int array_read_convert(const Path &path, TargetType **data,
   *data = (TargetType *)malloc(*n_elements * sizeof(TargetType));
 
   int ret = SMESH_SUCCESS;
+  const size_t n = static_cast<size_t>(*n_elements);
   if (sizeof(FileType) <= sizeof(TargetType)) {
     FileType *temp = (FileType *)*data;
-    if (fread(temp, sizeof(FileType), *n_elements, fp) != *n_elements) {
+    if (fread(temp, sizeof(FileType), n, fp) != n) {
       fprintf(stderr, "Failed to read file %s\n", path.c_str());
       ret = SMESH_FAILURE;
     } else {
@@ -63,7 +65,7 @@ int array_read_convert(const Path &path, TargetType **data,
     }
   } else {
     FileType *temp = (FileType *)malloc(*n_elements * sizeof(FileType));
-    if (fread(temp, sizeof(FileType), *n_elements, fp) != *n_elements) {
+    if (fread(temp, sizeof(FileType), n, fp) != n) {
       fprintf(stderr, "Failed to read file %s\n", path.c_str());
       ret = SMESH_FAILURE;
     } else {
@@ -242,6 +244,7 @@ int mesh_coordinates_from_folder(const Path &folder, int *spatial_dim_out,
     for (int d = 0; d < ndims; d++) {
       free(points[d]);
     }
+    
     free(points);
     *points_out = nullptr;
     *spatial_dim_out = 0;

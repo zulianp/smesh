@@ -558,7 +558,7 @@ static int create_dual_graph_mem_conservative(
 
   const ptrdiff_t n_overestimated_connections = n_elements * n_sides;
   // +1 more to avoid illegal access when counting self
-  size_t extra_buffer_space = 1000;
+  const ptrdiff_t extra_buffer_space = 1000;
 
 #ifdef SMESH_ENABLE_MEM_DIAGNOSTICS
   printf("create_dual_graph_mem_conservative: allocating %g GB\n",
@@ -567,7 +567,8 @@ static int create_dual_graph_mem_conservative(
 #endif
 
   element_idx_t *dual_eidx = (element_idx_t *)calloc(
-      n_overestimated_connections + extra_buffer_space, sizeof(element_idx_t));
+      static_cast<size_t>(n_overestimated_connections + extra_buffer_space),
+      sizeof(element_idx_t));
 
   for (ptrdiff_t e = 0; e < n_elements; e++) {
     count_t offset = dual_e_ptr[e];
@@ -582,8 +583,9 @@ static int create_dual_graph_mem_conservative(
         assert(e_adj < n_elements);
 
         if (connection_counter[e_adj] == 0) {
-          assert(offset + count_common <
-                 n_overestimated_connections + extra_buffer_space);
+          const ptrdiff_t write_pos =
+              static_cast<ptrdiff_t>(offset) + static_cast<ptrdiff_t>(count_common);
+          assert(write_pos < n_overestimated_connections + extra_buffer_space);
           elist[count_common++] = e_adj;
         }
 

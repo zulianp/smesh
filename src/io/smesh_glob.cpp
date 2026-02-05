@@ -50,7 +50,7 @@ int create_directory(const std::string_view &path) {
     return SMESH_FAILURE;
   }
 #else
-  struct stat st = {0};
+  struct stat st = {};
   if (stat(path.data(), &st) == -1) {
     return mkdir(path.data(), 0700) == 0 ? SMESH_SUCCESS : SMESH_FAILURE;
   }
