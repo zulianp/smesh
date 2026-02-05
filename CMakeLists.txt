@@ -4,6 +4,13 @@ project(smesh VERSION 0.1.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
+include(cmake/SMESHDependencies.cmake)
+include(cmake/SMESHOptions.cmake)
+
+if(SMESH_ENABLE_PYTHON)
+    include(cmake/SMESHPython.cmake)
+endif()
+
 
 set(SMESH_LIBRARY_SCAN_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/src"

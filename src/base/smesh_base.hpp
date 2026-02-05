@@ -2,9 +2,10 @@
 #define SMESH_BASE_HPP
 
 #include <assert.h>
+#include <chrono>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <chrono>
 
 #ifdef __GNUC__
 #include <execinfo.h>
@@ -113,14 +114,12 @@ inline SMESH_BOTH uint64_t div_round_up(uint64_t a, uint64_t b) {
 }
 
 inline double time_milliseconds() {
-    auto now = std::chrono::high_resolution_clock::now();
-    auto duration = now.time_since_epoch();
-    return std::chrono::duration<double, std::milli>(duration).count();
+  auto now = std::chrono::high_resolution_clock::now();
+  auto duration = now.time_since_epoch();
+  return std::chrono::duration<double, std::milli>(duration).count();
 }
 
-inline double time_seconds() {
-    return time_milliseconds() / 1000.0;
-}
+inline double time_seconds() { return time_milliseconds() / 1000.0; }
 
 #if defined(__CUDACC__) || defined(__HIPCC__)
 #define SMESH_CUDA_CHECK(call)                                                 \
@@ -133,6 +132,7 @@ inline double time_seconds() {
     }                                                                          \
   }
 #endif
+
 
 } // namespace smesh
 

@@ -1,6 +1,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "smesh_types.hpp"
 #include "smesh_crs_graph.impl.hpp"
 
 #define SMESH_EXPLICIT_INSTANTIATE_CRS_GRAPH(T)                                \
@@ -35,9 +36,9 @@
       T *const SMESH_RESTRICT * const SMESH_RESTRICT, T **, T **)
 
 namespace smesh {
-SMESH_EXPLICIT_INSTANTIATE_CRS_GRAPH(std::int32_t);
-SMESH_EXPLICIT_INSTANTIATE_CRS_GRAPH(std::int64_t);
-SMESH_EXPLICIT_INSTANTIATE_CRS_GRAPH(std::int16_t);
+SMESH_EXPLICIT_INSTANTIATE_CRS_GRAPH(i32);
+SMESH_EXPLICIT_INSTANTIATE_CRS_GRAPH(i64);
+SMESH_EXPLICIT_INSTANTIATE_CRS_GRAPH(i16);
 } // namespace smesh
 
 #undef SMESH_EXPLICIT_INSTANTIATE_CRS_GRAPH
