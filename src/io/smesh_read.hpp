@@ -2,6 +2,7 @@
 #define SMESH_READ_HPP
 
 #include "smesh_base.hpp"
+#include "smesh_path.hpp"
 #include <string_view>
 
 namespace smesh {
