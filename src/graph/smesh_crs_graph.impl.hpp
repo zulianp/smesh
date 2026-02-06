@@ -595,10 +595,6 @@ static int create_dual_graph_mem_conservative(
       }
     }
 
-    // if(!connection_counter[e]) {
-    //     elist[count_common++] = e;
-    // }
-
     connection_counter[e] = 0;
 
     int actual_count = 0;

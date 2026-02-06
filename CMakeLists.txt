@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(smesh VERSION 0.1.0 LANGUAGES CXX)
+project(smesh VERSION 0.1.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -60,6 +60,7 @@ list(FILTER _smesh_library_files EXCLUDE REGEX "\\.exe\\.(c|cc|cpp|cxx)$")
 list(REMOVE_DUPLICATES _smesh_library_files)
 
 add_library(smesh ${_smesh_library_files})
+target_link_libraries(smesh PRIVATE ${SMESH_SUBMODULES})
 
 add_library(smesh::smesh ALIAS smesh)
 

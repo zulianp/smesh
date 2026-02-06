@@ -26,6 +26,7 @@ if(WIN32)
     list(APPEND SMESH_SUBMODULES Glob)
 endif()
 
+
 # ##############################################################################
 
 if(SMESH_ENABLE_BLAS)
@@ -97,43 +98,33 @@ endif()
 # ##############################################################################
 
 if(SMESH_ENABLE_MPI)
-    find_package(MPI REQUIRED)
+    find_package(MPI REQUIRED COMPONENTS C CXX)
+    set(SMESH_HAVE_MPI TRUE)
 
-    if(MPI_FOUND)
-        set(SMESH_HAVE_MPI TRUE)
+    # Prefer imported targets (propagate includes/flags/libs correctly)
+    list(APPEND SMESH_SUBMODULES MPI::MPI_CXX)
 
-        if(MPI_C_INCLUDE_PATH)
-            set(SMESH_DEP_INCLUDES
-                "${SMESH_DEP_INCLUDES};${MPI_C_INCLUDE_PATH}")
-        endif()
+    set(MATRIXIO_REPO_URL https://github.com/zulianp/matrix.io.git CACHE STRING "")
+    set(MATRIXIO_BRANCH_NAME main CACHE STRING "")
+    include(FetchContent)
+    
+    FetchContent_Declare(matrixio
+        GIT_REPOSITORY ${MATRIXIO_REPO_URL}
+        GIT_TAG ${MATRIXIO_BRANCH_NAME}
+        GIT_SHALLOW FALSE  # ensure submodules are checked out
+    )
+    
+    # matrixio is consumed as a build-time dependency; enable its install/export
+    # rules so smesh's own export set can be generated without errors.
+    set(MATRIXIO_INSTALL ON CACHE BOOL "" FORCE)
+    set(MATRIXIO_BUILD_EXTRAS OFF CACHE BOOL "" FORCE)
+    set(MATRIXIO_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
-        if(MPI_CXX_INCLUDE_PATH)
-            set(SMESH_DEP_INCLUDES
-                "${SMESH_DEP_INCLUDES};${MPI_CXX_INCLUDE_PATH}")
-        endif()
-
-        if(MPI_LIBRARIES)
-            set(SMESH_DEP_LIBRARIES
-                "${SMESH_DEP_LIBRARIES};${MPI_LIBRARIES}")
-        endif()
-
-        if(MPI_C_LIBRARIES)
-            set(SMESH_DEP_LIBRARIES
-                "${SMESH_DEP_LIBRARIES};${MPI_C_LIBRARIES}")
-        endif()
-
-        if(MPI_CXX_LIBRARIES)
-            set(SMESH_DEP_LIBRARIES
-                "${SMESH_DEP_LIBRARIES};${MPI_CXX_LIBRARIES}")
-        endif()
-        
-    else()
-        message(
-            FATAL_ERROR
-                "We should never end up here, because find_package above is REQUIRED"
-        )
-    endif()
+    FetchContent_MakeAvailable(matrixio)
+    # matrixio exports matrixio::matrixio (alias of target "matrixio")
+    list(APPEND SMESH_SUBMODULES matrixio::matrixio)
 endif()
+
 
 # ##############################################################################
 

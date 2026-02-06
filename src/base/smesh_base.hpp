@@ -72,8 +72,8 @@
 #define SMESH_INLINE inline
 #define SMESH_FORCE_INLINE inline __attribute__((always_inline))
 #else
-#define SMESH_INLINE
-#define SMESH_FORCE_INLINE
+#define SMESH_INLINE 
+#define SMESH_FORCE_INLINE 
 #endif
 
 #define SMESH_UNUSED(var) (void)var
