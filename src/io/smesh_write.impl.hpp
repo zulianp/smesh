@@ -10,11 +10,13 @@
 namespace smesh {
 
 template <typename FileType, typename T>
-int array_write_convert(const Path &path, T **data, ptrdiff_t *n_elements);
+int array_write_convert(const Path &path, const T *const SMESH_RESTRICT data,
+                        const ptrdiff_t n_elements);
 
 template <typename T>
-int array_write_convert_from_extension(const Path &path, T **data,
-                                       ptrdiff_t *n_elements);
+int array_write_convert_from_extension(const Path &path,
+                                       const T *const SMESH_RESTRICT data,
+                                       const ptrdiff_t n_elements);
 
 template <typename idx_t>
 int mesh_block_to_folder(
@@ -53,8 +55,6 @@ int mesh_to_folder(const Path &path, enum ElemType element_type,
   SMESH_UNUSED(points);
   return SMESH_FAILURE;
 }
-
-
 
 template <typename idx_t, typename geom_t>
 int mesh_multiblock_to_folder(const std::vector<std::string_view> &block_names,
