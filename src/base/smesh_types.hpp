@@ -116,6 +116,12 @@ SMESH_INLINE static IntegerType to_integer_type(std::string_view type) {
   }
   return SMESH_INT_UNDEFINED;
 }
+
+template <typename T>
+T invalid_idx() {
+  return static_cast<T>(-1);
+}
+
 } // namespace smesh
 
 #endif // SMESH_TYPES_HPP

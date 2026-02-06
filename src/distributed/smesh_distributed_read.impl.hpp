@@ -223,7 +223,7 @@ int mesh_build_global_ids(MPI_Comm comm, const ptrdiff_t n_nodes,
 
 #ifndef NDEBUG
   for (ptrdiff_t i = 0; i < n_lnodes_temp; i++) {
-    mapping[i] = SMESH_IDX_INVALID;
+    mapping[i] = smesh::invalid_idx<idx_t>();
   }
 #endif
 
@@ -1079,7 +1079,7 @@ int mesh_from_folder(
       }
 
       for (int d = 0; d < nnodesxelem; ++d) {
-        array_remap_gather<idx_t>(n_local_elements, element_mapping, elems[d],
+        array_remap_gather(n_local_elements, element_mapping, elems[d],
                                   temp_buff);
       }
 
