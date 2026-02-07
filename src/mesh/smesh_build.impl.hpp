@@ -24,6 +24,7 @@ void mesh_fill_hex8_cube(
   SMESH_ASSERT(hy > 0);
   SMESH_ASSERT(hz > 0);
 
+  // #pragma omp parallel for collapse(3)
   for (ptrdiff_t zi = 0; zi < nz; zi++) {
     for (ptrdiff_t yi = 0; yi < ny; yi++) {
       for (ptrdiff_t xi = 0; xi < nx; xi++) {
@@ -52,6 +53,7 @@ void mesh_fill_hex8_cube(
     }
   }
 
+  // #pragma omp parallel for collapse(3)
   for (ptrdiff_t zi = 0; zi <= nz; zi++) {
     for (ptrdiff_t yi = 0; yi <= ny; yi++) {
       for (ptrdiff_t xi = 0; xi <= nx; xi++) {
@@ -81,6 +83,7 @@ void mesh_fill_tri3_square(
   SMESH_ASSERT(hx > 0);
   SMESH_ASSERT(hy > 0);
 
+  // #pragma omp parallel for collapse(2)
   for (ptrdiff_t yi = 0; yi < ny; yi++) {
     for (ptrdiff_t xi = 0; xi < nx; xi++) {
       const ptrdiff_t e = 2 * (yi * nx + xi);
@@ -100,6 +103,7 @@ void mesh_fill_tri3_square(
     }
   }
 
+  // #pragma omp parallel for collapse(2)
   for (ptrdiff_t yi = 0; yi <= ny; yi++) {
     for (ptrdiff_t xi = 0; xi <= nx; xi++) {
       ptrdiff_t node = xi * ldx + yi * ldy;
@@ -126,6 +130,7 @@ void mesh_fill_quad4_square(
   SMESH_ASSERT(hx > 0);
   SMESH_ASSERT(hy > 0);
 
+  // #pragma omp parallel for collapse(2)
   for (ptrdiff_t yi = 0; yi < ny; yi++) {
     for (ptrdiff_t xi = 0; xi < nx; xi++) {
       const ptrdiff_t e = yi * nx + xi;
@@ -142,6 +147,7 @@ void mesh_fill_quad4_square(
     }
   }
 
+  // #pragma omp parallel for collapse(2)
   for (ptrdiff_t yi = 0; yi <= ny; yi++) {
     for (ptrdiff_t xi = 0; xi <= nx; xi++) {
       ptrdiff_t node = xi * ldx + yi * ldy;
