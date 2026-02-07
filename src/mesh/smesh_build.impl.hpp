@@ -9,8 +9,8 @@ template <typename idx_t, typename geom_t>
 void mesh_fill_hex8_cube(
     const int nx, const int ny, const int nz, const geom_t xmin,
     const geom_t ymin, const geom_t zmin, const geom_t xmax, const geom_t ymax,
-    const geom_t zmax, idx_t **SMESH_RESTRICT *const SMESH_RESTRICT elements,
-    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
+    const geom_t zmax, idx_t *SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points) {
 
   const ptrdiff_t ldz = (ny + 1) * (nx + 1);
   const ptrdiff_t ldy = nx + 1;
@@ -64,13 +64,14 @@ void mesh_fill_hex8_cube(
   }
 }
 
+template <typename idx_t, typename geom_t>
 void mesh_fill_tri3_square(
     const int nx, const int ny, const geom_t xmin, const geom_t ymin,
     const geom_t xmax, const geom_t ymax,
-    idx_t **SMESH_RESTRICT *const SMESH_RESTRICT elements,
-    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
-  const ptrdiff_t nelements = 2 * nx * ny;
-  const ptrdiff_t nnodes = (nx + 1) * (ny + 1);
+    idx_t *SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points) {
+//   const ptrdiff_t nelements = 2 * nx * ny;
+//   const ptrdiff_t nnodes = (nx + 1) * (ny + 1);
   const ptrdiff_t ldy = nx + 1;
   const ptrdiff_t ldx = 1;
 
@@ -108,13 +109,14 @@ void mesh_fill_tri3_square(
   }
 }
 
+template <typename idx_t, typename geom_t>
 void mesh_fill_quad4_square(
     const int nx, const int ny, const geom_t xmin, const geom_t ymin,
     const geom_t xmax, const geom_t ymax,
-    idx_t **SMESH_RESTRICT *const SMESH_RESTRICT elements,
-    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
-  const ptrdiff_t nelements = nx * ny;
-  const ptrdiff_t nnodes = (nx + 1) * (ny + 1);
+    idx_t *SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points) {
+//   const ptrdiff_t nelements = nx * ny;
+//   const ptrdiff_t nnodes = (nx + 1) * (ny + 1);
   const ptrdiff_t ldy = nx + 1;
   const ptrdiff_t ldx = 1;
 
