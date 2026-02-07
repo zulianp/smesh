@@ -7,6 +7,11 @@
 
 namespace smesh {
 
+template <typename FileType, typename T>
+int array_write_convert(const Path &path, const T *const SMESH_RESTRICT data,
+                        const ptrdiff_t n_elements);
+
+
 template <typename idx_t>
 int mesh_block_to_folder(
     const Path &folder, int nnodesxelem, const ptrdiff_t nelements,
