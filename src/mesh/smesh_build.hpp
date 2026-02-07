@@ -1,7 +1,13 @@
+/**
+ * @file smesh_build.hpp
+ * @brief Structured mesh generation helpers.
+ */
 #ifndef SMESH_BUILD_HPP
 #define SMESH_BUILD_HPP
 
 #include "smesh_base.hpp"
+
+namespace smesh {
 
 /**
  * @brief Fill a structured HEX8 mesh for an axis-aligned box.
@@ -124,5 +130,7 @@ void mesh_fill_quad4_square(
     const geom_t xmax, const geom_t ymax,
     idx_t *SMESH_RESTRICT *const SMESH_RESTRICT elements,
     geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points);
+
+} // namespace smesh
 
 #endif // SMESH_BUILD_HPP

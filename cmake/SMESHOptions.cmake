@@ -16,6 +16,12 @@ option(SMESH_ENABLE_MPI "Enable MPI support" ON)
 option(SMESH_ENABLE_OPENMP "Enable OpenMP support" OFF)
 # option(SMESH_ENABLE_PYTHON "Enable python bindings for SFEM" OFF)
 option(SMESH_ENABLE_RYAML "Enable YAML input files with RapidYAML" OFF)
+option(SMESH_ENABLE_INSTALL_DOCS "Install generated API docs (Doxygen)" OFF)
+# Compatibility alias (typo / legacy): prefer SMESH_ENABLE_INSTALL_DOCS.
+option(SSMESH_ENABLE_INSTALL_DOCS "Alias for SMESH_ENABLE_INSTALL_DOCS" OFF)
+if(SSMESH_ENABLE_INSTALL_DOCS AND NOT SMESH_ENABLE_INSTALL_DOCS)
+    set(SMESH_ENABLE_INSTALL_DOCS ON CACHE BOOL "Install generated API docs (Doxygen)" FORCE)
+endif()
 # option(SMESH_ENABLE_AGGRESSIVE_OPT "Enable aggressive optimizations" OFF)
 
 option(SMESH_USE_OCCUPANCY_MAX_POTENTIAL "Enable usage of cudaOccupancyMaxPotentialBlockSize" OFF)

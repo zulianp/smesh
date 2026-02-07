@@ -1,0 +1,41 @@
+# Minimal Doxygen configuration used by CMake.
+# Keep this file small and stable; rely on Doxygen defaults where possible.
+
+PROJECT_NAME           = "SMESH"
+PROJECT_NUMBER         = "@PROJECT_VERSION@"
+
+# Always generate into repo-root api/ (requested layout: api/html).
+OUTPUT_DIRECTORY       = "@SMESH_DOXYGEN_OUTPUT_DIRECTORY@"
+
+# Limit inputs to project sources/docs (avoid scanning build trees).
+INPUT                  = @SMESH_DOXYGEN_INPUT@
+RECURSIVE              = YES
+
+# Better paths in output.
+FULL_PATH_NAMES        = YES
+STRIP_FROM_PATH        = "@PROJECT_SOURCE_DIR@"
+
+# Only include entities that are actually documented.
+EXTRACT_ALL            = YES
+HIDE_UNDOC_MEMBERS     = YES
+HIDE_UNDOC_CLASSES     = YES
+
+# Output formats: HTML only (fast).
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_LATEX         = NO
+GENERATE_MAN           = NO
+GENERATE_XML           = NO
+
+# Navigation.
+GENERATE_TREEVIEW      = YES
+FULL_SIDEBAR           = YES
+SEARCHENGINE           = YES
+
+# Optional graphs (enabled when Graphviz dot is present).
+HAVE_DOT               = @SMESH_DOXYGEN_HAVE_DOT@
+
+# Markdown landing page.
+MARKDOWN_SUPPORT       = YES
+USE_MDFILE_AS_MAINPAGE = "@PROJECT_SOURCE_DIR@/README.md"
+

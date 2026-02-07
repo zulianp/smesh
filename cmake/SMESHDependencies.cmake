@@ -128,10 +128,62 @@ endif()
 find_package(Doxygen QUIET)
 
 if(DOXYGEN_FOUND)
-    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.txt ${CMAKE_BINARY_DIR}
-                   @ONLY IMMEDIATE)
-    add_custom_target(
-        docs
-        COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_BINARY_DIR}/Doxyfile.txt
-        SOURCES ${CMAKE_BINARY_DIR}/Doxyfile.txt)
+    # Generate docs into repo-root api/html (not build/api/html).
+    set(SMESH_DOXYGEN_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/api")
+
+    # Keep inputs tight: sources + top-level docs (space-separated list).
+    set(SMESH_DOXYGEN_INPUT
+        "${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/README.md ${PROJECT_SOURCE_DIR}/tetstream_codec.py"
+    )
+
+    # Graphviz is optional; enable dot graphs when available.
+    find_program(_smesh_dot_exe dot)
+    if(_smesh_dot_exe)
+        set(SMESH_DOXYGEN_HAVE_DOT YES)
+    else()
+        set(SMESH_DOXYGEN_HAVE_DOT NO)
+    endif()
+
+    set(_smesh_doxyfile_in  "${PROJECT_SOURCE_DIR}/cmake/Doxyfile.in")
+    set(_smesh_doxyfile_out "${CMAKE_BINARY_DIR}/Doxyfile.txt")
+    configure_file("${_smesh_doxyfile_in}" "${_smesh_doxyfile_out}" @ONLY)
+
+    add_custom_target(docs
+        COMMAND "${DOXYGEN_EXECUTABLE}" "${_smesh_doxyfile_out}"
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        DEPENDS "${_smesh_doxyfile_out}"
+        BYPRODUCTS
+            "${SMESH_DOXYGEN_OUTPUT_DIRECTORY}/html/index.html"
+        COMMENT "Generating API docs (Doxygen) -> ${SMESH_DOXYGEN_OUTPUT_DIRECTORY}/html"
+        VERBATIM
+    )
+
+    if(SMESH_ENABLE_INSTALL_DOCS)
+        # Pick a reasonable doc install destination even when CMAKE_INSTALL_DOCDIR is empty.
+        if("${CMAKE_INSTALL_DOCDIR}" STREQUAL "")
+            set(_smesh_install_docdir "${CMAKE_INSTALL_DATAROOTDIR}/doc/${PROJECT_NAME}")
+        else()
+            set(_smesh_install_docdir "${CMAKE_INSTALL_DOCDIR}")
+        endif()
+
+        # Ensure docs exist (and are current) when installing.
+        install(CODE
+            "execute_process(COMMAND \"${CMAKE_COMMAND}\" --build \"${CMAKE_BINARY_DIR}\" --target docs RESULT_VARIABLE _smesh_docs_res)\n"
+            "if(NOT _smesh_docs_res EQUAL 0)\n"
+            "  message(FATAL_ERROR \"Failed to build Doxygen docs via target 'docs'.\")\n"
+            "endif()\n"
+            COMPONENT docs
+        )
+
+        # Installs to: <prefix>/${CMAKE_INSTALL_DOCDIR}/api/html/...
+        install(
+            DIRECTORY "${SMESH_DOXYGEN_OUTPUT_DIRECTORY}/html"
+            DESTINATION "${_smesh_install_docdir}/api"
+            COMPONENT docs
+        )
+    endif()
+endif()
+
+if(SMESH_ENABLE_INSTALL_DOCS AND NOT DOXYGEN_FOUND)
+    message(FATAL_ERROR "SMESH_ENABLE_INSTALL_DOCS requires Doxygen, but it was not found.")
 endif()
