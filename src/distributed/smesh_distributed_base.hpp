@@ -3,6 +3,8 @@
 
 #include "smesh_base.hpp"
 
+#include <mpi.h>
+
 #define SMESH_MPI_CATCH(err)                                                   \
   {                                                                            \
     if (err != MPI_SUCCESS) {                                                  \
