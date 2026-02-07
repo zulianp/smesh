@@ -111,7 +111,9 @@ int sshex8_fill_points(
       for (int xi = 0; xi < level + 1; xi++) {
         for (int d = 0; d < 3; d++) {
           geom_t f[8];
-          hex8_eval_f(geom_t(xi) * h, geom_t(yi) * h, geom_t(zi) * h, f);
+          hex8_eval_f(geom_t(xi) * h, geom_t(yi) * h, geom_t(zi) * h, &f[0],
+                      &f[1], &f[2], &f[3], &f[4],
+                      &f[5], &f[6], &f[7]);
 
           int lidx = sshex8_lidx(level, xi, yi, zi);
 
@@ -157,7 +159,8 @@ int sshex8_fill_points_1D_map(
       for (int xi = 0; xi < level + 1; xi++) {
         for (int d = 0; d < 3; d++) {
           geom_t f[8];
-          hex8_eval_f(ref_points[xi], ref_points[yi], ref_points[zi], f);
+          hex8_eval_f(ref_points[xi], ref_points[yi], ref_points[zi], &f[0],
+                      &f[1], &f[2], &f[3], &f[4], &f[5], &f[6], &f[7]);
           int lidx = sshex8_lidx(level, xi, yi, zi);
 
           for (ptrdiff_t e = 0; e < nelements; e++) {
