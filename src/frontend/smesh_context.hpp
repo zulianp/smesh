@@ -23,11 +23,11 @@ public:
 
 #ifdef SMESH_ENABLE_MPI
   Context(int argc, char *argv[], MPI_Comm comm);
-
 #endif
 };
 
 std::shared_ptr<Context> initialize(int argc, char *argv[]);
+std::shared_ptr<Context> initialize_serial(int argc, char *argv[]);
 
 #ifdef SMESH_ENABLE_MPI
 std::shared_ptr<Context> initialize(int argc, char *argv[], MPI_Comm comm);
