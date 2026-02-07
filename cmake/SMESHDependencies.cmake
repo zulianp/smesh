@@ -99,10 +99,9 @@ endif()
 
 if(SMESH_ENABLE_MPI)
     find_package(MPI REQUIRED COMPONENTS C CXX)
-    set(SMESH_HAVE_MPI TRUE)
-
+    
     # Prefer imported targets (propagate includes/flags/libs correctly)
-    list(APPEND SMESH_SUBMODULES MPI::MPI_CXX)
+    list(APPEND SMESH_SUBMODULES MPI::MPI_CXX MPI::MPI_C)
 
     set(MATRIXIO_REPO_URL https://github.com/zulianp/matrix.io.git CACHE STRING "")
     set(MATRIXIO_BRANCH_NAME main CACHE STRING "")

@@ -1,6 +1,8 @@
 #ifndef SMESH_BASE_HPP
 #define SMESH_BASE_HPP
 
+#include "smesh_config.hpp"
+
 #include <assert.h>
 #include <chrono>
 #include <stdint.h>

@@ -4,8 +4,8 @@ project(smesh VERSION 0.1.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
-include(cmake/SMESHDependencies.cmake)
 include(cmake/SMESHOptions.cmake)
+include(cmake/SMESHDependencies.cmake)
 
 
 if(SMESH_ENABLE_PYTHON)
@@ -77,11 +77,33 @@ target_include_directories(smesh
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
-add_executable(mesh_to_packed src/drivers/mesh_to_packed.exe.cpp)
-target_link_libraries(mesh_to_packed PRIVATE smesh)
+set(_smesh_driver_scan_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers")
+file(GLOB_RECURSE _smesh_driver_sources
+    LIST_DIRECTORIES false
+    CONFIGURE_DEPENDS
+    "${_smesh_driver_scan_dir}/*.exe.cpp"
+)
+
+set(_smesh_driver_targets "")
+foreach(_driver_source IN LISTS _smesh_driver_sources)
+    file(RELATIVE_PATH _driver_rel "${_smesh_driver_scan_dir}" "${_driver_source}")
+
+    get_filename_component(_driver_target "${_driver_rel}" NAME_WE) # => foo.exe
+    string(REGEX REPLACE "\\.exe$" "" _driver_target "${_driver_target}")
+
+    if("${_driver_target}" IN_LIST _smesh_driver_targets)
+        string(REGEX REPLACE "\\.exe\\.cpp$" "" _driver_target "${_driver_rel}")
+        string(REPLACE "/" "_" _driver_target "${_driver_target}")
+        string(REPLACE "\\" "_" _driver_target "${_driver_target}")
+    endif()
+
+    add_executable("${_driver_target}" "${_driver_source}")
+    target_link_libraries("${_driver_target}" PRIVATE smesh)
+    list(APPEND _smesh_driver_targets "${_driver_target}")
+endforeach()
 
 install(
-    TARGETS smesh mesh_to_packed
+    TARGETS smesh ${_smesh_driver_targets}
     EXPORT smeshTargets
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -98,6 +120,20 @@ install(
     EXPORT smeshTargets
     NAMESPACE smesh::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/smesh
+)
+
+set(_smesh_config_hpp_in "${CMAKE_CURRENT_SOURCE_DIR}/src/base/smesh_config.hpp.in")
+set(_smesh_config_hpp_out "${CMAKE_CURRENT_BINARY_DIR}/smesh_config.hpp")
+configure_file("${_smesh_config_hpp_in}" "${_smesh_config_hpp_out}" @ONLY)
+
+target_include_directories(smesh
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+)
+
+install(
+    FILES "${_smesh_config_hpp_out}"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
 configure_package_config_file(
