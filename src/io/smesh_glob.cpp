@@ -14,6 +14,10 @@
 
 namespace smesh {
 
+int create_directory(const Path &path) {
+  return create_directory(path.to_string());
+}
+
 std::vector<std::string> find_files(const std::string_view &pattern) {
 #ifndef _WIN32
   glob_t gl;

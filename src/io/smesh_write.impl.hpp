@@ -79,24 +79,44 @@ int array_write_convert_from_extension(const Path &path,
 
 template <typename idx_t>
 int mesh_block_to_folder(
-    const Path &folder, int nnodesxelem, const ptrdiff_t nelements,
+    const Path &folder, int n_nodes_x_elem, const ptrdiff_t n_elements,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements) {
-  SMESH_UNUSED(folder);
-  SMESH_UNUSED(nnodesxelem);
-  SMESH_UNUSED(nelements);
-  SMESH_UNUSED(elements);
-  return SMESH_FAILURE;
+  int ret = SMESH_SUCCESS;
+  for (int d = 0; d < n_nodes_x_elem; ++d) {
+    std::string fname = std::string("i") + std::to_string(d) + "." +
+                        std::string(TypeToString<idx_t>::value());
+    Path i_path = folder / Path(fname);
+    if (array_write_convert_from_extension<idx_t>(
+            i_path, elements[d], n_elements) != SMESH_SUCCESS) {
+      ret = SMESH_FAILURE;
+    }
+  }
+
+  return ret;
 }
 
 template <typename geom_t>
 int mesh_coordinates_to_folder(
     const Path &folder, int spatial_dim, const ptrdiff_t n_nodes,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
-  SMESH_UNUSED(folder);
-  SMESH_UNUSED(spatial_dim);
-  SMESH_UNUSED(n_nodes);
-  SMESH_UNUSED(points);
-  return SMESH_FAILURE;
+
+  static constexpr std::string_view xyz[3] = {"x", "y", "z"};
+  if (create_directory(folder) != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+
+  int ret = SMESH_SUCCESS;
+  for (int d = 0; d < spatial_dim; ++d) {
+    std::string fname =
+        std::string(xyz[d]) + "." + std::string(TypeToString<geom_t>::value());
+    Path x_path = folder / Path(fname);
+    if (array_write_convert_from_extension<geom_t>(x_path, points[d],
+                                                   n_nodes) != SMESH_SUCCESS) {
+      ret = SMESH_FAILURE;
+    }
+  }
+
+  return ret;
 }
 
 template <typename idx_t, typename geom_t>
@@ -105,30 +125,65 @@ int mesh_to_folder(const Path &path, enum ElemType element_type,
                    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
                    const int spatial_dim, const ptrdiff_t n_nodes,
                    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
-  SMESH_UNUSED(path);
-  SMESH_UNUSED(element_type);
-  SMESH_UNUSED(n_elements);
-  SMESH_UNUSED(elements);
-  SMESH_UNUSED(spatial_dim);
-  SMESH_UNUSED(n_nodes);
-  SMESH_UNUSED(points);
-  return SMESH_FAILURE;
+  int n_nodes_x_elem = elem_num_nodes(element_type);
+  if (mesh_block_to_folder(path, n_nodes_x_elem, n_elements, elements) !=
+      SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+  if (mesh_coordinates_to_folder(path, spatial_dim, n_nodes, points) !=
+      SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+
+  if (mesh_write_yaml_basic(path, element_type, n_elements, spatial_dim,
+                            n_nodes) != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+
+  return SMESH_SUCCESS;
 }
 
 template <typename idx_t, typename geom_t>
-int mesh_multiblock_to_folder(const std::vector<std::string_view> &block_names,
+int mesh_multiblock_to_folder(const Path &path,
+                              const std::vector<std::string_view> &block_names,
                               const std::vector<enum ElemType> &element_types,
                               const std::vector<ptrdiff_t> &n_elements,
                               idx_t **const elements[], const int spatial_dim,
                               const ptrdiff_t n_nodes, geom_t **const points) {
-  SMESH_UNUSED(block_names);
-  SMESH_UNUSED(element_types);
-  SMESH_UNUSED(n_elements);
-  SMESH_UNUSED(elements);
-  SMESH_UNUSED(spatial_dim);
-  SMESH_UNUSED(n_nodes);
-  SMESH_UNUSED(points);
-  return SMESH_FAILURE;
+
+  SMESH_ASSERT(block_names.size() == element_types.size())
+  SMESH_ASSERT(block_names.size() == n_elements.size());
+
+  if (create_directory(path) != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+
+  Path block_path = path / "blocks";
+  if (create_directory(block_path) != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+
+  int ret = mesh_coordinates_to_folder(path, spatial_dim, n_nodes, points);
+  int n_blocks = block_names.size();
+  for (int b = 0; b < n_blocks; ++b) {
+    Path output_path = block_path / block_names[b];
+    if (create_directory(output_path) != SMESH_SUCCESS) {
+      return SMESH_FAILURE;
+    }
+
+    if (mesh_block_to_folder(output_path, element_types[b], n_elements[b],
+                             elements[b]) != SMESH_SUCCESS) {
+      ret = SMESH_FAILURE;
+    }
+  }
+
+  if (mesh_multiblock_write_yaml(path, n_blocks, block_names, element_types,
+                                 n_elements, spatial_dim,
+                                 n_nodes) != SMESH_SUCCESS) {
+    ret = SMESH_FAILURE;
+  }
+
+  return ret;
 }
 
 } // namespace smesh

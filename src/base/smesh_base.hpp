@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <cassert>
+
 
 #ifdef __GNUC__
 #include <execinfo.h>
@@ -92,6 +94,12 @@
 #else
 #define SMESH_DEVICE /* ignore */
 #define SMESH_HOST   /* ignore */
+#endif
+
+#ifndef NDEBUG
+#define SMESH_ASSERT(cond) assert(cond)
+#else
+#define SMESH_ASSERT(cond)
 #endif
 
 #define SMESH_BOTH SMESH_HOST SMESH_DEVICE
