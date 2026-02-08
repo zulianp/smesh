@@ -69,7 +69,7 @@ enum IntegerType {
   SMESH_INT_UNDEFINED = -1
 };
 
-SMESH_INLINE static std::string_view to_string(enum RealType type) {
+inline std::string_view to_string(enum RealType type) {
   switch (type) {
   case SMESH_FLOAT16:
     return "float16";
@@ -82,7 +82,7 @@ SMESH_INLINE static std::string_view to_string(enum RealType type) {
   }
 }
 
-SMESH_INLINE static std::string_view to_string(enum IntegerType type) {
+inline std::string_view to_string(enum IntegerType type) {
   switch (type) {
   case SMESH_INT16:
     return "int16";
@@ -95,7 +95,7 @@ SMESH_INLINE static std::string_view to_string(enum IntegerType type) {
   }
 }
 
-SMESH_INLINE static RealType to_real_type(std::string_view type) {
+inline RealType to_real_type(std::string_view type) {
   if (type == "float16") {
     return SMESH_FLOAT16;
   } else if (type == "float32") {
@@ -106,7 +106,7 @@ SMESH_INLINE static RealType to_real_type(std::string_view type) {
   return SMESH_REAL_UNDEFINED;
 }
 
-SMESH_INLINE static IntegerType to_integer_type(std::string_view type) {
+inline IntegerType to_integer_type(std::string_view type) {
   if (type == "int16") {
     return SMESH_INT16;
   } else if (type == "int32") {

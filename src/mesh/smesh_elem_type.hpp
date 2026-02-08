@@ -39,7 +39,7 @@ enum ElemType {
   INVALID = -1
 };
 
-SMESH_INLINE static enum ElemType type_from_string(const char *str) {
+inline enum ElemType type_from_string(const char *str) {
   if (!strcmp(str, "NODE1"))
     return NODE1;
   if (!strcmp(str, "EDGE2"))
@@ -83,7 +83,7 @@ SMESH_INLINE static enum ElemType type_from_string(const char *str) {
   return INVALID;
 }
 
-SMESH_INLINE static const char *type_to_string(enum ElemType type) {
+inline const char *type_to_string(enum ElemType type) {
   switch (type) {
   case NODE1:
     return "NODE1";
@@ -136,7 +136,7 @@ SMESH_INLINE static const char *type_to_string(enum ElemType type) {
   }
 }
 
-SMESH_INLINE static enum ElemType side_type(const enum ElemType type) {
+inline enum ElemType side_type(const enum ElemType type) {
   switch (type) {
   case TRI3:
   case QUAD4:
@@ -168,7 +168,7 @@ SMESH_INLINE static enum ElemType side_type(const enum ElemType type) {
   }
 }
 
-SMESH_INLINE static enum ElemType shell_type(const enum ElemType type) {
+inline enum ElemType shell_type(const enum ElemType type) {
   switch (type) {
   case TRI3:
     return TRISHELL3;
@@ -203,7 +203,7 @@ SMESH_INLINE static enum ElemType shell_type(const enum ElemType type) {
   }
 }
 
-SMESH_INLINE static enum ElemType elem_lower_order(const enum ElemType type) {
+inline enum ElemType elem_lower_order(const enum ElemType type) {
   switch (type) {
   case NIL:
     return NIL;
@@ -222,7 +222,7 @@ SMESH_INLINE static enum ElemType elem_lower_order(const enum ElemType type) {
   }
 }
 
-SMESH_INLINE static enum ElemType elem_higher_order(const enum ElemType type) {
+inline enum ElemType elem_higher_order(const enum ElemType type) {
   switch (type) {
   case NIL:
     return NIL;
@@ -241,7 +241,7 @@ SMESH_INLINE static enum ElemType elem_higher_order(const enum ElemType type) {
   }
 }
 
-SMESH_INLINE static int elem_num_nodes(const enum ElemType type) {
+inline int elem_num_nodes(const enum ElemType type) {
   switch (type) {
   case NIL:
     return 0;
@@ -282,7 +282,7 @@ SMESH_INLINE static int elem_num_nodes(const enum ElemType type) {
   }
 }
 
-SMESH_INLINE static int elem_num_sides(const enum ElemType type) {
+inline int elem_num_sides(const enum ElemType type) {
   switch (type) {
   case NIL:
     return 0;
@@ -319,7 +319,7 @@ SMESH_INLINE static int elem_num_sides(const enum ElemType type) {
   }
 }
 
-SMESH_INLINE static int elem_manifold_dim(const enum ElemType type) {
+inline int elem_manifold_dim(const enum ElemType type) {
   switch (type) {
   case NIL:
     return 0;
@@ -354,7 +354,7 @@ SMESH_INLINE static int elem_manifold_dim(const enum ElemType type) {
   }
 }
 
-SMESH_INLINE static enum ElemType macro_type_variant(const enum ElemType type) {
+inline enum ElemType macro_type_variant(const enum ElemType type) {
   switch (type) {
   case TET10:
     return MACRO_TET4;
@@ -367,8 +367,7 @@ SMESH_INLINE static enum ElemType macro_type_variant(const enum ElemType type) {
   }
 }
 
-SMESH_INLINE static enum ElemType
-macro_base_elem(const enum ElemType macro_type) {
+inline enum ElemType macro_base_elem(const enum ElemType macro_type) {
   switch (macro_type) {
   case MACRO_TET4:
     return TET4;
@@ -387,7 +386,7 @@ macro_base_elem(const enum ElemType macro_type) {
   }
 }
 
-SMESH_INLINE static int is_second_order_lagrange(const enum ElemType type) {
+inline int is_second_order_lagrange(const enum ElemType type) {
   switch (type) {
   case TET10:
     return 1;
