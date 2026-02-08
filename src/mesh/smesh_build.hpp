@@ -46,12 +46,12 @@ namespace smesh {
  *        `(nx+1)*(ny+1)*(nz+1)`.
  */
 template <typename idx_t, typename geom_t>
-void mesh_fill_hex8_cube(const int nx, const int ny, const int nz,
-                         const geom_t xmin, const geom_t ymin,
-                         const geom_t zmin, const geom_t xmax,
-                         const geom_t ymax, const geom_t zmax,
-                         idx_t *SMESH_RESTRICT *const SMESH_RESTRICT elements,
-                         geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points);
+void mesh_fill_hex8_cube(
+    const int nx, const int ny, const int nz, const geom_t xmin,
+    const geom_t ymin, const geom_t zmin, const geom_t xmax, const geom_t ymax,
+    const geom_t zmax,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points);
 
 /**
  * @brief Fill a structured TRI3 mesh for an axis-aligned rectangle.
@@ -85,11 +85,11 @@ void mesh_fill_hex8_cube(const int nx, const int ny, const int nz,
  *        `(nx+1)*(ny+1)`.
  */
 template <typename idx_t, typename geom_t>
-void mesh_fill_tri3_square(const int nx, const int ny, const geom_t xmin,
-                           const geom_t ymin, const geom_t xmax,
-                           const geom_t ymax,
-                           idx_t *SMESH_RESTRICT *const SMESH_RESTRICT elements,
-                           geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points);
+void mesh_fill_tri3_square(
+    const int nx, const int ny, const geom_t xmin, const geom_t ymin,
+    const geom_t xmax, const geom_t ymax,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points);
 
 /**
  * @brief Fill a structured QUAD4 mesh for an axis-aligned rectangle.
@@ -128,8 +128,8 @@ template <typename idx_t, typename geom_t>
 void mesh_fill_quad4_square(
     const int nx, const int ny, const geom_t xmin, const geom_t ymin,
     const geom_t xmax, const geom_t ymax,
-    idx_t *SMESH_RESTRICT *const SMESH_RESTRICT elements,
-    geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points);
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points);
 
 /**
  * @brief Fill a structured TET4 mesh for an axis-aligned box.
@@ -176,12 +176,12 @@ void mesh_fill_quad4_square(
  *        `(nx+1)*(ny+1)*(nz+1) + nx*ny*nz`.
  */
 template <typename idx_t, typename geom_t>
-void mesh_fill_tet4_cube(const int nx, const int ny, const int nz,
-                         const geom_t xmin, const geom_t ymin,
-                         const geom_t zmin, const geom_t xmax,
-                         const geom_t ymax, const geom_t zmax,
-                         idx_t *SMESH_RESTRICT *const SMESH_RESTRICT elements,
-                         geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points);
+void mesh_fill_tet4_cube(
+    const int nx, const int ny, const int nz, const geom_t xmin,
+    const geom_t ymin, const geom_t zmin, const geom_t xmax, const geom_t ymax,
+    const geom_t zmax,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points);
 
 /**
  * @brief Fill a structured HEX8 mesh for an axis-aligned box, split into two
@@ -232,9 +232,9 @@ void mesh_fill_hex8_bidomain_cube(
     const int nx, const int ny, const int nz, const geom_t xmin,
     const geom_t ymin, const geom_t zmin, const geom_t xmax, const geom_t ymax,
     const geom_t zmax, const int dim_split, const idx_t split_index,
-    idx_t *SMESH_RESTRICT *const SMESH_RESTRICT left_elements,
-    idx_t *SMESH_RESTRICT *const SMESH_RESTRICT right_elements,
-    geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points);
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT left_elements,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT right_elements,
+    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points);
 
 /**
  * @brief Fill a structured HEX8 mesh for an axis-aligned box, split into a
@@ -286,15 +286,16 @@ void mesh_fill_hex8_checkerboard_cube(
     const int nx, const int ny, const int nz, const geom_t xmin,
     const geom_t ymin, const geom_t zmin, const geom_t xmax, const geom_t ymax,
     const geom_t zmax,
-    idx_t *SMESH_RESTRICT *const SMESH_RESTRICT white_elements,
-    idx_t *SMESH_RESTRICT *const SMESH_RESTRICT black_elements,
-    geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points);
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT black_elements,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT white_elements,
+    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points);
 
 template <typename idx_t, typename geom_t>
-void mesh_fill_quad4_ring(const geom_t inner_radius, const geom_t outer_radius,
-                          const ptrdiff_t nlayers, const ptrdiff_t nelements,
-                          idx_t *SMESH_RESTRICT *const SMESH_RESTRICT elements,
-                          geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points);
+void mesh_fill_quad4_ring(
+    const geom_t inner_radius, const geom_t outer_radius,
+    const ptrdiff_t nlayers, const ptrdiff_t nelements,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points);
 } // namespace smesh
 
 #endif // SMESH_BUILD_HPP

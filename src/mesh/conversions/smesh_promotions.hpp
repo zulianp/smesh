@@ -24,6 +24,7 @@ void mesh_tet4_to_tet15_points(
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT tet15_elements,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT tet15_pts);
 
+
 } // namespace smesh
 
 #endif // SMESH_PROMOTIONS_HPP

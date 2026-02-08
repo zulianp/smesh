@@ -52,7 +52,7 @@ proteus_hex8_eval_f(const T x, const T y, const T z, T *const SMESH_RESTRICT f0,
 template <typename idx_t>
 int sshex8_to_standard_hex8_mesh(
     const int level, const ptrdiff_t nelements,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     idx_t *SMESH_RESTRICT *const SMESH_RESTRICT hex8_elements) {
   const int txe = sshex8_txe(level);
 
@@ -89,8 +89,8 @@ int sshex8_to_standard_hex8_mesh(
 template <typename idx_t, typename geom_t>
 int sshex8_fill_points(
     const int level, const ptrdiff_t nelements,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
-    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT macro_mesh_points,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT macro_mesh_points,
     geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points) {
   const int proteus_to_std_hex8_corners[8] = {
       // Bottom
@@ -112,8 +112,7 @@ int sshex8_fill_points(
         for (int d = 0; d < 3; d++) {
           geom_t f[8];
           hex8_eval_f(geom_t(xi) * h, geom_t(yi) * h, geom_t(zi) * h, &f[0],
-                      &f[1], &f[2], &f[3], &f[4],
-                      &f[5], &f[6], &f[7]);
+                      &f[1], &f[2], &f[3], &f[4], &f[5], &f[6], &f[7]);
 
           int lidx = sshex8_lidx(level, xi, yi, zi);
 
@@ -139,8 +138,8 @@ int sshex8_fill_points(
 template <typename idx_t, typename geom_t>
 int sshex8_fill_points_1D_map(
     const int level, const ptrdiff_t nelements,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
-    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT macro_mesh_points,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT macro_mesh_points,
     const geom_t *const SMESH_RESTRICT ref_points,
     geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points) {
   const int proteus_to_std_hex8_corners[8] = {

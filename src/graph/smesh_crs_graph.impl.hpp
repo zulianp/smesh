@@ -44,7 +44,7 @@ idx_t find_idx(const idx_t target, const idx_t *x, idx_t n) {
 template <typename idx_t, typename count_t, typename element_idx_t>
 int create_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
                const int nnodesxelem,
-               idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+               const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
                count_t **out_n2eptr, element_idx_t **out_elindex) {
   SMESH_TRACE_SCOPE("create_n2e");
 
@@ -102,7 +102,7 @@ template <typename idx_t, typename count_t, typename element_idx_t>
 static int create_n2e_for_elem_type(
     const enum ElemType element_type, const ptrdiff_t nelements,
     const ptrdiff_t nnodes,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     count_t **out_n2eptr, element_idx_t **out_elindex) {
   SMESH_TRACE_SCOPE("create_n2e_for_elem_type");
   // TODO (maybe)
@@ -183,7 +183,7 @@ static int create_n2e_for_elem_type(
 template <typename idx_t, typename count_t, typename element_idx_t>
 static int create_crs_graph_from_n2e(
     const ptrdiff_t nelements, const ptrdiff_t nnodes, const int nnodesxelem,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     const count_t *const SMESH_RESTRICT n2eptr,
     const element_idx_t *const SMESH_RESTRICT elindex, count_t **out_rowptr,
     idx_t **out_colidx) {
@@ -266,7 +266,7 @@ static int create_crs_graph_from_n2e(
 template <typename idx_t, typename count_t>
 static int create_crs_graph_mem_conservative(
     const ptrdiff_t nelements, const ptrdiff_t nnodes, const int nnodesxelem,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     count_t **out_rowptr, idx_t **out_colidx) {
 
   SMESH_TRACE_SCOPE("create_crs_graph_mem_conservative");
@@ -291,7 +291,7 @@ template <typename idx_t, typename count_t>
 static int
 create_crs_graph_faster(const ptrdiff_t nelements, const ptrdiff_t nnodes,
                         const int nnodesxelem,
-                        idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                        const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
                         count_t **out_rowptr, idx_t **out_colidx) {
   SMESH_TRACE_SCOPE("create_crs_graph_faster");
   using element_idx_t_local = ptrdiff_t;
@@ -362,7 +362,7 @@ template <typename idx_t, typename count_t>
 int create_crs_graph_for_elem_type(
     const enum ElemType element_type, const ptrdiff_t nelements,
     const ptrdiff_t nnodes,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     count_t **out_rowptr, idx_t **out_colidx) {
   int SMESH_CRS_FAST_SERIAL = 0;
   SMESH_READ_ENV(SMESH_CRS_FAST_SERIAL, atoi);
@@ -381,7 +381,7 @@ int create_crs_graph_for_elem_type(
 template <typename idx_t, typename count_t>
 int create_crs_graph_from_element(
     const ptrdiff_t nelements, const ptrdiff_t nnodes, int nxe,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     count_t **out_rowptr, idx_t **out_colidx) {
   int SMESH_CRS_FAST_SERIAL = 0;
   SMESH_READ_ENV(SMESH_CRS_FAST_SERIAL, atoi);
@@ -397,7 +397,7 @@ int create_crs_graph_from_element(
 
 template <typename idx_t, typename count_t>
 int create_crs_graph(const ptrdiff_t nelements, const ptrdiff_t nnodes,
-                     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
                      count_t **out_rowptr, idx_t **out_colidx) {
   return create_crs_graph_for_elem_type<idx_t, count_t>(
       TET4, nelements, nnodes, elems, out_rowptr, out_colidx);
@@ -405,7 +405,7 @@ int create_crs_graph(const ptrdiff_t nelements, const ptrdiff_t nnodes,
 
 template <typename idx_t, typename count_t>
 int create_crs_graph_3(const ptrdiff_t nelements, const ptrdiff_t nnodes,
-                       idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                       const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
                        count_t **out_rowptr, idx_t **out_colidx) {
   return create_crs_graph_for_elem_type<idx_t, count_t>(
       TRI3, nelements, nnodes, elems, out_rowptr, out_colidx);
@@ -514,7 +514,7 @@ template <typename idx_t, typename count_t, typename element_idx_t>
 static int create_dual_graph_mem_conservative(
     const ptrdiff_t n_elements, const ptrdiff_t n_nodes,
     const enum ElemType element_type,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     count_t **out_dual_eptr, element_idx_t **out_dual_eidx) {
   count_t *n2eptr = 0;
   element_idx_t *elindex = 0;
@@ -625,7 +625,7 @@ static int create_dual_graph_mem_conservative(
 template <typename idx_t, typename count_t, typename element_idx_t>
 int create_dual_graph(const ptrdiff_t n_elements, const ptrdiff_t n_nodes,
                       const enum ElemType element_type,
-                      idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                      const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
                       count_t **out_rowptr, element_idx_t **out_colidx) {
   SMESH_TRACE_SCOPE("create_dual_graph");
   const int ret =
@@ -638,7 +638,7 @@ int create_dual_graph(const ptrdiff_t n_elements, const ptrdiff_t n_nodes,
 template <typename idx_t, typename count_t, typename element_idx_t>
 static int create_crs_graph_upper_triangular_from_n2e(
     const ptrdiff_t nelements, const ptrdiff_t nnodes, const int nnodesxelem,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     const count_t *const SMESH_RESTRICT n2eptr,
     const element_idx_t *const SMESH_RESTRICT elindex, count_t **out_rowptr,
     idx_t **out_colidx) {
@@ -724,7 +724,7 @@ static int create_crs_graph_upper_triangular_from_n2e(
 template <typename idx_t, typename count_t>
 int create_crs_graph_upper_triangular_from_element(
     const ptrdiff_t nelements, const ptrdiff_t nnodes, int nxe,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     count_t **out_rowptr, idx_t **out_colidx) {
   SMESH_TRACE_SCOPE("create_crs_graph_upper_triangular_from_element");
   using element_idx_t_local = ptrdiff_t;

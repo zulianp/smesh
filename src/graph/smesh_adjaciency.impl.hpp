@@ -136,7 +136,7 @@ struct LocalSideTable {
 template <typename idx_t, typename count_t, typename element_idx_t>
 void create_element_adj_table_from_dual_graph(
     const ptrdiff_t n_elements, enum ElemType element_type,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     const count_t *const adj_ptr,
     const element_idx_t *const adj_idx,
     element_idx_t *const SMESH_RESTRICT table) {
@@ -209,7 +209,7 @@ void create_element_adj_table_from_dual_graph(
 template <typename idx_t, typename count_t, typename element_idx_t>
 void create_element_adj_table_from_dual_graph_soa(
     const ptrdiff_t n_elements, enum ElemType element_type,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     const count_t *const adj_ptr, const element_idx_t *const adj_idx,
     element_idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT table) {
   enum ElemType element_type_for_algo = element_type;
@@ -281,7 +281,7 @@ template <typename idx_t, typename count_t, typename element_idx_t>
 void create_element_adj_table(
     const ptrdiff_t n_elements, const ptrdiff_t n_nodes,
     enum ElemType element_type,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     element_idx_t **SMESH_RESTRICT table_out) {
   enum ElemType element_type_for_algo = element_type;
 
@@ -313,7 +313,7 @@ template <typename idx_t, typename count_t, typename element_idx_t>
 void extract_surface_connectivity_with_adj_table(
     const ptrdiff_t n_elements, const ptrdiff_t n_nodes,
     enum ElemType element_type,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     ptrdiff_t *n_surf_elements,
     idx_t **SMESH_RESTRICT surf_elems,
     element_idx_t **SMESH_RESTRICT parent_element)
@@ -423,7 +423,7 @@ template <typename idx_t, typename count_t, typename element_idx_t>
 int extract_skin_sideset(
     const ptrdiff_t n_elements, const ptrdiff_t n_nodes,
     const enum ElemType element_type,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     ptrdiff_t *SMESH_RESTRICT n_surf_elements,
     element_idx_t **SMESH_RESTRICT parent_element,
     int16_t **SMESH_RESTRICT side_idx)
@@ -442,7 +442,7 @@ int extract_skin_sideset(
 template <typename idx_t, typename count_t, typename element_idx_t>
 int extract_surface_from_sideset(
     const enum ElemType element_type,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     const ptrdiff_t n_surf_elements,
     const element_idx_t *const SMESH_RESTRICT parent_element,
     const int16_t *const SMESH_RESTRICT side_idx,
@@ -468,7 +468,7 @@ int extract_surface_from_sideset(
 template <typename idx_t, typename count_t, typename element_idx_t>
 int extract_nodeset_from_sideset(
     const enum ElemType element_type,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     const ptrdiff_t n_surf_elements,
     const element_idx_t *const SMESH_RESTRICT parent_element,
     const int16_t *const SMESH_RESTRICT side_idx, ptrdiff_t *n_nodes_out,

@@ -4,6 +4,7 @@
 #include "smesh_promotions.hpp"
 #include "smesh_search.hpp"
 #include "smesh_types.hpp"
+#include "smesh_common.hpp"
 
 namespace smesh {
 
@@ -200,11 +201,11 @@ void mesh_tet4_to_tet15_points(
 template <typename idx_t, typename geom_t>
 void quad4_to_hex8_extrude(
     const ptrdiff_t nsides, const ptrdiff_t nnodes,
-    idx_t *SMESH_RESTRICT *const SMESH_RESTRICT quad4_elements,
-    geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT quad4_elements,
+    const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
     const ptrdiff_t nlayers, const geom_t height,
-    idx_t *SMESH_RESTRICT *const SMESH_RESTRICT hex8_elements,
-    geom_t *SMESH_RESTRICT *const SMESH_RESTRICT extruded_points) {
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT hex8_elements,
+    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT extruded_points) {
   geom_t **pseudo_normals = (geom_t **)malloc(3 * sizeof(geom_t *));
   for (int d = 0; d < 3; d++) {
     pseudo_normals[d] = (geom_t *)calloc(nnodes, sizeof(geom_t));

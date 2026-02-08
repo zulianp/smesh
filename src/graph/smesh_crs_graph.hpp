@@ -34,7 +34,7 @@ namespace smesh {
 template <typename idx_t, typename count_t, typename element_idx_t>
 int create_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
                const int nnodesxelem,
-               idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+               const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
                count_t **out_n2eptr, element_idx_t **out_elindex);
 
 /**
@@ -65,7 +65,7 @@ template <typename idx_t, typename count_t>
 int create_crs_graph_for_elem_type(
     const enum ElemType element_type, const ptrdiff_t nelements,
     const ptrdiff_t nnodes,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     count_t **out_rowptr, idx_t **out_colidx);
 
 /**
@@ -84,7 +84,7 @@ int create_crs_graph_for_elem_type(
  */
 template <typename idx_t, typename count_t>
 int create_crs_graph(const ptrdiff_t nelements, const ptrdiff_t nnodes,
-                     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
                      count_t **out_rowptr, idx_t **out_colidx);
 
 /**
@@ -95,7 +95,7 @@ int create_crs_graph(const ptrdiff_t nelements, const ptrdiff_t nnodes,
  */
 template <typename idx_t, typename count_t>
 int create_crs_graph_3(const ptrdiff_t nelements, const ptrdiff_t nnodes,
-                       idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                       const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
                        count_t **out_rowptr, idx_t **out_colidx);
 
 /**
@@ -222,7 +222,7 @@ idx_t find_idx(const idx_t key, const idx_t *const SMESH_RESTRICT arr,
 template <typename idx_t, typename count_t, typename element_idx_t>
 int create_dual_graph(const ptrdiff_t n_elements, const ptrdiff_t n_nodes,
                       const enum ElemType element_type,
-                      idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                      const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
                       count_t **out_rowptr, element_idx_t **out_colidx);
 
 /**
@@ -261,7 +261,7 @@ int crs_graph_block_to_scalar(const ptrdiff_t nnodes, const int block_size,
 template <typename idx_t, typename count_t>
 int create_crs_graph_from_element(
     const ptrdiff_t nelements, const ptrdiff_t nnodes, int nxe,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     count_t **out_rowptr, idx_t **out_colidx);
 
 /**
@@ -276,7 +276,7 @@ int create_crs_graph_from_element(
 template <typename idx_t, typename count_t>
 int create_crs_graph_upper_triangular_from_element(
     const ptrdiff_t nelements, const ptrdiff_t nnodes, int nxe,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
     count_t **out_rowptr, idx_t **out_colidx);
 
 } // namespace smesh

@@ -9,7 +9,7 @@ namespace smesh {
 template <typename idx_t>
 int ssquad4_to_standard_quad4_mesh(
     const int level, const ptrdiff_t nelements,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     idx_t *SMESH_RESTRICT *const SMESH_RESTRICT quad4_elements) {
   const int txe = ssquad4_txe(level);
 
