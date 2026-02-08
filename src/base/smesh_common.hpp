@@ -3,6 +3,9 @@
 
 #include "smesh_base.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 namespace smesh {
 template <typename T>
 static SMESH_INLINE void normalize3(T *const SMESH_RESTRICT ax,
@@ -36,6 +39,29 @@ normal3(const T ax, const T ay, const T az, const T bx, const T by, const T bz,
   *nz = ux * vy - uy * vx;
 
   normalize3(nx, ny, nz);
+}
+
+template <class T> static inline T clamp(T v, T lo, T hi) {
+  return (v < lo) ? lo : (v > hi) ? hi : v;
+}
+
+template <typename T>
+void minmax(const ptrdiff_t n, const T *const SMESH_RESTRICT values,
+            T *const SMESH_RESTRICT min, T *const SMESH_RESTRICT max) {
+  if (n <= 0) {
+    return;
+  }
+
+  T min_v = values[0];
+  T max_v = values[0];
+#pragma omp parallel for reduction(min : min_v) reduction(max : max_v)
+  for (ptrdiff_t i = 1; i < n; i++) {
+    min_v = std::min(min_v, values[i]);
+    max_v = std::max(max_v, values[i]);
+  }
+
+  *min = min_v;
+  *max = max_v;
 }
 } // namespace smesh
 
