@@ -151,7 +151,7 @@ int mesh_multiblock_to_folder(const Path &path,
                               idx_t **const elements[], const int spatial_dim,
                               const ptrdiff_t n_nodes, geom_t **const points) {
 
-  SMESH_ASSERT(block_names.size() == element_types.size())
+  SMESH_ASSERT(block_names.size() == element_types.size());
   SMESH_ASSERT(block_names.size() == n_elements.size());
 
   if (create_directory(path) != SMESH_SUCCESS) {
