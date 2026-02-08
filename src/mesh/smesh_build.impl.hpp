@@ -166,20 +166,7 @@ void mesh_fill_tet4_cube(const int nx, const int ny, const int nz,
                          idx_t *SMESH_RESTRICT *const SMESH_RESTRICT elements,
                          geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points) {
   // const ptrdiff_t nelements = ptrdiff_t(nx) * ptrdiff_t(ny) * ptrdiff_t(nz);
-
   // const ptrdiff_t nnodes_total = nnodes_vertices + nelements;
-
-  // ret->impl_->spatial_dim = 3;
-  // ret->impl_->nnodes      = nnodes_total;
-  // ret->impl_->points      = create_host_buffer<geom_t>(3, nnodes_total);
-  // auto elements_buffer    = create_host_buffer<idx_t>(4, nelements * 12);
-
-  // ret->impl_->n_owned_nodes    = nnodes_total;
-  // ret->impl_->n_owned_elements = nelements * 12;
-
-  // auto points   = ret->impl_->points->data();
-  // auto elements = elements_buffer->data();
-
   const ptrdiff_t nnodes_vertices =
       ptrdiff_t(nx + 1) * ptrdiff_t(ny + 1) * ptrdiff_t(nz + 1);
   const ptrdiff_t ldz = (ny + 1) * (nx + 1);
@@ -453,6 +440,34 @@ void mesh_fill_hex8_checkerboard_cube(
         points[1][node] = ymin + geom_t(yi) * hy;
         points[2][node] = zmin + geom_t(zi) * hz;
       }
+    }
+  }
+}
+
+template <typename idx_t, typename geom_t>
+void mesh_fill_quad4_ring(const geom_t inner_radius, const geom_t outer_radius,
+                          const ptrdiff_t nlayers, const ptrdiff_t nelements,
+                          idx_t *SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                          geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points) {
+  // ptrdiff_t nnodes = nelements * 2;
+  const geom_t dangle = 2 * geom_t(M_PI) / geom_t(nelements);
+  const geom_t dh = (outer_radius - inner_radius) / nlayers;
+
+  for (ptrdiff_t l = 0; l <= nlayers; l++) {
+    for (ptrdiff_t i = 0; i < nelements; i++) {
+      ptrdiff_t idx = l * nelements + i;
+      points[0][idx] = cos(dangle * i) * (inner_radius + dh * l);
+      points[1][idx] = sin(dangle * i) * (inner_radius + dh * l);
+    }
+  }
+
+  for (ptrdiff_t l = 0; l < nlayers; l++) {
+    for (ptrdiff_t i = 0; i < nelements; i++) {
+      ptrdiff_t idx = l * nelements + i;
+      elements[0][idx] = l * nelements + (i + 1) % nelements;
+      elements[1][idx] = l * nelements + i;
+      elements[2][idx] = elements[1][idx] + nelements;
+      elements[3][idx] = elements[0][idx] + nelements;
     }
   }
 }

@@ -275,8 +275,10 @@ void mesh_fill_hex8_bidomain_cube(
  * @param xmax Maximum x coordinate (must be > xmin).
  * @param ymax Maximum y coordinate (must be > ymin).
  * @param zmax Maximum z coordinate (must be > zmin).
- * @param white_elements Pointer to an array of 8 pointers for white connectivity.
- * @param black_elements Pointer to an array of 8 pointers for black connectivity.
+ * @param white_elements Pointer to an array of 8 pointers for white
+ * connectivity.
+ * @param black_elements Pointer to an array of 8 pointers for black
+ * connectivity.
  * @param points Pointer to an array of 3 pointers for coordinates.
  */
 template <typename idx_t, typename geom_t>
@@ -287,6 +289,12 @@ void mesh_fill_hex8_checkerboard_cube(
     idx_t *SMESH_RESTRICT *const SMESH_RESTRICT white_elements,
     idx_t *SMESH_RESTRICT *const SMESH_RESTRICT black_elements,
     geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points);
+
+template <typename idx_t, typename geom_t>
+void mesh_fill_quad4_ring(const geom_t inner_radius, const geom_t outer_radius,
+                          const ptrdiff_t nlayers, const ptrdiff_t nelements,
+                          idx_t *SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                          geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points);
 } // namespace smesh
 
 #endif // SMESH_BUILD_HPP

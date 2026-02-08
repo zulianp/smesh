@@ -2,11 +2,10 @@
 #define SMESH_PROMOTIONS_IMPL_HPP
 
 #include "smesh_promotions.hpp"
-#include "smesh_types.hpp"
 #include "smesh_search.hpp"
+#include "smesh_types.hpp"
 
 namespace smesh {
-
 
 template <typename idx_t, typename count_t, typename element_idx_t>
 void mesh_tet4_to_tet15(
@@ -196,6 +195,76 @@ void mesh_tet4_to_tet15_points(
                              4;
     }
   }
+}
+
+template <typename idx_t, typename geom_t>
+void quad4_to_hex8_extrude(
+    const ptrdiff_t nsides, const ptrdiff_t nnodes,
+    idx_t *SMESH_RESTRICT *const SMESH_RESTRICT quad4_elements,
+    geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points,
+    const ptrdiff_t nlayers, const geom_t height,
+    idx_t *SMESH_RESTRICT *const SMESH_RESTRICT hex8_elements,
+    geom_t *SMESH_RESTRICT *const SMESH_RESTRICT extruded_points) {
+  geom_t **pseudo_normals = (geom_t **)malloc(3 * sizeof(geom_t *));
+  for (int d = 0; d < 3; d++) {
+    pseudo_normals[d] = (geom_t *)calloc(nnodes, sizeof(geom_t));
+  }
+
+  for (ptrdiff_t i = 0; i < nsides; ++i) {
+    const idx_t i0 = quad4_elements[0][i];
+    const idx_t i1 = quad4_elements[1][i];
+    const idx_t i2 = quad4_elements[2][i];
+
+    geom_t nx, ny, nz;
+    normal3(points[0][i0], points[1][i0], points[2][i0], points[0][i1],
+            points[1][i1], points[2][i1], points[0][i2], points[1][i2],
+            points[2][i2], &nx, &ny, &nz);
+
+    pseudo_normals[0][i0] += nx;
+    pseudo_normals[0][i1] += nx;
+    pseudo_normals[0][i2] += nx;
+
+    pseudo_normals[1][i0] += ny;
+    pseudo_normals[1][i1] += ny;
+    pseudo_normals[1][i2] += ny;
+
+    pseudo_normals[2][i0] += nz;
+    pseudo_normals[2][i1] += nz;
+    pseudo_normals[2][i2] += nz;
+
+    // TODO: use bilinear basis functions for normals for better accuracy
+  }
+
+  for (ptrdiff_t i = 0; i < nnodes; ++i) {
+    normalize3(&pseudo_normals[0][i], &pseudo_normals[1][i],
+               &pseudo_normals[2][i]);
+  }
+
+  for (ptrdiff_t l = 0; l < nlayers; l++) {
+    for (ptrdiff_t i = 0; i < nsides; ++i) {
+      for (int d = 0; d < 4; d++) {
+        idx_t node = quad4_elements[d][i];
+
+        idx_t node_bottom = l * nnodes + node;
+        idx_t node_top = (l + 1) * nnodes + node;
+
+        hex8_elements[d][l * nsides + i] = node_bottom;
+        hex8_elements[4 + d][l * nsides + i] = node_top;
+      }
+    }
+  }
+
+  const geom_t dh = height / nlayers;
+  for (ptrdiff_t l = 0; l <= nlayers; l++) {
+    for (ptrdiff_t i = 0; i < nnodes; ++i) {
+      for (int dd = 0; dd < 3; dd++) {
+        extruded_points[dd][l * nnodes + i] =
+            points[dd][i] + (l * dh * pseudo_normals[dd][i]);
+      }
+    }
+  }
+
+  free(pseudo_normals);
 }
 
 } // namespace smesh

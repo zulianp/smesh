@@ -29,6 +29,11 @@
       const GEOM_T ymax, const GEOM_T zmax,                                    \
       IDX_T *SMESH_RESTRICT *const SMESH_RESTRICT white_elements,              \
       IDX_T *SMESH_RESTRICT *const SMESH_RESTRICT black_elements,              \
+      GEOM_T *SMESH_RESTRICT *const SMESH_RESTRICT points);                    \
+  template void mesh_fill_quad4_ring<IDX_T, GEOM_T>(                           \
+      const GEOM_T inner_radius, const GEOM_T outer_radius,                    \
+      const ptrdiff_t nlayers, const ptrdiff_t nelements,                      \
+      IDX_T *SMESH_RESTRICT *const SMESH_RESTRICT elements,                    \
       GEOM_T *SMESH_RESTRICT *const SMESH_RESTRICT points)
 
 namespace smesh {

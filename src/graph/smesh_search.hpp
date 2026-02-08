@@ -2,6 +2,7 @@
 #define SMESH_SEARCH_HPP
 
 #include "smesh_base.hpp"
+#include "smesh_types.hpp"
 
 namespace smesh {
 template <typename idx_t>
