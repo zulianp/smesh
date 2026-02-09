@@ -14,13 +14,25 @@ int eccentricity(const ptrdiff_t n_nodes,
                  const count_t *const SMESH_RESTRICT n2n_rowptr,
                  const idx_t *const SMESH_RESTRICT n2n_idx,
                  idx_t *const SMESH_RESTRICT out) {
+  if (n_nodes <= 0) {
+    return SMESH_SUCCESS;
+  }
+  if (!n2n_rowptr || !n2n_idx || !out) {
+    SMESH_ERROR("Invalid input");
+    return SMESH_FAILURE;
+  }
+
   for (ptrdiff_t i = 0; i < n_nodes; i++) {
-    for (ptrdiff_t j = n2n_rowptr[i]; j < n2n_rowptr[i + 1]; j++) {
-      const ptrdiff_t neighbor = n2n_idx[j];
+    out[i] = idx_t(0);
+  }
+
+  for (ptrdiff_t i = 0; i < n_nodes; i++) {
+    for (count_t j = n2n_rowptr[i]; j < n2n_rowptr[i + 1]; j++) {
+      const ptrdiff_t neighbor = (ptrdiff_t)n2n_idx[j];
       if (neighbor != i) {
         const ptrdiff_t dist = std::abs(neighbor - i);
-        if (dist > out[i]) {
-          out[i] = dist;
+        if (dist > (ptrdiff_t)out[i]) {
+          out[i] = (idx_t)dist;
         }
       }
     }
@@ -34,6 +46,14 @@ int cuthill_mckee(const ptrdiff_t n_nodes,
                   const count_t *const SMESH_RESTRICT n2n_rowptr,
                   const idx_t *const SMESH_RESTRICT n2n_idx,
                   idx_t *const SMESH_RESTRICT reordering) {
+  if (n_nodes <= 0) {
+    return SMESH_SUCCESS;
+  }
+  if (!n2n_rowptr || !n2n_idx || !reordering) {
+    SMESH_ERROR("Invalid input");
+    return SMESH_FAILURE;
+  }
+
   idx_t *queue = (idx_t *)malloc(n_nodes * sizeof(idx_t));
 
   auto degree = [&n2n_rowptr](ptrdiff_t i) {
