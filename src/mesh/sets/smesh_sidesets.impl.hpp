@@ -46,22 +46,19 @@ int sideset_to_e2s_fill(const ptrdiff_t n_sides, const ptrdiff_t n_elements,
 template <typename element_idx_t, typename count_t, typename idx_t,
           typename mask_t, typename selector_t>
 int sideset_select_propagate(
-    const enum ElemType element_type,
     // Sideset
     const ptrdiff_t n_sides,
-    // const int nxe,
     const element_idx_t *const SMESH_RESTRICT parent_element,
     const i16 *const SMESH_RESTRICT side_idx,
-    // const element_idx_t *const SMESH_RESTRICT e2e_table,
-    // n2e graph
-    // const ptrdiff_t n_nodes, 
     const count_t *const SMESH_RESTRICT n2e_ptr,
     const element_idx_t *const SMESH_RESTRICT n2e_idx,
     // Mesh connectivity
-    const ptrdiff_t n_elements,
+    const enum ElemType element_type, const ptrdiff_t n_elements,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    // Selection
     const element_idx_t sideset_seed, mask_t *const SMESH_RESTRICT selected,
     selector_t &&selector) {
+
   memset(selected, 0, mask_count(n_sides) * sizeof(mask_t));
   element_idx_t *e2s_ptr =
       (element_idx_t *)malloc((n_elements + 1) * sizeof(element_idx_t));
@@ -88,7 +85,7 @@ int sideset_select_propagate(
     }
 
     const element_idx_t e = parent_element[side];
-    u16 s = side_idx[side];
+    const i16 s = side_idx[side];
     for (int vn = 0; vn < nnxs; ++vn) {
       const idx_t vtx = elements[lst(s, vn)][e];
       const count_t beg = n2e_ptr[vtx];
