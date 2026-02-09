@@ -36,7 +36,7 @@ int cuthill_mckee(const ptrdiff_t n_nodes,
                   idx_t *const SMESH_RESTRICT reordering) {
   idx_t *queue = (idx_t *)malloc(n_nodes * sizeof(idx_t));
 
-  auto degree = [&n2n_rowptr, &n2n_idx](ptrdiff_t i) {
+  auto degree = [&n2n_rowptr](ptrdiff_t i) {
     return n2n_rowptr[i + 1] - n2n_rowptr[i];
   };
 
