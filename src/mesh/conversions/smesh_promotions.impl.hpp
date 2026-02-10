@@ -1,10 +1,11 @@
 #ifndef SMESH_PROMOTIONS_IMPL_HPP
 #define SMESH_PROMOTIONS_IMPL_HPP
 
+#include "smesh_common.hpp"
+#include "smesh_elem_type.hpp"
 #include "smesh_promotions.hpp"
 #include "smesh_search.hpp"
 #include "smesh_types.hpp"
-#include "smesh_common.hpp"
 
 namespace smesh {
 
@@ -266,6 +267,128 @@ void quad4_to_hex8_extrude(
   }
 
   free(pseudo_normals);
+}
+
+template <typename count_t, typename idx_t, typename geom_t>
+int p1_to_p2(const enum ElemType element_type, const ptrdiff_t n_elements,
+             const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT
+                 p1_elements,
+             const int spatial_dim, const ptrdiff_t p1_n_nodes,
+             const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT p1_points,
+             const count_t *const SMESH_RESTRICT n2n_ptr,
+             const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT n2n_idx,
+             idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT p2_elements,
+             geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT p2_points) {
+  if (element_type != TET4 && element_type != TRI3 &&
+      element_type != TRISHELL3) {
+    SMESH_ERROR("p1_to_p2: unsupported element_type %d\n", element_type);
+    return SMESH_FAILURE;
+  }
+
+  ptrdiff_t nnz = n2n_ptr[p1_n_nodes];
+  idx_t *edge_idx = (idx_t *)calloc(nnz, sizeof(idx_t));
+
+  idx_t next_id = p1_n_nodes;
+  for (ptrdiff_t i = 0; i < p1_n_nodes; i++) {
+    const count_t begin = n2n_ptr[i];
+    const count_t end = n2n_ptr[i + 1];
+
+    for (count_t k = begin; k < end; k++) {
+      const idx_t j = n2n_idx[k];
+
+      if (i < j) {
+        edge_idx[k] = next_id++;
+      }
+    }
+  }
+
+  const int p1_nxe = elem_num_nodes(element_type);
+  const enum ElemType p2_type = elem_higher_order(element_type);
+  const int p2_nxe = elem_num_nodes(p2_type);
+
+  for (int d = 0; d < p1_nxe; d++) {
+    memcpy(p2_elements[d], p1_elements[d], n_elements * sizeof(idx_t));
+  }
+
+  for (int d = p1_nxe; d < p2_nxe; d++) {
+    memset(p2_elements[d], 0, n_elements * sizeof(idx_t));
+  }
+
+  for (int d = 0; d < spatial_dim; d++) {
+    memcpy(p2_points[d], p1_points[d], p1_n_nodes * sizeof(geom_t));
+  }
+
+  if (element_type == TET4) {
+    for (ptrdiff_t e = 0; e < n_elements; e++) {
+      idx_t row[6];
+      row[0] = std::min(p2_elements[0][e], p2_elements[1][e]);
+      row[1] = std::min(p2_elements[1][e], p2_elements[2][e]);
+      row[2] = std::min(p2_elements[0][e], p2_elements[2][e]);
+      row[3] = std::min(p2_elements[0][e], p2_elements[3][e]);
+      row[4] = std::min(p2_elements[1][e], p2_elements[3][e]);
+      row[5] = std::min(p2_elements[2][e], p2_elements[3][e]);
+
+      idx_t key[6];
+      key[0] = std::max(p2_elements[0][e], p2_elements[1][e]);
+      key[1] = std::max(p2_elements[1][e], p2_elements[2][e]);
+      key[2] = std::max(p2_elements[0][e], p2_elements[2][e]);
+      key[3] = std::max(p2_elements[0][e], p2_elements[3][e]);
+      key[4] = std::max(p2_elements[1][e], p2_elements[3][e]);
+      key[5] = std::max(p2_elements[2][e], p2_elements[3][e]);
+
+      for (int l = 0; l < 6; l++) {
+        const idx_t r = row[l];
+        const count_t row_begin = n2n_ptr[r];
+        const count_t len_row = n2n_ptr[r + 1] - row_begin;
+        const idx_t *cols = &n2n_idx[row_begin];
+        const idx_t k = binary_search(key[l], cols, len_row);
+        p2_elements[l + p1_nxe][e] = edge_idx[row_begin + k];
+      }
+    }
+  } else if (element_type == TRI3 || element_type == TRISHELL3) {
+    for (ptrdiff_t e = 0; e < n_elements; e++) {
+      idx_t row[3];
+      row[0] = std::min(p2_elements[0][e], p2_elements[1][e]);
+      row[1] = std::min(p2_elements[1][e], p2_elements[2][e]);
+      row[2] = std::min(p2_elements[0][e], p2_elements[2][e]);
+
+      idx_t key[3];
+      key[0] = std::max(p2_elements[0][e], p2_elements[1][e]);
+      key[1] = std::max(p2_elements[1][e], p2_elements[2][e]);
+      key[2] = std::max(p2_elements[0][e], p2_elements[2][e]);
+
+      for (int l = 0; l < 3; l++) {
+        const idx_t r = row[l];
+        const count_t row_begin = n2n_ptr[r];
+        const count_t len_row = n2n_ptr[r + 1] - row_begin;
+        const idx_t *cols = &n2n_idx[row_begin];
+        const idx_t k = binary_search(key[l], cols, len_row);
+        p2_elements[l + p1_nxe][e] = edge_idx[row_begin + k];
+      }
+    }
+  }
+
+  for (ptrdiff_t i = 0; i < p1_n_nodes; i++) {
+    const count_t begin = n2n_ptr[i];
+    const count_t end = n2n_ptr[i + 1];
+
+    for (count_t k = begin; k < end; k++) {
+      const idx_t j = n2n_idx[k];
+
+      if (i < j) {
+        const idx_t nidx = edge_idx[k];
+
+        for (int d = 0; d < spatial_dim; d++) {
+          const geom_t xi = p2_points[d][i];
+          const geom_t xj = p2_points[d][j];
+          p2_points[d][nidx] = (xi + xj) / 2;
+        }
+      }
+    }
+  }
+
+  free(edge_idx);
+  return SMESH_SUCCESS;
 }
 
 } // namespace smesh

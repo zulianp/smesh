@@ -15,6 +15,7 @@ using u32 = uint32_t;
 using u64 = uint64_t;
 using mask_t = char;
 
+
 #if defined(__APPLE__)
 using f16 = __fp16;
 #else
@@ -23,6 +24,7 @@ using f16 = _Float16;
 
 using f32 = float;
 using f64 = double;
+using real_t = f64;
 
 static const f16 F16_MAX = (f16)65504.0f;
 
