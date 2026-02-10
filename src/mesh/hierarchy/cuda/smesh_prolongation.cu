@@ -1,6 +1,4 @@
-#include "cu_tet4_prolongation_restriction.h"
-
-#include "sfem_cuda_base.h"
+#include "smesh_base.hpp"
 
 #include <cstdio>
 
@@ -203,8 +201,7 @@ static int cu_macrotet4_to_tet4_prolongation_elemental_tpl(
   }
 #endif // SFEM_USE_OCCUPANCY_MAX_POTENTIAL
 
-  ptrdiff_t n_blocks =
-      MAX(ptrdiff_t(1), (nelements + block_size - 1) / block_size);
+  const ptrdiff_t n_blocks = div_round_up(nelements, block_size);
 
   if (stream) {
     cudaStream_t s = *static_cast<cudaStream_t *>(stream);

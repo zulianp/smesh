@@ -1,3 +1,5 @@
+#include "smesh_base.hpp"
+
 namespace smesh {
 
 template <typename From, typename To, typename idx_t>
@@ -82,8 +84,7 @@ static int cu_macrotet4_to_tet4_restriction_elemental(
   }
 #endif // SMESH_USE_OCCUPANCY_MAX_POTENTIAL
 
-  ptrdiff_t n_blocks =
-      MAX(ptrdiff_t(1), (nelements + block_size - 1) / block_size);
+  const ptrdiff_t n_blocks = div_round_up(nelements, block_size);
 
   if (stream) {
     cudaStream_t s = *static_cast<cudaStream_t *>(stream);
