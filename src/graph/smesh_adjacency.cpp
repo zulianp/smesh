@@ -29,12 +29,7 @@
       const ptrdiff_t, const ptrdiff_t, const enum ElemType,                    \
       const T *const SMESH_RESTRICT *const SMESH_RESTRICT,                      \
       ptrdiff_t *SMESH_RESTRICT,                                                \
-      T **SMESH_RESTRICT, int16_t **SMESH_RESTRICT);                            \
-  template int extract_surface_from_sideset<T, T, T>(                           \
-      const enum ElemType, const T *const SMESH_RESTRICT *const SMESH_RESTRICT, \
-      const ptrdiff_t, const T *const SMESH_RESTRICT,                           \
-      const int16_t *const SMESH_RESTRICT,                                      \
-      T *const SMESH_RESTRICT *const SMESH_RESTRICT)                           
+      T **SMESH_RESTRICT, int16_t **SMESH_RESTRICT)                            \                       
 
 
 namespace smesh {

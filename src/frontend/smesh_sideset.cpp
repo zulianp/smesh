@@ -1,13 +1,12 @@
 #include "smesh_sideset.hpp"
 #include "smesh_adjacency.hpp"
-#include "smesh_write.hpp"
-#include "smesh_glob.hpp"
-#include "smesh_tracer.hpp"
-#include "smesh_mesh.hpp"
 #include "smesh_file_extensions.hpp"
+#include "smesh_glob.hpp"
+#include "smesh_mesh.hpp"
 #include "smesh_read.hpp"
-#include "smesh_write.hpp"
 #include "smesh_sidesets.hpp"
+#include "smesh_tracer.hpp"
+#include "smesh_write.hpp"
 
 #include <cstddef>
 #include <fstream>
@@ -61,7 +60,8 @@ Sideset::create_from_file(const std::shared_ptr<Communicator> &comm,
 int Sideset::write(const Path &path) const {
   smesh::create_directory(path.to_string());
 
-  Path parent_path = path / ("parent." + std::string(TypeToString<element_idx_t>::value()));
+  Path parent_path =
+      path / ("parent." + std::string(TypeToString<element_idx_t>::value()));
   array_write(parent_path, impl_->parent->data(), impl_->parent->size());
 
   Path lfi_path = path / ("lfi." + std::string(TypeToString<i16>::value()));
@@ -92,7 +92,7 @@ std::vector<std::shared_ptr<Sideset>> Sideset::create_from_selector(
     const std::vector<std::string> &block_names) {
   SMESH_TRACE_SCOPE("Sideset::create_from_selector");
 
-//   const ptrdiff_t nnodes = mesh->n_nodes();
+  //   const ptrdiff_t nnodes = mesh->n_nodes();
   const int dim = mesh->spatial_dimension();
 
   auto points = mesh->points()->data();
@@ -189,7 +189,8 @@ int Sideset::read(const std::shared_ptr<Communicator> &comm, const Path &folder,
       detect_files(folder / "lfi", {".raw", ".int16", ".int32", ".int64"});
 
   if (parent_file.empty() || lfi_file.empty()) {
-    SMESH_ERROR("Unable to find parent or lfi file in sideset at %s\n", folder.c_str());
+    SMESH_ERROR("Unable to find parent or lfi file in sideset at %s\n",
+                folder.c_str());
     return SMESH_FAILURE;
   }
 
@@ -328,6 +329,8 @@ std::shared_ptr<Buffer<idx_t>>
 create_nodeset_from_sideset(const std::shared_ptr<Mesh> &mesh,
                             const std::shared_ptr<Sideset> &sideset) {
 
+  ptrdiff_t n_nodes{0};
+  idx_t *nodes{nullptr};
   if (extract_nodeset_from_sideset(
           mesh->element_type(), mesh->elements()->data(),
           sideset->parent()->size(), sideset->parent()->data(),
@@ -352,8 +355,8 @@ create_surface_from_sideset(const std::shared_ptr<SemiStructuredMesh> &ssmesh,
     SMESH_ERROR("Unable to extract surface from sideset!\n");
   }
 
-  idx_t *idx = nullptr;
-  ptrdiff_t n_contiguous = invalid_idx<ptrdiff_t>();
+  //   idx_t *idx = nullptr;
+  //   ptrdiff_t n_contiguous = invalid_idx<ptrdiff_t>();
   std::vector<int> levels(sshex8_hierarchical_n_levels(ssmesh->level()));
 
   // FiXME harcoded for sshex8

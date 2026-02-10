@@ -5,6 +5,7 @@
 #include "smesh_elem_type.hpp"
 #include "smesh_mask.hpp"
 #include "smesh_sidesets.hpp"
+#include "smesh_sort.hpp"
 
 namespace smesh {
 
