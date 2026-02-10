@@ -1,7 +1,7 @@
 namespace smesh {
 
 template <typename From, typename To, typename idx_t>
-__global__ void cu_macrotet4_to_tet4_restriction_kernel(
+__global__ void cu_macrotet4_to_tet4_restriction_elemental_kernel(
     const ptrdiff_t nelements,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const u16 *const SMESH_RESTRICT e2n_count, const int vec_size,
@@ -64,7 +64,7 @@ __global__ void cu_macrotet4_to_tet4_restriction_kernel(
 }
 
 template <typename From, typename To, typename idx_t>
-static int cu_macrotet4_to_tet4_restriction(
+static int cu_macrotet4_to_tet4_restriction_elemental(
     const ptrdiff_t nelements,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const u16 *const SMESH_RESTRICT element_to_node_incidence_count,
@@ -78,7 +78,7 @@ static int cu_macrotet4_to_tet4_restriction(
     int min_grid_size;
     cudaOccupancyMaxPotentialBlockSize(
         &min_grid_size, &block_size,
-        cu_macrotet4_to_tet4_restriction_kernel<From, To, idx_t>, 0, 0);
+        cu_macrotet4_to_tet4_restriction_elemental_kernel<From, To, idx_t>, 0, 0);
   }
 #endif // SMESH_USE_OCCUPANCY_MAX_POTENTIAL
 
@@ -88,12 +88,12 @@ static int cu_macrotet4_to_tet4_restriction(
   if (stream) {
     cudaStream_t s = *static_cast<cudaStream_t *>(stream);
 
-    cu_macrotet4_to_tet4_restriction_kernel<From, To, idx_t>
+    cu_macrotet4_to_tet4_restriction_elemental_kernel<From, To, idx_t>
         <<<n_blocks, block_size, 0, s>>>(
             nelements, elements, element_to_node_incidence_count, vec_size,
             from_stride, from, to_stride, to);
   } else {
-    cu_macrotet4_to_tet4_restriction_kernel<From, To, idx_t>
+    cu_macrotet4_to_tet4_restriction_elemental_kernel<From, To, idx_t>
         <<<n_blocks, block_size, 0>>>(nelements, elements,
                                       element_to_node_incidence_count, vec_size,
                                       from_stride, from, to_stride, to);
@@ -104,7 +104,7 @@ static int cu_macrotet4_to_tet4_restriction(
 }
 
 template <typename idx_t>
-int cu_macrotet4_to_tet4_restriction(
+int cu_macrotet4_to_tet4_restriction_elemental(
     const ptrdiff_t nelements,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const u16 *const SMESH_RESTRICT element_to_node_incidence_count,
@@ -122,17 +122,17 @@ int cu_macrotet4_to_tet4_restriction(
 
   switch (from_type) {
   case SMESH_REAL_DEFAULT: {
-    return cu_macrotet4_to_tet4_restriction(
+    return cu_macrotet4_to_tet4_restriction_elemental(
         nelements, elements, element_to_node_incidence_count, vec_size,
         from_stride, (real_t *)from, to_stride, (real_t *)to, stream);
   }
   case SMESH_FLOAT32: {
-    return cu_macrotet4_to_tet4_restriction(
+    return cu_macrotet4_to_tet4_restriction_elemental(
         nelements, elements, element_to_node_incidence_count, vec_size,
         from_stride, (f32 *)from, to_stride, (f32 *)to, stream);
   }
   case SMESH_FLOAT64: {
-    return cu_macrotet4_to_tet4_restriction(
+    return cu_macrotet4_to_tet4_restriction_elemental(
         nelements, elements, element_to_node_incidence_count, vec_size,
         from_stride, (f64 *)from, to_stride, (f64 *)to, stream);
   }
