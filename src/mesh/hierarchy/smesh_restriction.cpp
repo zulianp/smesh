@@ -1,7 +1,7 @@
 #include "smesh_restriction.impl.hpp"
 
 #define SMESH_EXPLICIT_INSTANTIATE_RESTRICTION(IDX_T, T)                       \
-  template int hierarchical_restriction_with_counting<IDX_T, T>(               \
+  template int hierarchical_restriction<IDX_T, T>(                             \
       const enum ElemType, const enum ElemType, const ptrdiff_t,               \
       const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                 \
       const u16 *const SMESH_RESTRICT e2n_count, const int vec_size,           \

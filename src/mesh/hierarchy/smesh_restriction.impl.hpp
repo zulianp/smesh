@@ -6,7 +6,7 @@
 namespace smesh {
 
 template <typename idx_t, typename T>
-int hierarchical_restriction_with_counting(
+int hierarchical_restriction(
     const enum ElemType from_element, const enum ElemType to_element,
     const ptrdiff_t nelements,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
@@ -75,60 +75,59 @@ int hierarchical_restriction_with_counting(
         to[ii3] += to3;
       }
     }
-    else if (to_element == TRI3 &&
+  } else if (to_element == TRI3 &&
              (from_element == TRI6 || from_element == MACRO_TRI3)) {
 #pragma omp parallel for
-      for (ptrdiff_t e = 0; e < nelements; e++) {
-        // P1
-        const idx_t i0 = elements[0][e];
-        const idx_t i1 = elements[1][e];
-        const idx_t i2 = elements[2][e];
+    for (ptrdiff_t e = 0; e < nelements; e++) {
+      // P1
+      const idx_t i0 = elements[0][e];
+      const idx_t i1 = elements[1][e];
+      const idx_t i2 = elements[2][e];
 
-        // P2
-        const idx_t i3 = elements[3][e];
-        const idx_t i4 = elements[4][e];
-        const idx_t i5 = elements[5][e];
+      // P2
+      const idx_t i3 = elements[3][e];
+      const idx_t i4 = elements[4][e];
+      const idx_t i5 = elements[5][e];
 
-        for (int v = 0; v < vec_size; v++) {
-          const ptrdiff_t ii0 = i0 * vec_size + v;
-          const ptrdiff_t ii1 = i1 * vec_size + v;
-          const ptrdiff_t ii2 = i2 * vec_size + v;
-          const ptrdiff_t ii3 = i3 * vec_size + v;
-          const ptrdiff_t ii4 = i4 * vec_size + v;
-          const ptrdiff_t ii5 = i5 * vec_size + v;
+      for (int v = 0; v < vec_size; v++) {
+        const ptrdiff_t ii0 = i0 * vec_size + v;
+        const ptrdiff_t ii1 = i1 * vec_size + v;
+        const ptrdiff_t ii2 = i2 * vec_size + v;
+        const ptrdiff_t ii3 = i3 * vec_size + v;
+        const ptrdiff_t ii4 = i4 * vec_size + v;
+        const ptrdiff_t ii5 = i5 * vec_size + v;
 
-          const T to0 = from[ii0] / e2n_count[i0] +
-                        from[ii3] * (0.5 / e2n_count[i3]) +
-                        from[ii5] * (0.5 / e2n_count[i5]);
-          const T to1 = from[ii1] / e2n_count[i1] +
-                        from[ii3] * (0.5 / e2n_count[i3]) +
-                        from[ii4] * (0.5 / e2n_count[i4]);
-          const T to2 = from[ii2] / e2n_count[i2] +
-                        from[ii4] * (0.5 / e2n_count[i4]) +
-                        from[ii5] * (0.5 / e2n_count[i5]);
-
-#pragma omp atomic update
-          to[ii0] += to0;
+        const T to0 = from[ii0] / e2n_count[i0] +
+                      from[ii3] * (0.5 / e2n_count[i3]) +
+                      from[ii5] * (0.5 / e2n_count[i5]);
+        const T to1 = from[ii1] / e2n_count[i1] +
+                      from[ii3] * (0.5 / e2n_count[i3]) +
+                      from[ii4] * (0.5 / e2n_count[i4]);
+        const T to2 = from[ii2] / e2n_count[i2] +
+                      from[ii4] * (0.5 / e2n_count[i4]) +
+                      from[ii5] * (0.5 / e2n_count[i5]);
 
 #pragma omp atomic update
-          to[ii1] += to1;
+        to[ii0] += to0;
 
 #pragma omp atomic update
-          to[ii2] += to2;
-        }
+        to[ii1] += to1;
+
+#pragma omp atomic update
+        to[ii2] += to2;
       }
     }
-    else {
+  } else {
 
-      SMESH_ERROR(
-          "Unsupported element pair for hierarchical_restriction %d, %d\n",
-          from_element, to_element);
+    SMESH_ERROR(
+        "Unsupported element pair for hierarchical_restriction %d, %d\n",
+        from_element, to_element);
 
-      return SMESH_FAILURE;
-    }
-
-    return SMESH_SUCCESS;
+    return SMESH_FAILURE;
   }
+
+  return SMESH_SUCCESS;
+}
 
 } // namespace smesh
 

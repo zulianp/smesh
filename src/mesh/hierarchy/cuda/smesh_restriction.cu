@@ -1,13 +1,15 @@
 namespace smesh {
 
-template <typename From, typename To>
+template <typename From, typename To, typename idx_t>
 __global__ void cu_macrotet4_to_tet4_restriction_kernel(
-    const ptrdiff_t nelements, idx_t **const SMESH_RESTRICT elements,
-    const uint16_t *const SMESH_RESTRICT e2n_count, const int vec_size,
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    const u16 *const SMESH_RESTRICT e2n_count, const int vec_size,
     const ptrdiff_t from_stride, const From *const SMESH_RESTRICT from,
     const ptrdiff_t to_stride, To *const SMESH_RESTRICT to) {
   for (ptrdiff_t e = blockIdx.x * blockDim.x + threadIdx.x; e < nelements;
        e += blockDim.x * gridDim.x) {
+    // P1
     const idx_t i0 = elements[0][e];
     const idx_t i1 = elements[1][e];
     const idx_t i2 = elements[2][e];
@@ -61,10 +63,11 @@ __global__ void cu_macrotet4_to_tet4_restriction_kernel(
   }
 }
 
-template <typename From, typename To>
-static int cu_macrotet4_to_tet4_restriction_tpl(
-    const ptrdiff_t nelements, idx_t **const SMESH_RESTRICT elements,
-    const uint16_t *const SMESH_RESTRICT element_to_node_incidence_count,
+template <typename From, typename To, typename idx_t>
+static int cu_macrotet4_to_tet4_restriction(
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    const u16 *const SMESH_RESTRICT element_to_node_incidence_count,
     const int vec_size, const ptrdiff_t from_stride,
     const From *const SMESH_RESTRICT from, const ptrdiff_t to_stride,
     To *const SMESH_RESTRICT to, void *stream) {
@@ -75,7 +78,7 @@ static int cu_macrotet4_to_tet4_restriction_tpl(
     int min_grid_size;
     cudaOccupancyMaxPotentialBlockSize(
         &min_grid_size, &block_size,
-        cu_macrotet4_to_tet4_restriction_kernel<From, To>, 0, 0);
+        cu_macrotet4_to_tet4_restriction_kernel<From, To, idx_t>, 0, 0);
   }
 #endif // SMESH_USE_OCCUPANCY_MAX_POTENTIAL
 
@@ -85,12 +88,12 @@ static int cu_macrotet4_to_tet4_restriction_tpl(
   if (stream) {
     cudaStream_t s = *static_cast<cudaStream_t *>(stream);
 
-    cu_macrotet4_to_tet4_restriction_kernel<From, To>
+    cu_macrotet4_to_tet4_restriction_kernel<From, To, idx_t>
         <<<n_blocks, block_size, 0, s>>>(
             nelements, elements, element_to_node_incidence_count, vec_size,
             from_stride, from, to_stride, to);
   } else {
-    cu_macrotet4_to_tet4_restriction_kernel<From, To>
+    cu_macrotet4_to_tet4_restriction_kernel<From, To, idx_t>
         <<<n_blocks, block_size, 0>>>(nelements, elements,
                                       element_to_node_incidence_count, vec_size,
                                       from_stride, from, to_stride, to);
@@ -100,9 +103,11 @@ static int cu_macrotet4_to_tet4_restriction_tpl(
   return SMESH_SUCCESS;
 }
 
+template <typename idx_t>
 int cu_macrotet4_to_tet4_restriction(
-    const ptrdiff_t nelements, idx_t **const SMESH_RESTRICT elements,
-    const uint16_t *const SMESH_RESTRICT element_to_node_incidence_count,
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    const u16 *const SMESH_RESTRICT element_to_node_incidence_count,
     const int vec_size, const enum RealType from_type,
     const ptrdiff_t from_stride, const void *const SMESH_RESTRICT from,
     const enum RealType to_type, const ptrdiff_t to_stride,
@@ -117,17 +122,17 @@ int cu_macrotet4_to_tet4_restriction(
 
   switch (from_type) {
   case SMESH_REAL_DEFAULT: {
-    return cu_macrotet4_to_tet4_restriction_tpl(
+    return cu_macrotet4_to_tet4_restriction(
         nelements, elements, element_to_node_incidence_count, vec_size,
         from_stride, (real_t *)from, to_stride, (real_t *)to, stream);
   }
   case SMESH_FLOAT32: {
-    return cu_macrotet4_to_tet4_restriction_tpl(
+    return cu_macrotet4_to_tet4_restriction(
         nelements, elements, element_to_node_incidence_count, vec_size,
         from_stride, (f32 *)from, to_stride, (f32 *)to, stream);
   }
   case SMESH_FLOAT64: {
-    return cu_macrotet4_to_tet4_restriction_tpl(
+    return cu_macrotet4_to_tet4_restriction(
         nelements, elements, element_to_node_incidence_count, vec_size,
         from_stride, (f64 *)from, to_stride, (f64 *)to, stream);
   }

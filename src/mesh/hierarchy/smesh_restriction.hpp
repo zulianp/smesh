@@ -8,7 +8,7 @@
 namespace smesh {
 
 template <typename idx_t, typename T>
-int hierarchical_restriction_with_counting(
+int hierarchical_restriction(
     const enum ElemType from_element, const enum ElemType to_element,
     const ptrdiff_t nelements,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
