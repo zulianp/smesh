@@ -16,6 +16,7 @@ using u16 = uint16_t;
 using u32 = uint32_t;
 using u64 = uint64_t;
 using mask_t = char;
+using block_idx_t = u16;
 
 #if defined(__APPLE__)
 using f16 = __fp16;

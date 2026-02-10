@@ -2,7 +2,7 @@
 #include <cstdint>
 
 #include "smesh_types.hpp"
-#include "smesh_crs_graph.impl.hpp"
+#include "smesh_graph.impl.hpp"
 
 #define SMESH_EXPLICIT_INSTANTIATE_CRS_GRAPH(T)                                \
   template T find_idx<T>(T, const T *, T);                                     \

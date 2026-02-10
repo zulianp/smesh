@@ -1,0 +1,1 @@
+#include "smesh_crs_graph.impl.hpp"

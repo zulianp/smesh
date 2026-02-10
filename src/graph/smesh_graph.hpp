@@ -1,5 +1,5 @@
-#ifndef SMESH_CRS_GRAPH_HPP
-#define SMESH_CRS_GRAPH_HPP
+#ifndef SMESH_GRAPH_HPP
+#define SMESH_GRAPH_HPP
 
 #include "smesh_base.hpp"
 #include "smesh_elem_type.hpp"
@@ -281,4 +281,4 @@ int create_crs_graph_upper_triangular_from_element(
 
 } // namespace smesh
 
-#endif // SMESH_CRS_GRAPH_HPP
+#endif // SMESH_GRAPH_HPP

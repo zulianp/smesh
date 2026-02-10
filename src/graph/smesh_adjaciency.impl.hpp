@@ -1,7 +1,7 @@
 #ifndef SMESH_ADJACENCY_IMPL_HPP
 #define SMESH_ADJACENCY_IMPL_HPP
 
-#include "smesh_crs_graph.hpp"
+#include "smesh_graph.hpp"
 #include "smesh_adjaciency.hpp"
 #include "smesh_elem_type.hpp"
 #include "smesh_sort.hpp"

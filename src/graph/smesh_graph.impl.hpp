@@ -1,7 +1,7 @@
-#ifndef SMESH_CRS_GRAPH_IMPL_HPP
-#define SMESH_CRS_GRAPH_IMPL_HPP
+#ifndef SMESH_GRAPH_IMPL_HPP
+#define SMESH_GRAPH_IMPL_HPP
 
-#include "smesh_crs_graph.hpp"
+#include "smesh_graph.hpp"
 #include "smesh_tracer.hpp"
 
 #include "smesh_base.hpp"
@@ -782,4 +782,4 @@ int sorted_coo_to_crs(const count_t nnz,
 
 } // namespace smesh
 
-#endif // SMESH_CRS_GRAPH_IMPL_HPP
+#endif // SMESH_GRAPH_IMPL_HPP
