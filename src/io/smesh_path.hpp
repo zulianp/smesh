@@ -52,6 +52,7 @@ public:
   Path operator+(const Path &other) const;
   Path operator/(const Path &other) const;
   Path operator/(const char *other) const;
+  Path operator/(const std::string_view &other) const;
 
   Path &operator+=(const Path &other);
   Path &operator/=(const Path &other);

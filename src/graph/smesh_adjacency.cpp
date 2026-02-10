@@ -2,7 +2,7 @@
 #include <cstdint>
 
 #include "smesh_types.hpp"
-#include "smesh_adjaciency.impl.hpp"
+#include "smesh_adjacency.impl.hpp"
 
 #define SMESH_EXPLICIT_INSTANTIATE_ADJACENCY(T)                                 \
   template void create_element_adj_table_from_dual_graph<T, T, T>(              \
@@ -34,17 +34,8 @@
       const enum ElemType, const T *const SMESH_RESTRICT *const SMESH_RESTRICT, \
       const ptrdiff_t, const T *const SMESH_RESTRICT,                           \
       const int16_t *const SMESH_RESTRICT,                                      \
-      T *const SMESH_RESTRICT *const SMESH_RESTRICT);                           \
-  template int extract_nodeset_from_sideset<T, T, T>(                           \
-      const enum ElemType, const T *const SMESH_RESTRICT *const SMESH_RESTRICT, \
-      const ptrdiff_t, const T *const SMESH_RESTRICT,                           \
-      const int16_t *const SMESH_RESTRICT, ptrdiff_t *,                         \
-      T **SMESH_RESTRICT);                                                      \
-  template int extract_nodeset_from_sidesets<T, T, T>(                          \
-      ptrdiff_t, const enum ElemType[], T **const SMESH_RESTRICT[],             \
-      const ptrdiff_t[], const T *const SMESH_RESTRICT[],                       \
-      const int16_t *const SMESH_RESTRICT[], ptrdiff_t *,                       \
-      T **SMESH_RESTRICT)
+      T *const SMESH_RESTRICT *const SMESH_RESTRICT)                           
+
 
 namespace smesh {
 SMESH_EXPLICIT_INSTANTIATE_ADJACENCY(i16);

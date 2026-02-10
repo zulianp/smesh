@@ -158,6 +158,4 @@ template <typename T> using SharedBuffer = std::shared_ptr<Buffer<T>>;
 
 } // namespace smesh
 
-#include "smesh_buffer.impl.hpp"
-
 #endif // SMESH_BUFFER_HPP

@@ -80,6 +80,10 @@ namespace smesh {
         return (*this) / Path(other);
     }
 
+    Path Path::operator/(const std::string_view &other) const {
+        return (*this) / Path(other);
+    }
+
     std::string Path::file_name() const {
         const std::size_t found = path_.find_last_of(PATH_SEPARATOR);
         std::string name = path_.substr(found + 1, path_.size());

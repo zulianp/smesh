@@ -12,9 +12,9 @@
 
 namespace smesh {
 
-template <typename element_idx_t> class Sideset final {
+class Sideset final {
 public:
-  int read(const std::shared_ptr<Communicator> &comm, const char *path,
+  int read(const std::shared_ptr<Communicator> &comm, const Path &path,
            block_idx_t block_id = 0);
   SharedBuffer<element_idx_t> parent();
   SharedBuffer<i16> lfi();
@@ -37,9 +37,9 @@ public:
          const SharedBuffer<element_idx_t> &parent,
          const SharedBuffer<i16> &lfi, block_idx_t block_id = 0);
 
- template <typename idx_t, typename geom_t>
+
   static std::vector<std::shared_ptr<Sideset>> create_from_selector(
-      const std::shared_ptr<Mesh<idx_t, geom_t>> &mesh,
+      const std::shared_ptr<Mesh> &mesh,
       const std::function<bool(const geom_t, const geom_t, const geom_t)>
           &selector,
       const std::vector<std::string> &block_names = {});
@@ -49,27 +49,20 @@ private:
   std::unique_ptr<Impl> impl_;
 };
 
-template <typename idx_t, typename element_idx_t, typename geom_t>
 std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>>
 create_surface_from_sideset(
-    const std::shared_ptr<Mesh<idx_t, geom_t>> &space,
-    const std::shared_ptr<Sideset<element_idx_t>> &sideset);
+    const std::shared_ptr<Mesh> &space,
+    const std::shared_ptr<Sideset> &sideset);
 
-template <typename idx_t, typename element_idx_t, typename geom_t>
+
 std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>>
 create_surface_from_sidesets(
-    const std::shared_ptr<Mesh<idx_t, geom_t>> &space,
-    const std::vector<std::shared_ptr<Sideset<element_idx_t>>> &sideset);
+    const std::shared_ptr<Mesh> &space,
+    const std::vector<std::shared_ptr<Sideset>> &sideset);
 
-template <typename idx_t, typename element_idx_t, typename geom_t>
 SharedBuffer<idx_t> create_nodeset_from_sideset(
-    const std::shared_ptr<Mesh<idx_t, geom_t>> &space,
-    const std::shared_ptr<Sideset<element_idx_t>> &sideset);
-
-template <typename idx_t, typename element_idx_t, typename geom_t>
-std::shared_ptr<Buffer<idx_t>> create_nodeset_from_sidesets(
-    const std::shared_ptr<Mesh<idx_t, geom_t>> &space,
-    const std::vector<std::shared_ptr<Sideset<element_idx_t>>> &sidesets);
+    const std::shared_ptr<Mesh> &space,
+    const std::shared_ptr<Sideset> &sideset);
 
 } // namespace smesh
 

@@ -132,7 +132,19 @@ int mesh_multiblock_write_yaml(const Path &path, const uint16_t n_blocks,
       const Path &path, const TYPE *const SMESH_RESTRICT data,                 \
       const ptrdiff_t n_elements)
 
+
+#define SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE(TYPE)                          \
+  template int array_write<TYPE>(const Path &path, const TYPE *const SMESH_RESTRICT data, \
+                                 const ptrdiff_t n_elements)
+
 namespace smesh {
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE(f16);
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE(f32);
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE(f64);
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE(i16);
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE(i32);
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE(i64);
+
 // SMESH_EXPLICIT_INSTANTIATE_MESH_BLOCK_TO_FOLDER(i16);
 SMESH_EXPLICIT_INSTANTIATE_MESH_BLOCK_TO_FOLDER(i32);
 SMESH_EXPLICIT_INSTANTIATE_MESH_BLOCK_TO_FOLDER(i64);

@@ -5,8 +5,8 @@
 
 namespace smesh {
     class Communicator;
-    template <typename idx_t, typename geom_t> class Mesh;
-    template <typename element_idx_t> class Sideset;
+    class Mesh;
+    class Sideset;
     template <typename T> class Buffer;
 } // namespace smesh
 

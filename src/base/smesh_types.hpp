@@ -26,7 +26,12 @@ using f16 = _Float16;
 
 using f32 = float;
 using f64 = double;
+
 using real_t = f64;
+using geom_t = f32;
+using idx_t = i32;
+using element_idx_t = i32;
+using count_t = i32;
 
 static const f16 F16_MAX = (f16)65504.0f;
 

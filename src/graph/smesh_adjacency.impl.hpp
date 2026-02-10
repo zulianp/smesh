@@ -2,7 +2,7 @@
 #define SMESH_ADJACENCY_IMPL_HPP
 
 #include "smesh_graph.hpp"
-#include "smesh_adjaciency.hpp"
+#include "smesh_adjacency.hpp"
 #include "smesh_elem_type.hpp"
 #include "smesh_sort.hpp"
 #include "smesh_types.hpp"
@@ -317,110 +317,6 @@ int extract_skin_sideset(
                                      n_surf_elements, parent_element, side_idx);
   free(table);
   return err;
-}
-
-template <typename idx_t, typename count_t, typename element_idx_t>
-int extract_surface_from_sideset(
-    const enum ElemType element_type,
-    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
-    const ptrdiff_t n_surf_elements,
-    const element_idx_t *const SMESH_RESTRICT parent_element,
-    const int16_t *const SMESH_RESTRICT side_idx,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT sides) {
-  LocalSideTable lst;
-  lst.fill(element_type);
-  const int nn = elem_num_nodes(side_type(element_type));
-
-#pragma omp parallel for
-  for (ptrdiff_t i = 0; i < n_surf_elements; i++) {
-    const ptrdiff_t e = parent_element[i];
-    const int s = side_idx[i];
-
-    for (int n = 0; n < nn; n++) {
-      idx_t node = elems[lst(s, n)][e];
-      sides[n][i] = node;
-    }
-  }
-
-  return SMESH_SUCCESS;
-}
-
-template <typename idx_t, typename count_t, typename element_idx_t>
-int extract_nodeset_from_sideset(
-    const enum ElemType element_type,
-    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
-    const ptrdiff_t n_surf_elements,
-    const element_idx_t *const SMESH_RESTRICT parent_element,
-    const int16_t *const SMESH_RESTRICT side_idx, ptrdiff_t *n_nodes_out,
-    idx_t **SMESH_RESTRICT nodes_out) {
-  const enum ElemType st = side_type(element_type);
-  const int nn = elem_num_nodes(st);
-
-  const ptrdiff_t n = nn * n_surf_elements;
-  idx_t *nodes = (idx_t *)malloc(n * sizeof(idx_t));
-  LocalSideTable lst;
-  lst.fill(element_type);
-
-#pragma omp parallel for
-  for (ptrdiff_t i = 0; i < n_surf_elements; i++) {
-    const ptrdiff_t e = parent_element[i];
-    const int s = side_idx[i];
-
-    for (int k = 0; k < nn; k++) {
-      idx_t node = elems[lst(s, k)][e];
-      nodes[i * nn + k] = node;
-    }
-  }
-
-  *n_nodes_out = (ptrdiff_t)sort_and_unique(nodes, (size_t)n);
-  *nodes_out = (idx_t *)realloc(nodes, (size_t)(*n_nodes_out) * sizeof(idx_t));
-
-  return SMESH_SUCCESS;
-}
-
-template <typename idx_t, typename count_t, typename element_idx_t>
-int extract_nodeset_from_sidesets(
-    ptrdiff_t n_sidesets, const enum ElemType element_type[],
-    idx_t **const SMESH_RESTRICT elems[], const ptrdiff_t n_surf_elements[],
-    const element_idx_t *const SMESH_RESTRICT parent_element[],
-    const int16_t *const SMESH_RESTRICT side_idx[], ptrdiff_t *n_nodes_out,
-    idx_t **SMESH_RESTRICT nodes_out) {
-  ptrdiff_t n_nodes = 0;
-  for (ptrdiff_t ss = 0; ss < n_sidesets; ss++) {
-    const enum ElemType st = side_type(element_type[ss]);
-    const int nn = elem_num_nodes(st);
-    n_nodes += n_surf_elements[ss] * nn;
-  }
-
-  idx_t *nodes = (idx_t *)malloc((size_t)n_nodes * sizeof(idx_t));
-  ptrdiff_t node_offset = 0;
-
-  for (ptrdiff_t ss = 0; ss < n_sidesets; ss++) {
-    const enum ElemType st = side_type(element_type[ss]);
-    const int nn = elem_num_nodes(st);
-
-    const ptrdiff_t n = nn * n_surf_elements[ss];
-    LocalSideTable lst;
-    lst.fill(element_type[ss]);
-
-#pragma omp parallel for
-    for (ptrdiff_t i = 0; i < n_surf_elements[ss]; i++) {
-      const ptrdiff_t e = parent_element[ss][i];
-      const int s = side_idx[ss][i];
-
-      for (int k = 0; k < nn; k++) {
-        idx_t node = elems[ss][lst(s, k)][e];
-        nodes[node_offset + i * nn + k] = node;
-      }
-    }
-
-    node_offset += n;
-  }
-
-  *n_nodes_out = (ptrdiff_t)sort_and_unique(nodes, (size_t)n_nodes);
-  *nodes_out = (idx_t *)realloc(nodes, (size_t)(*n_nodes_out) * sizeof(idx_t));
-
-  return SMESH_SUCCESS;
 }
 
 } // namespace smesh
