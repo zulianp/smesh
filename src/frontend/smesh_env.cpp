@@ -1,5 +1,6 @@
 #include "smesh_env.hpp"
 #include "smesh_elem_type.hpp"
+#include "smesh_spaces.hpp"
 #include <type_traits>
 
 namespace smesh {
@@ -56,10 +57,10 @@ namespace smesh {
         static double parse(const std::string& str_value) { return std::stod(str_value); }
     };
 
-    // template <>
-    // struct FromString<enum ExecutionSpace> {
-    //     static enum ExecutionSpace parse(const std::string& str_value) { return execution_space_from_string(str_value); }
-    // };
+    template <>
+    struct FromString<enum ExecutionSpace> {
+        static enum ExecutionSpace parse(const std::string& str_value) { return execution_space_from_string(str_value); }
+    };
 
     template <>
     struct FromString<enum ElemType> {
@@ -81,7 +82,7 @@ namespace smesh {
     template int16_t from_string<int16_t>(const std::string& str_value);
     template int8_t from_string<int8_t>(const std::string& str_value);
     template bool from_string<bool>(const std::string& str_value);
-    // template ExecutionSpace from_string<enum ExecutionSpace>(const std::string& str_value);
+    template ExecutionSpace from_string<enum ExecutionSpace>(const std::string& str_value);
     template enum ElemType from_string<enum ElemType>(const std::string& str_value);
     template std::string from_string<std::string>(const std::string& str_value);
 

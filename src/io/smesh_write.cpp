@@ -103,31 +103,39 @@ int mesh_multiblock_write_yaml(const Path &path, const uint16_t n_blocks,
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_BLOCK_TO_FOLDER(IDX_T)                 \
   template int mesh_block_to_folder<IDX_T>(                                    \
       const Path &, int, const ptrdiff_t,                                      \
-      IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT);
+      IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_COORDINATES_TO_FOLDER(GEOM_T)          \
   template int mesh_coordinates_to_folder<GEOM_T>(                             \
       const Path &, int, const ptrdiff_t,                                      \
-      GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT);
+      GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_TO_FOLDER(IDX_T, GEOM_T)               \
   template int mesh_to_folder<IDX_T, GEOM_T>(                                  \
       const Path &, enum ElemType, const ptrdiff_t,                            \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, const int,            \
-      const ptrdiff_t, GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT);
+      const ptrdiff_t, GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(IDX_T, GEOM_T)    \
   template int mesh_multiblock_to_folder<IDX_T, GEOM_T>(                       \
-      const Path &,                                                            \
-      const std::vector<std::string_view> &,                                   \
+      const Path &, const std::vector<std::string_view> &,                     \
       const std::vector<enum ElemType> &, const std::vector<ptrdiff_t> &,      \
-      IDX_T **const[], const int, const ptrdiff_t, GEOM_T **const);
+      IDX_T **const[], const int, const ptrdiff_t, GEOM_T **const)
+
+#define SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT_FROM_EXTENSION(TYPE)    \
+  template int array_write_convert_from_extension<TYPE>(                       \
+      const Path &, const TYPE *const SMESH_RESTRICT data,                     \
+      const ptrdiff_t n_elements)
+
+#define SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT(FILE_TYPE, TYPE)        \
+  template int array_write_convert<FILE_TYPE, TYPE>(                           \
+      const Path &path, const TYPE *const SMESH_RESTRICT data,                 \
+      const ptrdiff_t n_elements)
 
 namespace smesh {
 // SMESH_EXPLICIT_INSTANTIATE_MESH_BLOCK_TO_FOLDER(i16);
 SMESH_EXPLICIT_INSTANTIATE_MESH_BLOCK_TO_FOLDER(i32);
 SMESH_EXPLICIT_INSTANTIATE_MESH_BLOCK_TO_FOLDER(i64);
-
 
 SMESH_EXPLICIT_INSTANTIATE_MESH_COORDINATES_TO_FOLDER(f32);
 
@@ -138,6 +146,20 @@ SMESH_EXPLICIT_INSTANTIATE_MESH_TO_FOLDER(i64, f32);
 // SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(i16, f32);
 SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(i32, f32);
 SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(i64, f32);
+
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT_FROM_EXTENSION(f16);
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT_FROM_EXTENSION(f32);
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT_FROM_EXTENSION(f64);
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT_FROM_EXTENSION(i16);
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT_FROM_EXTENSION(i32);
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT_FROM_EXTENSION(i64);
+
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT(f16, f32);
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT(f32, f32);
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT(f64, f64);
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT(i16, i32);
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT(i32, i32);
+SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT(i64, i64);
 
 } // namespace smesh
 

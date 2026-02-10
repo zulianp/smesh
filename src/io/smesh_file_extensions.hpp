@@ -28,12 +28,12 @@ detect_files(const Path &pattern,
   return files;
 }
 
-static inline RealType detect_real_type(std::string_view file) {
+static inline PrimitiveType detect_real_type(std::string_view file) {
   std::string_view extension = file.substr(file.find_last_of('.') + 1);
   return to_real_type(extension);
 }
 
-static inline IntegerType detect_integer_type(std::string_view file) {
+static inline PrimitiveType detect_integer_type(std::string_view file) {
   std::string_view extension = file.substr(file.find_last_of('.') + 1);
   return to_integer_type(extension);
 }

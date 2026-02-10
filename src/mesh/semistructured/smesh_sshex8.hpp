@@ -5,7 +5,7 @@
 
 namespace smesh {
 
-static SMESH_INLINE int sshex8_nxe(int level) {
+static inline int sshex8_nxe(int level) {
   const int corners = 8;
   const int edge_nodes = 12 * (level - 1);
   const int face_nodes = 6 * (level - 1) * (level - 1);
@@ -13,9 +13,9 @@ static SMESH_INLINE int sshex8_nxe(int level) {
   return corners + edge_nodes + face_nodes + vol_nodes;
 }
 
-static SMESH_INLINE int sshex8_txe(int level) { return level * level * level; }
+inline int sshex8_txe(int level) { return level * level * level; }
 
-static SMESH_INLINE int sshex8_lidx(const int L, const int x, const int y,
+static inline int sshex8_lidx(const int L, const int x, const int y,
                                     const int z) {
   int Lp1 = L + 1;
   int ret = z * (Lp1 * Lp1) + y * Lp1 + x;
