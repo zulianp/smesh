@@ -43,7 +43,6 @@ namespace smesh {
         Mesh(const std::shared_ptr<Communicator> &comm,
              int                                  spatial_dim,
              enum ElemType                        element_type,
-             ptrdiff_t                            nelements,
              SharedBuffer<idx_t *>                elements,
              ptrdiff_t                            nnodes,
              SharedBuffer<geom_t *>               points);

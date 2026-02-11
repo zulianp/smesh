@@ -70,7 +70,7 @@ template <typename T> Buffer<T *>::~Buffer() {
 }
 
 template <typename T> T **Buffer<T *>::data() { return ptr_; }
-template <typename T> const T **Buffer<T *>::data() const { return ptr_; }
+template <typename T> T *const *Buffer<T *>::data() const { return ptr_; }
 
 template <typename T> void Buffer<T *>::print(std::ostream &os) {
   if (mem_space_ == MEMORY_SPACE_DEVICE) {

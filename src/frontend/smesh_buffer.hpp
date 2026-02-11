@@ -69,7 +69,7 @@ public:
   ~Buffer();
 
   T **data();
-  const T **data() const;
+  T *const *data() const;
   inline size_t extent(int i) const { return extent_[i]; }
   inline MemorySpace mem_space() const { return mem_space_; }
 
