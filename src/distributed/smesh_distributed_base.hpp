@@ -24,37 +24,37 @@ namespace smesh {
     MPI_Datatype mpi_type();
 
     template <>
-    MPI_Datatype mpi_type<float>() {
+    inline MPI_Datatype mpi_type<float>() {
         return MPI_FLOAT;
     }
     template <>
-    MPI_Datatype mpi_type<double>() {
+    inline MPI_Datatype mpi_type<double>() {
         return MPI_DOUBLE;
     }
     template <>
-    MPI_Datatype mpi_type<int>() {
+    inline MPI_Datatype mpi_type<int>() {
         return MPI_INT;
     }
     template <>
-    MPI_Datatype mpi_type<long long>() {
+    inline MPI_Datatype mpi_type<long long>() {
         return MPI_LONG_LONG;
     }
 
     template <>
-    MPI_Datatype mpi_type<short>() {
+    inline MPI_Datatype mpi_type<short>() {
         return MPI_SHORT;
     }
 
-    MPI_Datatype SMESH_MPI_F16;
+    extern MPI_Datatype SMESH_MPI_F16;
 
     int register_mpi_datatypes();
     int unregister_mpi_datatypes();
 
-    // template <>
-    // MPI_Datatype mpi_type<f16>() {
-    //     // No standard MPI half type; treat as 16-bit payload.
-    //     return MPI_UNSIGNED_SHORT;
-    // }
+    template <>
+    inline MPI_Datatype mpi_type<f16>() {
+        // No standard MPI float16 type; use a registered 16-bit payload.
+        return SMESH_MPI_F16;
+    }
 }
 
 #endif // SMESH_DISTRIBUTED_BASE_HPP

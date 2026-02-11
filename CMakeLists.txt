@@ -64,9 +64,15 @@ add_library(smesh ${_smesh_library_files})
 target_link_libraries(smesh
     PUBLIC
         ${SMESH_PUBLIC_SUBMODULES}
+        ${SMESH_DEP_LIBRARIES}
     PRIVATE
         ${SMESH_SUBMODULES}
 )
+
+# Dependency include paths (kept PRIVATE unless they leak through public headers).
+if(SMESH_DEP_INCLUDES OR SMESH_BUILD_INCLUDES)
+    target_include_directories(smesh PRIVATE ${SMESH_DEP_INCLUDES} ${SMESH_BUILD_INCLUDES})
+endif()
 
 add_library(smesh::smesh ALIAS smesh)
 
