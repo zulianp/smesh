@@ -512,7 +512,7 @@ int sshex8_generate_elements(const int L, const ptrdiff_t m_nelements,
 
     LocalSideTable lst;
     lst.fill(HEX8);
-    const int ns = elem_num_sides(HEX8);
+    // const int ns = elem_num_sides(HEX8);
 
     element_idx_t *adj_table = 0;
     create_element_adj_table(m_nelements, m_nnodes, m_element_type, m_elements,
@@ -524,14 +524,14 @@ int sshex8_generate_elements(const int L, const ptrdiff_t m_nelements,
         element_idx_t neigh_element = adj_table[e * 6 + f];
         // If this face is not boundary and it has already been processed
         // continue
-        if (neigh_element != SMESH_ELEMENT_IDX_INVALID && neigh_element < e)
+        if (neigh_element != invalid_idx<element_idx_t>() && neigh_element < e)
           continue;
 
         idx_t global_face_offset = index_base + n_unique_faces * nxf;
         index_face(L, m_elements, lst.table, lagr_to_proteus_corners,
                    coords, global_face_offset, e, f, elements);
 
-        if (neigh_element != SMESH_ELEMENT_IDX_INVALID) {
+        if (neigh_element != invalid_idx<element_idx_t>()) {
           // find same face on neigh element
           int neigh_f;
           for (neigh_f = 0; neigh_f < 6; neigh_f++) {
@@ -704,6 +704,7 @@ int sshex8_build_crs_graph_from_n2e(
     const count_t *const SMESH_RESTRICT n2eptr,
     const element_idx_t *const SMESH_RESTRICT elindex, count_t **out_rowptr,
     idx_t **out_colidx) {
+        SMESH_UNUSED(nelements);
   count_t *rowptr = (count_t *)malloc((nnodes + 1) * sizeof(count_t));
   idx_t *colidx = 0;
 
