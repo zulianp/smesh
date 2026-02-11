@@ -145,7 +145,7 @@ int mesh_to_folder(const Path &path, enum ElemType element_type,
 
 template <typename idx_t, typename geom_t>
 int mesh_multiblock_to_folder(const Path &path,
-                              const std::vector<std::string_view> &block_names,
+                              const std::vector<std::string> &block_names,
                               const std::vector<enum ElemType> &element_types,
                               const std::vector<ptrdiff_t> &n_elements,
                               idx_t **const elements[], const int spatial_dim,

@@ -154,7 +154,8 @@ int hex8_build_edge_graph(
 
   count_t *n2eptr;
   element_idx_t *elindex;
-  build_n2e(nelements, nnodes, 8, elems, &n2eptr, &elindex);
+  create_n2e<idx_t, count_t, element_idx_t>(nelements, nnodes, 8, elems, &n2eptr,
+                                            &elindex);
 
   int err = hex8_build_edge_graph_from_n2e(nelements, nnodes, elems, n2eptr,
                                            elindex, out_rowptr, out_colidx);
@@ -177,7 +178,8 @@ int sshex8_skeleton_crs_graph(
 
   count_t *n2eptr;
   element_idx_t *elindex;
-  build_n2e(nelements, nnodes, 8, elements, &n2eptr, &elindex);
+  create_n2e<idx_t, count_t, element_idx_t>(nelements, nnodes, 8, elements,
+                                            &n2eptr, &elindex);
 
   sshex8_skeleton_build_edge_graph_from_hex8_n2e(
       L, nelements, nnodes, elements, n2eptr, elindex, out_rowptr, out_colidx);
@@ -205,13 +207,14 @@ ptrdiff_t nxe_max_node_id(const ptrdiff_t nelements, const int nxe,
 }
 
 
-template<typename idx_t>
+template <typename idx_t>
 static void
-index_face(const int L, idx_t **const m_elements,
+index_face(const int L,
+           const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT m_elements,
            const int *const local_side_table, int *lagr_to_proteus_corners,
            int **coords, const idx_t global_face_offset, const ptrdiff_t e,
            const int f,
-           const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements) {
+           idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements) {
   int argmin = 0;
   idx_t valmin = m_elements[local_side_table[f * 4 + 0]][e];
   for (int i = 0; i < 4; i++) {
@@ -380,7 +383,8 @@ int sshex8_generate_elements(const int L, const ptrdiff_t m_nelements,
 
     count_t *rowptr;
     idx_t *colidx;
-    hex8_build_edge_graph(m_nelements, m_nnodes, m_elements, &rowptr, &colidx);
+    hex8_build_edge_graph<idx_t, idx_t, count_t>(m_nelements, m_nnodes, m_elements,
+                                                 &rowptr, &colidx);
 
     ptrdiff_t nedges = rowptr[m_nnodes] / 2;
 
@@ -866,8 +870,9 @@ template<typename idx_t>
 int sshex8_hierarchical_renumbering(
     const int L, const int nlevels, int *const levels,
     const ptrdiff_t nelements, const ptrdiff_t nnodes,
-    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements) {
-  idx_t *node_mapping = malloc(nnodes * sizeof(idx_t));
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements) {
+  idx_t *node_mapping =
+      static_cast<idx_t *>(malloc(static_cast<size_t>(nnodes) * sizeof(idx_t)));
 #pragma omp parallel for
   for (ptrdiff_t i = 0; i < nnodes; i++) {
     node_mapping[i] = invalid_idx<idx_t>();
@@ -1160,7 +1165,7 @@ int sshex8_extract_nodeset_from_sideset(
 {
   const int nnxs = (L + 1) * (L + 1);
   const ptrdiff_t n = nnxs * n_surf_elements;
-  idx_t *nodes = malloc(n * sizeof(idx_t));
+  idx_t *nodes = static_cast<idx_t *>(malloc(static_cast<size_t>(n) * sizeof(idx_t)));
 
 #pragma omp parallel for
   for (ptrdiff_t i = 0; i < n_surf_elements; i++) {
@@ -1200,7 +1205,8 @@ int sshex8_extract_nodeset_from_sideset(
   }
 
   *n_nodes_out = sort_and_unique(nodes, n);
-  *nodes_out = realloc(nodes, *n_nodes_out * sizeof(idx_t));
+  *nodes_out = static_cast<idx_t *>(realloc(
+      nodes, static_cast<size_t>(*n_nodes_out) * sizeof(idx_t)));
   return SMESH_SUCCESS;
 }
 

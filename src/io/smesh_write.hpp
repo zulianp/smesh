@@ -42,14 +42,14 @@ int mesh_to_folder(const Path &path, enum ElemType element_type,
                    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points);
 
 int mesh_multiblock_write_yaml(const Path &path, const uint16_t n_blocks,
-                               const std::vector<std::string_view> &block_names,
+                               const std::vector<std::string> &block_names,
                                const std::vector<enum ElemType> &element_types,
                                const std::vector<ptrdiff_t> &n_elements,
                                const int spatial_dim, const ptrdiff_t n_nodes);
 
 template <typename idx_t, typename geom_t>
 int mesh_multiblock_to_folder(const Path &path,
-                              const std::vector<std::string_view> &block_names,
+                              const std::vector<std::string> &block_names,
                               const std::vector<enum ElemType> &element_types,
                               const std::vector<ptrdiff_t> &n_elements,
                               idx_t **const elements[], const int spatial_dim,

@@ -24,12 +24,12 @@
       T **SMESH_RESTRICT, T **SMESH_RESTRICT);                                  \
   template int extract_sideset_from_adj_table<T>(                               \
       const enum ElemType, const ptrdiff_t, const T *const SMESH_RESTRICT,      \
-      ptrdiff_t *SMESH_RESTRICT, T **SMESH_RESTRICT, int16_t **SMESH_RESTRICT); \
+      ptrdiff_t *SMESH_RESTRICT, T **SMESH_RESTRICT, i16 **SMESH_RESTRICT); \
   template int extract_skin_sideset<T, T, T>(                                   \
       const ptrdiff_t, const ptrdiff_t, const enum ElemType,                    \
       const T *const SMESH_RESTRICT *const SMESH_RESTRICT,                      \
       ptrdiff_t *SMESH_RESTRICT,                                                \
-      T **SMESH_RESTRICT, int16_t **SMESH_RESTRICT)                                                   
+      T **SMESH_RESTRICT, i16 **SMESH_RESTRICT);
 
 
 namespace smesh {

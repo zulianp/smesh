@@ -2,6 +2,7 @@
 #define SMESH_DISTRIBUTED_BASE_HPP
 
 #include "smesh_base.hpp"
+#include "smesh_types.hpp"
 
 #include <mpi.h>
 
@@ -38,6 +39,17 @@ namespace smesh {
     MPI_Datatype mpi_type<long long>() {
         return MPI_LONG_LONG;
     }
+
+    template <>
+    MPI_Datatype mpi_type<short>() {
+        return MPI_SHORT;
+    }
+
+    // template <>
+    // MPI_Datatype mpi_type<f16>() {
+    //     // No standard MPI half type; treat as 16-bit payload.
+    //     return MPI_UNSIGNED_SHORT;
+    // }
 }
 
 #endif // SMESH_DISTRIBUTED_BASE_HPP

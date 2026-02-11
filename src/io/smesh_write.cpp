@@ -49,7 +49,7 @@ int mesh_write_yaml_basic(const Path &path, enum ElemType element_type,
 }
 
 int mesh_multiblock_write_yaml(const Path &path, const uint16_t n_blocks,
-                               const std::vector<std::string_view> &block_names,
+                               const std::vector<std::string> &block_names,
                                const std::vector<enum ElemType> &element_types,
                                const std::vector<ptrdiff_t> &n_elements,
                                const int spatial_dim, const ptrdiff_t n_nodes) {
@@ -118,7 +118,7 @@ int mesh_multiblock_write_yaml(const Path &path, const uint16_t n_blocks,
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(IDX_T, GEOM_T)    \
   template int mesh_multiblock_to_folder<IDX_T, GEOM_T>(                       \
-      const Path &, const std::vector<std::string_view> &,                     \
+      const Path &, const std::vector<std::string> &,                     \
       const std::vector<enum ElemType> &, const std::vector<ptrdiff_t> &,      \
       IDX_T **const[], const int, const ptrdiff_t, GEOM_T **const)
 

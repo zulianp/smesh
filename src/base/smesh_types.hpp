@@ -124,7 +124,7 @@ template <> struct TypeToEnum<u32> {
   static enum PrimitiveType value() { return SMESH_UINT32; }
 };
 
-size_t num_bytes(enum PrimitiveType type) {
+inline size_t num_bytes(enum PrimitiveType type) {
   switch (type) {
   case SMESH_FLOAT16:
     return sizeof(f16);

@@ -11,6 +11,9 @@ namespace smesh {
   // SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i16, f32);
 SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i32, f32);
 SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i64, f32);
+
+template int array_read_convert_from_extension<i16>(const Path &path, i16 **data,
+                                                    ptrdiff_t *n_elements);
 } // namespace smesh
 
 

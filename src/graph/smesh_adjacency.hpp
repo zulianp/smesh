@@ -1,7 +1,11 @@
 #ifndef SMESH_ADJACENCY_HPP
 #define SMESH_ADJACENCY_HPP
 
+#include <cstddef>
+#include <cstdint>
+
 #include "smesh_base.hpp"
+#include "smesh_types.hpp"
 #include "smesh_elem_type.hpp"
 
 namespace smesh {
@@ -126,6 +130,52 @@ struct LocalSideTable {
     return table[side * nnxs + node];
   }
 };
+
+template <typename idx_t, typename count_t, typename element_idx_t>
+void create_element_adj_table_from_dual_graph(
+    const ptrdiff_t n_elements, enum ElemType element_type,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const count_t *const adj_ptr, const element_idx_t *const adj_idx,
+    element_idx_t *const SMESH_RESTRICT table);
+
+template <typename idx_t, typename count_t, typename element_idx_t>
+void create_element_adj_table_from_dual_graph_soa(
+    const ptrdiff_t n_elements, enum ElemType element_type,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const count_t *const adj_ptr, const element_idx_t *const adj_idx,
+    element_idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT table);
+
+template <typename idx_t, typename count_t = idx_t, typename element_idx_t>
+void create_element_adj_table(
+    const ptrdiff_t n_elements, const ptrdiff_t n_nodes,
+    enum ElemType element_type,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    element_idx_t **SMESH_RESTRICT table_out);
+
+template <typename idx_t, typename count_t = idx_t, typename element_idx_t>
+void extract_surface_connectivity_with_adj_table(
+    const ptrdiff_t n_elements, const ptrdiff_t n_nodes,
+    enum ElemType element_type,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    ptrdiff_t *n_surf_elements, idx_t **SMESH_RESTRICT surf_elems,
+    element_idx_t **SMESH_RESTRICT parent_element);
+
+template <typename element_idx_t>
+int extract_sideset_from_adj_table(
+    const enum ElemType element_type, const ptrdiff_t n_elements,
+    const element_idx_t *const SMESH_RESTRICT table,
+    ptrdiff_t *SMESH_RESTRICT n_surf_elements,
+    element_idx_t **SMESH_RESTRICT parent_element,
+    i16 **SMESH_RESTRICT side_idx);
+
+template <typename idx_t, typename count_t = idx_t, typename element_idx_t>
+int extract_skin_sideset(
+    const ptrdiff_t n_elements, const ptrdiff_t n_nodes,
+    const enum ElemType element_type,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    ptrdiff_t *SMESH_RESTRICT n_surf_elements,
+    element_idx_t **SMESH_RESTRICT parent_element,
+    i16 **SMESH_RESTRICT side_idx);
 
 } // namespace smesh
 

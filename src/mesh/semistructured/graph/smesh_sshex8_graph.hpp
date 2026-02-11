@@ -64,7 +64,7 @@ template <typename idx_t>
 int sshex8_hierarchical_renumbering(
     const int L, const int nlevels, int *const levels,
     const ptrdiff_t nelements, const ptrdiff_t nnodes,
-    const idx_t *const SMESH_RETRICT *const SMESH_RESTRICT elements);
+    idx_t *const SMESH_RETRICT *const SMESH_RESTRICT elements);
 
 template <typename idx_t, typename element_idx_t>
 int sshex8_extract_surface_from_sideset(

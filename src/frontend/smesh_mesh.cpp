@@ -1,9 +1,40 @@
 #include "smesh_mesh.hpp"
 #include "smesh_path.hpp"
 #include "smesh_tracer.hpp"
+#include "smesh_read.hpp"
+#include "smesh_write.hpp"
+#include "smesh_glob.hpp"
+#include "smesh_adjacency.hpp"
+#include "smesh_graph.hpp"
+#include "smesh_mask.hpp"
+#include "smesh_sideset.hpp"
+#include "smesh_multiblock_graph.hpp"
+
+#ifdef SMESH_ENABLE_MPI
+#include "smesh_distributed_read.hpp"
+#include "smesh_distributed_write.hpp"
+#endif
+
+#include <algorithm>
 #include <list>
+#include <vector>
 
 namespace smesh {
+
+    static ptrdiff_t max_node_id(
+            const enum ElemType element_type,
+            const ptrdiff_t     n_elements,
+            const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems) {
+        const int nxe = elem_num_nodes(element_type);
+        idx_t     max_id{-1};
+        for (int v = 0; v < nxe; ++v) {
+            const idx_t *const col = elems[v];
+            for (ptrdiff_t e = 0; e < n_elements; ++e) {
+                max_id = std::max(max_id, col[e]);
+            }
+        }
+        return static_cast<ptrdiff_t>(max_id);
+    }
 
     class Mesh::Block::Impl {
     public:
@@ -186,7 +217,7 @@ namespace smesh {
             int       spatial_dim;
             ptrdiff_t nelements;
 
-            if (mesh_read_serial(path, &nnodesxelem, &nelements, &elements, &spatial_dim, &impl_->nnodes, &points) !=
+            if (mesh_from_folder(path, &nnodesxelem, &nelements, &elements, &spatial_dim, &impl_->nnodes, &points) !=
                 SMESH_SUCCESS) {
                 return SMESH_FAILURE;
             }
@@ -227,7 +258,7 @@ namespace smesh {
             ptrdiff_t      n_shared_elements;
             ptrdiff_t      n_owned_elements_with_ghosts;
 
-            if (mesh_read_mpi(impl_->comm->get(),
+            if (mesh_from_folder(impl_->comm->get(),
                               path,
                               &nnodesxelem,
                               &nelements,
@@ -298,8 +329,8 @@ namespace smesh {
         create_directory(path);
 
         if (impl_->node_mapping) {
-            std::string path_node_mapping = std::string(path) + "/node_mapping.raw";
-            impl_->node_mapping->to_file(path_node_mapping.c_str());
+            Path path_node_mapping = path / ("node_mapping." + std::string(TypeToString<idx_t>::value()));
+            impl_->node_mapping->to_file(path_node_mapping);
         }
 
         // Write the default block (block 0)
@@ -308,7 +339,7 @@ namespace smesh {
         }
 
         if (impl_->blocks.size() == 1) {
-            return mesh_write_serial(path,
+            return mesh_to_folder(path,
                                      impl_->blocks[0]->element_type(),
                                      impl_->blocks[0]->elements()->extent(1),
                                      impl_->blocks[0]->elements()->data(),
@@ -319,19 +350,18 @@ namespace smesh {
             std::vector<ptrdiff_t>     n_elements;
             std::vector<enum ElemType> element_types;
             std::vector<idx_t **>      elements;
-            std::vector<const char *>  block_names;
+            std::vector<std::string>   block_names;
 
             for (auto &block : impl_->blocks) {
                 n_elements.push_back(block->elements()->extent(1));
                 element_types.push_back(block->element_type());
                 elements.push_back(block->elements()->data());
-                block_names.push_back(block->name().c_str());
+                block_names.push_back(block->name());
             }
-            return mesh_multiblock_write_serial(path,
-                                                impl_->blocks.size(),
-                                                block_names.data(),
-                                                element_types.data(),
-                                                n_elements.data(),
+            return mesh_multiblock_to_folder(path,
+                                                block_names,
+                                                element_types,
+                                                n_elements,
                                                 elements.data(),
                                                 impl_->spatial_dim,
                                                 impl_->nnodes,
@@ -339,19 +369,19 @@ namespace smesh {
         }
     }
 
-    const geom_t *const Mesh::points(const int coord) const {
+    const geom_t * Mesh::points(const int coord) const {
         assert(coord < spatial_dimension());
         assert(coord >= 0);
         return impl_->points->data()[coord];
     }
 
-    const idx_t *const Mesh::idx(const int node_num) const {
+    const idx_t * Mesh::idx(const int node_num) const {
         assert(node_num < n_nodes_per_element());
         assert(node_num >= 0);
         return impl_->default_elements()->data()[node_num];
     }
 
-    std::shared_ptr<CRSGraph> Mesh::node_to_node_graph() {
+    std::shared_ptr<Mesh::CRSGraph> Mesh::node_to_node_graph() {
         initialize_node_to_node_graph();
         return impl_->crs_graph;
     }
@@ -365,7 +395,7 @@ namespace smesh {
         return manage_host_buffer<element_idx_t>(n_elements() * nsxe, table);
     }
 
-    std::shared_ptr<CRSGraph> Mesh::create_node_to_node_graph(const enum ElemType element_type) {
+    std::shared_ptr<Mesh::CRSGraph> Mesh::create_node_to_node_graph(const enum ElemType element_type) {
         if (impl_->default_element_type() == element_type) {
             return node_to_node_graph();
         }
@@ -374,10 +404,10 @@ namespace smesh {
 
         count_t *rowptr{nullptr};
         idx_t   *colidx{nullptr};
-        build_crs_graph_for_elem_type(
+        create_crs_graph_for_elem_type(
                 element_type, impl_->total_elements(), n_nodes, impl_->default_elements()->data(), &rowptr, &colidx);
 
-        auto crs_graph = std::make_shared<CRSGraph>(Buffer<count_t>::own(n_nodes + 1, rowptr, free, MEMORY_SPACE_HOST),
+        auto crs_graph = std::make_shared<Mesh::CRSGraph>(Buffer<count_t>::own(n_nodes + 1, rowptr, free, MEMORY_SPACE_HOST),
                                                     Buffer<idx_t>::own(rowptr[n_nodes], colidx, free, MEMORY_SPACE_HOST));
 
         return crs_graph;
@@ -396,7 +426,7 @@ namespace smesh {
         idx_t   *colidx{nullptr};
 
         if (impl_->blocks.size() == 1) {
-            build_crs_graph_for_elem_type(impl_->default_element_type(),
+            create_crs_graph_for_elem_type(impl_->default_element_type(),
                                           impl_->total_elements(),
                                           impl_->nnodes,
                                           impl_->default_elements()->data(),
@@ -414,7 +444,7 @@ namespace smesh {
                 elements.push_back(block->elements()->data());
             }
 
-            build_multiblock_crs_graph(impl_->blocks.size(),
+            create_multiblock_crs_graph(impl_->blocks.size(),
                                        element_types.data(),
                                        n_elements.data(),
                                        elements.data(),
@@ -423,13 +453,13 @@ namespace smesh {
                                        &colidx);
         }
 
-        impl_->crs_graph = std::make_shared<CRSGraph>(Buffer<count_t>::own(impl_->nnodes + 1, rowptr, free, MEMORY_SPACE_HOST),
+        impl_->crs_graph = std::make_shared<Mesh::CRSGraph>(Buffer<count_t>::own(impl_->nnodes + 1, rowptr, free, MEMORY_SPACE_HOST),
                                                       Buffer<idx_t>::own(rowptr[impl_->nnodes], colidx, free, MEMORY_SPACE_HOST));
 
         return SMESH_SUCCESS;
     }
 
-    std::shared_ptr<CRSGraph> Mesh::node_to_node_graph_upper_triangular() {
+    std::shared_ptr<Mesh::CRSGraph> Mesh::node_to_node_graph_upper_triangular() {
         if (impl_->crs_graph_upper_triangular) return impl_->crs_graph_upper_triangular;
         SMESH_TRACE_SCOPE("Mesh::node_to_node_graph_upper_triangular");
 
@@ -437,7 +467,7 @@ namespace smesh {
         idx_t   *colidx{nullptr};
 
         if (impl_->blocks.size() == 1) {
-            build_crs_graph_upper_triangular_from_element(impl_->total_elements(),
+            create_crs_graph_upper_triangular_from_element(impl_->total_elements(),
                                                           impl_->nnodes,
                                                           elem_num_nodes(impl_->default_element_type()),
                                                           impl_->default_elements()->data(),
@@ -455,7 +485,7 @@ namespace smesh {
                 elements.push_back(block->elements()->data());
             }
 
-            build_multiblock_crs_graph_upper_triangular(impl_->blocks.size(),
+            create_multiblock_crs_graph_upper_triangular(impl_->blocks.size(),
                                                         element_types.data(),
                                                         n_elements.data(),
                                                         elements.data(),
@@ -465,8 +495,9 @@ namespace smesh {
         }
 
         impl_->crs_graph_upper_triangular =
-                std::make_shared<CRSGraph>(Buffer<count_t>::own(impl_->nnodes + 1, rowptr, free, MEMORY_SPACE_HOST),
-                                           Buffer<idx_t>::own(rowptr[impl_->nnodes], colidx, free, MEMORY_SPACE_HOST));
+                std::make_shared<Mesh::CRSGraph>(
+                        Buffer<count_t>::own(impl_->nnodes + 1, rowptr, free, MEMORY_SPACE_HOST),
+                        Buffer<idx_t>::own(rowptr[impl_->nnodes], colidx, free, MEMORY_SPACE_HOST));
 
         return impl_->crs_graph_upper_triangular;
     }
@@ -749,8 +780,6 @@ namespace smesh {
         for (ptrdiff_t zi = 0; zi < nz; zi++) {
             for (ptrdiff_t yi = 0; yi < ny; yi++) {
                 for (ptrdiff_t xi = 0; xi < nx; xi++) {
-                    const ptrdiff_t e = zi * ny * nx + yi * nx + xi;
-
                     const idx_t i0 = (xi + 0) * ldx + (yi + 0) * ldy + (zi + 0) * ldz;
                     const idx_t i1 = (xi + 1) * ldx + (yi + 0) * ldy + (zi + 0) * ldz;
                     const idx_t i2 = (xi + 1) * ldx + (yi + 1) * ldy + (zi + 0) * ldz;
@@ -864,8 +893,6 @@ namespace smesh {
         for (ptrdiff_t zi = 0; zi < nz; zi++) {
             for (ptrdiff_t yi = 0; yi < ny; yi++) {
                 for (ptrdiff_t xi = 0; xi < nx; xi++) {
-                    const ptrdiff_t e = zi * ny * nx + yi * nx + xi;
-
                     const idx_t i0 = (xi + 0) * ldx + (yi + 0) * ldy + (zi + 0) * ldz;
                     const idx_t i1 = (xi + 1) * ldx + (yi + 0) * ldy + (zi + 0) * ldz;
                     const idx_t i2 = (xi + 1) * ldx + (yi + 1) * ldy + (zi + 0) * ldz;
@@ -984,34 +1011,6 @@ namespace smesh {
         }
 
         return ret;
-    }
-
-    void Mesh::extract_deprecated(mesh_t *mesh) {
-#ifdef SMESH_ENABLE_MPI
-        mesh->comm = impl_->comm->get();
-#endif
-        mesh->spatial_dim  = impl_->spatial_dim;
-        mesh->element_type = impl_->default_element_type();
-
-        mesh->nelements = impl_->total_elements();
-        mesh->nnodes    = impl_->nnodes;
-
-        mesh->elements = impl_->default_elements()->data();
-        mesh->points   = impl_->points->data();
-
-        mesh->n_owned_nodes             = impl_->n_owned_nodes;
-        mesh->n_owned_nodes_with_ghosts = impl_->n_owned_nodes_with_ghosts;
-
-        mesh->n_owned_elements             = impl_->n_owned_elements;
-        mesh->n_owned_elements_with_ghosts = impl_->n_owned_elements_with_ghosts;
-        mesh->n_shared_elements            = impl_->n_shared_elements;
-
-        mesh->node_mapping    = (impl_->node_mapping) ? impl_->node_mapping->data() : nullptr;
-        mesh->node_owner      = (impl_->node_owner) ? impl_->node_owner->data() : nullptr;
-        mesh->element_mapping = (impl_->element_mapping) ? impl_->element_mapping->data() : nullptr;
-
-        mesh->node_offsets = (impl_->node_offsets) ? impl_->node_offsets->data() : nullptr;
-        mesh->ghosts       = (impl_->ghosts) ? impl_->ghosts->data() : nullptr;
     }
 
     std::shared_ptr<Mesh> Mesh::create_hex8_reference_cube() {
@@ -1291,7 +1290,8 @@ namespace smesh {
             for (ptrdiff_t i = 0; i < n_elements; i++) {
                 if (mask_get(i, d_bdry_mask) == 0) {
                     for (int v = 0; v < nxe; v++) {
-                        assert(n_interior_elements_count < interior_elements->extent(1));
+                        assert(n_interior_elements_count <
+                               static_cast<ptrdiff_t>(interior_elements->extent(1)));
                         d_interior_elements[v][n_interior_elements_count] = d_elements[v][i];
                     }
                     n_interior_elements_count++;
@@ -1344,9 +1344,10 @@ namespace smesh {
                 SMESH_ERROR("Failed to extract skin!\n");
             }
 
-            sideset = std::make_shared<sfem::Sideset>(this->comm(),
-                                                      sfem::manage_host_buffer(n_surf_elements, parent),
-                                                      sfem::manage_host_buffer(n_surf_elements, side_idx));
+            sideset = std::make_shared<Sideset>(
+                    this->comm(),
+                    manage_host_buffer(n_surf_elements, parent),
+                    manage_host_buffer(n_surf_elements, side_idx));
         }
 
         return split_block(sideset->parent(), "boundary_layer");
@@ -1355,7 +1356,6 @@ namespace smesh {
     int Mesh::renumber_nodes() {
         const int nxe        = n_nodes_per_element();
         auto      n_nodes    = this->n_nodes();
-        auto      n_elements = this->n_elements();
 
         auto new_idx_buff = create_host_buffer<idx_t>(n_nodes);
 
@@ -1412,10 +1412,8 @@ namespace smesh {
         const int       dim        = spatial_dimension();
         const int       nxe        = n_nodes_per_element();
         const ptrdiff_t n_nodes    = this->n_nodes();
-        const ptrdiff_t n_elements = this->n_elements();
 
         auto points          = this->points()->data();
-        auto elements        = this->elements()->data();
         auto new_points_buff = create_host_buffer<geom_t>(dim, n_nodes);
         auto new_points      = new_points_buff->data();
 
@@ -1451,7 +1449,6 @@ namespace smesh {
         SMESH_TRACE_SCOPE("Sideset::create_from_selector");
 
         // const ptrdiff_t nelements = mesh->n_elements();
-        const ptrdiff_t nnodes = n_nodes();
         const int       dim    = spatial_dimension();
 
         auto points = this->points()->data();
@@ -1518,10 +1515,10 @@ namespace smesh {
 
         idx_t ntags = 0;
         for (ptrdiff_t i = 0; i < nelems; i++) {
-            ntags = MAX(ntags, d_tags[i]);
+            ntags = std::max(ntags, d_tags[i]);
         }
 
-        if (ntags) return;
+        if (!ntags) return;
 
         ntags += 1;
 

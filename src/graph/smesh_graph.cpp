@@ -46,6 +46,14 @@ namespace smesh {
 SMESH_EXPLICIT_INSTANTIATE_CRS_GRAPH(i32);
 SMESH_EXPLICIT_INSTANTIATE_CRS_GRAPH(i64);
 SMESH_EXPLICIT_INSTANTIATE_CRS_GRAPH(i16);
+
+// Mixed instantiations required by frontend graphs.
+template int crs_graph_block_to_scalar<i32, i64>(
+    ptrdiff_t, int,
+    const i64 *const SMESH_RESTRICT,
+    const i32 *const SMESH_RESTRICT,
+    i64 *const SMESH_RESTRICT,
+    i32 *const SMESH_RESTRICT);
 } // namespace smesh
 
 #undef SMESH_EXPLICIT_INSTANTIATE_CRS_GRAPH
