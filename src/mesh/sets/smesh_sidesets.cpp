@@ -7,7 +7,7 @@
       const T *const SMESH_RESTRICT *const SMESH_RESTRICT, const ptrdiff_t,    \
       const T *const SMESH_RESTRICT, const i16 *const SMESH_RESTRICT,          \
       ptrdiff_t *, T **SMESH_RESTRICT);                                        \
-  template int extract_nodeset_from_sidesets<T, T, T>(                         \
+  template int extract_nodeset_from_sidesets<T, T>(                            \
       ptrdiff_t, const enum ElemType[], T **const SMESH_RESTRICT[],            \
       const ptrdiff_t[], const T *const SMESH_RESTRICT[],                      \
       const i16 *const SMESH_RESTRICT[], ptrdiff_t *, T **SMESH_RESTRICT);     \
@@ -17,7 +17,7 @@
       const ptrdiff_t n_surf_elements,                                         \
       const T *const SMESH_RESTRICT parent_element,                            \
       const i16 *const SMESH_RESTRICT side_idx,                                \
-      T *const SMESH_RESTRICT *const SMESH_RESTRICT sides)
+      T *const SMESH_RESTRICT *const SMESH_RESTRICT sides);
 
       
 
