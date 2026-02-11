@@ -29,7 +29,7 @@
       const ptrdiff_t, const ptrdiff_t, const enum ElemType,                    \
       const T *const SMESH_RESTRICT *const SMESH_RESTRICT,                      \
       ptrdiff_t *SMESH_RESTRICT,                                                \
-      T **SMESH_RESTRICT, int16_t **SMESH_RESTRICT)                            \                       
+      T **SMESH_RESTRICT, int16_t **SMESH_RESTRICT)                                                   
 
 
 namespace smesh {
