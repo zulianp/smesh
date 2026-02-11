@@ -10,13 +10,13 @@
 
 namespace smesh {
     template <typename pack_idx_t>
-    class Packed {
+    class PackedMesh {
     public:
-        Packed();
-        ~Packed();
+        PackedMesh();
+        ~PackedMesh();
 
         std::shared_ptr<Mesh> mesh() const;
-        static std::shared_ptr<Packed> create(const std::shared_ptr<Mesh>    &mesh,
+        static std::shared_ptr<PackedMesh> create(const std::shared_ptr<Mesh>    &mesh,
                                               const std::vector<std::string> &block_names = {},
                                               const bool                      modify_mesh = false);
 
@@ -41,6 +41,8 @@ namespace smesh {
         ptrdiff_t                  n_elements_per_pack(const int block_idx) const;
 
         ptrdiff_t max_nodes_per_pack() const;
+
+        int write(const Path &path) const;
 
     private:
         class Block;

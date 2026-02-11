@@ -7,7 +7,7 @@
 
 namespace smesh {
 
-template <typename pack_idx_t> class Packed<pack_idx_t>::Block {
+template <typename pack_idx_t> class PackedMesh<pack_idx_t>::Block {
 public:
   ptrdiff_t n_packs;
   ptrdiff_t elements_per_pack;
@@ -19,6 +19,15 @@ public:
   SharedBuffer<ptrdiff_t> n_shared;
   SharedBuffer<ptrdiff_t> ghost_ptr;
   SharedBuffer<idx_t> ghost_idx;
+  
+  int write(const Path &path) const {
+    packed_elements->to_files(path / ("i%d." + std::string(TypeToString<pack_idx_t>::value())));
+    owned_nodes_ptr->to_file(path / ("owned_nodes_ptr." + std::string(TypeToString<ptrdiff_t>::value())));
+    n_shared->to_file(path / ("n_shared." + std::string(TypeToString<ptrdiff_t>::value())));
+    ghost_ptr->to_file(path / ("ghost_ptr." + std::string(TypeToString<ptrdiff_t>::value())));
+    ghost_idx->to_file(path / ("ghost_idx." + std::string(TypeToString<idx_t>::value())));
+    return SMESH_SUCCESS;
+  }
 
   size_t nbytes() const {
     return packed_elements->nbytes() + owned_nodes_ptr->nbytes() +
@@ -27,10 +36,10 @@ public:
 
   void print(std::ostream &os = std::cout) const {
     os << "--------------------" << std::endl;
-    os << "| Packed |" << std::endl;
+    os << "| PackedMesh |" << std::endl;
     os << "n_packs: " << n_packs << std::endl;
     os << "elements_per_pack: " << elements_per_pack << std::endl;
-    os << "Memory Packed: " << (nbytes() / 1204.0) << " KB" << std::endl;
+    os << "Memory PackedMesh: " << (nbytes() / 1204.0) << " KB" << std::endl;
     os << "Original:      " << (block->elements()->nbytes() / 1204.0) << " KB"
        << std::endl;
     os << "--------------------" << std::endl;
@@ -247,7 +256,7 @@ public:
   }
 };
 
-template <typename pack_idx_t> class Packed<pack_idx_t>::Impl {
+template <typename pack_idx_t> class PackedMesh<pack_idx_t>::Impl {
 public:
   static const ptrdiff_t max_nodes_per_pack =
       std::numeric_limits<pack_idx_t>::max() + 1l;
@@ -369,63 +378,63 @@ public:
 };
 
 template <typename pack_idx_t>
-std::shared_ptr<Mesh> Packed<pack_idx_t>::mesh() const {
+std::shared_ptr<Mesh> PackedMesh<pack_idx_t>::mesh() const {
   return impl_->mesh;
 }
 
-template <typename pack_idx_t> ptrdiff_t Packed<pack_idx_t>::n_blocks() const {
+template <typename pack_idx_t> ptrdiff_t PackedMesh<pack_idx_t>::n_blocks() const {
   return impl_->blocks.size();
 }
 template <typename pack_idx_t>
 SharedBuffer<pack_idx_t *>
-Packed<pack_idx_t>::elements(const int block_idx) const {
+PackedMesh<pack_idx_t>::elements(const int block_idx) const {
   return impl_->blocks[block_idx]->packed_elements;
 }
 
 template <typename pack_idx_t>
 SharedBuffer<ptrdiff_t>
-Packed<pack_idx_t>::owned_nodes_ptr(const int block_idx) const {
+PackedMesh<pack_idx_t>::owned_nodes_ptr(const int block_idx) const {
   return impl_->blocks[block_idx]->owned_nodes_ptr;
 }
 
 template <typename pack_idx_t>
 SharedBuffer<ptrdiff_t>
-Packed<pack_idx_t>::n_shared(const int block_idx) const {
+PackedMesh<pack_idx_t>::n_shared(const int block_idx) const {
   return impl_->blocks[block_idx]->n_shared;
 }
 
 template <typename pack_idx_t>
 SharedBuffer<ptrdiff_t>
-Packed<pack_idx_t>::ghost_ptr(const int block_idx) const {
+PackedMesh<pack_idx_t>::ghost_ptr(const int block_idx) const {
   return impl_->blocks[block_idx]->ghost_ptr;
 }
 template <typename pack_idx_t>
-SharedBuffer<idx_t> Packed<pack_idx_t>::ghost_idx(const int block_idx) const {
+SharedBuffer<idx_t> PackedMesh<pack_idx_t>::ghost_idx(const int block_idx) const {
   return impl_->blocks[block_idx]->ghost_idx;
 }
 
 template <typename pack_idx_t>
-std::string Packed<pack_idx_t>::block_name(const int block_idx) const {
+std::string PackedMesh<pack_idx_t>::block_name(const int block_idx) const {
   return impl_->blocks[block_idx]->block->name();
 }
 
 template <typename pack_idx_t>
-Packed<pack_idx_t>::Packed() : impl_(std::make_unique<Impl>()) {}
+PackedMesh<pack_idx_t>::PackedMesh() : impl_(std::make_unique<Impl>()) {}
 
-template <typename pack_idx_t> Packed<pack_idx_t>::~Packed() = default;
+template <typename pack_idx_t> PackedMesh<pack_idx_t>::~PackedMesh() = default;
 
 template <typename pack_idx_t>
-std::shared_ptr<Packed<pack_idx_t>>
-Packed<pack_idx_t>::create(const std::shared_ptr<Mesh> &mesh,
+std::shared_ptr<PackedMesh<pack_idx_t>>
+PackedMesh<pack_idx_t>::create(const std::shared_ptr<Mesh> &mesh,
                            const std::vector<std::string> &block_names,
                            const bool modify_mesh) {
-  auto packed = std::make_shared<Packed<pack_idx_t>>();
+  auto packed = std::make_shared<PackedMesh<pack_idx_t>>();
   packed->impl_->init(mesh, block_names, modify_mesh);
   return packed;
 }
 
 template <typename pack_idx_t>
-void Packed<pack_idx_t>::map_to_packed(
+void PackedMesh<pack_idx_t>::map_to_packed(
     const real_t *const SMESH_RESTRICT values,
     real_t *const SMESH_RESTRICT out_values, const int block_size) const {
   if (!impl_->synched_with_mesh)
@@ -442,7 +451,7 @@ void Packed<pack_idx_t>::map_to_packed(
 }
 
 template <typename pack_idx_t>
-void Packed<pack_idx_t>::map_to_unpacked(
+void PackedMesh<pack_idx_t>::map_to_unpacked(
     const real_t *const SMESH_RESTRICT values,
     real_t *const SMESH_RESTRICT out_values, const int block_size) const {
   if (!impl_->synched_with_mesh)
@@ -452,35 +461,53 @@ void Packed<pack_idx_t>::map_to_unpacked(
   const ptrdiff_t nnodes = impl_->mesh->n_nodes();
   for (ptrdiff_t node = 0; node < nnodes; node++) {
     for (int v = 0; v < block_size; v++) {
-      out_values[node * block_size + v] = values[d_node_map[node] * block_size + v];
+      out_values[node * block_size + v] =
+          values[d_node_map[node] * block_size + v];
     }
   }
 }
 
 template <typename pack_idx_t>
-SharedBuffer<geom_t *> Packed<pack_idx_t>::points() {
+SharedBuffer<geom_t *> PackedMesh<pack_idx_t>::points() {
   impl_->init_reordered_points();
 
   return impl_->reordered_points;
 }
 
 template <typename pack_idx_t>
-ptrdiff_t Packed<pack_idx_t>::max_nodes_per_pack() const {
+ptrdiff_t PackedMesh<pack_idx_t>::max_nodes_per_pack() const {
   return Impl::max_nodes_per_pack;
 }
 
 template <typename pack_idx_t>
-ptrdiff_t Packed<pack_idx_t>::n_packs(const int block_idx) const {
+ptrdiff_t PackedMesh<pack_idx_t>::n_packs(const int block_idx) const {
   return impl_->blocks[block_idx]->n_packs;
 }
 
 template <typename pack_idx_t>
-ptrdiff_t Packed<pack_idx_t>::n_elements_per_pack(const int block_idx) const {
+ptrdiff_t PackedMesh<pack_idx_t>::n_elements_per_pack(const int block_idx) const {
   return impl_->blocks[block_idx]->elements_per_pack;
 }
 
-template class Packed<uint8_t>;
-template class Packed<int16_t>;
-template class Packed<uint16_t>;
+template <typename pack_idx_t>
+int PackedMesh<pack_idx_t>::write(const Path &path) const {
+
+  auto node_map = impl_->node_map;
+  auto reordered_points = impl_->reordered_points;
+
+  node_map->to_file(path / ("node_map." + std::string(TypeToString<idx_t>::value())));
+  reordered_points->to_files(path / ("x%d." + std::string(TypeToString<geom_t>::value())));
+
+  for (auto &block : impl_->blocks) {
+    auto block_path = path / block->block->name();
+    block->write(block_path);
+  }
+
+  return SMESH_SUCCESS;
+}
+
+template class PackedMesh<uint8_t>;
+template class PackedMesh<int16_t>;
+template class PackedMesh<uint16_t>;
 
 } // namespace smesh

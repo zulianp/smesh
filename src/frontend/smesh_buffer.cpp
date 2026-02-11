@@ -29,4 +29,6 @@ template class Buffer<u8>;
 template class Buffer<u16>;
 template class Buffer<u32>;
 template class Buffer<u64>;
+
+// TODO: explicit instantiation of functions in smesh_buffer.impl.hpp
 } // namespace smesh
