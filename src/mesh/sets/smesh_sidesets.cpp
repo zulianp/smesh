@@ -19,8 +19,6 @@
       const i16 *const SMESH_RESTRICT side_idx,                                \
       T *const SMESH_RESTRICT *const SMESH_RESTRICT sides);
 
-      
-
 namespace smesh {
 SMESH_EXPLICIT_INSTANTIATE_SIDESETS(i32);
 SMESH_EXPLICIT_INSTANTIATE_SIDESETS(i64);
