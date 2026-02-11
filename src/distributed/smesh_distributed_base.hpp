@@ -45,6 +45,11 @@ namespace smesh {
         return MPI_SHORT;
     }
 
+    MPI_Datatype SMESH_MPI_F16;
+
+    int register_mpi_datatypes();
+    int unregister_mpi_datatypes();
+
     // template <>
     // MPI_Datatype mpi_type<f16>() {
     //     // No standard MPI half type; treat as 16-bit payload.

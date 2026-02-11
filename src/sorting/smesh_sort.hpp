@@ -1,6 +1,9 @@
 #ifndef SMESH_SORT_HPP
 #define SMESH_SORT_HPP
 
+#include <algorithm>
+#include <iterator>
+
 #ifdef SFEM_ENABLE_AVX512_SORT
 #include "avx512-16bit-qsort.hpp"
 #include "avx512-32bit-qsort.hpp"

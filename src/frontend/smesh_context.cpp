@@ -7,6 +7,10 @@
 // TODO: include CUDA init stuff
 #endif
 
+#ifdef SMESH_ENABLE_MPI
+#include "smesh_distributed_base.hpp"
+#endif
+
 namespace smesh {
 
 class Context::Impl {
@@ -17,13 +21,17 @@ public:
 };
 
 Context::Context(int argc, char *argv[]) : impl_(std::make_unique<Impl>()) {
+  #ifdef SMESH_ENABLE_MPI
   MPI_Init(&argc, &argv);
+  register_mpi_datatypes();
+  #endif
   impl_->owns_mpi_context = true;
   impl_->communicator = Communicator::world();
 }
 
 Context::~Context() {
 #ifdef SMESH_ENABLE_MPI
+  unregister_mpi_datatypes();
   if (impl_->owns_mpi_context) {
     MPI_Finalize();
   }
