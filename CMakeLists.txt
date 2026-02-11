@@ -79,9 +79,14 @@ add_library(smesh::smesh ALIAS smesh)
 set_target_properties(smesh PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED YES
-    CXX_EXTENSIONS NO
+    CXX_EXTENSIONS YES
     POSITION_INDEPENDENT_CODE ON
 )
+
+# Ensure any target that links `smesh` (and thus includes smesh headers) is
+# compiled with C++17. This fixes build failures on toolchains defaulting to
+# C++14 (e.g. `if constexpr` requires C++17).
+target_compile_features(smesh PUBLIC cxx_std_17)
 
 target_include_directories(smesh
     PUBLIC

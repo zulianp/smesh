@@ -1,6 +1,7 @@
 #include "smesh_packed_mesh.hpp"
 #include "smesh_env.hpp"
 #include "smesh_mask.hpp"
+#include "smesh_glob.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -271,11 +272,12 @@ public:
 
   void init(const std::shared_ptr<Mesh> &mesh,
             const std::vector<std::string> &block_names,
-            const bool modify_mesh) {
+            const bool modify_mesh,
+            const int pack_size) {
     this->mesh = mesh;
 
     const ptrdiff_t SMESH_ELEMENTS_PER_PACK =
-        smesh::Env::read("SMESH_ELEMENTS_PER_PACK", 0);
+        smesh::Env::read("SMESH_ELEMENTS_PER_PACK", pack_size);
 
     node_map = smesh::create_host_buffer<idx_t>(mesh->n_nodes());
 
@@ -427,9 +429,10 @@ template <typename pack_idx_t>
 std::shared_ptr<PackedMesh<pack_idx_t>>
 PackedMesh<pack_idx_t>::create(const std::shared_ptr<Mesh> &mesh,
                            const std::vector<std::string> &block_names,
-                           const bool modify_mesh) {
+                           const bool modify_mesh,
+                           const int pack_size) {
   auto packed = std::make_shared<PackedMesh<pack_idx_t>>();
-  packed->impl_->init(mesh, block_names, modify_mesh);
+  packed->impl_->init(mesh, block_names, modify_mesh, pack_size);
   return packed;
 }
 
@@ -490,16 +493,23 @@ ptrdiff_t PackedMesh<pack_idx_t>::n_elements_per_pack(const int block_idx) const
 }
 
 template <typename pack_idx_t>
-int PackedMesh<pack_idx_t>::write(const Path &path) const {
+int PackedMesh<pack_idx_t>::write(const Path &path) {
 
   auto node_map = impl_->node_map;
   auto reordered_points = impl_->reordered_points;
 
+  create_directory(path);
+
   node_map->to_file(path / ("node_map." + std::string(TypeToString<idx_t>::value())));
-  reordered_points->to_files(path / ("x%d." + std::string(TypeToString<geom_t>::value())));
+
+  auto points = this->points();
+  if (points) {   
+    points->to_files(path / ("x%d." + std::string(TypeToString<geom_t>::value())));
+  }
 
   for (auto &block : impl_->blocks) {
     auto block_path = path / block->block->name();
+    create_directory(block_path);
     block->write(block_path);
   }
 

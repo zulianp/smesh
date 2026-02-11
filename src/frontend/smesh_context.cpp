@@ -21,10 +21,11 @@ public:
 };
 
 Context::Context(int argc, char *argv[]) : impl_(std::make_unique<Impl>()) {
-  #ifdef SMESH_ENABLE_MPI
+#ifdef SMESH_ENABLE_MPI
+
   MPI_Init(&argc, &argv);
   register_mpi_datatypes();
-  #endif
+#endif
   impl_->owns_mpi_context = true;
   impl_->communicator = Communicator::world();
 }
@@ -58,20 +59,19 @@ std::shared_ptr<Context> initialize(int argc, char *argv[], MPI_Comm comm) {
   return std::make_shared<Context>(argc, argv, comm);
 }
 
-std::shared_ptr<Context> initialize_serial(int argc, char *argv[])
-{
-    int size;
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-    if (size > 1) {
-        SMESH_ERROR("Context initialization does not support parallel runs!\n");
-    }
+std::shared_ptr<Context> initialize_serial(int argc, char *argv[]) {
 
-    return std::make_shared<Context>(argc, argv, MPI_COMM_SELF);
+  auto context = std::make_shared<Context>(argc, argv);
+
+  if (context->communicator()->size() > 1) {
+    SMESH_ERROR("Context initialization does not support parallel runs!\n");
+  }
+
+  return context;
 }
 #else
-std::shared_ptr<Context> initialize_serial(int argc, char *argv[])
-{
-    return std::make_shared<Context>(argc, argv);
+std::shared_ptr<Context> initialize_serial(int argc, char *argv[]) {
+  return std::make_shared<Context>(argc, argv);
 }
 
 #endif

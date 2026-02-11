@@ -80,7 +80,7 @@ int array_write_convert_from_extension(const Path &path,
 template <typename idx_t>
 int mesh_block_to_folder(
     const Path &folder, int n_nodes_x_elem, const ptrdiff_t n_elements,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements) {
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements) {
   int ret = SMESH_SUCCESS;
   for (int d = 0; d < n_nodes_x_elem; ++d) {
     std::string fname = std::string("i") + std::to_string(d) + "." +
@@ -98,7 +98,7 @@ int mesh_block_to_folder(
 template <typename geom_t>
 int mesh_coordinates_to_folder(
     const Path &folder, int spatial_dim, const ptrdiff_t n_nodes,
-    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
+    const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
 
   static constexpr std::string_view xyz[3] = {"x", "y", "z"};
   if (create_directory(folder) != SMESH_SUCCESS) {
@@ -122,9 +122,9 @@ int mesh_coordinates_to_folder(
 template <typename idx_t, typename geom_t>
 int mesh_to_folder(const Path &path, enum ElemType element_type,
                    const ptrdiff_t n_elements,
-                   idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                   const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
                    const int spatial_dim, const ptrdiff_t n_nodes,
-                   geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
+                   const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
   int n_nodes_x_elem = elem_num_nodes(element_type);
   if (mesh_block_to_folder(path, n_nodes_x_elem, n_elements, elements) !=
       SMESH_SUCCESS) {
@@ -148,8 +148,11 @@ int mesh_multiblock_to_folder(const Path &path,
                               const std::vector<std::string> &block_names,
                               const std::vector<enum ElemType> &element_types,
                               const std::vector<ptrdiff_t> &n_elements,
-                              idx_t **const elements[], const int spatial_dim,
-                              const ptrdiff_t n_nodes, geom_t **const points) {
+                              const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT
+                                  elements[],
+                              const int spatial_dim, const ptrdiff_t n_nodes,
+                              const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT
+                                  points) {
 
   SMESH_ASSERT(block_names.size() == element_types.size());
   SMESH_ASSERT(block_names.size() == n_elements.size());
@@ -164,14 +167,15 @@ int mesh_multiblock_to_folder(const Path &path,
   }
 
   int ret = mesh_coordinates_to_folder(path, spatial_dim, n_nodes, points);
-  int n_blocks = block_names.size();
+  const int n_blocks = static_cast<int>(block_names.size());
   for (int b = 0; b < n_blocks; ++b) {
     Path output_path = block_path / block_names[b];
     if (create_directory(output_path) != SMESH_SUCCESS) {
       return SMESH_FAILURE;
     }
 
-    if (mesh_block_to_folder(output_path, element_types[b], n_elements[b],
+    const int n_nodes_x_elem = elem_num_nodes(element_types[b]);
+    if (mesh_block_to_folder(output_path, n_nodes_x_elem, n_elements[b],
                              elements[b]) != SMESH_SUCCESS) {
       ret = SMESH_FAILURE;
     }

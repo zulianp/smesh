@@ -89,7 +89,7 @@ template <typename T>
 int array_read_convert_from_extension(const Path &path, T **data,
                                       ptrdiff_t *n_elements) {
   auto ext = path.extension();
-  if (ext == ".raw") {
+  if (ext == "raw") {
     // We trust the user that the raw file is of the correct type.
     return array_read<T>(path, data, n_elements);
   } else if (ext == "float16") {
@@ -117,7 +117,7 @@ int mesh_block_from_folder(const Path &folder, int *nnodesxelem_out,
   ptrdiff_t n_elements = 0;
 
   std::vector<Path> i_files =
-      detect_files(folder / "i*.*", {".raw", ".int16", ".int32", ".int64"});
+      detect_files(folder / "i*.*", {"raw", "int16", "int32", "int64"});
 
   int nnodesxelem = i_files.size();
 
@@ -181,25 +181,25 @@ int mesh_coordinates_from_folder(const Path &folder, int *spatial_dim_out,
   ptrdiff_t n_nodes = 0;
 
   std::vector<Path> x_file = detect_files(
-      folder / "x.*", {".raw", ".float16", ".float32", ".float64"});
+      folder / "x.*", {"raw", "float16", "float32", "float64"});
   std::vector<Path> y_file = detect_files(
-      folder / "y.*", {".raw", ".float16", ".float32", ".float64"});
+      folder / "y.*", {"raw", "float16", "float32", "float64"});
   std::vector<Path> z_file = detect_files(
-      folder / "z.*", {".raw", ".float16", ".float32", ".float64"});
+      folder / "z.*", {"raw", "float16", "float32", "float64"});
 
   if (x_file.empty()) {
     x_file = detect_files(folder / "x0.*",
-                          {".raw", ".float16", ".float32", ".float64"});
+                          {"raw", "float16", "float32", "float64"});
   }
 
   if (y_file.empty()) {
     y_file = detect_files(folder / "x1.*",
-                          {".raw", ".float16", ".float32", ".float64"});
+                          {"raw", "float16", "float32", "float64"});
   }
 
   if (z_file.empty()) {
     z_file = detect_files(folder / "x2.*",
-                          {".raw", ".float16", ".float32", ".float64"});
+                          {"raw", "float16", "float32", "float64"});
   }
 
   int ndims = x_file.empty() ? 0 : 1; // x only

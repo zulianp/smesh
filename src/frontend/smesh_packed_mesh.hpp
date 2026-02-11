@@ -18,7 +18,8 @@ namespace smesh {
         std::shared_ptr<Mesh> mesh() const;
         static std::shared_ptr<PackedMesh> create(const std::shared_ptr<Mesh>    &mesh,
                                               const std::vector<std::string> &block_names = {},
-                                              const bool                      modify_mesh = false);
+                                              const bool                      modify_mesh = false,
+                                             const int pack_size = 0);
 
         void map_to_packed(const real_t *const SMESH_RESTRICT values,
                            real_t *const SMESH_RESTRICT       out_values,
@@ -42,7 +43,7 @@ namespace smesh {
 
         ptrdiff_t max_nodes_per_pack() const;
 
-        int write(const Path &path) const;
+        int write(const Path &path);
 
     private:
         class Block;

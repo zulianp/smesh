@@ -17,15 +17,15 @@ static inline std::vector<Path>
 detect_files(const Path &pattern,
              const std::initializer_list<std::string_view> extensions) {
 
-  std::vector<Path> files;
-  for (auto iter = pattern.iter(); iter; ++iter) {
-    auto file = *iter;
-    if (std::find(extensions.begin(), extensions.end(), file.extension()) !=
+  std::vector<std::string> files = find_files(pattern.to_string());
+  std::vector<Path> paths;
+  for (auto file : files) {
+    if (std::find(extensions.begin(), extensions.end(), file.substr(file.find_last_of('.') + 1)) !=
         extensions.end()) {
-      files.push_back(file);
+      paths.push_back(Path(file));
     }
   }
-  return files;
+  return paths;
 }
 
 static inline PrimitiveType detect_real_type(std::string_view file) {

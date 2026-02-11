@@ -103,24 +103,26 @@ int mesh_multiblock_write_yaml(const Path &path, const uint16_t n_blocks,
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_BLOCK_TO_FOLDER(IDX_T)                 \
   template int mesh_block_to_folder<IDX_T>(                                    \
       const Path &, int, const ptrdiff_t,                                      \
-      IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
+      const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_COORDINATES_TO_FOLDER(GEOM_T)          \
   template int mesh_coordinates_to_folder<GEOM_T>(                             \
       const Path &, int, const ptrdiff_t,                                      \
-      GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
+      const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_TO_FOLDER(IDX_T, GEOM_T)               \
   template int mesh_to_folder<IDX_T, GEOM_T>(                                  \
       const Path &, enum ElemType, const ptrdiff_t,                            \
-      IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, const int,            \
-      const ptrdiff_t, GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
+      const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, const int,      \
+      const ptrdiff_t, const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(IDX_T, GEOM_T)    \
   template int mesh_multiblock_to_folder<IDX_T, GEOM_T>(                       \
-      const Path &, const std::vector<std::string> &,                     \
+      const Path &, const std::vector<std::string> &,                          \
       const std::vector<enum ElemType> &, const std::vector<ptrdiff_t> &,      \
-      IDX_T **const[], const int, const ptrdiff_t, GEOM_T **const)
+      const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT [],              \
+      const int, const ptrdiff_t,                                              \
+      const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
 
 #define SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT_FROM_EXTENSION(TYPE)    \
   template int array_write_convert_from_extension<TYPE>(                       \
@@ -132,9 +134,9 @@ int mesh_multiblock_write_yaml(const Path &path, const uint16_t n_blocks,
       const Path &path, const TYPE *const SMESH_RESTRICT data,                 \
       const ptrdiff_t n_elements)
 
-
-#define SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE(TYPE)                          \
-  template int array_write<TYPE>(const Path &path, const TYPE *const SMESH_RESTRICT data, \
+#define SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE(TYPE)                           \
+  template int array_write<TYPE>(const Path &path,                             \
+                                 const TYPE *const SMESH_RESTRICT data,        \
                                  const ptrdiff_t n_elements)
 
 namespace smesh {

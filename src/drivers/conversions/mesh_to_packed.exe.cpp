@@ -1,25 +1,24 @@
-#include <stdio.h>
-#include "smesh_path.hpp"
 #include "smesh_context.hpp"
 #include "smesh_packed_mesh.hpp"
+#include "smesh_path.hpp"
+#include <stdio.h>
 
 using namespace smesh;
 
-int main(int argc, char** argv) {
-    if (argc != 4) {
-        fprintf(stderr, "Usage: %s <block_size> <input_folder> <output_folder>\n", argv[0]);
-        return 1;
-    }
+int main(int argc, char **argv) {
+  auto ctx = smesh::initialize_serial(argc, argv);
 
-    auto ctx = smesh::initialize_serial(argc, argv);
-    {
-        auto mesh = Mesh::create_from_file(ctx->communicator(), Path(argv[1]));
-        auto packed = PackedMesh<i16>::create(mesh);
-        packed->write(Path(argv[2]));
-    }
-    // int block_size = std::atoi(argv[1]);
-    // Path input_folder(argv[2]);
-    // Path output_folder(argv[3]);
+  if (argc != 4) {
+    fprintf(stderr, "Usage: %s <block_size> <input_folder> <output_folder>\n",
+            argv[0]);
+    return SMESH_FAILURE;
+  }
 
-    return SMESH_SUCCESS;
+  {
+    auto mesh = Mesh::create_from_file(ctx->communicator(), Path(argv[2]));
+    auto packed = PackedMesh<i16>::create(mesh, {}, false, std::atoi(argv[1]));
+    packed->write(Path(argv[3]));
+  }
+
+  return SMESH_SUCCESS;
 }
