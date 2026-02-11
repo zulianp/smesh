@@ -7,6 +7,10 @@
 #include "smesh_sidesets.hpp"
 #include "smesh_tracer.hpp"
 #include "smesh_write.hpp"
+#include "smesh_semi_structured_mesh.hpp"
+#include "smesh_sshex8_graph.hpp"
+#include "smesh_ssquad4_mesh.hpp"
+
 
 #include <cstddef>
 #include <fstream>

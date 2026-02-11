@@ -1,7 +1,7 @@
 #ifndef SMESH_SSHEX8_GRAPH_IMPL_HPP
 #define SMESH_SSHEX8_GRAPH_IMPL_HPP
 
-#include "smesh_hex8_mesh_graph.hpp"
+// #include "smesh_hex8_graph.hpp"
 
 #include "smesh_adjacency.hpp"
 #include "smesh_graph.hpp"
@@ -52,6 +52,7 @@ static int hex8_build_edge_graph_from_n2e(
     const count_t *const SMESH_RESTRICT n2eptr,
     const element_idx_t *const SMESH_RESTRICT elindex, count_t **out_rowptr,
     idx_t **out_colidx) {
+        SMESH_UNUSED(nelements);
   count_t *rowptr = (count_t *)malloc((nnodes + 1) * sizeof(count_t));
   idx_t *colidx = 0;
 
@@ -170,7 +171,7 @@ int hex8_build_edge_graph(
 template <typename element_idx_t, typename idx_t, typename count_t>
 int sshex8_skeleton_crs_graph(
     const int L, const ptrdiff_t nelements, const ptrdiff_t nnodes,
-    const idx_t *const SMESH_RETRICT *const SMESH_RESTRICT elements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     count_t **out_rowptr, idx_t **out_colidx) {
   double tick = time_seconds();
 
@@ -210,7 +211,7 @@ index_face(const int L, idx_t **const m_elements,
            const int *const local_side_table, int *lagr_to_proteus_corners,
            int **coords, const idx_t global_face_offset, const ptrdiff_t e,
            const int f,
-           const idx_t *const SMESH_RETRICT *const SMESH_RESTRICT elements) {
+           const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements) {
   int argmin = 0;
   idx_t valmin = m_elements[local_side_table[f * 4 + 0]][e];
   for (int i = 0; i < 4; i++) {
@@ -336,7 +337,7 @@ int sshex8_generate_elements(const int L, const ptrdiff_t m_nelements,
 
   int *coords[3];
   for (int d = 0; d < 3; d++) {
-    coords[d] = malloc(nxe * sizeof(int));
+    coords[d] = (int *)malloc(nxe * sizeof(int));
   }
 
   for (int zi = 0; zi <= L; zi++) {
@@ -384,8 +385,8 @@ int sshex8_generate_elements(const int L, const ptrdiff_t m_nelements,
     ptrdiff_t nedges = rowptr[m_nnodes] / 2;
 
     ptrdiff_t nnz = rowptr[m_nnodes];
-    idx_t *edge_idx = (idx_t *)malloc(nnz * sizeof(idx_t));
-    memset(edge_idx, 0, nnz * sizeof(idx_t));
+    idx_t *edge_idx = (idx_t *)calloc(nnz, sizeof(idx_t));
+
 
     // node-to-node for the hex edges in local indexing
     idx_t lagr_connectivity[8][3] = {// BOTTOM
@@ -415,7 +416,7 @@ int sshex8_generate_elements(const int L, const ptrdiff_t m_nelements,
       }
     }
 
-    SMESH_ASSERT(edge_count == nedges);
+    SMESH_ASSERT(edge_count == nedges); SMESH_UNUSED(edge_count);
 
     for (ptrdiff_t e = 0; e < m_nelements; e++) {
       idx_t nodes[8];
@@ -458,7 +459,7 @@ int sshex8_generate_elements(const int L, const ptrdiff_t m_nelements,
             start[d] = o;
           }
 
-          int invert_dir = 0;
+        //   int invert_dir = 0;
           for (int d = 0; d < 3; d++) {
             int x = coords[d][lid2] - coords[d][lid1];
             dir[d] = 1;
@@ -509,8 +510,9 @@ int sshex8_generate_elements(const int L, const ptrdiff_t m_nelements,
   if (nxf) {
     double temp_tick = time_seconds();
 
-    int local_side_table[6 * 4];
-    fill_local_side_table(HEX8, local_side_table);
+    LocalSideTable lst;
+    lst.fill(HEX8);
+    const int ns = elem_num_sides(HEX8);
 
     element_idx_t *adj_table = 0;
     create_element_adj_table(m_nelements, m_nnodes, m_element_type, m_elements,
@@ -526,7 +528,7 @@ int sshex8_generate_elements(const int L, const ptrdiff_t m_nelements,
           continue;
 
         idx_t global_face_offset = index_base + n_unique_faces * nxf;
-        index_face(L, m_elements, local_side_table, lagr_to_proteus_corners,
+        index_face(L, m_elements, lst.table, lagr_to_proteus_corners,
                    coords, global_face_offset, e, f, elements);
 
         if (neigh_element != SMESH_ELEMENT_IDX_INVALID) {
@@ -540,7 +542,7 @@ int sshex8_generate_elements(const int L, const ptrdiff_t m_nelements,
 
           SMESH_ASSERT(neigh_f != 6);
 
-          index_face(L, m_elements, local_side_table, lagr_to_proteus_corners,
+          index_face(L, m_elements, lst.table, lagr_to_proteus_corners,
                      coords, global_face_offset, neigh_element, neigh_f,
                      elements);
         }
@@ -809,7 +811,7 @@ int sshex8_build_crs_graph_from_n2e(
 template<typename element_idx_t, typename count_t, typename idx_t>
 int sshex8_crs_graph(
     const int L, const ptrdiff_t nelements, const ptrdiff_t nnodes,
-    const idx_t *const SMESH_RETRICT *const SMESH_RESTRICT elements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     count_t **out_rowptr, idx_t **out_colidx) {
   double tick = time_seconds();
 
@@ -863,7 +865,7 @@ template<typename idx_t>
 int sshex8_hierarchical_renumbering(
     const int L, const int nlevels, int *const levels,
     const ptrdiff_t nelements, const ptrdiff_t nnodes,
-    const idx_t *const SMESH_RETRICT *const SMESH_RESTRICT elements) {
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements) {
   idx_t *node_mapping = malloc(nnodes * sizeof(idx_t));
 #pragma omp parallel for
   for (ptrdiff_t i = 0; i < nnodes; i++) {

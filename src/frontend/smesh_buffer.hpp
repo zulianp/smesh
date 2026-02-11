@@ -86,7 +86,7 @@ public:
       std::function<void(int n, void **)> destroy,
       enum MemorySpace mem_space = MEMORY_SPACE_INVALID);
 
-  int to_files(const char *format);
+  int to_files(const Path &path);
 
   void release();
 

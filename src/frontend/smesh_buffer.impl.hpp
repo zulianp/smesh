@@ -102,11 +102,11 @@ std::shared_ptr<Buffer<T *>> Buffer<T *>::own(
   return std::make_shared<Buffer<T *>>(n0, n1, x, destroy, mem_space);
 }
 
-template <typename T> int Buffer<T *>::to_files(const char *format) {
+template <typename T> int Buffer<T *>::to_files(const Path &format) {
   int ret = SMESH_SUCCESS;
   char path[2048];
   for (int i = 0; i < static_cast<int>(extent_[0]); i++) {
-    int nchars = snprintf(path, sizeof(path), format, i);
+    int nchars = snprintf(path, sizeof(path), format.c_str(), i);
     assert(nchars < static_cast<int>(sizeof(path)));
 
     if (nchars >= static_cast<int>(sizeof(path))) {

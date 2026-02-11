@@ -111,7 +111,7 @@ int sshex8_fill_points(
       for (int xi = 0; xi < level + 1; xi++) {
         for (int d = 0; d < 3; d++) {
           geom_t f[8];
-          hex8_eval_f(geom_t(xi) * h, geom_t(yi) * h, geom_t(zi) * h, &f[0],
+          hex8_eval_f<geom_t>(geom_t(xi) * h, geom_t(yi) * h, geom_t(zi) * h, &f[0],
                       &f[1], &f[2], &f[3], &f[4], &f[5], &f[6], &f[7]);
 
           int lidx = sshex8_lidx(level, xi, yi, zi);
@@ -135,12 +135,12 @@ int sshex8_fill_points(
   return SMESH_SUCCESS;
 }
 
-template <typename idx_t, typename geom_t>
+template <typename idx_t, typename geom_t, typename ref_t>
 int sshex8_fill_points_1D_map(
     const int level, const ptrdiff_t nelements,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT macro_mesh_points,
-    const geom_t *const SMESH_RESTRICT ref_points,
+    const ref_t *const SMESH_RESTRICT ref_points,
     geom_t *SMESH_RESTRICT *const SMESH_RESTRICT points) {
   const int proteus_to_std_hex8_corners[8] = {
       // Bottom
@@ -158,7 +158,7 @@ int sshex8_fill_points_1D_map(
       for (int xi = 0; xi < level + 1; xi++) {
         for (int d = 0; d < 3; d++) {
           geom_t f[8];
-          hex8_eval_f(ref_points[xi], ref_points[yi], ref_points[zi], &f[0],
+          hex8_eval_f<geom_t>(ref_points[xi], ref_points[yi], ref_points[zi], &f[0],
                       &f[1], &f[2], &f[3], &f[4], &f[5], &f[6], &f[7]);
           int lidx = sshex8_lidx(level, xi, yi, zi);
 
