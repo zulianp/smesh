@@ -142,10 +142,6 @@ install(
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
-install(
-    FILES src/smesh.hpp
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
 
 install(
     EXPORT smeshTargets
