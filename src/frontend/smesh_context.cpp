@@ -26,6 +26,8 @@ Context::Context(int argc, char *argv[]) : impl_(std::make_unique<Impl>()) {
   MPI_Init(&argc, &argv);
   register_mpi_datatypes();
 #endif
+  SMESH_UNUSED(argc);
+  SMESH_UNUSED(argv);
   impl_->owns_mpi_context = true;
   impl_->communicator = Communicator::world();
 }

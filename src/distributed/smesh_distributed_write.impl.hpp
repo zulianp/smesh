@@ -3,7 +3,6 @@
 #include "smesh_distributed_base.hpp"
 #include "smesh_distributed_write.hpp"
 #include "smesh_types.hpp"
-
 #include "matrixio_array.h"
 
 namespace smesh {

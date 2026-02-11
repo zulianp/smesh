@@ -13,11 +13,25 @@ if(SMESH_ENABLE_PYTHON)
     include(cmake/SMESHPython.cmake)
 endif()
 
-
 set(SMESH_LIBRARY_SCAN_DIRS
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    CACHE STRING "Folders to scan for smesh library sources/headers (semicolon-separated)"
+    "src/base"
+    "src/drivers"
+    "src/frontend"
+    "src/graph"
+    "src/io"
+    "src/mesh"
+    "src/packedmesh"
+    "src/profile"
+    "src/quadrature"
+    "src/shape"
+    "src/sorting"
+    "src/ssmesh"
+    "src/utils"
 )
+
+if(SMESH_ENABLE_MPI)
+    list(APPEND SMESH_LIBRARY_SCAN_DIRS "src/distributed")
+endif()
 
 set(_smesh_library_files "")
 set(_smesh_library_include_dirs "")
