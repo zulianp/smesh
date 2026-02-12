@@ -17,7 +17,7 @@
       const ptrdiff_t n_surf_elements,                                         \
       const T *const SMESH_RESTRICT parent_element,                            \
       const i16 *const SMESH_RESTRICT side_idx,                                \
-      T *const SMESH_RESTRICT *const SMESH_RESTRICT sides);
+      T *const SMESH_RESTRICT *const SMESH_RESTRICT sides);                    
 
 namespace smesh {
 SMESH_EXPLICIT_INSTANTIATE_SIDESETS(i32);

@@ -11,7 +11,7 @@
 using namespace smesh;
 
 int main(int argc, char **argv) {
-  SMESH_TRACE_SCOPE("refine.exe");
+  SMESH_TRACE_SCOPE("extract_sharp_features.exe");
   auto ctx = initialize_serial(argc, argv);
 
   if (argc != 3) {

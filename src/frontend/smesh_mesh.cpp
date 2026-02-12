@@ -98,8 +98,8 @@ public:
   ptrdiff_t n_owned_elements_with_ghosts;
   ptrdiff_t n_shared_elements;
 
-  std::shared_ptr<CRSGraph> crs_graph;
-  std::shared_ptr<CRSGraph> crs_graph_upper_triangular;
+  std::shared_ptr<NodeToNodeGraph> crs_graph;
+  std::shared_ptr<NodeToNodeGraph> crs_graph_upper_triangular;
 
   ~Impl() {}
 
@@ -396,9 +396,13 @@ const idx_t *Mesh::idx(const int node_num) const {
   return impl_->default_elements()->data()[node_num];
 }
 
-std::shared_ptr<Mesh::CRSGraph> Mesh::node_to_node_graph() {
+std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::node_to_node_graph() {
   initialize_node_to_node_graph();
   return impl_->crs_graph;
+}
+
+std::shared_ptr<Mesh::NodeToElementGraph> Mesh::node_to_element_graph() {
+  return nullptr;
 }
 
 SharedBuffer<element_idx_t> Mesh::half_face_table() {
@@ -411,7 +415,7 @@ SharedBuffer<element_idx_t> Mesh::half_face_table() {
   return manage_host_buffer<element_idx_t>(n_elements() * nsxe, table);
 }
 
-std::shared_ptr<Mesh::CRSGraph>
+std::shared_ptr<Mesh::NodeToNodeGraph>
 Mesh::create_node_to_node_graph(const enum ElemType element_type) {
   if (impl_->default_element_type() == element_type) {
     return node_to_node_graph();
@@ -427,7 +431,7 @@ Mesh::create_node_to_node_graph(const enum ElemType element_type) {
                                  impl_->default_elements()->data(), &rowptr,
                                  &colidx);
 
-  auto crs_graph = std::make_shared<Mesh::CRSGraph>(
+  auto crs_graph = std::make_shared<Mesh::NodeToNodeGraph>(
       Buffer<count_t>::own(n_nodes + 1, rowptr, free, MEMORY_SPACE_HOST),
       Buffer<idx_t>::own(rowptr[n_nodes], colidx, free, MEMORY_SPACE_HOST));
 
@@ -441,7 +445,7 @@ int Mesh::initialize_node_to_node_graph() {
 
   SMESH_TRACE_SCOPE("Mesh::initialize_node_to_node_graph");
 
-  impl_->crs_graph = std::make_shared<CRSGraph>();
+  impl_->crs_graph = std::make_shared<NodeToNodeGraph>();
 
   count_t *rowptr{nullptr};
   idx_t *colidx{nullptr};
@@ -467,7 +471,7 @@ int Mesh::initialize_node_to_node_graph() {
                                 impl_->nnodes, &rowptr, &colidx);
   }
 
-  impl_->crs_graph = std::make_shared<Mesh::CRSGraph>(
+  impl_->crs_graph = std::make_shared<Mesh::NodeToNodeGraph>(
       Buffer<count_t>::own(impl_->nnodes + 1, rowptr, free, MEMORY_SPACE_HOST),
       Buffer<idx_t>::own(rowptr[impl_->nnodes], colidx, free,
                          MEMORY_SPACE_HOST));
@@ -475,7 +479,7 @@ int Mesh::initialize_node_to_node_graph() {
   return SMESH_SUCCESS;
 }
 
-std::shared_ptr<Mesh::CRSGraph> Mesh::node_to_node_graph_upper_triangular() {
+std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::node_to_node_graph_upper_triangular() {
   if (impl_->crs_graph_upper_triangular)
     return impl_->crs_graph_upper_triangular;
   SMESH_TRACE_SCOPE("Mesh::node_to_node_graph_upper_triangular");
@@ -505,7 +509,7 @@ std::shared_ptr<Mesh::CRSGraph> Mesh::node_to_node_graph_upper_triangular() {
         elements.data(), impl_->nnodes, &rowptr, &colidx);
   }
 
-  impl_->crs_graph_upper_triangular = std::make_shared<Mesh::CRSGraph>(
+  impl_->crs_graph_upper_triangular = std::make_shared<Mesh::NodeToNodeGraph>(
       Buffer<count_t>::own(impl_->nnodes + 1, rowptr, free, MEMORY_SPACE_HOST),
       Buffer<idx_t>::own(rowptr[impl_->nnodes], colidx, free,
                          MEMORY_SPACE_HOST));

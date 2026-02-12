@@ -31,6 +31,22 @@ int extract_surface_from_sideset(
     const element_idx_t *const SMESH_RESTRICT parent_element,
     const int16_t *const SMESH_RESTRICT side_idx,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT sides);
+
+template <typename element_idx_t, typename count_t, typename idx_t,
+          typename mask_t, typename selector_t>
+int sideset_select_propagate(
+    // Sideset
+    const ptrdiff_t n_sides,
+    const element_idx_t *const SMESH_RESTRICT parent_element,
+    const i16 *const SMESH_RESTRICT side_idx,
+    const count_t *const SMESH_RESTRICT n2e_ptr,
+    const element_idx_t *const SMESH_RESTRICT n2e_idx,
+    // Mesh connectivity
+    const enum ElemType element_type, const ptrdiff_t n_elements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    // Selection
+    const element_idx_t sideset_seed, mask_t *const SMESH_RESTRICT selected,
+    selector_t &&selector);
 } // namespace smesh
 
 #endif // SMESH_SIDESETS_HPP

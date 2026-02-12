@@ -13,7 +13,8 @@
 namespace smesh {
     class Mesh final {
     public:
-        using CRSGraph = smesh::CRSGraph<count_t, idx_t>;
+        using NodeToNodeGraph = smesh::CRSGraph<count_t, idx_t>;
+        using NodeToElementGraph = smesh::CRSGraph<count_t, element_idx_t>;
 
         class Block {
         public:
@@ -79,10 +80,11 @@ namespace smesh {
         ptrdiff_t     n_owned_elements_with_ghosts() const;
         ptrdiff_t     n_shared_elements() const;
 
-        std::shared_ptr<CRSGraph>   node_to_node_graph();
-        std::shared_ptr<CRSGraph>   node_to_node_graph_upper_triangular();
+        std::shared_ptr<NodeToNodeGraph>   node_to_node_graph();
+        std::shared_ptr<NodeToNodeGraph>   node_to_node_graph_upper_triangular();
+        std::shared_ptr<NodeToElementGraph>   node_to_element_graph();
         SharedBuffer<element_idx_t> half_face_table();
-        std::shared_ptr<CRSGraph>   create_node_to_node_graph(const enum ElemType element_type);
+        std::shared_ptr<NodeToNodeGraph>   create_node_to_node_graph(const enum ElemType element_type);
 
         SharedBuffer<count_t> node_to_node_rowptr() const;
         SharedBuffer<idx_t>   node_to_node_colidx() const;
