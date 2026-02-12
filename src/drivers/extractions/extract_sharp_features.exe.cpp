@@ -1,8 +1,8 @@
 #include "smesh_context.hpp"
+#include "smesh_env.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_path.hpp"
 #include "smesh_tracer.hpp"
-#include "smesh_env.hpp"
 #include <stdio.h>
 
 using namespace smesh;
@@ -22,8 +22,7 @@ int main(int argc, char **argv) {
   int ret = SMESH_SUCCESS;
   {
     auto mesh = Mesh::create_from_file(ctx->communicator(), Path(argv[1]));
-    auto refined = refine(mesh, Env::read<int>("SMESH_REFINEMENT_LEVELS", 1));
-    refined->write(Path(argv[2]));
+
   }
 
   return ret;
