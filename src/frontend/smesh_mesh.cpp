@@ -1290,7 +1290,9 @@ std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
     auto n2n_upper_triangular = mesh.node_to_node_graph_upper_triangular();
     auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
     auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
-    auto e2e_table = mesh.half_face_table()->data();
+
+    auto hft = mesh.half_face_table();
+    auto e2e_table = hft->data();
 
     ptrdiff_t n_new_nodes = 0;
     mesh_tet4_to_tet15(mesh.n_elements(), mesh.n_nodes(),
@@ -1314,7 +1316,7 @@ std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
 
     auto elements = create_host_buffer<idx_t>(10, mesh.n_elements());
     auto points = create_host_buffer<geom_t>(
-        mesh.spatial_dimension(), n2n_upper_triangular->colidx()->size());
+        mesh.spatial_dimension(), n2n_upper_triangular->colidx()->size() + mesh.n_nodes());
 
     p1_to_p2(TET4, mesh.n_elements(), mesh.elements()->data(),
              mesh.spatial_dimension(), mesh.n_nodes(), mesh.points()->data(),
