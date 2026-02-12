@@ -18,8 +18,8 @@ int main(int argc, char **argv) {
 
   int ret = SMESH_SUCCESS;
   {
-    auto mesh = Mesh::create_from_file(ctx->communicator(), Path(argv[1]));
-    auto new_mesh = convert_to(type_from_string(argv[2]), mesh);
+    auto mesh = Mesh::create_from_file(ctx->communicator(), Path(argv[2]));
+    auto new_mesh = convert_to(type_from_string(argv[1]), mesh);
     ret = new_mesh->write(Path(argv[3]));
   }
 

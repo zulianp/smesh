@@ -35,12 +35,12 @@ int mesh_write_yaml_basic(const Path &path, enum ElemType element_type,
 
   fprintf(meta_file, "elements:\n");
   for (int d = 0; d < nxe; ++d) {
-    fprintf(meta_file, "- i%d: i%d.raw\n", d, d);
+    fprintf(meta_file, "- i%d: i%d.%s\n", d, d, TypeToString<idx_t>::value().data());
   }
 
   fprintf(meta_file, "points:\n");
   for (int d = 0; d < spatial_dim; d++) {
-    fprintf(meta_file, "- %c: %c.raw\n", xyz[d], xyz[d]);
+    fprintf(meta_file, "- %c: %c.%s\n", xyz[d], xyz[d], TypeToString<geom_t>::value().data());
   }
 
   fprintf(meta_file, "rpath: true\n");
