@@ -7,7 +7,7 @@ include(CMakePackageConfigHelpers)
 set(SMESH_PUBLIC_SUBMODULES "")
 include(cmake/SMESHOptions.cmake)
 include(cmake/SMESHDependencies.cmake)
-
+include(cmake/SMESHSanitizer.cmake)
 
 if(SMESH_ENABLE_PYTHON)
     include(cmake/SMESHPython.cmake)

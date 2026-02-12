@@ -1354,7 +1354,23 @@ std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh) {
   auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
   auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
 
-  auto refined_elements = create_host_buffer<idx_t>(8, mesh->n_elements());
+  const int refine_factor = [](const ElemType element_type) {
+    switch (element_type) {
+    case HEX8:
+      return 8;
+    case TET4:
+      return 8;
+    case TRI3:
+      return 4;
+    default:
+      SMESH_ERROR("Refinement factor not supported for element type %d\n",
+                  element_type);
+      return 0;
+    }
+  }(mesh->element_type());
+
+  auto refined_elements = create_host_buffer<idx_t>(
+      mesh->n_nodes_per_element(), mesh->n_elements() * refine_factor);
   auto refined_points = create_host_buffer<geom_t>(
       mesh->spatial_dimension(), n2n_upper_triangular->colidx()->size());
 
