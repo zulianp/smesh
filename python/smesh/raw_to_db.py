@@ -26,7 +26,7 @@ except NameError:
     geom_t = np.float32
     idx_t = np.int32
 
-max_nodes_x_element = 10
+max_nodes_x_element = 15
 
 
 # def ssquad4_to_standard(ssref, idx, points):
@@ -303,7 +303,7 @@ def raw_to_db(argv):
         path = path[0]
         if os.path.exists(path):
             if verbose:
-                print(f"Reading {path}...")
+                print(f"Reading {path}")
             x = np.fromfile(path, dtype=geom_t)
             points.append(x)
 
@@ -318,7 +318,7 @@ def raw_to_db(argv):
             dtype = extension_to_dtype(extension(path))
             if os.path.exists(path):
                 if verbose:
-                    print(f"Reading {path}...")
+                    print(f"Reading {path}")
                 x = np.fromfile(path, dtype=dtype)
                 points.append(x)
 
@@ -332,7 +332,7 @@ def raw_to_db(argv):
         dtype = extension_to_dtype(extension(path))
         if os.path.exists(path):
             if verbose:
-                print(f"Reading {path}...")
+                print(f"Reading {path}")
             ii = np.fromfile(path, dtype=dtype)
             idx.append(ii)
     
