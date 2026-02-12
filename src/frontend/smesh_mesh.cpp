@@ -1415,10 +1415,11 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
       manage_host_buffer<i16>(n_surf_elements, side_idx), 0);
 }
 
-std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh) {
-  auto sideset = skin_sideset(mesh);
+std::shared_ptr<Mesh>
+mesh_from_sideset(const std::shared_ptr<Mesh> &mesh, const std::shared_ptr<Sideset> &sideset) {
+
   auto [surface_type, surface_elements] =
-  create_surface_from_sideset(mesh, sideset);
+      create_surface_from_sideset(mesh, sideset);
 
   const ptrdiff_t n_nodes = mesh->n_nodes();
   auto vol2surf = create_host_buffer<idx_t>(n_nodes);
@@ -1448,7 +1449,7 @@ std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh) {
   auto mapping = create_host_buffer<idx_t>(n_surf_nodes);
   auto b_surf_points = surf_points->data();
   auto b_mapping = mapping->data();
-  
+
   int spatial_dim = mesh->spatial_dimension();
   for (ptrdiff_t i = 0; i < n_nodes; ++i) {
     if (b_vol2surf[i] == invalid_idx<idx_t>())
@@ -1463,8 +1464,12 @@ std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh) {
   auto ret = std::make_shared<Mesh>(mesh->comm(), surface_type,
                                     surface_elements, surf_points);
   ret->set_node_mapping(mapping);
-
   return ret;
+}
+
+std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh) {
+  auto sideset = skin_sideset(mesh);
+  return mesh_from_sideset(mesh, sideset);
 }
 
 } // namespace smesh
