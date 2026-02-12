@@ -1,4 +1,4 @@
-#include "smesh_extract_shap_features.impl.hpp"
+#include "smesh_extract_shape_features.impl.hpp"
 
 #include "smesh_types.hpp"
 
@@ -9,10 +9,10 @@
       GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                      \
       const IDX_T *const SMESH_RESTRICT, const IDX_T *const SMESH_RESTRICT,    \
       GEOM_T, ptrdiff_t *, IDX_T **, IDX_T **);                                \
-  template int extract_sharp_corners<IDX_T, IDX_T>(                            \
+  template int extract_sharp_corners<IDX_T>(                            \
       ptrdiff_t, ptrdiff_t, IDX_T *const SMESH_RESTRICT,                       \
       IDX_T *const SMESH_RESTRICT, ptrdiff_t *, IDX_T **, int);                \
-  template int extract_disconnected_faces<IDX_T, IDX_T, IDX_T>(                \
+  template int extract_disconnected_faces<IDX_T, IDX_T>(                \
       enum ElemType, ptrdiff_t, ptrdiff_t,                                     \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, ptrdiff_t,            \
       const IDX_T *const SMESH_RESTRICT, const IDX_T *const SMESH_RESTRICT,    \

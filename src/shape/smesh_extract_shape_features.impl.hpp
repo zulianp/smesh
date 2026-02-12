@@ -2,7 +2,7 @@
 #define SMESH_EXTRACT_SHAP_FEATURES_IMPL_HPP
 
 #include "smesh_base.hpp"
-#include "smesh_extract_shap_features.hpp"
+#include "smesh_extract_shape_features.hpp"
 
 #include "smesh_common.hpp"
 #include "smesh_elem_type.hpp"
@@ -174,7 +174,7 @@ int extract_sharp_edges(
   return SMESH_SUCCESS;
 }
 
-template <typename idx_t, typename count_t>
+template <typename idx_t>
 int extract_sharp_corners(const ptrdiff_t nnodes, const ptrdiff_t n_sharp_edges,
                           idx_t *const SMESH_RESTRICT e0,
                           idx_t *const SMESH_RESTRICT e1,
@@ -227,7 +227,7 @@ int extract_sharp_corners(const ptrdiff_t nnodes, const ptrdiff_t n_sharp_edges,
   return out_n_sharp_edges;
 }
 
-template <typename idx_t, typename count_t, typename element_idx_t>
+template <typename idx_t, typename element_idx_t>
 int extract_disconnected_faces(
     const enum ElemType element_type, const ptrdiff_t nelements,
     const ptrdiff_t nnodes,
