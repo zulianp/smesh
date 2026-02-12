@@ -14,7 +14,7 @@ int main(int argc, char **argv) {
   if (argc != 12) {
     fprintf(stderr,
             "Usage: %s <element_type> <nx> <ny> <nz> <xmin> <ymin> <zmin> "
-            "<xmax> <ymax> <zmax> <output_folder>n",
+            "<xmax> <ymax> <zmax> <output_folder>\n",
             argv[0]);
     return SMESH_FAILURE;
   }

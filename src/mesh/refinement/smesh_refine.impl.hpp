@@ -27,7 +27,7 @@ static const int tri3_refine_pattern[4][3] = {
     // Center triangle
     {3, 4, 5}};
 
-template <typename idx_t, typename count_t, typename element_idx_t,
+template <typename idx_t, typename count_t,
           typename geom_t>
 int mesh_refine(
     const enum ElemType element_type, const ptrdiff_t n_elements,

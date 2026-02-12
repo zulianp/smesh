@@ -1,5 +1,5 @@
-#ifndef SFEM_SIDESET_HPP
-#define SFEM_SIDESET_HPP
+#ifndef SMESH_SIDESET_HPP
+#define SMESH_SIDESET_HPP
 
 #include "smesh_base.hpp"
 #include "smesh_forward_declarations.hpp"
@@ -66,4 +66,4 @@ SharedBuffer<idx_t> create_nodeset_from_sideset(
 
 } // namespace smesh
 
-#endif // SFEM_SIDESET_HPP
+#endif // SMESH_SIDESET_HPP

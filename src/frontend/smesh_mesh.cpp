@@ -9,6 +9,7 @@
 #include "smesh_path.hpp"
 #include "smesh_promotions.hpp"
 #include "smesh_read.hpp"
+#include "smesh_refine.hpp"
 #include "smesh_sideset.hpp"
 #include "smesh_tracer.hpp"
 #include "smesh_write.hpp"
@@ -1312,12 +1313,13 @@ std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
     auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
 
     auto elements = create_host_buffer<idx_t>(10, mesh.n_elements());
-    auto points =
-        create_host_buffer<geom_t>(3, n2n_upper_triangular->colidx()->size());
+    auto points = create_host_buffer<geom_t>(
+        mesh.spatial_dimension(), n2n_upper_triangular->colidx()->size());
 
-    p1_to_p2(TET4, mesh.n_elements(), mesh.elements()->data(), 3,
-             mesh.n_nodes(), mesh.points()->data(), n2n_upper_triangular_ptr,
-             n2n_upper_triangular_idx, elements->data(), points->data());
+    p1_to_p2(TET4, mesh.n_elements(), mesh.elements()->data(),
+             mesh.spatial_dimension(), mesh.n_nodes(), mesh.points()->data(),
+             n2n_upper_triangular_ptr, n2n_upper_triangular_idx,
+             elements->data(), points->data());
     return std::make_shared<Mesh>(mesh.comm(), TET10, elements, points);
   };
 
@@ -1327,12 +1329,13 @@ std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
     auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
 
     auto elements = create_host_buffer<idx_t>(6, mesh.n_elements());
-    auto points =
-        create_host_buffer<geom_t>(3, n2n_upper_triangular->colidx()->size());
+    auto points = create_host_buffer<geom_t>(
+        mesh.spatial_dimension(), n2n_upper_triangular->colidx()->size());
 
-    p1_to_p2(TRI3, mesh.n_elements(), mesh.elements()->data(), 3,
-             mesh.n_nodes(), mesh.points()->data(), n2n_upper_triangular_ptr,
-             n2n_upper_triangular_idx, elements->data(), points->data());
+    p1_to_p2(TRI3, mesh.n_elements(), mesh.elements()->data(),
+             mesh.spatial_dimension(), mesh.n_nodes(), mesh.points()->data(),
+             n2n_upper_triangular_ptr, n2n_upper_triangular_idx,
+             elements->data(), points->data());
     return std::make_shared<Mesh>(mesh.comm(), TRI6, elements, points);
   };
 
@@ -1345,4 +1348,29 @@ std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
     return nullptr;
   }
 }
+
+std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh) {
+  auto n2n_upper_triangular = mesh->node_to_node_graph_upper_triangular();
+  auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
+  auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+
+  auto refined_elements = create_host_buffer<idx_t>(8, mesh->n_elements());
+  auto refined_points = create_host_buffer<geom_t>(
+      mesh->spatial_dimension(), n2n_upper_triangular->colidx()->size());
+
+  int err = mesh_refine(mesh->element_type(), mesh->n_elements(),
+                        mesh->elements()->data(), mesh->spatial_dimension(),
+                        mesh->n_nodes(), mesh->points()->data(),
+                        n2n_upper_triangular_ptr, n2n_upper_triangular_idx,
+                        refined_elements->data(), refined_points->data());
+
+  if (err != SMESH_SUCCESS) {
+    SMESH_ERROR("Refinement failed\n");
+    return nullptr;
+  }
+
+  return std::make_shared<Mesh>(mesh->comm(), mesh->element_type(),
+                                refined_elements, refined_points);
+}
+
 } // namespace smesh
