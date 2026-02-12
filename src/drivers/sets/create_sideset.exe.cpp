@@ -32,22 +32,22 @@ int main(int argc, char **argv) {
 
     element_idx_t sideset_seed = 0;
     int err = sideset_select_propagate(
-        // Sideset
         sideset->parent()->size(), sideset->parent()->data(),
         sideset->lfi()->data(), n2e->rowptr()->data(), n2e->colidx()->data(),
-        // Mesh connectivity
         mesh->element_type(), mesh->n_elements(), mesh->elements()->data(),
-        // Selection
         sideset_seed, selected->data(),
         [&](const ptrdiff_t prev_e, const ptrdiff_t next_e) {
           // FIXME!
           return prev_e != next_e;
         });
+        
 
     if (err != SMESH_SUCCESS) {
       SMESH_ERROR("Failed to select sideset!\n");
       return SMESH_FAILURE;
     }
+
+    // TODO: Create sideset from selected
   }
 
   return ret;
