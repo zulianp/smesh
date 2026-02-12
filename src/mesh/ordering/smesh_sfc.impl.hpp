@@ -2,7 +2,7 @@
 #define SMESH_SFC_IMPL_HPP
 
 #include "smesh_common.hpp"
-#include "ssmesh_sfc.hpp"
+#include "smesh_sfc.hpp"
 
 #include <cmath>
 #include <cstddef>

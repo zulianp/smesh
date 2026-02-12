@@ -168,6 +168,12 @@ namespace smesh {
                                                          const geom_t                         xmax = 1,
                                                          const geom_t                         ymax = 1);
 
+        static std::shared_ptr<Mesh> create_quad4_ring(const std::shared_ptr<Communicator> &comm,
+                                                  const geom_t                         inner_radius,
+                                                  const geom_t                         outer_radius,
+                                                  const int                            nlayers,
+                                                  const int                            nelements);
+
         static std::shared_ptr<Mesh> create_hex8_checkerboard_cube(const std::shared_ptr<Communicator> &comm,
                                                                    const int                            nx   = 2,
                                                                    const int                            ny   = 2,
@@ -217,10 +223,12 @@ namespace smesh {
 
     std::shared_ptr<Mesh> convert_to(const enum ElemType element_type, const std::shared_ptr<Mesh> &mesh);
     std::shared_ptr<Mesh> promote_to(const enum ElemType element_type, const std::shared_ptr<Mesh> &mesh);
-    std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh);
+    std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh, const int levels = 1);
     std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh);
     std::shared_ptr<Mesh> mesh_from_sideset(const std::shared_ptr<Mesh> &mesh, const std::shared_ptr<Sideset> &sideset);
     std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh);
+    std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
+        const geom_t height, const ptrdiff_t nlayers);
 }  // namespace smesh
 
 #endif  // SMESH_MESH_HPP

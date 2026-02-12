@@ -1,4 +1,4 @@
-#include "ssmesh_sfc.impl.hpp"
+#include "smesh_sfc.impl.hpp"
 
 #define SMESH_EXPLICIT_INSTANTIATE_SFC(GEOM_T)                                 \
   template int encode_morton3<GEOM_T>(                                         \

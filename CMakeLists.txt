@@ -21,6 +21,7 @@ set(SMESH_LIBRARY_SCAN_DIRS
     "src/io"
     "src/mesh"
     "src/packedmesh"
+    "src/points"
     "src/profile"
     "src/quadrature"
     "src/shape"

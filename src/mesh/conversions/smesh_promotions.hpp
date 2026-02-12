@@ -34,6 +34,15 @@ int p1_to_p2(const enum ElemType element_type, const ptrdiff_t n_elements,
              const idx_t *const SMESH_RESTRICT n2n_idx,
              idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT p2_elements,
              geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT p2_points);
+
+template <typename idx_t, typename geom_t>
+void quad4_to_hex8_extrude(
+    const ptrdiff_t nsides, const ptrdiff_t nnodes,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT quad4_elements,
+    const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
+    const ptrdiff_t nlayers, const geom_t height,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT hex8_elements,
+    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT extruded_points);
 } // namespace smesh
 
 #endif // SMESH_PROMOTIONS_HPP

@@ -11,6 +11,9 @@
 #include "smesh_read.hpp"
 #include "smesh_refine.hpp"
 #include "smesh_sideset.hpp"
+#include "smesh_sshex8.hpp"
+#include "smesh_sshex8_graph.hpp"
+#include "smesh_sshex8_mesh.hpp"
 #include "smesh_tracer.hpp"
 #include "smesh_write.hpp"
 
@@ -638,6 +641,20 @@ Mesh::create_square(const std::shared_ptr<Communicator> &comm,
     SMESH_ERROR("Invalid element type: %d\n", element_type);
     return nullptr;
   }
+}
+
+std::shared_ptr<Mesh>
+Mesh::create_quad4_ring(const std::shared_ptr<Communicator> &comm,
+                        const geom_t inner_radius, const geom_t outer_radius,
+                        const int nlayers, const int nelements) {
+  auto elements = create_host_buffer<idx_t>(4, nlayers * nelements);
+  auto points = create_host_buffer<geom_t>(3, (nlayers + 1) * nelements);
+  mesh_fill_quad4_ring<idx_t, geom_t>(inner_radius, outer_radius, nlayers,
+                                      nelements, elements->data(),
+                                      points->data());
+
+  auto ret = std::make_shared<Mesh>(comm, QUAD4, elements, points);
+  return ret;
 }
 
 std::shared_ptr<Mesh> Mesh::create_hex8_checkerboard_cube(
@@ -1352,11 +1369,8 @@ std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
   }
 }
 
-std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh) {
-  auto n2n_upper_triangular = mesh->node_to_node_graph_upper_triangular();
-  auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
-  auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
-
+std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
+                             const int levels) {
   const int refine_factor = [](const ElemType element_type) {
     switch (element_type) {
     case HEX8:
@@ -1372,24 +1386,69 @@ std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh) {
     }
   }(mesh->element_type());
 
-  auto refined_elements = create_host_buffer<idx_t>(
-      mesh->n_nodes_per_element(), mesh->n_elements() * refine_factor);
-  auto refined_points = create_host_buffer<geom_t>(
-      mesh->spatial_dimension(), n2n_upper_triangular->colidx()->size());
+  auto out = mesh;
+  if (mesh->element_type() == HEX8) {
+    const ptrdiff_t n_elements = mesh->n_elements();
 
-  int err = mesh_refine(mesh->element_type(), mesh->n_elements(),
-                        mesh->elements()->data(), mesh->spatial_dimension(),
-                        mesh->n_nodes(), mesh->points()->data(),
-                        n2n_upper_triangular_ptr, n2n_upper_triangular_idx,
-                        refined_elements->data(), refined_points->data());
+    const int ss_levels = pow(2, levels);
+    const int nxe = sshex8_nxe(ss_levels);
+    const int txe = sshex8_txe(ss_levels);
 
-  if (err != SMESH_SUCCESS) {
-    SMESH_ERROR("Refinement failed\n");
-    return nullptr;
+    auto sshex8_elements = create_host_buffer<idx_t>(nxe, mesh->n_elements());
+    auto d_sshex8_elements = sshex8_elements->data();
+
+    ptrdiff_t n_unique_nodes = 0;
+    ptrdiff_t interior_start = 0;
+
+    sshex8_generate_elements(ss_levels, n_elements, mesh->n_nodes(),
+                             mesh->elements()->data(), d_sshex8_elements,
+                             &n_unique_nodes, &interior_start);
+
+    ptrdiff_t n_micro_elements = n_elements * txe;
+    auto hex8_elements = create_host_buffer<idx_t>(8, n_micro_elements);
+    auto d_hex8_elements = hex8_elements->data();
+
+    sshex8_to_standard_hex8_mesh(ss_levels, n_elements, d_sshex8_elements,
+                                 d_hex8_elements);
+
+    auto hex8_points = create_host_buffer<geom_t>(3, n_unique_nodes);
+    auto d_hex8_points = hex8_points->data();
+
+    sshex8_fill_points(ss_levels, n_elements, d_sshex8_elements,
+                       mesh->points()->data(), d_hex8_points);
+    out =
+        std::make_shared<Mesh>(mesh->comm(), HEX8, hex8_elements, hex8_points);
+
+  } else {
+    for (int i = 0; i < levels; i++) {
+      auto n2n_upper_triangular = out->node_to_node_graph_upper_triangular();
+      auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
+      auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+
+      auto refined_elements = create_host_buffer<idx_t>(
+          out->n_nodes_per_element(), out->n_elements() * refine_factor);
+
+      auto refined_points = create_host_buffer<geom_t>(
+          out->spatial_dimension(),
+          n2n_upper_triangular->colidx()->size() + out->n_nodes());
+
+      int err = mesh_refine(out->element_type(), out->n_elements(),
+                            out->elements()->data(), out->spatial_dimension(),
+                            out->n_nodes(), out->points()->data(),
+                            n2n_upper_triangular_ptr, n2n_upper_triangular_idx,
+                            refined_elements->data(), refined_points->data());
+
+      if (err != SMESH_SUCCESS) {
+        SMESH_ERROR("Refinement failed\n");
+        return nullptr;
+      }
+
+      out = std::make_shared<Mesh>(out->comm(), out->element_type(),
+                                   refined_elements, refined_points);
+    }
   }
 
-  return std::make_shared<Mesh>(mesh->comm(), mesh->element_type(),
-                                refined_elements, refined_points);
+  return out;
 }
 
 std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
@@ -1416,7 +1475,8 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
 }
 
 std::shared_ptr<Mesh>
-mesh_from_sideset(const std::shared_ptr<Mesh> &mesh, const std::shared_ptr<Sideset> &sideset) {
+mesh_from_sideset(const std::shared_ptr<Mesh> &mesh,
+                  const std::shared_ptr<Sideset> &sideset) {
 
   auto [surface_type, surface_elements] =
       create_surface_from_sideset(mesh, sideset);
@@ -1472,4 +1532,19 @@ std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh) {
   return mesh_from_sideset(mesh, sideset);
 }
 
+std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
+                              const geom_t height, const ptrdiff_t nlayers) {
+  auto hex8_elements =
+      create_host_buffer<idx_t>(8, mesh->n_elements() * nlayers);
+
+  auto hex8_points =
+      create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
+
+  quad4_to_hex8_extrude(mesh->n_elements(), mesh->n_nodes(),
+                        mesh->elements()->data(), mesh->points()->data(),
+                        nlayers, height, hex8_elements->data(),
+                        hex8_points->data());
+
+  return std::make_shared<Mesh>(mesh->comm(), HEX8, hex8_elements, hex8_points);
+}
 } // namespace smesh
