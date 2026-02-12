@@ -1316,7 +1316,8 @@ std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
 
     auto elements = create_host_buffer<idx_t>(10, mesh.n_elements());
     auto points = create_host_buffer<geom_t>(
-        mesh.spatial_dimension(), n2n_upper_triangular->colidx()->size() + mesh.n_nodes());
+        mesh.spatial_dimension(),
+        n2n_upper_triangular->colidx()->size() + mesh.n_nodes());
 
     p1_to_p2(TET4, mesh.n_elements(), mesh.elements()->data(),
              mesh.spatial_dimension(), mesh.n_nodes(), mesh.points()->data(),
@@ -1389,6 +1390,81 @@ std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh) {
 
   return std::make_shared<Mesh>(mesh->comm(), mesh->element_type(),
                                 refined_elements, refined_points);
+}
+
+std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
+  auto hft = mesh->half_face_table();
+  auto e2e_table = hft->data();
+
+  ptrdiff_t n_surf_elements = 0;
+  element_idx_t *parent_element = 0;
+  i16 *side_idx = 0;
+
+  int err = extract_sideset_from_adj_table(
+      mesh->element_type(), mesh->n_elements(), e2e_table, &n_surf_elements,
+      &parent_element, &side_idx);
+
+  if (err != SMESH_SUCCESS) {
+    SMESH_ERROR("Unable to extract skin sideset!\n");
+    return nullptr;
+  }
+
+  return std::make_shared<Sideset>(
+      mesh->comm(),
+      manage_host_buffer<element_idx_t>(n_surf_elements, parent_element),
+      manage_host_buffer<i16>(n_surf_elements, side_idx), 0);
+}
+
+std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh) {
+  auto sideset = skin_sideset(mesh);
+  auto [surface_type, surface_elements] =
+  create_surface_from_sideset(mesh, sideset);
+
+  const ptrdiff_t n_nodes = mesh->n_nodes();
+  auto vol2surf = create_host_buffer<idx_t>(n_nodes);
+  auto b_vol2surf = vol2surf->data();
+  for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+    b_vol2surf[i] = invalid_idx<idx_t>();
+  }
+
+  const int nnxs = surface_elements->extent(0);
+  ptrdiff_t n_surf_elements = surface_elements->extent(1);
+  auto b_surface_elements = surface_elements->data();
+
+  ptrdiff_t n_surf_nodes = 0;
+  for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+    for (int d = 0; d < nnxs; ++d) {
+      idx_t idx = b_surface_elements[d][i];
+      if (b_vol2surf[idx] == invalid_idx<idx_t>()) {
+        b_vol2surf[idx] = n_surf_nodes++;
+      }
+    }
+  }
+
+  auto b_points = mesh->points()->data();
+  auto surf_points =
+      create_host_buffer<geom_t>(mesh->spatial_dimension(), n_surf_nodes);
+
+  auto mapping = create_host_buffer<idx_t>(n_surf_nodes);
+  auto b_surf_points = surf_points->data();
+  auto b_mapping = mapping->data();
+  
+  int spatial_dim = mesh->spatial_dimension();
+  for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+    if (b_vol2surf[i] == invalid_idx<idx_t>())
+      continue;
+
+    b_mapping[b_vol2surf[i]] = i;
+    for (int d = 0; d < spatial_dim; ++d) {
+      b_surf_points[d][b_vol2surf[i]] = b_points[d][i];
+    }
+  }
+
+  auto ret = std::make_shared<Mesh>(mesh->comm(), surface_type,
+                                    surface_elements, surf_points);
+  ret->set_node_mapping(mapping);
+
+  return ret;
 }
 
 } // namespace smesh

@@ -218,6 +218,8 @@ namespace smesh {
     std::shared_ptr<Mesh> convert_to(const enum ElemType element_type, const std::shared_ptr<Mesh> &mesh);
     std::shared_ptr<Mesh> promote_to(const enum ElemType element_type, const std::shared_ptr<Mesh> &mesh);
     std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh);
+    std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh);
+    std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh);
 }  // namespace smesh
 
 #endif  // SMESH_MESH_HPP
