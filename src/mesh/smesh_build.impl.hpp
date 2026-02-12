@@ -4,6 +4,46 @@
 #include "smesh_base.hpp"
 
 namespace smesh {
+template <typename idx_t, typename geom_t>
+void mesh_fill_hex8_reference_cube(
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
+  for (int i = 0; i < 8; i++) {
+    elements[i][0] = i;
+  }
+
+  points[0][0] = 0;
+  points[1][0] = 0;
+  points[2][0] = 0;
+
+  points[0][1] = 1;
+  points[1][1] = 0;
+  points[2][1] = 0;
+
+  points[0][2] = 1;
+  points[1][2] = 1;
+  points[2][2] = 0;
+
+  points[0][3] = 0;
+  points[1][3] = 1;
+  points[2][3] = 0;
+
+  points[0][4] = 0;
+  points[1][4] = 0;
+  points[2][4] = 1;
+
+  points[0][5] = 1;
+  points[1][5] = 0;
+  points[2][5] = 1;
+
+  points[0][6] = 1;
+  points[1][6] = 1;
+  points[2][6] = 1;
+
+  points[0][7] = 0;
+  points[1][7] = 1;
+  points[2][7] = 1;
+}
 
 template <typename idx_t, typename geom_t>
 void mesh_fill_hex8_cube(
@@ -445,10 +485,11 @@ void mesh_fill_hex8_checkerboard_cube(
 }
 
 template <typename idx_t, typename geom_t>
-void mesh_fill_quad4_ring(const geom_t inner_radius, const geom_t outer_radius,
-                          const ptrdiff_t nlayers, const ptrdiff_t nelements,
-                          idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
-                          geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
+void mesh_fill_quad4_ring(
+    const geom_t inner_radius, const geom_t outer_radius,
+    const ptrdiff_t nlayers, const ptrdiff_t nelements,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
   // ptrdiff_t nnodes = nelements * 2;
   const geom_t dangle = 2 * geom_t(M_PI) / geom_t(nelements);
   const geom_t dh = (outer_radius - inner_radius) / nlayers;

@@ -2,6 +2,9 @@
 #include "smesh_types.hpp"
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_BUILD(IDX_T, GEOM_T)                   \
+  template void mesh_fill_hex8_reference_cube<IDX_T, GEOM_T>(                  \
+      IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT elements,              \
+      GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT points);              \
   template void mesh_fill_hex8_cube<IDX_T, GEOM_T>(                            \
       int, int, int, GEOM_T, GEOM_T, GEOM_T, GEOM_T, GEOM_T, GEOM_T,           \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                       \

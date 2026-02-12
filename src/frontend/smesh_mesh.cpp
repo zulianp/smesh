@@ -530,56 +530,7 @@ Mesh::create_hex8_cube(const std::shared_ptr<Communicator> &comm, const int nx,
   auto points = ret->impl_->points->data();
   auto elements = elements_buffer->data();
 
-  const ptrdiff_t ldz = (ny + 1) * (nx + 1);
-  const ptrdiff_t ldy = nx + 1;
-  const ptrdiff_t ldx = 1;
-
-  const double hx = (xmax - xmin) * 1. / nx;
-  const double hy = (ymax - ymin) * 1. / ny;
-  const double hz = (zmax - zmin) * 1. / nz;
-
-  assert(hx > 0);
-  assert(hy > 0);
-  assert(hz > 0);
-
-  for (ptrdiff_t zi = 0; zi < nz; zi++) {
-    for (ptrdiff_t yi = 0; yi < ny; yi++) {
-      for (ptrdiff_t xi = 0; xi < nx; xi++) {
-        const ptrdiff_t e = zi * ny * nx + yi * nx + xi;
-
-        const idx_t i0 = (xi + 0) * ldx + (yi + 0) * ldy + (zi + 0) * ldz;
-        const idx_t i1 = (xi + 1) * ldx + (yi + 0) * ldy + (zi + 0) * ldz;
-        const idx_t i2 = (xi + 1) * ldx + (yi + 1) * ldy + (zi + 0) * ldz;
-        const idx_t i3 = (xi + 0) * ldx + (yi + 1) * ldy + (zi + 0) * ldz;
-
-        const idx_t i4 = (xi + 0) * ldx + (yi + 0) * ldy + (zi + 1) * ldz;
-        const idx_t i5 = (xi + 1) * ldx + (yi + 0) * ldy + (zi + 1) * ldz;
-        const idx_t i6 = (xi + 1) * ldx + (yi + 1) * ldy + (zi + 1) * ldz;
-        const idx_t i7 = (xi + 0) * ldx + (yi + 1) * ldy + (zi + 1) * ldz;
-
-        elements[0][e] = i0;
-        elements[1][e] = i1;
-        elements[2][e] = i2;
-        elements[3][e] = i3;
-
-        elements[4][e] = i4;
-        elements[5][e] = i5;
-        elements[6][e] = i6;
-        elements[7][e] = i7;
-      }
-    }
-  }
-
-  for (ptrdiff_t zi = 0; zi <= nz; zi++) {
-    for (ptrdiff_t yi = 0; yi <= ny; yi++) {
-      for (ptrdiff_t xi = 0; xi <= nx; xi++) {
-        ptrdiff_t node = xi * ldx + yi * ldy + zi * ldz;
-        points[0][node] = (double)xmin + xi * hx;
-        points[1][node] = (double)ymin + yi * hy;
-        points[2][node] = (double)zmin + zi * hz;
-      }
-    }
-  }
+  mesh_fill_hex8_cube<idx_t, geom_t>(nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax, elements, points);
 
   // Create default block
   auto default_block = std::make_shared<Block>();
@@ -611,41 +562,7 @@ Mesh::create_tri3_square(const std::shared_ptr<Communicator> &comm,
   auto points = ret->impl_->points->data();
   auto elements = elements_buffer->data();
 
-  const ptrdiff_t ldy = nx + 1;
-  const ptrdiff_t ldx = 1;
-
-  const double hx = (xmax - xmin) * 1. / nx;
-  const double hy = (ymax - ymin) * 1. / ny;
-
-  assert(hx > 0);
-  assert(hy > 0);
-
-  for (ptrdiff_t yi = 0; yi < ny; yi++) {
-    for (ptrdiff_t xi = 0; xi < nx; xi++) {
-      const ptrdiff_t e = 2 * (yi * nx + xi);
-
-      const idx_t i0 = (xi + 0) * ldx + (yi + 0) * ldy;
-      const idx_t i1 = (xi + 1) * ldx + (yi + 0) * ldy;
-      const idx_t i2 = (xi + 1) * ldx + (yi + 1) * ldy;
-      const idx_t i3 = (xi + 0) * ldx + (yi + 1) * ldy;
-
-      elements[0][e] = i0;
-      elements[1][e] = i1;
-      elements[2][e] = i3;
-
-      elements[0][e + 1] = i1;
-      elements[1][e + 1] = i2;
-      elements[2][e + 1] = i3;
-    }
-  }
-
-  for (ptrdiff_t yi = 0; yi <= ny; yi++) {
-    for (ptrdiff_t xi = 0; xi <= nx; xi++) {
-      ptrdiff_t node = xi * ldx + yi * ldy;
-      points[0][node] = (double)xmin + xi * hx;
-      points[1][node] = (double)ymin + yi * hy;
-    }
-  }
+  mesh_fill_tri3_square<idx_t, geom_t>(nx, ny, xmin, ymin, xmax, ymax, elements, points);
 
   // Create default block
   auto default_block = std::make_shared<Block>();
@@ -677,38 +594,7 @@ Mesh::create_quad4_square(const std::shared_ptr<Communicator> &comm,
   auto points = ret->impl_->points->data();
   auto elements = elements_buffer->data();
 
-  const ptrdiff_t ldy = nx + 1;
-  const ptrdiff_t ldx = 1;
-
-  const double hx = (xmax - xmin) * 1. / nx;
-  const double hy = (ymax - ymin) * 1. / ny;
-
-  assert(hx > 0);
-  assert(hy > 0);
-
-  for (ptrdiff_t yi = 0; yi < ny; yi++) {
-    for (ptrdiff_t xi = 0; xi < nx; xi++) {
-      const ptrdiff_t e = yi * nx + xi;
-
-      const idx_t i0 = (xi + 0) * ldx + (yi + 0) * ldy;
-      const idx_t i1 = (xi + 1) * ldx + (yi + 0) * ldy;
-      const idx_t i2 = (xi + 1) * ldx + (yi + 1) * ldy;
-      const idx_t i3 = (xi + 0) * ldx + (yi + 1) * ldy;
-
-      elements[0][e] = i0;
-      elements[1][e] = i1;
-      elements[2][e] = i2;
-      elements[3][e] = i3;
-    }
-  }
-
-  for (ptrdiff_t yi = 0; yi <= ny; yi++) {
-    for (ptrdiff_t xi = 0; xi <= nx; xi++) {
-      ptrdiff_t node = xi * ldx + yi * ldy;
-      points[0][node] = (double)xmin + xi * hx;
-      points[1][node] = (double)ymin + yi * hy;
-    }
-  }
+  mesh_fill_quad4_square<idx_t, geom_t>(nx, ny, xmin, ymin, xmax, ymax, elements, points);
 
   // Create default block
   auto default_block = std::make_shared<Block>();
@@ -761,77 +647,9 @@ std::shared_ptr<Mesh> Mesh::create_hex8_checkerboard_cube(
   auto white_elements = white_elements_buffer->data();
   auto black_elements = black_elements_buffer->data();
 
-  const ptrdiff_t ldz = (ny + 1) * (nx + 1);
-  const ptrdiff_t ldy = nx + 1;
-  const ptrdiff_t ldx = 1;
-
-  const double hx = (xmax - xmin) * 1. / nx;
-  const double hy = (ymax - ymin) * 1. / ny;
-  const double hz = (zmax - zmin) * 1. / nz;
-
-  assert(hx > 0);
-  assert(hy > 0);
-  assert(hz > 0);
-
-  ptrdiff_t white_elements_count = 0;
-  ptrdiff_t black_elements_count = 0;
-
-  for (ptrdiff_t zi = 0; zi < nz; zi++) {
-    for (ptrdiff_t yi = 0; yi < ny; yi++) {
-      for (ptrdiff_t xi = 0; xi < nx; xi++) {
-        const idx_t i0 = (xi + 0) * ldx + (yi + 0) * ldy + (zi + 0) * ldz;
-        const idx_t i1 = (xi + 1) * ldx + (yi + 0) * ldy + (zi + 0) * ldz;
-        const idx_t i2 = (xi + 1) * ldx + (yi + 1) * ldy + (zi + 0) * ldz;
-        const idx_t i3 = (xi + 0) * ldx + (yi + 1) * ldy + (zi + 0) * ldz;
-
-        const idx_t i4 = (xi + 0) * ldx + (yi + 0) * ldy + (zi + 1) * ldz;
-        const idx_t i5 = (xi + 1) * ldx + (yi + 0) * ldy + (zi + 1) * ldz;
-        const idx_t i6 = (xi + 1) * ldx + (yi + 1) * ldy + (zi + 1) * ldz;
-        const idx_t i7 = (xi + 0) * ldx + (yi + 1) * ldy + (zi + 1) * ldz;
-
-        if ((xi + yi + zi) % 2 == 0) {
-          white_elements[0][white_elements_count] = i0;
-          white_elements[1][white_elements_count] = i1;
-          white_elements[2][white_elements_count] = i2;
-          white_elements[3][white_elements_count] = i3;
-
-          white_elements[4][white_elements_count] = i4;
-          white_elements[5][white_elements_count] = i5;
-          white_elements[6][white_elements_count] = i6;
-          white_elements[7][white_elements_count] = i7;
-
-          white_elements_count++;
-        } else {
-          black_elements[0][black_elements_count] = i0;
-          black_elements[1][black_elements_count] = i1;
-          black_elements[2][black_elements_count] = i2;
-          black_elements[3][black_elements_count] = i3;
-
-          black_elements[4][black_elements_count] = i4;
-          black_elements[5][black_elements_count] = i5;
-          black_elements[6][black_elements_count] = i6;
-          black_elements[7][black_elements_count] = i7;
-
-          black_elements_count++;
-        }
-      }
-    }
-  }
-
-  assert(white_elements_count == nelements / 2);
-  assert(black_elements_count == nelements / 2);
-
-  for (ptrdiff_t zi = 0; zi <= nz; zi++) {
-    for (ptrdiff_t yi = 0; yi <= ny; yi++) {
-      for (ptrdiff_t xi = 0; xi <= nx; xi++) {
-        ptrdiff_t node = xi * ldx + yi * ldy + zi * ldz;
-        points[0][node] = (double)xmin + xi * hx;
-        points[1][node] = (double)ymin + yi * hy;
-        points[2][node] = (double)zmin + zi * hz;
-      }
-    }
-  }
-
+  mesh_fill_hex8_checkerboard_cube<idx_t, geom_t>(
+      nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax, white_elements,
+      black_elements, points);
   // Create white and black blocks
   auto white_block = std::make_shared<Block>();
   white_block->set_name("white");
@@ -868,76 +686,9 @@ std::shared_ptr<Mesh> Mesh::create_hex8_bidomain_cube(
   auto left_elements = left_elements_buffer->data();
   auto right_elements = right_elements_buffer->data();
 
-  const ptrdiff_t ldz = (ny + 1) * (nx + 1);
-  const ptrdiff_t ldy = nx + 1;
-  const ptrdiff_t ldx = 1;
-
-  const double hx = (xmax - xmin) * 1. / nx;
-  const double hy = (ymax - ymin) * 1. / ny;
-  const double hz = (zmax - zmin) * 1. / nz;
-
-  assert(hx > 0);
-  assert(hy > 0);
-  assert(hz > 0);
-
-  ptrdiff_t left_elements_count = 0;
-  ptrdiff_t right_elements_count = 0;
-
-  for (ptrdiff_t zi = 0; zi < nz; zi++) {
-    for (ptrdiff_t yi = 0; yi < ny; yi++) {
-      for (ptrdiff_t xi = 0; xi < nx; xi++) {
-        const idx_t i0 = (xi + 0) * ldx + (yi + 0) * ldy + (zi + 0) * ldz;
-        const idx_t i1 = (xi + 1) * ldx + (yi + 0) * ldy + (zi + 0) * ldz;
-        const idx_t i2 = (xi + 1) * ldx + (yi + 1) * ldy + (zi + 0) * ldz;
-        const idx_t i3 = (xi + 0) * ldx + (yi + 1) * ldy + (zi + 0) * ldz;
-
-        const idx_t i4 = (xi + 0) * ldx + (yi + 0) * ldy + (zi + 1) * ldz;
-        const idx_t i5 = (xi + 1) * ldx + (yi + 0) * ldy + (zi + 1) * ldz;
-        const idx_t i6 = (xi + 1) * ldx + (yi + 1) * ldy + (zi + 1) * ldz;
-        const idx_t i7 = (xi + 0) * ldx + (yi + 1) * ldy + (zi + 1) * ldz;
-
-        if (xi < nx / 2) {
-          left_elements[0][left_elements_count] = i0;
-          left_elements[1][left_elements_count] = i1;
-          left_elements[2][left_elements_count] = i2;
-          left_elements[3][left_elements_count] = i3;
-
-          left_elements[4][left_elements_count] = i4;
-          left_elements[5][left_elements_count] = i5;
-          left_elements[6][left_elements_count] = i6;
-          left_elements[7][left_elements_count] = i7;
-
-          left_elements_count++;
-        } else {
-          right_elements[0][right_elements_count] = i0;
-          right_elements[1][right_elements_count] = i1;
-          right_elements[2][right_elements_count] = i2;
-          right_elements[3][right_elements_count] = i3;
-
-          right_elements[4][right_elements_count] = i4;
-          right_elements[5][right_elements_count] = i5;
-          right_elements[6][right_elements_count] = i6;
-          right_elements[7][right_elements_count] = i7;
-
-          right_elements_count++;
-        }
-      }
-    }
-  }
-
-  assert(left_elements_count == nelements / 2);
-  assert(right_elements_count == nelements / 2);
-
-  for (ptrdiff_t zi = 0; zi <= nz; zi++) {
-    for (ptrdiff_t yi = 0; yi <= ny; yi++) {
-      for (ptrdiff_t xi = 0; xi <= nx; xi++) {
-        ptrdiff_t node = xi * ldx + yi * ldy + zi * ldz;
-        points[0][node] = (double)xmin + xi * hx;
-        points[1][node] = (double)ymin + yi * hy;
-        points[2][node] = (double)zmin + zi * hz;
-      }
-    }
-  }
+  mesh_fill_hex8_bidomain_cube<idx_t, geom_t>(
+      nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax, 0, nx / 2, left_elements,
+      right_elements, points);
 
   // Create left and right blocks
   auto left_block = std::make_shared<Block>();
@@ -1034,41 +785,7 @@ std::shared_ptr<Mesh> Mesh::create_hex8_reference_cube() {
   auto points = ret->impl_->points->data();
   auto elements = elements_buffer->data();
 
-  for (int i = 0; i < 8; i++) {
-    elements[i][0] = i;
-  }
-
-  points[0][0] = 0;
-  points[1][0] = 0;
-  points[2][0] = 0;
-
-  points[0][1] = 1;
-  points[1][1] = 0;
-  points[2][1] = 0;
-
-  points[0][2] = 1;
-  points[1][2] = 1;
-  points[2][2] = 0;
-
-  points[0][3] = 0;
-  points[1][3] = 1;
-  points[2][3] = 0;
-
-  points[0][4] = 0;
-  points[1][4] = 0;
-  points[2][4] = 1;
-
-  points[0][5] = 1;
-  points[1][5] = 0;
-  points[2][5] = 1;
-
-  points[0][6] = 1;
-  points[1][6] = 1;
-  points[2][6] = 1;
-
-  points[0][7] = 0;
-  points[1][7] = 1;
-  points[2][7] = 1;
+  mesh_fill_hex8_reference_cube<idx_t, geom_t>(elements, points);
 
   // Create default block
   auto default_block = std::make_shared<Block>();
@@ -1101,82 +818,8 @@ Mesh::create_tet4_cube(const std::shared_ptr<Communicator> &comm, const int nx,
   auto points = ret->impl_->points->data();
   auto elements = elements_buffer->data();
 
-  const ptrdiff_t ldz = (ny + 1) * (nx + 1);
-  const ptrdiff_t ldy = nx + 1;
-  const ptrdiff_t ldx = 1;
-
-  const double hx = (xmax - xmin) * 1. / nx;
-  const double hy = (ymax - ymin) * 1. / ny;
-  const double hz = (zmax - zmin) * 1. / nz;
-
-  assert(hx > 0);
-  assert(hy > 0);
-  assert(hz > 0);
-
-  static const int face_nodes[6][4] = {{0, 1, 2, 3}, {4, 7, 6, 5},
-                                       {0, 4, 5, 1}, {3, 2, 6, 7},
-                                       {0, 3, 7, 4}, {1, 5, 6, 2}};
-
-  for (ptrdiff_t zi = 0; zi < nz; zi++) {
-    for (ptrdiff_t yi = 0; yi < ny; yi++) {
-      for (ptrdiff_t xi = 0; xi < nx; xi++) {
-        const idx_t i0 = (xi + 0) * ldx + (yi + 0) * ldy + (zi + 0) * ldz;
-        const idx_t i1 = (xi + 1) * ldx + (yi + 0) * ldy + (zi + 0) * ldz;
-        const idx_t i2 = (xi + 1) * ldx + (yi + 1) * ldy + (zi + 0) * ldz;
-        const idx_t i3 = (xi + 0) * ldx + (yi + 1) * ldy + (zi + 0) * ldz;
-
-        const idx_t i4 = (xi + 0) * ldx + (yi + 0) * ldy + (zi + 1) * ldz;
-        const idx_t i5 = (xi + 1) * ldx + (yi + 0) * ldy + (zi + 1) * ldz;
-        const idx_t i6 = (xi + 1) * ldx + (yi + 1) * ldy + (zi + 1) * ldz;
-        const idx_t i7 = (xi + 0) * ldx + (yi + 1) * ldy + (zi + 1) * ldz;
-
-        const idx_t cube_nodes[8] = {i0, i1, i2, i3, i4, i5, i6, i7};
-        const ptrdiff_t elem_index = zi * ny * nx + yi * nx + xi;
-        const idx_t center_idx = nnodes_vertices + elem_index;
-        const ptrdiff_t base = elem_index * 12;
-
-        for (int face = 0; face < 6; face++) {
-          const int *fn = face_nodes[face];
-
-          const ptrdiff_t t0 = base + face * 2 + 0;
-          elements[0][t0] = cube_nodes[fn[0]];
-          elements[1][t0] = cube_nodes[fn[1]];
-          elements[2][t0] = cube_nodes[fn[2]];
-          elements[3][t0] = center_idx;
-
-          const ptrdiff_t t1 = base + face * 2 + 1;
-          elements[0][t1] = cube_nodes[fn[0]];
-          elements[1][t1] = cube_nodes[fn[2]];
-          elements[2][t1] = cube_nodes[fn[3]];
-          elements[3][t1] = center_idx;
-        }
-      }
-    }
-  }
-
-  for (ptrdiff_t zi = 0; zi <= nz; zi++) {
-    for (ptrdiff_t yi = 0; yi <= ny; yi++) {
-      for (ptrdiff_t xi = 0; xi <= nx; xi++) {
-        ptrdiff_t node = xi * ldx + yi * ldy + zi * ldz;
-        points[0][node] = (double)xmin + xi * hx;
-        points[1][node] = (double)ymin + yi * hy;
-        points[2][node] = (double)zmin + zi * hz;
-      }
-    }
-  }
-
-  for (ptrdiff_t zi = 0; zi < nz; zi++) {
-    for (ptrdiff_t yi = 0; yi < ny; yi++) {
-      for (ptrdiff_t xi = 0; xi < nx; xi++) {
-        const ptrdiff_t elem_index = zi * ny * nx + yi * nx + xi;
-        const idx_t center_idx = nnodes_vertices + elem_index;
-
-        points[0][center_idx] = (double)xmin + (xi + 0.5) * hx;
-        points[1][center_idx] = (double)ymin + (yi + 0.5) * hy;
-        points[2][center_idx] = (double)zmin + (zi + 0.5) * hz;
-      }
-    }
-  }
+  mesh_fill_tet4_cube<idx_t, geom_t>(nx, ny, nz, xmin, ymin, zmin, xmax, ymax,
+                                     zmax, elements, points);
 
   auto default_block = std::make_shared<Block>();
   default_block->set_name("default");

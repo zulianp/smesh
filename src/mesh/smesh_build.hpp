@@ -9,6 +9,11 @@
 
 namespace smesh {
 
+    template <typename idx_t, typename geom_t>
+    void mesh_fill_hex8_reference_cube(
+        idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+        geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points);
+
 /**
  * @brief Fill a structured HEX8 mesh for an axis-aligned box.
  *
