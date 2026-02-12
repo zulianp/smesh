@@ -41,11 +41,13 @@ namespace smesh {
         ~Mesh();
 
         Mesh(const std::shared_ptr<Communicator> &comm,
-             int                                  spatial_dim,
              enum ElemType                        element_type,
              SharedBuffer<idx_t *>                elements,
-             ptrdiff_t                            nnodes,
              SharedBuffer<geom_t *>               points);
+
+        Mesh(const std::shared_ptr<Communicator> &comm,
+             const std::vector<std::shared_ptr<Block>> &blocks,
+             SharedBuffer<geom_t *> points);
 
         friend class FunctionSpace;
         friend class Op;
@@ -212,6 +214,9 @@ namespace smesh {
 
     using SharedMesh  = std::shared_ptr<Mesh>;
     using SharedBlock = std::shared_ptr<Mesh::Block>;
+
+    std::shared_ptr<Mesh> convert_to(const enum ElemType element_type, const std::shared_ptr<Mesh> &mesh);
+    std::shared_ptr<Mesh> promote_to(const enum ElemType element_type, const std::shared_ptr<Mesh> &mesh);
 }  // namespace smesh
 
 #endif  // SMESH_MESH_HPP

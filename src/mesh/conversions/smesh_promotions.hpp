@@ -24,7 +24,16 @@ void mesh_tet4_to_tet15_points(
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT tet15_elements,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT tet15_pts);
 
-
+template <typename count_t, typename idx_t, typename geom_t>
+int p1_to_p2(const enum ElemType element_type, const ptrdiff_t n_elements,
+             const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT
+                 p1_elements,
+             const int spatial_dim, const ptrdiff_t p1_n_nodes,
+             const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT p1_points,
+             const count_t *const SMESH_RESTRICT n2n_ptr,
+             const idx_t *const SMESH_RESTRICT n2n_idx,
+             idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT p2_elements,
+             geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT p2_points);
 } // namespace smesh
 
 #endif // SMESH_PROMOTIONS_HPP

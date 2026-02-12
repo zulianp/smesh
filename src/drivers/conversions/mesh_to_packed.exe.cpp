@@ -1,11 +1,14 @@
 #include "smesh_context.hpp"
 #include "smesh_packed_mesh.hpp"
 #include "smesh_path.hpp"
+#include "smesh_tracer.hpp"
 #include <stdio.h>
 
 using namespace smesh;
 
 int main(int argc, char **argv) {
+  SMESH_TRACE_SCOPE("mesh_to_packed.exe");
+
   auto ctx = smesh::initialize_serial(argc, argv);
 
   if (argc != 4) {

@@ -16,9 +16,18 @@
       const COUNT_T *const SMESH_RESTRICT, const IDX_T *const SMESH_RESTRICT,  \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                       \
       GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT);                     \
+  template int p1_to_p2<COUNT_T, IDX_T, GEOM_T>(                               \
+      const enum ElemType element_type, const ptrdiff_t n_elements,            \
+      const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT p1_elements,     \
+      const int spatial_dim, const ptrdiff_t p1_n_nodes,                       \
+      const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT p1_points,      \
+      const COUNT_T *const SMESH_RESTRICT n2n_ptr,                             \
+      const IDX_T *const SMESH_RESTRICT n2n_idx,                               \
+      IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT p2_elements,           \
+      GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT p2_points);           \
   template void quad4_to_hex8_extrude<IDX_T, GEOM_T>(                          \
       const ptrdiff_t nsides, const ptrdiff_t nnodes,                          \
-      const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT quad4_elements, \
+      const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT quad4_elements,  \
       const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT points,         \
       const ptrdiff_t nlayers, const GEOM_T height,                            \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT hex8_elements,         \

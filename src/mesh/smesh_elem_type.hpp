@@ -25,6 +25,7 @@ enum ElemType {
   QUADSHELL4 = 140,
   TET4 = 4,
   TET10 = 10,
+  TET15 = 15,
   TET20 = 20,
   HEX8 = 8,
   WEDGE6 = 1006,
@@ -66,6 +67,8 @@ inline enum ElemType type_from_string(const char *str) {
     return SSQUADSHELL4;
   if (!strcmp(str, "TET4"))
     return TET4;
+  if (!strcmp(str, "TET15"))
+    return TET15;
   if (!strcmp(str, "TET10"))
     return TET10;
   if (!strcmp(str, "TET20"))
@@ -127,6 +130,8 @@ inline const char *type_to_string(enum ElemType type) {
     return "SSHEX8";
   case TET10:
     return "TET10";
+  case TET15:
+    return "TET15";
   case TET20:
     return "TET20";
   default: {
@@ -273,6 +278,8 @@ inline int elem_num_nodes(const enum ElemType type) {
     return 8;
   case TET10:
     return 10;
+  case TET15:
+    return 15;
   case TET20:
     return 20;
   default: {
@@ -310,6 +317,8 @@ inline int elem_num_sides(const enum ElemType type) {
     return 6;
   case TET10:
     return 4;
+  case TET15:
+    return 4;
   case TET20:
     return 4;
   default: {
@@ -344,6 +353,8 @@ inline int elem_manifold_dim(const enum ElemType type) {
   case HEX8:
     return 3;
   case TET10:
+    return 3;
+  case TET15:
     return 3;
   case TET20:
     return 3;

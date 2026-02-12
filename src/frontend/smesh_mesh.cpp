@@ -1,11 +1,13 @@
 #include "smesh_mesh.hpp"
 #include "smesh_adjacency.hpp"
 #include "smesh_build.hpp"
+#include "smesh_conversion.hpp"
 #include "smesh_glob.hpp"
 #include "smesh_graph.hpp"
 #include "smesh_mask.hpp"
 #include "smesh_multiblock_graph.hpp"
 #include "smesh_path.hpp"
+#include "smesh_promotions.hpp"
 #include "smesh_read.hpp"
 #include "smesh_sideset.hpp"
 #include "smesh_tracer.hpp"
@@ -18,6 +20,7 @@
 
 #include <algorithm>
 #include <list>
+#include <map>
 #include <vector>
 
 namespace smesh {
@@ -145,13 +148,13 @@ public:
 
 std::shared_ptr<Communicator> Mesh::comm() const { return impl_->comm; }
 
-Mesh::Mesh(const std::shared_ptr<Communicator> &comm, int spatial_dim,
+Mesh::Mesh(const std::shared_ptr<Communicator> &comm,
            enum ElemType element_type, SharedBuffer<idx_t *> elements,
-           ptrdiff_t nnodes, SharedBuffer<geom_t *> points)
+           SharedBuffer<geom_t *> points)
     : impl_(std::make_unique<Impl>()) {
   impl_->comm = comm;
-  impl_->spatial_dim = spatial_dim;
-  impl_->nnodes = nnodes;
+  impl_->spatial_dim = points->extent(0);
+  impl_->nnodes = points->extent(1);
   impl_->points = points;
 
   // Create default block
@@ -160,6 +163,17 @@ Mesh::Mesh(const std::shared_ptr<Communicator> &comm, int spatial_dim,
   default_block->set_element_type(element_type);
   default_block->set_elements(elements);
   impl_->blocks.push_back(default_block);
+}
+
+Mesh::Mesh(const std::shared_ptr<Communicator> &comm,
+           const std::vector<std::shared_ptr<Block>> &blocks,
+           SharedBuffer<geom_t *> points)
+    : impl_(std::make_unique<Impl>()) {
+  impl_->comm = comm;
+  impl_->spatial_dim = points->extent(0);
+  impl_->nnodes = points->extent(1);
+  impl_->points = points;
+  impl_->blocks = blocks;
 }
 
 Mesh::Mesh() : impl_(std::make_unique<Impl>()) {
@@ -530,7 +544,8 @@ Mesh::create_hex8_cube(const std::shared_ptr<Communicator> &comm, const int nx,
   auto points = ret->impl_->points->data();
   auto elements = elements_buffer->data();
 
-  mesh_fill_hex8_cube<idx_t, geom_t>(nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax, elements, points);
+  mesh_fill_hex8_cube<idx_t, geom_t>(nx, ny, nz, xmin, ymin, zmin, xmax, ymax,
+                                     zmax, elements, points);
 
   // Create default block
   auto default_block = std::make_shared<Block>();
@@ -562,7 +577,8 @@ Mesh::create_tri3_square(const std::shared_ptr<Communicator> &comm,
   auto points = ret->impl_->points->data();
   auto elements = elements_buffer->data();
 
-  mesh_fill_tri3_square<idx_t, geom_t>(nx, ny, xmin, ymin, xmax, ymax, elements, points);
+  mesh_fill_tri3_square<idx_t, geom_t>(nx, ny, xmin, ymin, xmax, ymax, elements,
+                                       points);
 
   // Create default block
   auto default_block = std::make_shared<Block>();
@@ -594,7 +610,8 @@ Mesh::create_quad4_square(const std::shared_ptr<Communicator> &comm,
   auto points = ret->impl_->points->data();
   auto elements = elements_buffer->data();
 
-  mesh_fill_quad4_square<idx_t, geom_t>(nx, ny, xmin, ymin, xmax, ymax, elements, points);
+  mesh_fill_quad4_square<idx_t, geom_t>(nx, ny, xmin, ymin, xmax, ymax,
+                                        elements, points);
 
   // Create default block
   auto default_block = std::make_shared<Block>();
@@ -1193,5 +1210,139 @@ std::shared_ptr<Mesh> Mesh::clone() const {
   auto ret = std::make_shared<Mesh>();
   SMESH_IMPLEMENT_ME();
   return ret;
+}
+
+std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
+                                 const std::shared_ptr<Mesh> &mesh) {
+
+  // FIXME the multiblock case is not really supported yet
+  if (mesh->n_blocks() > 1) {
+    SMESH_ERROR(
+        "Conversion from %d to %d is not supported for multiblock meshes\n",
+        mesh->element_type(), element_type);
+    return nullptr;
+  }
+
+  std::map<std::pair<enum ElemType, enum ElemType>,
+           std::function<void(Mesh::Block &, Mesh::Block &)>>
+      cmap;
+
+  cmap[std::make_pair(HEX8, TET4)] = [](Mesh::Block &block,
+                                        Mesh::Block &new_block) {
+    new_block.set_element_type(TET4);
+    new_block.set_elements(
+        create_host_buffer<idx_t>(4, block.n_elements() * 6));
+    mesh_hex8_to_6x_tet4(block.n_elements(), block.elements()->data(),
+                         new_block.elements()->data());
+  };
+
+  cmap[std::make_pair(TET15, HEX8)] = [](Mesh::Block &block,
+                                         Mesh::Block &new_block) {
+    new_block.set_element_type(HEX8);
+    new_block.set_elements(
+        create_host_buffer<idx_t>(8, block.n_elements() * 4));
+    mesh_tet15_to_4x_hex8(block.n_elements(), block.elements()->data(),
+                          new_block.elements()->data());
+  };
+
+  std::vector<std::shared_ptr<Mesh::Block>> blocks;
+  for (auto &block : mesh->blocks()) {
+    auto new_block = std::make_shared<Mesh::Block>();
+    new_block->set_name(block->name());
+    new_block->set_element_type(element_type);
+
+    if (block->element_type() == element_type) {
+      new_block->set_elements(block->elements());
+    } else {
+      auto it = cmap.find(std::make_pair(block->element_type(), element_type));
+      if (it != cmap.end()) {
+        it->second(*block, *new_block);
+      } else {
+        SMESH_ERROR("Conversion from %d to %d is not supported\n",
+                    block->element_type(), element_type);
+        return nullptr;
+      }
+    }
+
+    blocks.push_back(new_block);
+  }
+
+  return std::make_shared<Mesh>(mesh->comm(), blocks, mesh->points());
+}
+
+std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
+                                 const std::shared_ptr<Mesh> &mesh) {
+  // FIXME the multiblock case is not really supported yet
+  if (mesh->n_blocks() > 1) {
+    SMESH_ERROR(
+        "Promotion from %d to %d is not supported for multiblock meshes\n",
+        mesh->element_type(), element_type);
+    return nullptr;
+  }
+
+  std::map<std::pair<enum ElemType, enum ElemType>,
+           std::function<std::shared_ptr<Mesh>(Mesh &)>>
+      cmap;
+
+  cmap[std::make_pair(TET4, TET15)] = [](Mesh &mesh) -> std::shared_ptr<Mesh> {
+    auto elements = create_host_buffer<idx_t>(15, mesh.n_elements());
+    auto n2n_upper_triangular = mesh.node_to_node_graph_upper_triangular();
+    auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
+    auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+    auto e2e_table = mesh.half_face_table()->data();
+
+    ptrdiff_t n_new_nodes = 0;
+    mesh_tet4_to_tet15(mesh.n_elements(), mesh.n_nodes(),
+                       mesh.elements()->data(), n2n_upper_triangular_ptr,
+                       n2n_upper_triangular_idx, e2e_table, elements->data(),
+                       &n_new_nodes);
+
+    auto points = create_host_buffer<geom_t>(3, n_new_nodes);
+    mesh_tet4_to_tet15_points(mesh.n_elements(), mesh.n_nodes(),
+                              mesh.points()->data(), n2n_upper_triangular_ptr,
+                              n2n_upper_triangular_idx, elements->data(),
+                              points->data());
+
+    return std::make_shared<Mesh>(mesh.comm(), TET15, elements, points);
+  };
+
+  cmap[std::make_pair(TET4, TET10)] = [](Mesh &mesh) {
+    auto n2n_upper_triangular = mesh.node_to_node_graph_upper_triangular();
+    auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
+    auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+
+    auto elements = create_host_buffer<idx_t>(10, mesh.n_elements());
+    auto points =
+        create_host_buffer<geom_t>(3, n2n_upper_triangular->colidx()->size());
+
+    p1_to_p2(TET4, mesh.n_elements(), mesh.elements()->data(), 3,
+             mesh.n_nodes(), mesh.points()->data(), n2n_upper_triangular_ptr,
+             n2n_upper_triangular_idx, elements->data(), points->data());
+    return std::make_shared<Mesh>(mesh.comm(), TET10, elements, points);
+  };
+
+  cmap[std::make_pair(TRI3, TRI6)] = [](Mesh &mesh) {
+    auto n2n_upper_triangular = mesh.node_to_node_graph_upper_triangular();
+    auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
+    auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+
+    auto elements = create_host_buffer<idx_t>(6, mesh.n_elements());
+    auto points =
+        create_host_buffer<geom_t>(3, n2n_upper_triangular->colidx()->size());
+
+    p1_to_p2(TRI3, mesh.n_elements(), mesh.elements()->data(), 3,
+             mesh.n_nodes(), mesh.points()->data(), n2n_upper_triangular_ptr,
+             n2n_upper_triangular_idx, elements->data(), points->data());
+    return std::make_shared<Mesh>(mesh.comm(), TRI6, elements, points);
+  };
+
+  auto it = cmap.find(std::make_pair(mesh->element_type(), element_type));
+  if (it != cmap.end()) {
+    return it->second(*mesh);
+  } else {
+    SMESH_ERROR("Promotion from %d to %d is not supported\n",
+                mesh->element_type(), element_type);
+    return nullptr;
+  }
 }
 } // namespace smesh
