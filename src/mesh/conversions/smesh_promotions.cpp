@@ -31,6 +31,13 @@
       const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT points,         \
       const ptrdiff_t nlayers, const GEOM_T height,                            \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT hex8_elements,         \
+      GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT extruded_points);     \
+  template int tri3_to_wedge6_extrude<IDX_T, GEOM_T>(                          \
+      const ptrdiff_t nsides, const ptrdiff_t nnodes,                          \
+      const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT tri3_elements,  \
+      const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT points,         \
+      const ptrdiff_t nlayers, const GEOM_T height,                            \
+      IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT wedge6_elements,       \
       GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT extruded_points);
 
 namespace smesh {

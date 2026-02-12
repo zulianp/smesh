@@ -59,6 +59,43 @@ void mesh_tet15_to_4x_hex8(
     }
   }
 }
+template <typename idx_t>
+void mesh_wedge6_to_3x_tet4(
+    const ptrdiff_t n_elements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT wedge6_elements,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT tet4_elements) {
+  for (ptrdiff_t e = 0; e < n_elements; e++) {
+    const idx_t i0 = wedge6_elements[0][2];
+    const idx_t i1 = wedge6_elements[1][2];
+    const idx_t i2 = wedge6_elements[2][2];
+    const idx_t i3 = wedge6_elements[3][2];
+    const idx_t i4 = wedge6_elements[4][2];
+    const idx_t i5 = wedge6_elements[5][2];
+
+    idx_t *node0 = &tet4_elements[0][e * 3];
+    idx_t *node1 = &tet4_elements[1][e * 3];
+    idx_t *node2 = &tet4_elements[2][e * 3];
+    idx_t *node3 = &tet4_elements[3][e * 3];
+
+    // tet 0
+    node0[0] = i0;
+    node1[0] = i1;
+    node2[0] = i2;
+    node3[0] = i3;
+
+    // tet 1
+    node0[1] = i1;
+    node1[1] = i4;
+    node2[1] = i5;
+    node3[1] = i3;
+
+    // tet 2
+    node0[2] = i2;
+    node1[2] = i1;
+    node2[2] = i5;
+    node3[2] = i3;
+  }
+}
 
 } // namespace smesh
 

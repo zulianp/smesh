@@ -269,6 +269,76 @@ void quad4_to_hex8_extrude(
   free(pseudo_normals);
 }
 
+template <typename idx_t, typename geom_t>
+int tri3_to_wedge6_extrude(
+    const ptrdiff_t nsides, const ptrdiff_t nnodes,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT tri3_elements,
+    const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
+    const ptrdiff_t nlayers, const geom_t height,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT wedge6_elements,
+    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT extruded_points) {
+
+  geom_t **pseudo_normals = (geom_t **)malloc(3 * sizeof(geom_t *));
+  for (int d = 0; d < 3; d++) {
+    pseudo_normals[d] = (geom_t *)calloc(nnodes, sizeof(geom_t));
+  }
+
+  for (ptrdiff_t i = 0; i < nsides; ++i) {
+    const idx_t i0 = tri3_elements[0][i];
+    const idx_t i1 = tri3_elements[1][i];
+    const idx_t i2 = tri3_elements[2][i];
+
+    geom_t nx, ny, nz;
+    normal3(points[0][i0], points[1][i0], points[2][i0], points[0][i1],
+            points[1][i1], points[2][i1], points[0][i2], points[1][i2],
+            points[2][i2], &nx, &ny, &nz);
+
+    pseudo_normals[0][i0] += nx;
+    pseudo_normals[0][i1] += nx;
+    pseudo_normals[0][i2] += nx;
+
+    pseudo_normals[1][i0] += ny;
+    pseudo_normals[1][i1] += ny;
+    pseudo_normals[1][i2] += ny;
+
+    pseudo_normals[2][i0] += nz;
+    pseudo_normals[2][i1] += nz;
+    pseudo_normals[2][i2] += nz;
+  }
+
+  for (ptrdiff_t i = 0; i < nnodes; ++i) {
+    normalize3(&pseudo_normals[0][i], &pseudo_normals[1][i],
+               &pseudo_normals[2][i]);
+  }
+
+  // Construct wedge elements
+  for (ptrdiff_t l = 0; l < nlayers; l++) {
+    for (ptrdiff_t i = 0; i < nsides; ++i) {
+      for (int d = 0; d < 3; d++) {
+        idx_t node = tri3_elements[d][i];
+
+        idx_t node_bottom = l * nnodes + node;
+        idx_t node_top = (l + 1) * nnodes + node;
+
+        wedge6_elements[d][l * nsides + i] = node_bottom;
+        wedge6_elements[3 + d][l * nsides + i] = node_top;
+      }
+    }
+  }
+
+  const geom_t dh = height / nlayers;
+  for (ptrdiff_t l = 0; l <= nlayers; l++) {
+    for (ptrdiff_t i = 0; i < nnodes; ++i) {
+      for (int dd = 0; dd < 3; dd++) {
+        extruded_points[dd][l * nnodes + i] =
+            points[dd][i] + (l * dh * pseudo_normals[dd][i]);
+      }
+    }
+  }
+  free(pseudo_normals);
+  return SMESH_SUCCESS;
+}
+
 template <typename count_t, typename idx_t, typename geom_t>
 int p1_to_p2(const enum ElemType element_type, const ptrdiff_t n_elements,
              const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT

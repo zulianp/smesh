@@ -1263,6 +1263,15 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
                           new_block.elements()->data());
   };
 
+  cmap[std::make_pair(WEDGE6, TET4)] = [](Mesh::Block &block,
+                                          Mesh::Block &new_block) {
+    new_block.set_element_type(TET4);
+    new_block.set_elements(
+        create_host_buffer<idx_t>(4, block.n_elements() * 3));
+    mesh_wedge6_to_3x_tet4(block.n_elements(), block.elements()->data(),
+                           new_block.elements()->data());
+  };
+
   std::vector<std::shared_ptr<Mesh::Block>> blocks;
   for (auto &block : mesh->blocks()) {
     auto new_block = std::make_shared<Mesh::Block>();
@@ -1534,17 +1543,40 @@ std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh) {
 
 std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
                               const geom_t height, const ptrdiff_t nlayers) {
-  auto hex8_elements =
-      create_host_buffer<idx_t>(8, mesh->n_elements() * nlayers);
 
-  auto hex8_points =
-      create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
+  if (mesh->element_type() == QUAD4) {
+    auto hex8_elements =
+        create_host_buffer<idx_t>(8, mesh->n_elements() * nlayers);
 
-  quad4_to_hex8_extrude(mesh->n_elements(), mesh->n_nodes(),
-                        mesh->elements()->data(), mesh->points()->data(),
-                        nlayers, height, hex8_elements->data(),
-                        hex8_points->data());
+    auto hex8_points =
+        create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
 
-  return std::make_shared<Mesh>(mesh->comm(), HEX8, hex8_elements, hex8_points);
+    quad4_to_hex8_extrude(mesh->n_elements(), mesh->n_nodes(),
+                          mesh->elements()->data(), mesh->points()->data(),
+                          nlayers, height, hex8_elements->data(),
+                          hex8_points->data());
+
+    return std::make_shared<Mesh>(mesh->comm(), HEX8, hex8_elements,
+                                  hex8_points);
+  }
+  else if (mesh->element_type() == TRI3) {
+    auto wedge6_elements =
+        create_host_buffer<idx_t>(6, mesh->n_elements() * nlayers);
+
+    auto wedge6_points =
+        create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
+        
+    tri3_to_wedge6_extrude(mesh->n_elements(), mesh->n_nodes(),
+                          mesh->elements()->data(), mesh->points()->data(),
+                          nlayers, height, wedge6_elements->data(),
+                          wedge6_points->data());
+
+    return std::make_shared<Mesh>(mesh->comm(), WEDGE6, wedge6_elements,
+                                  wedge6_points);
+  } else {
+    SMESH_ERROR("Extrusion not supported for element type %d\n",
+                mesh->element_type());
+    return nullptr;
+  }
 }
 } // namespace smesh

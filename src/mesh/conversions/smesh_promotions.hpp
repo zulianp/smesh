@@ -43,6 +43,15 @@ void quad4_to_hex8_extrude(
     const ptrdiff_t nlayers, const geom_t height,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT hex8_elements,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT extruded_points);
+
+template <typename idx_t, typename geom_t>
+int tri3_to_wedge6_extrude(
+    const ptrdiff_t nsides, const ptrdiff_t nnodes,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT tri3_elements,
+    const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
+    const ptrdiff_t nlayers, const geom_t height,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT wedge6_elements,
+    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT extruded_points);
 } // namespace smesh
 
 #endif // SMESH_PROMOTIONS_HPP
