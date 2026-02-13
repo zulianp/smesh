@@ -18,6 +18,8 @@ using u64 = uint64_t;
 using mask_t = char;
 using block_idx_t = u16;
 
+
+
 #if defined(__APPLE__)
 using f16 = __fp16;
 #else
@@ -34,6 +36,7 @@ using element_idx_t = i32;
 using count_t = i32;
 
 static const f16 F16_MAX = (f16)65504.0f;
+static const size_t SIZE_LARGEST_TYPE = sizeof(i64);
 
 template <typename T> struct TypeToString {
   static const std::string_view value() { return "raw"; }

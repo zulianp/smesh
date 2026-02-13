@@ -8,7 +8,7 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
-#include <mpi.h>
+
 
 namespace smesh {
 
