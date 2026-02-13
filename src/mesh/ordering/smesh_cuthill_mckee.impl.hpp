@@ -41,6 +41,7 @@ int eccentricity(const ptrdiff_t n_nodes,
   return SMESH_SUCCESS;
 }
 
+//TODO: check for bugs
 template <typename count_t, typename idx_t>
 int cuthill_mckee(const ptrdiff_t n_nodes,
                   const count_t *const SMESH_RESTRICT n2n_rowptr,

@@ -5,6 +5,7 @@
 #include "smesh_mesh.hpp"
 #include "smesh_path.hpp"
 #include "smesh_tracer.hpp"
+#include "smesh_cuthill_mckee.hpp"
 
 #include <stdio.h>
 
@@ -15,8 +16,7 @@ int main(int argc, char **argv) {
   auto ctx = initialize_serial(argc, argv);
 
   if (argc != 3) {
-    fprintf(stderr,
-            "Usage: %s <mesh_folder> <reordered_mesh_folder>\n",
+    fprintf(stderr, "Usage: %s <mesh_folder> <reordered_mesh_folder>\n",
             argv[0]);
     return SMESH_FAILURE;
   }
@@ -24,7 +24,41 @@ int main(int argc, char **argv) {
   int ret = SMESH_SUCCESS;
   {
     auto mesh = Mesh::create_from_file(ctx->communicator(), Path(argv[1]));
+    auto n2n = mesh->node_to_node_graph();
+    const ptrdiff_t n_nodes = mesh->n_nodes();
+    const ptrdiff_t n_elements = mesh->n_elements();
+    auto reordering = create_host_buffer<idx_t>(n_nodes);
+    cuthill_mckee(mesh->n_nodes(), n2n->rowptr()->data(), n2n->colidx()->data(),
+                  reordering->data());
 
+    auto copied_points = smesh::copy(mesh->points());
+    auto copied_points_data = copied_points->data();
+    auto points_data = mesh->points()->data();
+    auto reordering_data = reordering->data();
+    for (ptrdiff_t d = 0; d < mesh->spatial_dimension(); d++) {
+      for (ptrdiff_t i = 0; i < n_nodes; i++) {
+        points_data[d][reordering_data[i]] = copied_points_data[d][i];
+      }
+    }
+
+    int nxe = mesh->n_nodes_per_element();
+    auto elements_data = mesh->elements()->data();
+    for (int d = 0; d < nxe; d++) {
+      for (ptrdiff_t i = 0; i < n_elements; i++) {
+        elements_data[d][i] = reordering_data[elements_data[d][i]];
+      }
+    }
+
+    auto inverse_reordering = smesh::create_host_buffer<idx_t>(n_nodes);
+    auto inverse_reordering_data = inverse_reordering->data();
+    for (ptrdiff_t i = 0; i < n_nodes; i++) {
+      inverse_reordering_data[reordering_data[i]] = i;
+    }
+
+    auto output_folder = Path(argv[2]);
+    mesh->write(output_folder);
+    inverse_reordering->to_file(
+        output_folder / ("map." + std::string(TypeToString<idx_t>::value())));
   }
 
   return ret;
@@ -32,9 +66,9 @@ int main(int argc, char **argv) {
 
 // Reference implementation:
 
-// #include "sfem_API.hpp"
+// #include "smesh_API.hpp"
 
-// #include "sfem_macros.h"
+// #include "smesh_macros.h"
 // #include "sortreduce.h"
 
 // int main(int argc, char *argv[]) {
@@ -54,7 +88,8 @@ int main(int argc, char **argv) {
 //         return EXIT_FAILURE;
 //     }
 
-//     auto        mesh          = sfem::Mesh::create_from_file(sfem::Communicator::wrap(comm), argv[1]);
+//     auto        mesh          =
+//     smesh::Mesh::create_from_file(smesh::Communicator::wrap(comm), argv[1]);
 //     std::string output_folder = argv[2];
 
 //     const ptrdiff_t n_elements = mesh->n_elements();
@@ -64,11 +99,10 @@ int main(int argc, char **argv) {
 //     auto            colidx     = edge_graph->colidx();
 
 //     // Output
-//     sfem::create_directory(output_folder.c_str());
+//     smesh::create_directory(output_folder.c_str());
 
-//     auto eccentricity = sfem::create_host_buffer<idx_t>(n_nodes);
-//     auto reordering   = sfem::create_host_buffer<idx_t>(n_nodes);
-
+//     auto eccentricity = smesh::create_host_buffer<idx_t>(n_nodes);
+//     auto reordering   = smesh::create_host_buffer<idx_t>(n_nodes);
 
 //     // Get raw pointers to buffer data
 //     auto eccentricity_data = eccentricity->data();
@@ -137,15 +171,18 @@ int main(int argc, char **argv) {
 //             // Get neighbors of current node
 //             neighbors.clear();
 
-//             for (ptrdiff_t j = rowptr_data[current]; j < rowptr_data[current + 1]; j++) {
+//             for (ptrdiff_t j = rowptr_data[current]; j < rowptr_data[current
+//             + 1]; j++) {
 //                 const ptrdiff_t neighbor = colidx_data[j];
-//                 if (neighbor != current && reordering_data[neighbor] == SFEM_IDX_INVALID) {
+//                 if (neighbor != current && reordering_data[neighbor] ==
+//                 SFEM_IDX_INVALID) {
 //                     neighbors.push_back(neighbor);
 //                 }
 //             }
 
 //             // Sort neighbors by degree (ascending) for better bandwidth
-//             std::sort(neighbors.begin(), neighbors.end(), [&](ptrdiff_t a, ptrdiff_t b) {
+//             std::sort(neighbors.begin(), neighbors.end(), [&](ptrdiff_t a,
+//             ptrdiff_t b) {
 //                 return degree(a) < degree(b);
 //             });
 
@@ -169,14 +206,13 @@ int main(int argc, char **argv) {
 //     }
 
 //     // Create inverse mapping
-//     auto inverse_reordering      = sfem::create_host_buffer<idx_t>(n_nodes);
+//     auto inverse_reordering      = smesh::create_host_buffer<idx_t>(n_nodes);
 //     auto inverse_reordering_data = inverse_reordering->data();
 //     for (ptrdiff_t i = 0; i < n_nodes; i++) {
 //         inverse_reordering_data[reordering_data[i]] = i;
 //     }
 
-
-//     auto copied_points = sfem::copy(mesh->points());
+//     auto copied_points = smesh::copy(mesh->points());
 //     auto copied_points_data = copied_points->data();
 //     auto points_data = mesh->points()->data();
 //     for(ptrdiff_t d = 0; d < mesh->spatial_dimension(); d++) {
