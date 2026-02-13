@@ -18,7 +18,7 @@ public:
 
     SMESH_INLINE ~ScopedTimeTracer() {
         double end_time = time_seconds();
-        printf("%s: %g seconds\n", this->name, end_time - this->start_time);
+        printf("%s: %g [s]\n", this->name, end_time - this->start_time);
     }
 };
 
@@ -39,7 +39,7 @@ public:
       double end_time = time_seconds();
       double duration = end_time - this->start_time;
       double throughput = this->flops / duration;
-      printf("%s: %g GFlops/s\n", this->name, throughput / 1e9);
+      printf("%s: %g [GFlops/s]\n", this->name, throughput / 1e9);
     }
 };
 

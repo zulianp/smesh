@@ -6,6 +6,7 @@
 #include "smesh_elem_type.hpp"
 #include "smesh_sort.hpp"
 #include "smesh_types.hpp"
+#include "smesh_tracer.hpp"
 
 #include <algorithm>
 #include <iterator>
@@ -199,7 +200,7 @@ void extract_surface_connectivity_with_adj_table(
     element_idx_t **SMESH_RESTRICT parent_element)
 
 {
-  double tick = time_seconds();
+  SMESH_TRACE_SCOPE("extract_surface_connectivity_with_adj_table");
 
   const int ns = elem_num_sides(element_type);
   element_idx_t *table = 0;
@@ -246,11 +247,6 @@ void extract_surface_connectivity_with_adj_table(
   }
 
   free(table);
-
-  double tock = time_seconds();
-  printf(
-      "adj_table.c: extract_surface_connectivity_with_adj_table\t%g seconds\n",
-      tock - tick);
 }
 
 template <typename element_idx_t>
@@ -260,7 +256,7 @@ int extract_sideset_from_adj_table(
     ptrdiff_t *SMESH_RESTRICT n_surf_elements,
     element_idx_t **SMESH_RESTRICT parent_element,
     int16_t **SMESH_RESTRICT side_idx) {
-  double tick = time_seconds();
+  SMESH_TRACE_SCOPE("extract_sideset_from_adj_table");
 
   LocalSideTable lst;
   lst.fill(element_type);
@@ -291,10 +287,6 @@ int extract_sideset_from_adj_table(
       }
     }
   }
-
-  double tock = time_seconds();
-  printf("adj_table.c: extract_sideset_from_adj_table\t%g seconds\n",
-         tock - tick);
 
   return SMESH_SUCCESS;
 }

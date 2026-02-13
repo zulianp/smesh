@@ -34,7 +34,8 @@ int sideset_to_e2s_fill(const ptrdiff_t n_sides, const ptrdiff_t n_elements,
                         const element_idx_t *const SMESH_RESTRICT e2s_ptr,
                         element_idx_t *const SMESH_RESTRICT e2s_idx) {
   element_idx_t *bk =
-      (element_idx_t *)malloc(n_elements * sizeof(element_idx_t));
+      (element_idx_t *)calloc(n_elements, sizeof(element_idx_t));
+
   for (ptrdiff_t i = 0; i < n_sides; i++) {
     element_idx_t e = parent_element[i];
     e2s_idx[e2s_ptr[e] + bk[e]++] = i;
@@ -60,6 +61,8 @@ int sideset_select_propagate(
     const element_idx_t sideset_seed, mask_t *const SMESH_RESTRICT selected,
     selector_t &&selector) {
 
+  mask_t *visited = (mask_t *)calloc(mask_count(n_sides), sizeof(mask_t));
+
   memset(selected, 0, mask_count(n_sides) * sizeof(mask_t));
   element_idx_t *e2s_ptr =
       (element_idx_t *)malloc((n_elements + 1) * sizeof(element_idx_t));
@@ -78,12 +81,13 @@ int sideset_select_propagate(
   lst.fill(element_type);
 
   const int nnxs = elem_num_nodes(side_type(element_type));
+  const enum ElemType st = side_type(element_type);
+  const int side_dim = elem_manifold_dim(st);
+  const int min_shared = (side_dim == 1) ? 1 : 2;
 
   for (ptrdiff_t cursor = 0; cursor < queue_size; cursor++) {
     const ptrdiff_t side = queue[cursor];
-    if (mask_get(side, selected)) {
-      continue;
-    }
+    mask_set(side, selected);
 
     const element_idx_t e = parent_element[side];
     const i16 s = side_idx[side];
@@ -97,11 +101,12 @@ int sideset_select_propagate(
 
         for (ptrdiff_t k = e2s_ptr[esp]; k < e2s_ptr[esp + 1]; ++k) {
           const element_idx_t nside = e2s_idx[k];
-          if (nside == e || nside == invalid_idx<element_idx_t>() ||
-              mask_get(nside, selected))
+          if (nside == side || nside == invalid_idx<element_idx_t>() ||
+              mask_get(nside, visited) || mask_get(nside, selected))
             continue;
 
           const i16 ns = side_idx[nside];
+          mask_set(nside, visited);
 
           // count shared nodes (edge adjacency requires >=2)
           int shared = 0;
@@ -110,9 +115,10 @@ int sideset_select_propagate(
               shared += (elements[lst(s, a)][e] == elements[lst(ns, b)][esp]);
             }
           }
-          if (shared < 2)
+          if (shared < min_shared)
             continue;
 
+          
           if (selector(side, nside)) {
             queue[queue_size++] = nside;
           }
@@ -124,6 +130,7 @@ int sideset_select_propagate(
   free(queue);
   free(e2s_ptr);
   free(e2s_idx);
+  free(visited);
   return SMESH_SUCCESS;
 }
 

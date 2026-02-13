@@ -100,6 +100,7 @@ public:
 
   std::shared_ptr<NodeToNodeGraph> crs_graph;
   std::shared_ptr<NodeToNodeGraph> crs_graph_upper_triangular;
+  std::shared_ptr<NodeToElementGraph> node_to_element_graph;
 
   ~Impl() {}
 
@@ -147,6 +148,25 @@ public:
       return nullptr;
     }
     return blocks[0]->elements();
+  }
+
+  void create_node_to_element_graph() {
+    if (node_to_element_graph) {
+      return;
+    }
+    node_to_element_graph = std::make_shared<NodeToElementGraph>();
+
+    count_t *rowptr{nullptr};
+    element_idx_t *colidx{nullptr};
+
+    create_n2e(default_elements()->extent(1), nnodes,
+               default_elements()->extent(0), default_elements()->data(),
+               &rowptr, &colidx);
+
+    node_to_element_graph = std::make_shared<Mesh::NodeToElementGraph>(
+        Buffer<count_t>::own(nnodes + 1, rowptr, free, MEMORY_SPACE_HOST),
+        Buffer<element_idx_t>::own(rowptr[nnodes], colidx, free,
+                                   MEMORY_SPACE_HOST));
   }
 };
 
@@ -402,7 +422,8 @@ std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::node_to_node_graph() {
 }
 
 std::shared_ptr<Mesh::NodeToElementGraph> Mesh::node_to_element_graph() {
-  return nullptr;
+  impl_->create_node_to_element_graph();
+  return impl_->node_to_element_graph;
 }
 
 SharedBuffer<element_idx_t> Mesh::half_face_table() {
@@ -479,7 +500,8 @@ int Mesh::initialize_node_to_node_graph() {
   return SMESH_SUCCESS;
 }
 
-std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::node_to_node_graph_upper_triangular() {
+std::shared_ptr<Mesh::NodeToNodeGraph>
+Mesh::node_to_node_graph_upper_triangular() {
   if (impl_->crs_graph_upper_triangular)
     return impl_->crs_graph_upper_triangular;
   SMESH_TRACE_SCOPE("Mesh::node_to_node_graph_upper_triangular");
@@ -1562,18 +1584,17 @@ std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
 
     return std::make_shared<Mesh>(mesh->comm(), HEX8, hex8_elements,
                                   hex8_points);
-  }
-  else if (mesh->element_type() == TRI3) {
+  } else if (mesh->element_type() == TRI3) {
     auto wedge6_elements =
         create_host_buffer<idx_t>(6, mesh->n_elements() * nlayers);
 
     auto wedge6_points =
         create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
-        
+
     tri3_to_wedge6_extrude(mesh->n_elements(), mesh->n_nodes(),
-                          mesh->elements()->data(), mesh->points()->data(),
-                          nlayers, height, wedge6_elements->data(),
-                          wedge6_points->data());
+                           mesh->elements()->data(), mesh->points()->data(),
+                           nlayers, height, wedge6_elements->data(),
+                           wedge6_points->data());
 
     return std::make_shared<Mesh>(mesh->comm(), WEDGE6, wedge6_elements,
                                   wedge6_points);

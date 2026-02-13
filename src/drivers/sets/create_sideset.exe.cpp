@@ -1,19 +1,120 @@
 #include "smesh_context.hpp"
+#include "smesh_graph.hpp"
 #include "smesh_mask.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_path.hpp"
 #include "smesh_sideset.hpp"
 #include "smesh_sidesets.impl.hpp"
 #include "smesh_tracer.hpp"
+#include <cmath>
+#include <cstdlib>
 #include <stdio.h>
 
 using namespace smesh;
+
+static inline int side_num_corner_nodes(const enum ElemType side_type) {
+  // We only use corner nodes for geometry/angles.
+  switch (side_type) {
+  case NODE1:
+    return 1;
+  case EDGE2:
+  case EDGE3:
+  case BEAM2:
+    return 2;
+  case TRI3:
+  case TRI6:
+  case TRI10:
+    return 3;
+  case QUAD4:
+  case QUADSHELL4:
+    return 4;
+  default:
+    return -1;
+  }
+}
+
+static inline bool compute_side_normal(const int dim,
+                                      const enum ElemType element_type,
+                                      const idx_t *const SMESH_RESTRICT
+                                          *const SMESH_RESTRICT elements,
+                                      const geom_t *const SMESH_RESTRICT
+                                          *const SMESH_RESTRICT points,
+                                      const element_idx_t parent,
+                                      const i16 lfi, real_t *out_unit_normal) {
+  LocalSideTable lst;
+  lst.fill(element_type);
+
+  const enum ElemType st = side_type(element_type);
+  const int ncorner = side_num_corner_nodes(st);
+  if (ncorner < 0) {
+    return false;
+  }
+
+  if (dim == 2) {
+    if (ncorner != 2) {
+      return false;
+    }
+
+    const idx_t n0 = elements[lst(lfi, 0)][parent];
+    const idx_t n1 = elements[lst(lfi, 1)][parent];
+
+    const real_t x0 = points[0][n0];
+    const real_t y0 = points[1][n0];
+    const real_t x1 = points[0][n1];
+    const real_t y1 = points[1][n1];
+
+    // Perpendicular to edge (p1 - p0), normalized.
+    const real_t nx = -(y1 - y0);
+    const real_t ny = (x1 - x0);
+    const real_t len = std::sqrt(nx * nx + ny * ny);
+    if (len <= 0) {
+      return false;
+    }
+
+    out_unit_normal[0] = nx / len;
+    out_unit_normal[1] = ny / len;
+    out_unit_normal[2] = 0;
+    return true;
+  }
+
+  if (dim == 3) {
+    if (ncorner < 3) {
+      return false;
+    }
+
+    const idx_t n0 = elements[lst(lfi, 0)][parent];
+    const idx_t n1 = elements[lst(lfi, 1)][parent];
+    const idx_t n2 = elements[lst(lfi, 2)][parent];
+
+    const real_t p0[3] = {points[0][n0], points[1][n0], points[2][n0]};
+    const real_t p1[3] = {points[0][n1], points[1][n1], points[2][n1]};
+    const real_t p2[3] = {points[0][n2], points[1][n2], points[2][n2]};
+
+    const real_t u[3] = {p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]};
+    const real_t v[3] = {p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]};
+
+    const real_t nx = (u[1] * v[2]) - (u[2] * v[1]);
+    const real_t ny = (u[2] * v[0]) - (u[0] * v[2]);
+    const real_t nz = (u[0] * v[1]) - (u[1] * v[0]);
+    const real_t len = std::sqrt(nx * nx + ny * ny + nz * nz);
+    if (len <= 0) {
+      return false;
+    }
+
+    out_unit_normal[0] = nx / len;
+    out_unit_normal[1] = ny / len;
+    out_unit_normal[2] = nz / len;
+    return true;
+  }
+
+  return false;
+}
 
 int main(int argc, char **argv) {
   SMESH_TRACE_SCOPE("create_sideset.exe");
   auto ctx = smesh::initialize_serial(argc, argv);
 
-  if (argc != 4) {
+  if (argc != 7) {
     fprintf(stderr,
             "Usage: %s <mesh_folder> <x> <y> <z> <angle_threshold> "
             "<output_folder>\n",
@@ -23,31 +124,140 @@ int main(int argc, char **argv) {
 
   int ret = SMESH_SUCCESS;
   {
+    const geom_t roi[3] = {(geom_t)std::atof(argv[2]), (geom_t)std::atof(argv[3]),
+                           (geom_t)std::atof(argv[4])};
+    // NOTE: We follow the reference: compare fabs(dot(n0,n1)) > threshold,
+    // so the threshold is a cosine similarity bound in [0, 1].
+    const real_t angle_threshold = (real_t)std::atof(argv[5]);
+    const Path output_folder(argv[6]);
+
     auto mesh = Mesh::create_from_file(ctx->communicator(), Path(argv[1]));
     auto sideset = skin_sideset(mesh);
+
+    const ptrdiff_t n_surf = sideset->parent()->size();
+    const int dim = mesh->spatial_dimension();
+    auto points = mesh->points()->data();
+    auto elements = mesh->elements()->data();
+    const enum ElemType element_type = mesh->element_type();
+
+    // TODO: Use node_to_element_graph instead of creating a new one
+    // Build node-to-element CSR once (reference behavior).
+
     auto n2e = mesh->node_to_element_graph();
+  
+    // -------------------------------------------------------------------------
+    // Find approximately closest surface side (seed).
+    // -------------------------------------------------------------------------
+    const auto surf_parent = sideset->parent()->data();
+    const auto surf_lfi = sideset->lfi()->data();
+
+    LocalSideTable lst;
+    lst.fill(element_type);
+
+    const enum ElemType st = side_type(element_type);
+    const int ncorner = side_num_corner_nodes(st);
+    if (ncorner < 0) {
+      SMESH_ERROR("Unsupported element/side type for create_sideset\n");
+      return SMESH_FAILURE;
+    }
+
+    element_idx_t seed_side = invalid_idx<element_idx_t>();
+    real_t best_sq_dist = (real_t)1e300;
+
+    for (ptrdiff_t si = 0; si < n_surf; ++si) {
+      const element_idx_t e = surf_parent[si];
+      const i16 s = surf_lfi[si];
+
+      real_t bary[3] = {0, 0, 0};
+      for (int ln = 0; ln < ncorner; ++ln) {
+        const idx_t node = elements[lst(s, ln)][e];
+        bary[0] += points[0][node];
+        bary[1] += points[1][node];
+        if (dim == 3) {
+          bary[2] += points[2][node];
+        }
+      }
+
+      const real_t inv = (real_t)1 / (real_t)ncorner;
+      bary[0] *= inv;
+      bary[1] *= inv;
+      bary[2] *= inv;
+
+      const real_t dx = bary[0] - (real_t)roi[0];
+      const real_t dy = bary[1] - (real_t)roi[1];
+      const real_t dz = (dim == 3) ? (bary[2] - (real_t)roi[2]) : (real_t)0;
+      const real_t sq_dist = dx * dx + dy * dy + dz * dz;
+
+      if (sq_dist < best_sq_dist) {
+        best_sq_dist = sq_dist;
+        seed_side = (element_idx_t)si;
+      }
+    }
+
+    if (seed_side == invalid_idx<element_idx_t>()) {
+      SMESH_ERROR("Unable to find seed side\n");
+      return SMESH_FAILURE;
+    }
 
     auto selected =
         create_host_buffer<mask_t>(mask_count(sideset->parent()->size()));
 
-    element_idx_t sideset_seed = 0;
-    int err = sideset_select_propagate(
+    const int err = sideset_select_propagate(
         sideset->parent()->size(), sideset->parent()->data(),
-        sideset->lfi()->data(), n2e->rowptr()->data(), n2e->colidx()->data(),
-        mesh->element_type(), mesh->n_elements(), mesh->elements()->data(),
-        sideset_seed, selected->data(),
-        [&](const ptrdiff_t prev_e, const ptrdiff_t next_e) {
-          // FIXME!
-          return prev_e != next_e;
+        sideset->lfi()->data(), n2e->rowptr()->data(), n2e->colidx()->data(), element_type,
+        mesh->n_elements(), elements, seed_side, selected->data(),
+        [&](const ptrdiff_t prev_side, const ptrdiff_t next_side) {
+          const element_idx_t pe = surf_parent[prev_side];
+          const element_idx_t ne = surf_parent[next_side];
+          const i16 ps = surf_lfi[prev_side];
+          const i16 ns = surf_lfi[next_side];
+
+          real_t n0[3] = {0, 0, 0};
+          real_t n1[3] = {0, 0, 0};
+          if (!compute_side_normal(dim, element_type, elements, points, pe, ps,
+                                   n0)) {
+            return false;
+          }
+          if (!compute_side_normal(dim, element_type, elements, points, ne, ns,
+                                   n1)) {
+            return false;
+          }
+
+          const real_t cos_angle =
+              std::fabs(n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2]);
+          return cos_angle > angle_threshold;
         });
-        
+
 
     if (err != SMESH_SUCCESS) {
       SMESH_ERROR("Failed to select sideset!\n");
       return SMESH_FAILURE;
     }
 
-    // TODO: Create sideset from selected
+    ptrdiff_t n_selected = 0;
+    for (ptrdiff_t i = 0; i < n_surf; ++i) {
+      n_selected += (mask_get(i, selected->data()) != 0);
+    }
+
+    auto out_parent = create_host_buffer<element_idx_t>(n_selected);
+    auto out_lfi = create_host_buffer<i16>(n_selected);
+
+    ptrdiff_t ins = 0;
+    for (ptrdiff_t i = 0; i < n_surf; ++i) {
+      if (!mask_get(i, selected->data())) {
+        continue;
+      }
+      out_parent->data()[ins] = surf_parent[i];
+      out_lfi->data()[ins] = surf_lfi[i];
+      ++ins;
+    }
+
+    auto out_ss =
+        Sideset::create(mesh->comm(), out_parent, out_lfi, sideset->block_id());
+    if (out_ss->write(output_folder) != SMESH_SUCCESS) {
+      SMESH_ERROR("Failed to write output sideset\n");
+      return SMESH_FAILURE;
+    }
   }
 
   return ret;
