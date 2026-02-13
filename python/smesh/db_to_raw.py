@@ -6,6 +6,7 @@ import sys, getopt
 import os
 import glob
 import pdb
+from utils import dtype_to_extension
 
 
 try:
@@ -84,7 +85,7 @@ def db_to_raw(argv):
                 bncells, bnnodesxelem = b.data.shape
                 idx[offset : (offset + bncells)] = b.data[:, d]
                 offset += bncells
-            idx.astype(np.int32).tofile(f"{output_folder}/i{d}.raw")
+            idx.astype(np.int32).tofile(f"{output_folder}/i{d}.int32")
 
     else:
         for b in mesh.cells:
@@ -92,7 +93,7 @@ def db_to_raw(argv):
 
             for d in range(0, nnodesxelem):
                 i0 = b.data[:, d]
-                i0.astype(np.int32).tofile(f"{output_folder}/i{d}.raw")
+                i0.astype(np.int32).tofile(f"{output_folder}/i{d}.int32")
 
     ###################################
     # Points
@@ -104,7 +105,7 @@ def db_to_raw(argv):
 
     for d in range(0, ndims):
         x = xyz[d, :].astype(np.float32)
-        x.tofile(f"{output_folder}/{str_xyz[d]}.raw")
+        x.tofile(f"{output_folder}/{str_xyz[d]}.float32")
 
     ###################################
     # Point data
@@ -119,8 +120,8 @@ def db_to_raw(argv):
     for key in mesh.point_data:
         print(f"\t- {key}")
         data = mesh.point_data[key]
-        d = data[:].astype(real_t)
-        d.tofile(f"{point_data_dir}/{key}.raw")
+        d = data[:].astype(np.float64)
+        d.tofile(f"{point_data_dir}/{key}.float64")
 
     ###################################
     # Cell data
@@ -137,8 +138,8 @@ def db_to_raw(argv):
         data = mesh.cell_data[key]
         # pdb.set_trace()
         try:
-            d = data[:].astype(real_t)
-            d.tofile(f"{cell_data}/{key}.raw")
+            d = data[:].astype(np.float64)
+            d.tofile(f"{cell_data}/{key}.float64")
         except:
             print(f"Unable to convert {key}")
 

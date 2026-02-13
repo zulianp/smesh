@@ -1,11 +1,14 @@
 import glob
+import numpy as np
+
+def dtype_to_extension(dtype):
+    return f".{dtype.name}"
 
 def extension_to_dtype(extension):
-    import numpy as np
     if extension == "raw":
         return np.float32
     return np.dtype(extension)
-    
+
 def extension(path):
     return path.split('.')[-1]
 
