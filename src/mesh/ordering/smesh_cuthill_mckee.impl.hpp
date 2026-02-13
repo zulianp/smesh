@@ -41,7 +41,6 @@ int eccentricity(const ptrdiff_t n_nodes,
   return SMESH_SUCCESS;
 }
 
-//TODO: check for bugs
 template <typename count_t, typename idx_t>
 int cuthill_mckee(const ptrdiff_t n_nodes,
                   const count_t *const SMESH_RESTRICT n2n_rowptr,
@@ -55,84 +54,86 @@ int cuthill_mckee(const ptrdiff_t n_nodes,
     return SMESH_FAILURE;
   }
 
-  idx_t *queue = (idx_t *)malloc(n_nodes * sizeof(idx_t));
+  const idx_t invalid = invalid_idx<idx_t>();
+  const idx_t queued = invalid - idx_t(1);
 
-  auto degree = [&n2n_rowptr](ptrdiff_t i) {
-    return n2n_rowptr[i + 1] - n2n_rowptr[i];
-  };
+  idx_t *queue = (idx_t *)malloc((size_t)n_nodes * sizeof(idx_t));
+  count_t *degrees = (count_t *)malloc((size_t)n_nodes * sizeof(count_t));
+  if (!queue || !degrees) {
+    free(queue);
+    free(degrees);
+    SMESH_ERROR("Out of memory");
+    return SMESH_FAILURE;
+  }
 
-  // Initialize arrays
   for (ptrdiff_t i = 0; i < n_nodes; i++) {
-    reordering[i] = invalid_idx<idx_t>();
+    reordering[i] = invalid;
+    degrees[i] = n2n_rowptr[i + 1] - n2n_rowptr[i];
   }
 
   // Find starting node with minimum degree
   ptrdiff_t start_node = 0;
-  idx_t min_degree = degree(0);
-  idx_t max_degree = min_degree;
+  count_t min_degree = degrees[0];
   for (ptrdiff_t i = 1; i < n_nodes; i++) {
-    idx_t d = degree(i);
+    const count_t d = degrees[i];
     if (d < min_degree) {
       min_degree = d;
       start_node = i;
-    } else if (d > max_degree) {
-      max_degree = d;
     }
   }
 
-  queue[0] = start_node;
-  ptrdiff_t queue_size = 1;
   ptrdiff_t reorder_idx = 0;
-  reordering[start_node] = reorder_idx++;
 
-  ptrdiff_t cursor = 0;
-  while (cursor < queue_size) {
-    const ptrdiff_t current_queue_size = queue_size - cursor;
-    const idx_t *const current_queue = &queue[cursor];
+  auto run_component = [&](const ptrdiff_t seed) {
+    ptrdiff_t head = 0;
+    ptrdiff_t tail = 0;
 
-    ptrdiff_t end_cursor = cursor;
-    for (ptrdiff_t i = 0; i < current_queue_size; i++) {
-      const idx_t current = current_queue[i];
-      if (current == invalid_idx<idx_t>()) {
-        continue;
-      }
+    queue[tail++] = (idx_t)seed;
+    reordering[seed] = (idx_t)reorder_idx++;
 
-      const ptrdiff_t start_cursor = end_cursor;
-      for (ptrdiff_t j = n2n_rowptr[current]; j < n2n_rowptr[current + 1];
-           j++) {
-        const ptrdiff_t neighbor = n2n_idx[j];
-        if (neighbor != current &&
-            reordering[neighbor] == invalid_idx<idx_t>()) {
-          queue[end_cursor++] = neighbor;
-        }
-      }
+    while (head < tail) {
+      const ptrdiff_t current = (ptrdiff_t)queue[head++];
+      SMESH_ASSERT(current >= 0 && current < n_nodes);
 
-      std::sort(
-          queue + start_cursor, queue + end_cursor,
-          [&](ptrdiff_t a, ptrdiff_t b) { return degree(a) < degree(b); });
-
-      for (ptrdiff_t i = start_cursor; i < end_cursor; i++) {
-        const idx_t current = queue[i];
-        if (current == invalid_idx<idx_t>()) {
+      const ptrdiff_t seg_begin = tail;
+      for (count_t j = n2n_rowptr[current]; j < n2n_rowptr[current + 1]; j++) {
+        const ptrdiff_t neighbor = (ptrdiff_t)n2n_idx[j];
+        SMESH_ASSERT(neighbor >= 0 && neighbor < n_nodes);
+        if (neighbor == current) {
           continue;
         }
-
-        if (reordering[current] == invalid_idx<idx_t>()) {
-          reordering[current] = reorder_idx++;
-        } else {
-          queue[i] = invalid_idx<idx_t>();
+        if (reordering[neighbor] == invalid) {
+          reordering[neighbor] = queued; // mark discovered (prevents duplicates)
+          queue[tail++] = (idx_t)neighbor;
+          SMESH_ASSERT(tail <= n_nodes);
         }
       }
+
+      if (tail - seg_begin > 1) {
+        std::sort(queue + seg_begin, queue + tail, [&](idx_t a, idx_t b) {
+          const count_t da = degrees[(ptrdiff_t)a];
+          const count_t db = degrees[(ptrdiff_t)b];
+          return (da < db) || (da == db && a < b);
+        });
+      }
+
+      for (ptrdiff_t k = seg_begin; k < tail; k++) {
+        const ptrdiff_t v = (ptrdiff_t)queue[k];
+        reordering[v] = (idx_t)reorder_idx++;
+      }
     }
-  }
+  };
+
+  run_component(start_node);
 
   // Handle any remaining unvisited nodes (disconnected components)
   for (ptrdiff_t i = 0; i < n_nodes; i++) {
-    if (reordering[i] == invalid_idx<idx_t>()) {
-      reordering[i] = reorder_idx++;
+    if (reordering[i] == invalid) {
+      run_component(i);
     }
   }
 
+  free(degrees);
   free(queue);
   return SMESH_SUCCESS;
 }
