@@ -147,12 +147,12 @@ int mesh_build_global_ids(MPI_Comm comm, const ptrdiff_t n_nodes,
   MPI_Comm_rank(comm, &rank);
   MPI_Comm_size(comm, &size);
 
-  long n_gnodes = n_owned_nodes;
-  long global_node_offset = 0;
-  MPI_Exscan(&n_gnodes, &global_node_offset, 1, MPI_LONG, MPI_SUM, comm);
+  idx_t n_gnodes = n_owned_nodes;
+  idx_t global_node_offset = 0;
+  MPI_Exscan(&n_gnodes, &global_node_offset, 1, smesh::mpi_type<idx_t>(), MPI_SUM, comm);
 
   n_gnodes = global_node_offset + n_owned_nodes;
-  MPI_Bcast(&n_gnodes, 1, MPI_LONG, size - 1, comm);
+  MPI_Bcast(&n_gnodes, 1, smesh::mpi_type<idx_t>(), size - 1, comm);
 
   idx_t *node_offsets = (idx_t *)malloc((size + 1) * sizeof(idx_t));
   SMESH_MPI_CATCH(MPI_Allgather(&global_node_offset, 1,
@@ -600,6 +600,12 @@ int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
       std::string filename = i_path.file_name();
       int ii = std::stoi(filename.substr(1, filename.find_last_of('.')));
 
+      if (ii >= nnodesxelem) {
+        SMESH_ERROR("Index out of range: %d >= %d\n", ii, nnodesxelem);
+        ret = SMESH_FAILURE;
+        break;
+      }
+
       idx_t *idx = 0;
       if (array_create_from_file_convert_from_extension<idx_t>(
               comm, i_path, &idx, &n_local_elements, &n_global_elements) !=
@@ -637,7 +643,6 @@ int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
     *nnodesxelem_out = 0;
     *n_local_elements_out = 0;
     *n_global_elements_out = 0;
-    *elems = nullptr;
     for (int d = 0; d < nnodesxelem; ++d) {
       free((*elems)[d]);
     }
@@ -691,7 +696,7 @@ int mesh_coordinates_from_folder(MPI_Comm comm, const Path &folder,
     points_paths.push_back(z_file[0]);
   }
 
-  geom_t **points = (geom_t **)malloc(sizeof(geom_t *) * ndims);
+  geom_t **points = (geom_t **)calloc(ndims, sizeof(geom_t *));
 
   ptrdiff_t n_local_nodes = 0;
   ptrdiff_t n_global_nodes = 0;
@@ -726,6 +731,10 @@ int mesh_coordinates_from_folder(MPI_Comm comm, const Path &folder,
 
   if (ret == SMESH_FAILURE) {
     *spatial_dim_out = 0;
+    for (int d = 0; d < ndims; ++d) {
+      free(points[d]);
+    }
+    free(points);
     *points_out = nullptr;
     *n_local_nodes_out = 0;
     *n_global_nodes_out = 0;
