@@ -251,8 +251,8 @@ int Mesh::read(const Path &path) {
   SMESH_TRACE_SCOPE("Mesh::read");
 
 #ifdef SMESH_ENABLE_MPI
-  int comm_size;
-  MPI_Comm_size(impl_->comm->get(), &comm_size);
+  int comm_size = impl_->comm->size();
+
   if (comm_size == 1)
 #endif
   {
@@ -1570,7 +1570,8 @@ std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh) {
 std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
                               const geom_t height, const ptrdiff_t nlayers) {
 
-  if (mesh->element_type() == QUAD4) {
+  // This is a hack
+  if (mesh->n_nodes_per_element() == 4) {
     auto hex8_elements =
         create_host_buffer<idx_t>(8, mesh->n_elements() * nlayers);
 
