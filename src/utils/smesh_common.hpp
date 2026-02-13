@@ -2,6 +2,7 @@
 #define SMESH_COMMON_HPP
 
 #include "smesh_base.hpp"
+#include "smesh_types.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -62,6 +63,14 @@ void minmax(const ptrdiff_t n, const T *const SMESH_RESTRICT values,
 
   *min = min_v;
   *max = max_v;
+}
+
+inline std::string str(const std::string_view &str) {
+  return std::string(str);
+}
+
+inline std::string str(const enum PrimitiveType type) {
+  return str(to_string(type));
 }
 } // namespace smesh
 

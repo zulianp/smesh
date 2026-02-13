@@ -7,6 +7,9 @@
 
 namespace smesh {
 
+int array_write(const Path &path, const enum PrimitiveType type, const void *const SMESH_RESTRICT data,
+                const ptrdiff_t n_elements);
+
 template <typename T>
 int array_write(const Path &path, const T *const SMESH_RESTRICT data,
                 const ptrdiff_t n_elements);

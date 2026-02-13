@@ -182,3 +182,12 @@ install(
         ${CMAKE_CURRENT_BINARY_DIR}/smeshConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/smesh
 )
+
+
+if(SMESH_ENABLE_TESTING)
+    enable_testing()
+    message(STATUS "Building tests")
+    add_executable(io_test tests/distributed/io_test.exe.cpp)
+    target_link_libraries(io_test PRIVATE smesh ${SMESH_DEP_LIBRARIES} ${SMESH_SUBMODULES})
+    add_test(NAME io_test COMMAND io_test)
+endif()

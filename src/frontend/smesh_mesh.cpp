@@ -250,11 +250,7 @@ void Mesh::remove_block(size_t index) {
 int Mesh::read(const Path &path) {
   SMESH_TRACE_SCOPE("Mesh::read");
 
-#ifdef SMESH_ENABLE_MPI
-  int comm_size = impl_->comm->size();
-
-  if (comm_size == 1)
-#endif
+  if (impl_->comm->size() == 1)
   {
     idx_t **elements = nullptr;
     geom_t **points = nullptr;
@@ -314,6 +310,14 @@ int Mesh::read(const Path &path) {
                          &n_owned_elements_with_ghosts) != SMESH_SUCCESS) {
       return SMESH_FAILURE;
     }
+
+    printf("N nodes: %ld\n", nnodes);
+    printf("N owned nodes: %ld\n", n_owned_nodes);
+    printf("N global nodes: %ld\n", nnodes);
+    printf("N owned nodes with ghosts: %ld\n", n_owned_nodes_with_ghosts);
+    printf("N shared elements: %ld\n", n_shared_elements);
+    printf("N owned elements: %ld\n", n_owned_elements);
+    printf("N owned elements with ghosts: %ld\n", n_owned_elements_with_ghosts);
 
     auto elements_buffer =
         manage_host_buffer<idx_t>(nnodesxelem, nelements, elements);

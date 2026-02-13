@@ -3,6 +3,7 @@
 #include "smesh_path.hpp"
 #include "smesh_read.hpp"
 #include "smesh_sort.hpp"
+#include "smesh_tracer.hpp"
 #include "smesh_types.hpp"
 
 #include <algorithm>
@@ -74,6 +75,7 @@ int array_create_from_file_convert(MPI_Comm comm, const Path &path,
                                    TargetType **data,
                                    ptrdiff_t *n_local_elements,
                                    ptrdiff_t *n_global_elements) {
+  // SMESH_TRACE_SCOPE("array_create_from_file_convert");
 
   FileType *temp = nullptr;
   if (array_create_from_file(comm, path.c_str(), smesh::mpi_type<FileType>(),
@@ -82,6 +84,7 @@ int array_create_from_file_convert(MPI_Comm comm, const Path &path,
     *data = nullptr;
     *n_local_elements = 0;
     *n_global_elements = 0;
+    SMESH_ERROR("Failed to create array from file %s\n", path.c_str());
     return SMESH_FAILURE;
   }
 
@@ -98,8 +101,9 @@ template <typename T>
 int array_create_from_file_convert_from_extension(
     MPI_Comm comm, const Path &path, T **data, ptrdiff_t *n_local_elements,
     ptrdiff_t *n_global_elements) {
+  // SMESH_TRACE_SCOPE("array_create_from_file_convert_from_extension");
   auto ext = path.extension();
-  if (ext == ".raw") {
+  if (ext == "raw") {
     // We trust the user that the raw file is of the correct type.
     return array_create_from_file(comm, path.c_str(), smesh::mpi_type<T>(),
                                   (void **)data, n_local_elements,
@@ -573,9 +577,11 @@ int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
                            int *nnodesxelem_out, idx_t ***const elems,
                            ptrdiff_t *const n_local_elements_out,
                            ptrdiff_t *const n_global_elements_out) {
+  // SMESH_TRACE_SCOPE("mesh_block_from_folder");
 
   std::vector<Path> i_files =
-      detect_files(folder / "i*.*", {".raw", ".int16", ".int32", ".int64"});
+      detect_files(folder / "i*.*", {"raw", "int16", "int32", "int64"});
+
 
   int nnodesxelem = i_files.size();
   *elems = (idx_t **)malloc(sizeof(idx_t *) * nnodesxelem);
@@ -601,6 +607,8 @@ int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
         SMESH_ERROR("Failed to read index file %s\n", i_path.c_str());
         ret = SMESH_FAILURE;
       }
+
+      
       // End of Selection
       (*elems)[ii] = idx;
 
@@ -623,6 +631,7 @@ int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
       }
     }
   }
+
 
   if (ret == SMESH_FAILURE) {
     *nnodesxelem_out = 0;
@@ -649,25 +658,25 @@ int mesh_coordinates_from_folder(MPI_Comm comm, const Path &folder,
                                  ptrdiff_t *n_local_nodes_out,
                                  ptrdiff_t *n_global_nodes_out) {
   std::vector<Path> x_file = detect_files(
-      folder / "x.*", {".raw", ".float16", ".float32", ".float64"});
+      folder / "x.*", {"raw", "float16", "float32", "float64"});
   std::vector<Path> y_file = detect_files(
-      folder / "y.*", {".raw", ".float16", ".float32", ".float64"});
+      folder / "y.*", {"raw", "float16", "float32", "float64"});
   std::vector<Path> z_file = detect_files(
-      folder / "z.*", {".raw", ".float16", ".float32", ".float64"});
+      folder / "z.*", {"raw", "float16", "float32", "float64"});
 
   if (x_file.empty()) {
     x_file = detect_files(folder / "x0.*",
-                          {".raw", ".float16", ".float32", ".float64"});
+                          {"raw", "float16", "float32", "float64"});
   }
 
   if (y_file.empty()) {
     y_file = detect_files(folder / "x1.*",
-                          {".raw", ".float16", ".float32", ".float64"});
+                          {"raw", "float16", "float32", "float64"});
   }
 
   if (z_file.empty()) {
     z_file = detect_files(folder / "x2.*",
-                          {".raw", ".float16", ".float32", ".float64"});
+                          {"raw", "float16", "float32", "float64"});
   }
 
   int ndims = x_file.empty() ? 0 : 1; // x only
@@ -740,6 +749,7 @@ int mesh_from_folder(
     idx_t **ghosts_out, ptrdiff_t *n_owned_nodes_with_ghosts_out,
     ptrdiff_t *n_shared_elements_out,
     ptrdiff_t *n_owned_elements_with_ghosts_out) {
+  // SMESH_TRACE_SCOPE("mesh_from_folder");
   int rank, size;
   MPI_Comm_rank(comm, &rank);
   MPI_Comm_size(comm, &size);
@@ -747,8 +757,6 @@ int mesh_from_folder(
   static const int remap_elements = 1;
 
   if (size > 1) {
-    double tick = MPI_Wtime();
-
     ////////////////////////////////////////////////////////////////////////////////
     // Read elements
     ////////////////////////////////////////////////////////////////////////////////
@@ -1080,7 +1088,7 @@ int mesh_from_folder(
 
       for (int d = 0; d < nnodesxelem; ++d) {
         array_remap_gather(n_local_elements, element_mapping, elems[d],
-                                  temp_buff);
+                           temp_buff);
       }
 
       *element_mapping_out = element_mapping;
@@ -1128,12 +1136,6 @@ int mesh_from_folder(
                           *node_mapping_out,
                           /**node_owner_out,*/ node_offsets_out,
                           ghosts_out /*,n_owned_nodes_with_ghosts_out*/);
-
-    // MPI_Barrier(comm);
-    double tock = MPI_Wtime();
-    if (!rank) {
-      printf("read_mesh.c: read_mesh\t%g seconds\n", tock - tick);
-    }
 
     return SMESH_SUCCESS;
   } else {

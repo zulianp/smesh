@@ -6,7 +6,7 @@ import sys, getopt
 import os
 import glob
 import pdb
-from utils import detect_files, extension_to_dtype, extension
+from utils import detect_files, extension_to_dtype, extension, extension_to_dtype
 
 import inspect
 
@@ -29,8 +29,46 @@ except NameError:
 max_nodes_x_element = 15
 
 
-# def ssquad4_to_standard(ssref, idx, points):
-#     if ssref == 2:
+class Field:
+    def __init__(self, path):
+        self.path = path
+        self.type = extension_to_dtype(extension(path))
+        self.data = np.fromfile(path, dtype=self.type)
+
+        if self.type == np.int32 or self.type == np.uint8:
+                print(f"Warning converting field from {self.type} to float32 to work with Paraview")
+                self.data = self.data.astype(np.float32)
+                self.type = np.float32
+
+        self.name = os.path.splitext(os.path.basename(path))[0]
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        return self.data[index]
+
+    def __setitem__(self, index, value):
+        self.data[index] = value
+
+    def __str__(self):
+        return f"Field(path={self.path}, type={self.type}, data={self.data})"
+
+    def __repr__(self):
+        return self.__str__()
+
+    def check_len(self, check_len):
+        if len(self.data) != check_len:
+            frame = inspect.currentframe()
+            print(
+                f"Error in {__file__} at line {frame.f_lineno}:\n .... data length is different from number of nodes {len(self.data)} != {check_len}"
+            )
+
+            sys.exit(1)
+
+        print(
+            f"field: {self.name}, min={np.min(self.data)}, max={np.max(self.data)}, sum={np.sum(self.data)} type={self.type}"
+        )
 
 
 def write_transient_data(
@@ -38,9 +76,7 @@ def write_transient_data(
     points,
     cells,
     point_data,
-    point_data_type,
     cell_data,
-    cell_data_type,
     n_time_steps,
     time_whole,
     time_step_format,
@@ -48,13 +84,10 @@ def write_transient_data(
 
     with meshio.xdmf.TimeSeriesWriter(output_path) as writer:
         writer.write_points_cells(points, cells)
-
-        # steps = [None] * n_time_steps
         cell_data_steps = [None] * n_time_steps
 
         if cell_data:
             paths = cell_data.split(",")
-            types = cell_data_type.split(",")
 
             for p in paths:
                 cell_data_files = glob.glob(p, recursive=False)
@@ -75,7 +108,6 @@ def write_transient_data(
 
         if point_data:
             paths = point_data.split(",")
-            types = point_data_type.split(",")
 
             for p in paths:
                 point_data_files = glob.glob(p, recursive=False)
@@ -109,7 +141,7 @@ def write_transient_data(
             if cds:
                 has_point_data = True
                 for cd in cds:
-                    data = np.fromfile(cd, dtype=point_data_type)
+                    data = np.fromfile(cd, dtype=extension_to_dtype(extension(cd)))
                     name = os.path.basename(cd)
                     name = os.path.splitext(os.path.splitext(name)[0])[0]
                     name = name.replace(".", "_")
@@ -127,7 +159,7 @@ def write_transient_data(
             if cds:
                 has_cell_data = True
                 for cd in cds:
-                    data = np.fromfile(cd, dtype=cell_data_type)
+                    data = np.fromfile(cd, dtype=extension_to_dtype(extension(cd)))
                     name = os.path.basename(cd)
                     name = os.path.splitext(os.path.splitext(name)[0])[0]
                     name = name.replace(".", "_")
@@ -152,50 +184,20 @@ def write_transient_data(
                 )
 
 
-def add_fields(field_data, field_data_type, storage, check_len):
+def add_fields(field_data, storage, check_len):
     if field_data:
         paths = field_data.split(",")
-        types = field_data_type.split(",")
 
-        n_paths = len(paths)
-
-        if n_paths != len(types):
-            if len(types) == 1:
-                # One for all is allowed
-                types = [types[0]] * len(paths)
-            else:
-                print("Size mismatch between field_data and field_data_type\n")
-                sys.exit(1)
-
+        n_paths = len(paths)    
         for i in range(0, n_paths):
             p = paths[i]
-            t = np.dtype(types[i])
-
             files = glob.glob(p, recursive=False)
             files.sort()
 
             for f in files:
-                data = np.fromfile(f, dtype=t)
-
-                if t == np.int32 or t == np.uint8:
-                    print(f"Warning converting field from {t} to float32 to work with Paraview")
-                    data = data.astype(np.float32)
-                    t = np.float32
-
-                name = os.path.splitext(os.path.basename(f))[0]
-
-                if len(data) != check_len:
-                    frame = inspect.currentframe()
-                    print(
-                        f"Error in {__file__} at line {frame.f_lineno}:\n .... data length is different from number of nodes {len(data)} != {check_len}"
-                    )
-
-                    sys.exit(1)
-
-                print(
-                    f"field: {name}, min={np.min(data)}, max={np.max(data)}, sum={np.sum(data)} type={t}"
-                )
-                storage[name] = data
+                field = Field(f)
+                field.check_len(check_len)
+                storage[field.name] = field.data
 
 
 def raw_to_db(argv):
@@ -210,10 +212,7 @@ def raw_to_db(argv):
     raw_xyz_folder = raw_mesh_folder
 
     point_data = None
-    point_data_type = "float64"
-
     cell_data = None
-    cell_data_type = "float64"
 
     transient = False
     time_step_format = "%s.%d.%d.raw"
@@ -231,10 +230,8 @@ def raw_to_db(argv):
             [
                 "coords=",
                 "point_data=",
-                "point_data_type=",
                 "cell_type=",
                 "cell_data=",
-                "cell_data_type=",
                 "transient",
                 "time_step_format",
                 "n_time_steps=",
@@ -259,12 +256,8 @@ def raw_to_db(argv):
             verbose = True
         elif opt in ("-p", "--point_data"):
             point_data = arg
-        elif opt in ("-d", "--point_data_type"):
-            point_data_type = arg
         elif opt in ("-c", "--cell_data"):
             cell_data = arg
-        elif opt in ("-t", "--cell_data_type"):
-            cell_data_type = arg
         elif opt in ("--transient"):
             transient = True
         elif opt in ("--time_whole"):
@@ -295,7 +288,7 @@ def raw_to_db(argv):
 
     points = []
     for pfn in ["x", "y", "z"]:
-        path = detect_files(f"{raw_xyz_folder}/{pfn}.*", ["raw", "float16", "float32", "float64"])
+        path = detect_files(f"{raw_xyz_folder}/{pfn}.*", ["float16", "float32", "float64"])
 
         if len(path) == 0:
             break
@@ -310,7 +303,7 @@ def raw_to_db(argv):
     # Attempt format x0, x1, x2
     if len(points) == 0:
         for d in range(0, 3):
-            path = detect_files(f"{raw_xyz_folder}/x{d}.*", ["raw", "float16", "float32", "float64"])
+            path = detect_files(f"{raw_xyz_folder}/x{d}.*", ["float16", "float32", "float64"])
             if len(path) == 0:
                 break
 
@@ -408,8 +401,8 @@ def raw_to_db(argv):
     else:
         mesh = meshio.Mesh(points, cells)
 
-        add_fields(point_data, point_data_type, mesh.point_data, n_points)
-        add_fields(cell_data, cell_data_type, mesh.cell_data, n_cells)
+        add_fields(point_data, mesh.point_data, n_points)
+        add_fields(cell_data, mesh.cell_data, n_cells)
 
         mesh.write(output_path)
 
