@@ -8,6 +8,7 @@
 #endif
 
 #include <memory>
+#include <iostream>
 
 namespace smesh {
 
@@ -21,12 +22,15 @@ public:
 
     int rank() const;
     int size() const;
+    void barrier() const;
 
 #ifdef SMESH_ENABLE_MPI
     static std::shared_ptr<Communicator> wrap(MPI_Comm comm);
     Communicator(MPI_Comm comm);
     MPI_Comm &get();
 #endif
+
+    void print_callback(const std::function<void(std::ostream &)> &callback) const;
 
 private:
     class Impl;

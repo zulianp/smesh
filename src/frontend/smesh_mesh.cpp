@@ -311,16 +311,19 @@ int Mesh::read(const Path &path) {
       return SMESH_FAILURE;
     }
 
-    printf("N nodes: %ld\n", nnodes);
-    printf("N owned nodes: %ld\n", n_owned_nodes);
-    printf("N global nodes: %ld\n", nnodes);
-    printf("N owned nodes with ghosts: %ld\n", n_owned_nodes_with_ghosts);
-    printf("N shared elements: %ld\n", n_shared_elements);
-    printf("N owned elements: %ld\n", n_owned_elements);
-    printf("N owned elements with ghosts: %ld\n", n_owned_elements_with_ghosts);
+    impl_->comm->print_callback([&](std::ostream &os) {
+      os << "N nodes: " << nnodes << "\n";
+      os << "N owned nodes: " << n_owned_nodes << "\n";
+      os << "N owned nodes with ghosts: " << n_owned_nodes_with_ghosts << "\n";
+      os << "N shared elements: " << n_shared_elements << "\n";
+      os << "N owned elements: " << n_owned_elements << "\n";
+      os << "N owned elements with ghosts: " << n_owned_elements_with_ghosts << "\n";
+    });
 
     auto elements_buffer =
         manage_host_buffer<idx_t>(nnodesxelem, nelements, elements);
+    impl_->spatial_dim = spatial_dim;
+    impl_->nnodes = nnodes;
     impl_->points = manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
     impl_->node_mapping = manage_host_buffer<idx_t>(nnodes, node_mapping);
     impl_->node_owner = manage_host_buffer<int>(nnodes, node_owner);
