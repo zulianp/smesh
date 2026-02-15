@@ -5,7 +5,31 @@
 #include "smesh_types.hpp"
 #include "matrixio_array.h"
 
+#include <chrono>
+#include <fstream>
+
 namespace smesh {
+
+// #region agent log
+static inline void smesh_dbglog_write(const char *location, const char *message,
+                                      const std::string &data_json) {
+  using namespace std::chrono;
+  const auto ts =
+      duration_cast<milliseconds>(system_clock::now().time_since_epoch())
+          .count();
+  std::ofstream os("/Users/patrickzulian/Desktop/code/smesh/.cursor/debug.log",
+                   std::ios::app);
+  if (!os.good())
+    return;
+  os << "{\"id\":\"log_" << ts << "_" << location << "\","
+     << "\"timestamp\":" << ts << ","
+     << "\"runId\":\"pre\","
+     << "\"hypothesisId\":\"W\","
+     << "\"location\":\"" << location << "\","
+     << "\"message\":\"" << message << "\","
+     << "\"data\":" << data_json << "}\n";
+}
+// #endregion
 
 template <typename FileType, typename T>
 int array_write_convert(MPI_Comm comm, const Path &path,
@@ -115,6 +139,24 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
   }
 
 //   const ptrdiff_t total_recv = recv_displs[size - 1] + recv_count[size - 1];
+  const ptrdiff_t total_recv = (ptrdiff_t)recv_displs[size - 1] + (ptrdiff_t)recv_count[size - 1];
+  // #region agent log
+  {
+    if (total_recv > local_output_size) {
+      smesh_dbglog_write(
+          "smesh_distributed_write.impl.hpp:write_mapped_field",
+          "recv larger than output segment",
+          std::string("{\"rank\":") + std::to_string(rank) +
+              ",\"size\":" + std::to_string(size) +
+              ",\"n_local\":" + std::to_string((long long)n_local) +
+              ",\"n_global\":" + std::to_string((long long)n_global) +
+              ",\"begin\":" + std::to_string((long long)begin) +
+              ",\"local_output_size\":" +
+              std::to_string((long long)local_output_size) +
+              ",\"total_recv\":" + std::to_string((long long)total_recv) + "}");
+    }
+  }
+  // #endregion
 
   idx_t *send_list = (idx_t *)malloc(n_local * sizeof(idx_t));
 

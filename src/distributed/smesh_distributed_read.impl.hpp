@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <assert.h>
+#include <chrono>
+#include <fstream>
 #include <limits>
 #include <stdint.h>
 #include <stdlib.h>
@@ -19,6 +21,29 @@
 #include "smesh_distributed_base.hpp"
 
 namespace smesh {
+
+// #region agent log
+static inline void smesh_dbglog(const char *location, const char *message,
+                                const std::string &data_json,
+                                const char *runId,
+                                const char *hypothesisId) {
+  using namespace std::chrono;
+  const auto ts =
+      duration_cast<milliseconds>(system_clock::now().time_since_epoch())
+          .count();
+  std::ofstream os("/Users/patrickzulian/Desktop/code/smesh/.cursor/debug.log",
+                   std::ios::app);
+  if (!os.good())
+    return;
+  os << "{\"id\":\"log_" << ts << "_" << location << "\","
+     << "\"timestamp\":" << ts << ","
+     << "\"runId\":\"" << runId << "\","
+     << "\"hypothesisId\":\"" << hypothesisId << "\","
+     << "\"location\":\"" << location << "\","
+     << "\"message\":\"" << message << "\","
+     << "\"data\":" << data_json << "}\n";
+}
+// #endregion
 
 template <typename Index, typename T>
 SMESH_INLINE void array_remap_scatter(const ptrdiff_t n,
@@ -147,6 +172,19 @@ int mesh_build_global_ids(MPI_Comm comm, const ptrdiff_t n_nodes,
   MPI_Comm_rank(comm, &rank);
   MPI_Comm_size(comm, &size);
 
+  // #region agent log
+  smesh_dbglog("smesh_distributed_read.impl.hpp:mesh_build_global_ids",
+               "enter",
+               std::string("{\"rank\":") + std::to_string(rank) +
+                   ",\"size\":" + std::to_string(size) +
+                   ",\"n_nodes\":" + std::to_string((long long)n_nodes) +
+                   ",\"n_owned_nodes\":" +
+                   std::to_string((long long)n_owned_nodes) +
+                   ",\"n_owned_nodes_with_ghosts\":" +
+                   std::to_string((long long)n_owned_nodes_with_ghosts) + "}",
+               "pre", "B");
+  // #endregion
+
   idx_t n_gnodes = n_owned_nodes;
   idx_t global_node_offset = 0;
   MPI_Exscan(&n_gnodes, &global_node_offset, 1, smesh::mpi_type<idx_t>(), MPI_SUM, comm);
@@ -162,12 +200,32 @@ int mesh_build_global_ids(MPI_Comm comm, const ptrdiff_t n_nodes,
   node_offsets[size] = n_gnodes;
 
   const ptrdiff_t n_lnodes_no_reminder = n_gnodes / size;
-  const ptrdiff_t begin = n_lnodes_no_reminder * rank;
+  const idx_t begin = node_offsets[rank];
+  const idx_t end = node_offsets[rank + 1];
+  const ptrdiff_t n_lnodes_temp = (ptrdiff_t)(end - begin);
 
-  ptrdiff_t n_lnodes_temp = n_lnodes_no_reminder;
-  if (rank == size - 1) {
-    n_lnodes_temp = n_gnodes - begin;
-  }
+  // #region agent log
+  smesh_dbglog("smesh_distributed_read.impl.hpp:mesh_build_global_ids",
+               "post-scan",
+               std::string("{\"rank\":") + std::to_string(rank) +
+                   ",\"global_node_offset\":" +
+                   std::to_string((long long)global_node_offset) +
+                   ",\"n_gnodes\":" + std::to_string((long long)n_gnodes) +
+                   ",\"n_lnodes_no_reminder\":" +
+                   std::to_string((long long)n_lnodes_no_reminder) +
+                   ",\"begin\":" + std::to_string((long long)begin) + "}",
+               "pre", "C");
+  // #endregion
+
+  // #region agent log
+  smesh_dbglog("smesh_distributed_read.impl.hpp:mesh_build_global_ids",
+               "range",
+               std::string("{\"rank\":") + std::to_string(rank) +
+                   ",\"begin\":" + std::to_string((long long)begin) +
+                   ",\"end\":" + std::to_string((long long)end) +
+                   ",\"range\":" + std::to_string((long long)n_lnodes_temp) + "}",
+               "pre", "C");
+  // #endregion
 
   const ptrdiff_t begin_owned_with_ghosts =
       n_owned_nodes - n_owned_nodes_with_ghosts;
@@ -190,8 +248,12 @@ int mesh_build_global_ids(MPI_Comm comm, const ptrdiff_t n_nodes,
 
   for (ptrdiff_t i = 0; i < extent_owned_with_ghosts; i++) {
     const idx_t idx = ghost_keys[i];
-    int dest_rank =
-        std::min(static_cast<int>(idx / n_lnodes_no_reminder), size - 1);
+    int dest_rank = 0;
+    {
+      auto ub = std::upper_bound(node_offsets, node_offsets + (size + 1), idx);
+      dest_rank = (int)((ub - node_offsets) - 1);
+      dest_rank = std::max(0, std::min(dest_rank, size - 1));
+    }
     assert(dest_rank < size);
     assert(dest_rank >= 0);
 
@@ -213,15 +275,36 @@ int mesh_build_global_ids(MPI_Comm comm, const ptrdiff_t n_nodes,
 
   idx_t *recv_key_buff = (idx_t *)malloc(recv_displs[size] * sizeof(idx_t));
 
+  // Pack send buffers by destination rank.
+  idx_t *send_key_buff = (idx_t *)malloc(send_displs[size] * sizeof(idx_t));
+  idx_t *send_id_buff = (idx_t *)malloc(send_displs[size] * sizeof(idx_t));
+  int *bk_send = (int *)calloc(size, sizeof(int));
+  for (ptrdiff_t i = 0; i < extent_owned_with_ghosts; i++) {
+    const idx_t idx = ghost_keys[i];
+    int dest_rank = 0;
+    {
+      auto ub = std::upper_bound(node_offsets, node_offsets + (size + 1), idx);
+      dest_rank = (int)((ub - node_offsets) - 1);
+      dest_rank = std::max(0, std::min(dest_rank, size - 1));
+    }
+    const int off = send_displs[dest_rank] + bk_send[dest_rank]++;
+    send_key_buff[off] = ghost_keys[i];
+    send_id_buff[off] = ghost_ids[i];
+  }
+  free(bk_send);
+
   SMESH_MPI_CATCH(MPI_Alltoallv(
-      ghost_keys, send_count, send_displs, smesh::mpi_type<idx_t>(),
+      send_key_buff, send_count, send_displs, smesh::mpi_type<idx_t>(),
       recv_key_buff, recv_count, recv_displs, smesh::mpi_type<idx_t>(), comm));
 
   idx_t *recv_ids_buff = (idx_t *)malloc(recv_displs[size] * sizeof(idx_t));
 
   SMESH_MPI_CATCH(MPI_Alltoallv(
-      ghost_ids, send_count, send_displs, smesh::mpi_type<idx_t>(),
+      send_id_buff, send_count, send_displs, smesh::mpi_type<idx_t>(),
       recv_ids_buff, recv_count, recv_displs, smesh::mpi_type<idx_t>(), comm));
+
+  free(send_key_buff);
+  free(send_id_buff);
 
   idx_t *mapping = (idx_t *)malloc(n_lnodes_temp * sizeof(idx_t));
 
@@ -242,6 +325,31 @@ int mesh_build_global_ids(MPI_Comm comm, const ptrdiff_t n_nodes,
     for (int k = 0; k < proc_extent; k++) {
       idx_t iii = keys[k] - begin;
 
+      // #region agent log
+      static int logged_bad_key = 0;
+      if (!logged_bad_key && (iii < 0 || iii >= n_lnodes_temp)) {
+        logged_bad_key = 1;
+        smesh_dbglog(
+            "smesh_distributed_read.impl.hpp:mesh_build_global_ids",
+            "bad key in Fill mapping",
+            std::string("{\"rank\":") + std::to_string(rank) +
+                ",\"r\":" + std::to_string(r) +
+                ",\"k\":" + std::to_string(k) +
+                ",\"proc_extent\":" + std::to_string(proc_extent) +
+                ",\"key\":" + std::to_string((long long)keys[k]) +
+                ",\"begin\":" + std::to_string((long long)begin) +
+                ",\"end\":" + std::to_string((long long)end) +
+                ",\"iii\":" + std::to_string((long long)iii) +
+                ",\"n_lnodes_temp\":" +
+                std::to_string((long long)n_lnodes_temp) +
+                ",\"node_offsets0\":" + std::to_string((long long)node_offsets[0]) +
+                ",\"node_offsets1\":" + std::to_string((long long)node_offsets[1]) +
+                ",\"node_offsets2\":" + std::to_string((long long)node_offsets[2]) +
+                "}",
+            "pre", "D");
+      }
+      // #endregion
+
       assert(iii >= 0);
       assert(iii < n_lnodes_temp);
 
@@ -261,8 +369,13 @@ int mesh_build_global_ids(MPI_Comm comm, const ptrdiff_t n_nodes,
   {
     for (ptrdiff_t i = 0; i < n_ghost_nodes; i++) {
       const idx_t idx = ghost_keys[i];
-      int dest_rank =
-          std::min(static_cast<int>(idx / n_lnodes_no_reminder), size - 1);
+      int dest_rank = 0;
+      {
+        auto ub =
+            std::upper_bound(node_offsets, node_offsets + (size + 1), idx);
+        dest_rank = (int)((ub - node_offsets) - 1);
+        dest_rank = std::max(0, std::min(dest_rank, size - 1));
+      }
 
       assert(dest_rank < size);
       assert(dest_rank >= 0);
@@ -279,8 +392,13 @@ int mesh_build_global_ids(MPI_Comm comm, const ptrdiff_t n_nodes,
 
     for (ptrdiff_t i = 0; i < n_ghost_nodes; i++) {
       const idx_t idx = ghost_keys[i];
-      int dest_rank =
-          std::min(static_cast<int>(idx / n_lnodes_no_reminder), size - 1);
+      int dest_rank = 0;
+      {
+        auto ub =
+            std::upper_bound(node_offsets, node_offsets + (size + 1), idx);
+        dest_rank = (int)((ub - node_offsets) - 1);
+        dest_rank = std::max(0, std::min(dest_rank, size - 1));
+      }
 
       assert(dest_rank < size);
       assert(dest_rank >= 0);
@@ -317,12 +435,31 @@ int mesh_build_global_ids(MPI_Comm comm, const ptrdiff_t n_nodes,
       idx_t iii = keys[k] - begin;
 
       if (iii >= n_lnodes_temp) {
-        printf("[%d] %ld < %d < %ld\n", rank, begin, keys[k],
-               begin + n_lnodes_temp);
+        printf("[%d] %lld < %d < %lld\n", rank, (long long)begin, (int)keys[k],
+               (long long)(begin + (idx_t)n_lnodes_temp));
       }
 
       assert(iii < n_lnodes_temp);
       assert(iii >= 0);
+      // #region agent log
+      static int logged_missing = 0;
+      if (!logged_missing && mapping[iii] < 0) {
+        logged_missing = 1;
+        smesh_dbglog(
+            "smesh_distributed_read.impl.hpp:mesh_build_global_ids",
+            "missing mapping in Query mapping",
+            std::string("{\"rank\":") + std::to_string(rank) +
+                ",\"r\":" + std::to_string(r) +
+                ",\"k\":" + std::to_string(k) +
+                ",\"key\":" + std::to_string((long long)keys[k]) +
+                ",\"begin\":" + std::to_string((long long)begin) +
+                ",\"end\":" + std::to_string((long long)end) +
+                ",\"iii\":" + std::to_string((long long)iii) +
+                ",\"mapping_val\":" + std::to_string((long long)mapping[iii]) +
+                "}",
+            "pre", "E");
+      }
+      // #endregion
       assert(mapping[iii] >= 0);
       keys[k] = mapping[iii];
     }
@@ -582,6 +719,25 @@ int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
   std::vector<Path> i_files =
       detect_files(folder / "i*.*", {"raw", "int16", "int32", "int64"});
 
+  // #region agent log
+  {
+    int rank = -1, size = -1;
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+    const std::string first =
+        i_files.empty() ? std::string("") : i_files[0].to_string();
+    smesh_dbglog("smesh_distributed_read.impl.hpp:mesh_block_from_folder",
+                 "detected i_files",
+                 std::string("{\"rank\":") + std::to_string(rank) +
+                     ",\"size\":" + std::to_string(size) +
+                     ",\"folder\":\"" + folder.to_string() +
+                     "\",\"i_files_count\":" +
+                     std::to_string((long long)i_files.size()) +
+                     ",\"first\":\"" + first + "\"}",
+                 "pre", "A");
+  }
+  // #endregion
+
 
   int nnodesxelem = i_files.size();
   *elems = (idx_t **)malloc(sizeof(idx_t *) * nnodesxelem);
@@ -696,6 +852,26 @@ int mesh_coordinates_from_folder(MPI_Comm comm, const Path &folder,
     points_paths.push_back(z_file[0]);
   }
 
+  // #region agent log
+  {
+    int rank = -1, size = -1;
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+    const std::string p0 =
+        points_paths.empty() ? std::string("") : points_paths[0].to_string();
+    smesh_dbglog("smesh_distributed_read.impl.hpp:mesh_coordinates_from_folder",
+                 "detected coord files",
+                 std::string("{\"rank\":") + std::to_string(rank) +
+                     ",\"size\":" + std::to_string(size) +
+                     ",\"folder\":\"" + folder.to_string() +
+                     "\",\"ndims\":" + std::to_string(ndims) +
+                     ",\"paths_count\":" +
+                     std::to_string((long long)points_paths.size()) +
+                     ",\"p0\":\"" + p0 + "\"}",
+                 "pre", "A");
+  }
+  // #endregion
+
   geom_t **points = (geom_t **)calloc(ndims, sizeof(geom_t *));
 
   ptrdiff_t n_local_nodes = 0;
@@ -766,6 +942,14 @@ int mesh_from_folder(
   static const int remap_elements = 1;
 
   if (size > 1) {
+    // #region agent log
+    smesh_dbglog("smesh_distributed_read.impl.hpp:mesh_from_folder",
+                 "enter MPI path",
+                 std::string("{\"rank\":") + std::to_string(rank) +
+                     ",\"size\":" + std::to_string(size) +
+                     ",\"folder\":\"" + folder.to_string() + "\"}",
+                 "pre", "A");
+    // #endregion
     ////////////////////////////////////////////////////////////////////////////////
     // Read elements
     ////////////////////////////////////////////////////////////////////////////////
@@ -1141,7 +1325,24 @@ int mesh_from_folder(
     *ghosts_out = 0;
     *node_offsets_out = 0;
 
-    mesh_build_global_ids(comm, n_nodes, n_local_nodes, n_local_nodes,
+    // #region agent log
+    smesh_dbglog(
+        "smesh_distributed_read.impl.hpp:mesh_from_folder",
+        "before mesh_build_global_ids",
+        std::string("{\"rank\":") + std::to_string(rank) +
+            ",\"size\":" + std::to_string(size) +
+            ",\"n_nodes_global_file\":" + std::to_string((long long)n_nodes) +
+            ",\"n_local_nodes_file\":" + std::to_string((long long)n_local_nodes) +
+            ",\"n_unique_mesh_nodes\":" + std::to_string((long long)n_unique) +
+            ",\"n_owned_nodes_mesh\":" + std::to_string((long long)n_owned_nodes) +
+            ",\"n_owned_nodes_with_ghosts_mesh\":" +
+            std::to_string((long long)(*n_owned_nodes_with_ghosts_out)) +
+            "}",
+        "pre", "E");
+    // #endregion
+
+    mesh_build_global_ids(comm, n_unique, n_owned_nodes,
+                          *n_owned_nodes_with_ghosts_out,
                           *node_mapping_out,
                           /**node_owner_out,*/ node_offsets_out,
                           ghosts_out /*,n_owned_nodes_with_ghosts_out*/);

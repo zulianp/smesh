@@ -29,6 +29,51 @@
 
 namespace smesh {
 
+class Distributed::Impl {
+public:
+  ptrdiff_t n_nodes_global;
+  ptrdiff_t n_nodes_owned;
+  ptrdiff_t n_nodes_shared;
+  ptrdiff_t n_nodes_ghosts;
+
+  ptrdiff_t n_elements_global;
+  ptrdiff_t n_elements_owned;
+  ptrdiff_t n_elements_shared;
+  ptrdiff_t n_elements_aura;
+};
+
+Distributed::Distributed() : impl_(std::make_unique<Impl>()) {}
+Distributed::~Distributed() = default;
+
+ptrdiff_t Distributed::n_nodes_global() const { return impl_->n_nodes_global; }
+ptrdiff_t Distributed::n_elements_global() const {
+  return impl_->n_elements_global;
+}
+ptrdiff_t Distributed::n_nodes_local() const {
+  return impl_->n_nodes_owned + impl_->n_nodes_ghosts;
+}
+ptrdiff_t Distributed::n_nodes_owned_not_shared() const {
+  return impl_->n_nodes_owned - impl_->n_nodes_shared;
+}
+ptrdiff_t Distributed::n_nodes_owned() const { return impl_->n_nodes_owned; }
+ptrdiff_t Distributed::n_nodes_shared() const { return impl_->n_nodes_shared; }
+ptrdiff_t Distributed::n_nodes_ghosts() const { return impl_->n_nodes_ghosts; }
+ptrdiff_t Distributed::n_elements_local() const {
+  return impl_->n_elements_owned + impl_->n_elements_aura;
+}
+ptrdiff_t Distributed::n_elements_owned_not_shared() const {
+  return impl_->n_elements_owned - impl_->n_elements_shared;
+}
+ptrdiff_t Distributed::n_elements_owned() const {
+  return impl_->n_elements_owned;
+}
+ptrdiff_t Distributed::n_elements_shared() const {
+  return impl_->n_elements_shared;
+}
+ptrdiff_t Distributed::n_elements_aura() const {
+  return impl_->n_elements_aura;
+}
+
 static ptrdiff_t
 max_node_id(const enum ElemType element_type, const ptrdiff_t n_elements,
             const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems) {
@@ -250,8 +295,7 @@ void Mesh::remove_block(size_t index) {
 int Mesh::read(const Path &path) {
   SMESH_TRACE_SCOPE("Mesh::read");
 
-  if (impl_->comm->size() == 1)
-  {
+  if (impl_->comm->size() == 1) {
     idx_t **elements = nullptr;
     geom_t **points = nullptr;
     int nnodesxelem;
@@ -317,7 +361,8 @@ int Mesh::read(const Path &path) {
       os << "N owned nodes with ghosts: " << n_owned_nodes_with_ghosts << "\n";
       os << "N shared elements: " << n_shared_elements << "\n";
       os << "N owned elements: " << n_owned_elements << "\n";
-      os << "N owned elements with ghosts: " << n_owned_elements_with_ghosts << "\n";
+      os << "N owned elements with ghosts: " << n_owned_elements_with_ghosts
+         << "\n";
     });
 
     auto elements_buffer =
