@@ -57,6 +57,9 @@ int main(int argc, char **argv) {
                                          &n_local_nodes);
 #endif
 
+    printf("Memory (elements): %g [GB]\n",
+           (n_local_nodes * nnodesxelem) * sizeof(element_idx_t) * 1e-9);
+
     count_t *n2eptr;
     element_idx_t *n2e_idx;
 
@@ -78,17 +81,24 @@ int main(int argc, char **argv) {
       // Ensure it is always the same
       sort_n2e<count_t, element_idx_t>(n_local_nodes, n2eptr, n2e_idx);
 
+      printf("Memory (n2e): %g [GB]\n",
+             (n_local_nodes + 1) * sizeof(count_t) * 1e-9 +
+                 n2eptr[n_local_nodes] * sizeof(element_idx_t) * 1e-9);
+
       count_t *n2n_ptr;
-      element_idx_t *n2n_idx;
-      n2n_from_n2e(n_local_elements, n_local_nodes, nnodesxelem, elems, n2eptr,
-                   n2e_idx, &n2n_ptr, &n2n_idx);
+      idx_t *n2n_idx;
+      create_n2n_from_n2e(n_local_elements, n_local_nodes, nnodesxelem, elems,
+                          n2eptr, n2e_idx, &n2n_ptr, &n2n_idx);
+
+      printf("Memory (n2n): %g [GB]\n",
+             (n_local_nodes + 1) * sizeof(count_t) * 1e-9 +
+                 n2n_ptr[n_local_nodes] * sizeof(idx_t) * 1e-9);
 
       array_write_convert_from_extension(output_folder / Path("n2n_ptr.int32"),
                                          n2n_ptr, n_local_nodes);
-                                         
+
       array_write_convert_from_extension(output_folder / Path("n2n_idx.int32"),
                                          n2n_idx, n2n_ptr[n_local_nodes]);
-
     }
 #ifdef SMESH_ENABLE_MPI
     else {
@@ -100,6 +110,9 @@ int main(int argc, char **argv) {
 
       // Ensure it is always the same
       sort_n2e<count_t, element_idx_t>(n_local_nodes, n2eptr, n2e_idx);
+
+
+      SMESH_ERROR("Not implemented");
     }
 
     if (!comm->rank()) {

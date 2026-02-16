@@ -197,7 +197,7 @@ static int create_n2e_for_elem_type(
 }
 
 template <typename idx_t, typename count_t, typename element_idx_t>
-int n2n_from_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
+int create_n2n_from_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
                  const int nnodesxelem,
                  const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
                  const count_t *const SMESH_RESTRICT n2eptr,
@@ -293,7 +293,7 @@ static int create_crs_graph_mem_conservative(
   create_n2e<idx_t, count_t, element_idx_t_local>(
       nelements, nnodes, nnodesxelem, elems, &n2eptr, &elindex);
 
-  int err = n2n_from_n2e<idx_t, count_t, element_idx_t_local>(
+  int err = create_n2n_from_n2e<idx_t, count_t, element_idx_t_local>(
       nelements, nnodes, nnodesxelem, elems, n2eptr, elindex, out_rowptr,
       out_colidx);
 

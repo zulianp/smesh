@@ -44,7 +44,7 @@ int sort_n2e(const ptrdiff_t nnodes, const count_t *const SMESH_RESTRICT n2eptr,
 
 template <typename idx_t, typename count_t, typename element_idx_t>
  int
-n2n_from_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
+create_n2n_from_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
              const int nnodesxelem,
              const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
              const count_t *const SMESH_RESTRICT n2eptr,

@@ -10,7 +10,7 @@
       ptrdiff_t, ptrdiff_t, int,                                               \
       const T *const SMESH_RESTRICT *const SMESH_RESTRICT, T **, T **);        \
   template int sort_n2e<T, T>(ptrdiff_t, const T *const SMESH_RESTRICT, T *);  \
-  template int n2n_from_n2e<T, T, T>(                                          \
+  template int create_n2n_from_n2e<T, T, T>(                                   \
       ptrdiff_t, ptrdiff_t, int,                                               \
       const T *const SMESH_RESTRICT *const SMESH_RESTRICT,                     \
       const T *const SMESH_RESTRICT, const T *const SMESH_RESTRICT, T **,      \
