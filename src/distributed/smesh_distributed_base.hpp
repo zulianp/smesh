@@ -29,7 +29,7 @@ template <> inline MPI_Datatype mpi_type<i16>() { return MPI_SHORT; }
 template <> inline MPI_Datatype mpi_type<i32>() { return MPI_INT32_T; }
 template <> inline MPI_Datatype mpi_type<i8>() { return MPI_CHAR; }
 template <> inline MPI_Datatype mpi_type<i64>() { return MPI_INT64_T; }
-// template <> inline MPI_Datatype mpi_type<long long>() { return MPI_LONG_LONG; }
+template <> inline MPI_Datatype mpi_type<long>() { return MPI_LONG_LONG; }
 template <> inline MPI_Datatype mpi_type<u16>() { return MPI_UNSIGNED_SHORT; }
 template <> inline MPI_Datatype mpi_type<u64>() { return MPI_UNSIGNED_LONG_LONG; }
 template <> inline MPI_Datatype mpi_type<u8>() { return MPI_UNSIGNED_CHAR; }
