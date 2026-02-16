@@ -80,8 +80,14 @@ int main(int argc, char **argv) {
 
       count_t *n2n_ptr;
       element_idx_t *n2n_idx;
- n2n_from_n2e(
-    n_local_elements, n_local_nodes, nnodesxelem, elems, n2eptr, n2e_idx, &n2n_ptr, &n2n_idx);
+      n2n_from_n2e(n_local_elements, n_local_nodes, nnodesxelem, elems, n2eptr,
+                   n2e_idx, &n2n_ptr, &n2n_idx);
+
+      array_write_convert_from_extension(output_folder / Path("n2n_ptr.int32"),
+                                         n2n_ptr, n_local_nodes);
+                                         
+      array_write_convert_from_extension(output_folder / Path("n2n_idx.int32"),
+                                         n2n_idx, n2n_ptr[n_local_nodes]);
 
     }
 #ifdef SMESH_ENABLE_MPI
