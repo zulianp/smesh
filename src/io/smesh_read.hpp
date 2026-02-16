@@ -102,7 +102,7 @@ int array_read_convert_from_extension(const Path &path, T **data,
  */
 template <typename idx_t>
 int mesh_block_from_folder(const Path &folder, int *nnodesxelem_out,
-                           ptrdiff_t *nelements_out, idx_t ***elems_out);
+    idx_t ***elems_out,ptrdiff_t *nelements_out);
 
 /**
  * @brief Read point coordinates from a mesh folder.

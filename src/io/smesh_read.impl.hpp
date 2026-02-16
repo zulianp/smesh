@@ -113,7 +113,7 @@ int array_read_convert_from_extension(const Path &path, T **data,
 
 template <typename idx_t>
 int mesh_block_from_folder(const Path &folder, int *nnodesxelem_out,
-                           ptrdiff_t *nelements_out, idx_t ***elems_out) {
+                           idx_t ***elems_out, ptrdiff_t *nelements_out) {
   ptrdiff_t n_elements = 0;
 
   std::vector<Path> i_files =
@@ -258,8 +258,8 @@ int mesh_from_folder(const Path &folder, int *nnodesxelem_out,
                      int *spatial_dim_out, ptrdiff_t *nnodes_out,
                      geom_t ***points_out) {
 
-  if (mesh_block_from_folder(folder, nnodesxelem_out, nelements_out,
-                             elems_out) != SMESH_SUCCESS) {
+  if (mesh_block_from_folder(folder, nnodesxelem_out, elems_out, nelements_out
+                             ) != SMESH_SUCCESS) {
     return SMESH_FAILURE;
   }
 

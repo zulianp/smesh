@@ -98,6 +98,22 @@ int create_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
   return SMESH_SUCCESS;
 }
 
+template <typename count_t, typename element_idx_t>
+int sort_n2e(const ptrdiff_t nnodes, const count_t *const SMESH_RESTRICT n2eptr,
+             element_idx_t *const SMESH_RESTRICT elindex) {
+  SMESH_TRACE_SCOPE("sort_n2e");
+
+  #pragma omp parallel for
+  for (ptrdiff_t node = 0; node < nnodes; ++node) {
+    const count_t ebegin = n2eptr[node];
+    const count_t eend = n2eptr[node + 1];
+
+    std::sort(elindex + ebegin, elindex + eend);
+  }
+
+  return SMESH_SUCCESS;
+}
+
 template <typename idx_t, typename count_t, typename element_idx_t>
 static int create_n2e_for_elem_type(
     const enum ElemType element_type, const ptrdiff_t nelements,
@@ -187,7 +203,7 @@ static int create_crs_graph_from_n2e(
     const count_t *const SMESH_RESTRICT n2eptr,
     const element_idx_t *const SMESH_RESTRICT elindex, count_t **out_rowptr,
     idx_t **out_colidx) {
-      SMESH_UNUSED(nelements);
+  SMESH_UNUSED(nelements);
   count_t *rowptr = (count_t *)malloc((nnodes + 1) * sizeof(count_t));
   idx_t *colidx = 0;
 
@@ -288,11 +304,10 @@ static int create_crs_graph_mem_conservative(
 }
 
 template <typename idx_t, typename count_t>
-static int
-create_crs_graph_faster(const ptrdiff_t nelements, const ptrdiff_t nnodes,
-                        const int nnodesxelem,
-                        const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
-                        count_t **out_rowptr, idx_t **out_colidx) {
+static int create_crs_graph_faster(
+    const ptrdiff_t nelements, const ptrdiff_t nnodes, const int nnodesxelem,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    count_t **out_rowptr, idx_t **out_colidx) {
   SMESH_TRACE_SCOPE("create_crs_graph_faster");
   using element_idx_t_local = ptrdiff_t;
 
@@ -397,7 +412,8 @@ int create_crs_graph_from_element(
 
 template <typename idx_t, typename count_t>
 int create_crs_graph(const ptrdiff_t nelements, const ptrdiff_t nnodes,
-                     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT
+                         elems,
                      count_t **out_rowptr, idx_t **out_colidx) {
   return create_crs_graph_for_elem_type<idx_t, count_t>(
       TET4, nelements, nnodes, elems, out_rowptr, out_colidx);
@@ -405,7 +421,8 @@ int create_crs_graph(const ptrdiff_t nelements, const ptrdiff_t nnodes,
 
 template <typename idx_t, typename count_t>
 int create_crs_graph_3(const ptrdiff_t nelements, const ptrdiff_t nnodes,
-                       const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                       const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT
+                           elems,
                        count_t **out_rowptr, idx_t **out_colidx) {
   return create_crs_graph_for_elem_type<idx_t, count_t>(
       TRI3, nelements, nnodes, elems, out_rowptr, out_colidx);
@@ -584,9 +601,10 @@ static int create_dual_graph_mem_conservative(
         assert(e_adj < n_elements);
 
         if (connection_counter[e_adj] == 0) {
-          const ptrdiff_t write_pos =
-              static_cast<ptrdiff_t>(offset) + static_cast<ptrdiff_t>(count_common);
-          assert(write_pos < n_overestimated_connections + extra_buffer_space); SMESH_UNUSED(write_pos);
+          const ptrdiff_t write_pos = static_cast<ptrdiff_t>(offset) +
+                                      static_cast<ptrdiff_t>(count_common);
+          assert(write_pos < n_overestimated_connections + extra_buffer_space);
+          SMESH_UNUSED(write_pos);
 
           elist[count_common++] = e_adj;
         }
@@ -625,7 +643,8 @@ static int create_dual_graph_mem_conservative(
 template <typename idx_t, typename count_t, typename element_idx_t>
 int create_dual_graph(const ptrdiff_t n_elements, const ptrdiff_t n_nodes,
                       const enum ElemType element_type,
-                      const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                      const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT
+                          elems,
                       count_t **out_rowptr, element_idx_t **out_colidx) {
   SMESH_TRACE_SCOPE("create_dual_graph");
   const int ret =

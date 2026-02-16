@@ -76,9 +76,6 @@ int create_n2e(MPI_Comm comm, const ptrdiff_t n_local_elements,
 
   const ptrdiff_t nodes_start = rank_start(n_global_nodes, size, rank);
   const ptrdiff_t elements_start = rank_start(n_global_elements, size, rank);
-  //   Last rank has also the reminder
-
-  auto cc = Communicator::wrap(comm);
 
   assert(n_local_nodes == rank_split(n_global_nodes, size, rank));
 
