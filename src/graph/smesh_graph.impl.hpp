@@ -103,7 +103,7 @@ int sort_n2e(const ptrdiff_t nnodes, const count_t *const SMESH_RESTRICT n2eptr,
              element_idx_t *const SMESH_RESTRICT elindex) {
   SMESH_TRACE_SCOPE("sort_n2e");
 
-  #pragma omp parallel for
+#pragma omp parallel for
   for (ptrdiff_t node = 0; node < nnodes; ++node) {
     const count_t ebegin = n2eptr[node];
     const count_t eend = n2eptr[node + 1];
@@ -197,12 +197,12 @@ static int create_n2e_for_elem_type(
 }
 
 template <typename idx_t, typename count_t, typename element_idx_t>
-static int create_crs_graph_from_n2e(
-    const ptrdiff_t nelements, const ptrdiff_t nnodes, const int nnodesxelem,
-    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
-    const count_t *const SMESH_RESTRICT n2eptr,
-    const element_idx_t *const SMESH_RESTRICT elindex, count_t **out_rowptr,
-    idx_t **out_colidx) {
+int n2n_from_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
+                 const int nnodesxelem,
+                 const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                 const count_t *const SMESH_RESTRICT n2eptr,
+                 const element_idx_t *const SMESH_RESTRICT elindex,
+                 count_t **out_rowptr, idx_t **out_colidx) {
   SMESH_UNUSED(nelements);
   count_t *rowptr = (count_t *)malloc((nnodes + 1) * sizeof(count_t));
   idx_t *colidx = 0;
@@ -293,7 +293,7 @@ static int create_crs_graph_mem_conservative(
   create_n2e<idx_t, count_t, element_idx_t_local>(
       nelements, nnodes, nnodesxelem, elems, &n2eptr, &elindex);
 
-  int err = create_crs_graph_from_n2e<idx_t, count_t, element_idx_t_local>(
+  int err = n2n_from_n2e<idx_t, count_t, element_idx_t_local>(
       nelements, nnodes, nnodesxelem, elems, n2eptr, elindex, out_rowptr,
       out_colidx);
 

@@ -42,36 +42,48 @@ template <typename count_t, typename element_idx_t>
 int sort_n2e(const ptrdiff_t nnodes, const count_t *const SMESH_RESTRICT n2eptr,
              element_idx_t *const SMESH_RESTRICT elindex);
 
-/**
- * @brief Build a node adjacency graph (CSR) induced by mesh elements.
- *
- * For each node, neighbors are the unique set of nodes appearing in any element
- * incident to the node (including the node itself).
- *
- * @tparam idx_t    Node index type.
- * @tparam count_t  CSR pointer type (counts/offsets).
- *
- * @param element_type Element type used to interpret `elems` (see `ElemType`).
- * @param nelements    Number of elements.
- * @param nnodes       Number of nodes.
- * @param elems        Connectivity in SoA layout: `elems[local_node][e]`.
- * @param out_rowptr   Output CSR row pointer, length `nnodes + 1` (malloc'ed).
- * @param out_colidx   Output CSR column indices, length `(*out_rowptr)[nnodes]`
- *                     (malloc'ed). Each row is sorted and unique.
- *
- * @return `SMESH_SUCCESS` on success.
- *
- * @note The caller owns `*out_rowptr` and `*out_colidx` and must `free()` them.
- * @note Implementation may use OpenMP.
- * @note Setting environment variable `SMESH_CRS_FAST_SERIAL=1` selects an
- *       alternative construction path optimized for serial execution.
- */
-template <typename idx_t, typename count_t>
-int create_crs_graph_for_elem_type(
-    const enum ElemType element_type, const ptrdiff_t nelements,
-    const ptrdiff_t nnodes,
-    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
-    count_t **out_rowptr, idx_t **out_colidx);
+template <typename idx_t, typename count_t, typename element_idx_t>
+ int
+n2n_from_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
+             const int nnodesxelem,
+             const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+             const count_t *const SMESH_RESTRICT n2eptr,
+             const element_idx_t *const SMESH_RESTRICT elindex,
+             count_t **out_rowptr, idx_t **out_colidx);
+
+    /**
+     * @brief Build a node adjacency graph (CSR) induced by mesh elements.
+     *
+     * For each node, neighbors are the unique set of nodes appearing in any
+     * element incident to the node (including the node itself).
+     *
+     * @tparam idx_t    Node index type.
+     * @tparam count_t  CSR pointer type (counts/offsets).
+     *
+     * @param element_type Element type used to interpret `elems` (see
+     * `ElemType`).
+     * @param nelements    Number of elements.
+     * @param nnodes       Number of nodes.
+     * @param elems        Connectivity in SoA layout: `elems[local_node][e]`.
+     * @param out_rowptr   Output CSR row pointer, length `nnodes + 1`
+     * (malloc'ed).
+     * @param out_colidx   Output CSR column indices, length
+     * `(*out_rowptr)[nnodes]` (malloc'ed). Each row is sorted and unique.
+     *
+     * @return `SMESH_SUCCESS` on success.
+     *
+     * @note The caller owns `*out_rowptr` and `*out_colidx` and must `free()`
+     * them.
+     * @note Implementation may use OpenMP.
+     * @note Setting environment variable `SMESH_CRS_FAST_SERIAL=1` selects an
+     *       alternative construction path optimized for serial execution.
+     */
+    template <typename idx_t, typename count_t>
+    int create_crs_graph_for_elem_type(
+        const enum ElemType element_type, const ptrdiff_t nelements,
+        const ptrdiff_t nnodes,
+        const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+        count_t **out_rowptr, idx_t **out_colidx);
 
 /**
  * @brief Convenience wrapper for `create_crs_graph_for_elem_type(..., TET4,
