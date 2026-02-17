@@ -85,10 +85,16 @@ int main(int argc, char **argv) {
       local_elements[d] = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
     }
 
-    localize_element_indicies(comm_size, comm_rank, n_global_elements,
+    localize_element_indices(comm_size, comm_rank, n_global_elements,
                               n_local_elements, nnodesxelem, elems,
-                              local2global_size, local2global, local_n2e_ptr,
-                              local_n2e_idx, local_elements);
+                              local2global_size, local_n2e_ptr,
+                              local_n2e_idx, local2global,local_elements);
+
+
+    rearrange_local_nodes(comm_size, comm_rank, n_global_elements,
+                              n_local_elements, nnodesxelem,
+                              local2global_size, local_n2e_ptr,
+                              local_n2e_idx, local2global,local_elements);
 
     for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
       for (int d = 0; d < nnodesxelem; ++d) {

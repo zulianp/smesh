@@ -12,11 +12,15 @@
       const T *const SMESH_RESTRICT, ptrdiff_t *const SMESH_RESTRICT,           \
       T **const SMESH_RESTRICT, T **const SMESH_RESTRICT,                       \
       T **const SMESH_RESTRICT);                                                \
-  template int localize_element_indicies<T, T, T>(                              \
+  template int localize_element_indices<T, T, T>(                              \
       const int, const int, const ptrdiff_t, const ptrdiff_t, const int,        \
       T *const *const SMESH_RESTRICT, const ptrdiff_t,                          \
       const T *const SMESH_RESTRICT, const T *const SMESH_RESTRICT,             \
-      const T *const SMESH_RESTRICT, T **const SMESH_RESTRICT)
+      const T *const SMESH_RESTRICT, T **const SMESH_RESTRICT);                \
+  template int rearrange_local_nodes<T, T, T>(                                \
+      const int, const int, const ptrdiff_t, const ptrdiff_t, const int,        \
+      const ptrdiff_t, const T *const SMESH_RESTRICT, const T *const SMESH_RESTRICT, \
+    T *const SMESH_RESTRICT, T **const SMESH_RESTRICT)
 
 namespace smesh {
 SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i32);

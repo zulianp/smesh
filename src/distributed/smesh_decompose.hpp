@@ -99,14 +99,24 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
                      element_idx_t **const SMESH_RESTRICT out_local_n2e_idx);
 
 template <typename idx_t, typename count_t, typename element_idx_t>
-int localize_element_indicies(
+int localize_element_indices(
     const int comm_size, const int comm_rank, const ptrdiff_t n_global_elements,
     const ptrdiff_t n_local_elements, const int nnodesxelem,
     idx_t *const *const SMESH_RESTRICT elems, const ptrdiff_t local2global_size,
-    const idx_t *const SMESH_RESTRICT local2global,
     const count_t *const SMESH_RESTRICT local_n2e_ptr,
     const element_idx_t *const SMESH_RESTRICT local_n2e_idx,
+    const idx_t *const SMESH_RESTRICT local2global,
     idx_t **const SMESH_RESTRICT local_elements);
+
+    template <typename idx_t, typename count_t, typename element_idx_t>
+    int rearrange_local_nodes(
+        const int comm_size, const int comm_rank, const ptrdiff_t n_global_elements,
+        const ptrdiff_t n_local_elements, const int nnodesxelem,
+        const ptrdiff_t local2global_size,
+        const count_t *const SMESH_RESTRICT local_n2e_ptr,
+        const element_idx_t *const SMESH_RESTRICT local_n2e_idx,
+        idx_t *const SMESH_RESTRICT local2global,
+        idx_t **const SMESH_RESTRICT local_elements);    
 } // namespace smesh
 
 #endif // SMESH_DECOMPOSE_HPP
