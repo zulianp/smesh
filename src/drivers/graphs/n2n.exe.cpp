@@ -48,6 +48,7 @@ int main(int argc, char **argv) {
     geom_t **points;
     ptrdiff_t n_local_nodes;
 
+    // FIXME reading the coordinates is not needed for the n2n graph only the number of nodes (local and global)
 #ifdef SMESH_ENABLE_MPI
     ptrdiff_t n_global_nodes;
     mesh_coordinates_from_folder(comm->get(), mesh_folder, &spatial_dim,

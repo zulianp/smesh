@@ -1,3 +1,5 @@
+#include "smesh_decompose.hpp"
+
 #include "smesh_base.hpp"
 #include "smesh_communicator.hpp"
 #include "smesh_distributed_base.hpp"
@@ -7,57 +9,6 @@
 
 namespace smesh {
 
-inline ptrdiff_t rank_split(const ptrdiff_t n, const int comm_size,
-                            const int comm_rank) {
-  ptrdiff_t uniform_split = n / comm_size;
-  ptrdiff_t nlocal = uniform_split;
-  ptrdiff_t remainder = n - nlocal * comm_size;
-
-  if (remainder > comm_rank) {
-    nlocal += 1;
-  }
-
-  return nlocal;
-}
-
-inline ptrdiff_t rank_start(const ptrdiff_t n, const int comm_size,
-                            const int comm_rank) {
-  ptrdiff_t uniform_split = n / comm_size;
-  ptrdiff_t remainder = n - uniform_split * comm_size;
-
-  ptrdiff_t rank = comm_rank;
-  ptrdiff_t rank_start = rank * uniform_split + std::min(rank, remainder);
-  return rank_start;
-}
-
-inline ptrdiff_t rank_owner(const ptrdiff_t n, const ptrdiff_t gidx,
-                            const int comm_size) {
-  ptrdiff_t uniform_split = n / comm_size;
-  ptrdiff_t remainder = n - uniform_split * comm_size;
-
-  ptrdiff_t rank = gidx / uniform_split;
-  ptrdiff_t rank_start = rank * uniform_split + std::min(rank, remainder);
-
-  if (gidx >= rank_start) {
-#ifndef NDEBUG
-    ptrdiff_t rank_end =
-        rank_start + uniform_split + (ptrdiff_t)(rank < remainder);
-    assert(gidx < rank_end);
-#endif
-    return rank;
-  } else {
-    rank -= 1;
-#ifndef NDEBUG
-    ptrdiff_t rank_start = rank * uniform_split + std::min(rank, remainder);
-    ptrdiff_t rank_end =
-        rank_start + uniform_split + (ptrdiff_t)(rank < remainder);
-
-    assert(gidx >= rank_start);
-    assert(gidx < rank_end);
-#endif
-    return rank;
-  }
-}
 
 template <typename idx_t, typename count_t, typename element_idx_t>
 int create_n2e(MPI_Comm comm, const ptrdiff_t n_local_elements,
