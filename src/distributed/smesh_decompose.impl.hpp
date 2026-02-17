@@ -296,7 +296,48 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
   return SMESH_SUCCESS;
 }
 
-// TODO: rearrange_local_nodes(...) rearrange node ordering based on the order:
+template <typename idx_t, typename count_t, typename element_idx_t>
+int localize_element_indices(
+    const int comm_size, const int comm_rank, const ptrdiff_t n_global_elements,
+    const ptrdiff_t n_local_elements, const int nnodesxelem,
+    idx_t *const *const SMESH_RESTRICT elems, const ptrdiff_t local2global_size,
+    const count_t *const SMESH_RESTRICT local_n2e_ptr,
+    const element_idx_t *const SMESH_RESTRICT local_n2e_idx,
+    const idx_t *const SMESH_RESTRICT local2global,
+    idx_t **const SMESH_RESTRICT local_elements) {
+  const ptrdiff_t element_start =
+      rank_start(n_global_elements, comm_size, comm_rank);
+
+  for (int d = 0; d < nnodesxelem; ++d) {
+    for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
+      local_elements[d][i] = invalid_idx<idx_t>();
+    }
+  }
+
+  for (ptrdiff_t i = 0; i < local2global_size; ++i) {
+    const count_t e_begin = local_n2e_ptr[i];
+    const count_t e_end = local_n2e_ptr[i + 1];
+    const idx_t node = local2global[i];
+
+    for (ptrdiff_t e = e_begin; e < e_end; ++e) {
+      const element_idx_t element_idx = local_n2e_idx[e];
+      const int element_owner =
+          rank_owner(n_global_elements, element_idx, comm_size);
+      if (comm_rank == element_owner) {
+        for (int d = 0; d < nnodesxelem; ++d) {
+          if (node == elems[d][element_idx - element_start]) {
+            local_elements[d][element_idx - element_start] =
+                i; // local node index
+            break;
+          }
+        }
+      }
+    }
+  }
+  return SMESH_SUCCESS;
+}
+
+// rearrange_local_nodes(...) rearrange node ordering based on the order:
 // 1) owned, 2) shared, 3) ghosts and modify the local2global index accordingly
 // Ownership is determine based on the smallest rank associated to the
 // indicident element
@@ -358,18 +399,29 @@ int rearrange_local_nodes(
 
       owner = std::min(owner, element_owner);
       other = std::max(other, element_owner);
+    }
 
-      if (owner == comm_rank) {
-        index_map[i] = count_owned_not_shared++;
-
-        if (other != comm_rank) {
-          index_map[i] = n_owned_not_shared + count_shared++;
-        }
+    if (owner == comm_rank) {
+      if (other == comm_rank) {
+        // Owned by this rank and not shared with others.
+        index_map[i] = static_cast<idx_t>(count_owned_not_shared++);
       } else {
-        index_map[i] = n_owned_not_shared + n_shared + count_ghosts++;
+        // Owned by this rank but shared with others.
+        index_map[i] = static_cast<idx_t>(n_owned_not_shared + count_shared++);
       }
+    } else {
+      // Not owned by this rank => ghost (includes nodes with no incident
+      // elems).
+      index_map[i] =
+          static_cast<idx_t>(n_owned_not_shared + n_shared + count_ghosts++);
     }
   }
+
+#ifndef NDEBUG
+  SMESH_ASSERT(count_owned_not_shared == n_owned_not_shared);
+  SMESH_ASSERT(count_shared == n_shared);
+  SMESH_ASSERT(count_ghosts == (local2global_size - n_owned));
+#endif
 
   const ptrdiff_t buff_max = std::max(local2global_size, n_local_elements);
   idx_t *buff = (idx_t *)malloc(buff_max * sizeof(idx_t));
@@ -390,46 +442,4 @@ int rearrange_local_nodes(
   free(index_map);
   return SMESH_SUCCESS;
 }
-
-template <typename idx_t, typename count_t, typename element_idx_t>
-int localize_element_indices(
-    const int comm_size, const int comm_rank, const ptrdiff_t n_global_elements,
-    const ptrdiff_t n_local_elements, const int nnodesxelem,
-    idx_t *const *const SMESH_RESTRICT elems, const ptrdiff_t local2global_size,
-    const count_t *const SMESH_RESTRICT local_n2e_ptr,
-    const element_idx_t *const SMESH_RESTRICT local_n2e_idx,
-    const idx_t *const SMESH_RESTRICT local2global,
-    idx_t **const SMESH_RESTRICT local_elements) {
-  const ptrdiff_t element_start =
-      rank_start(n_global_elements, comm_size, comm_rank);
-
-  for (int d = 0; d < nnodesxelem; ++d) {
-    for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
-      local_elements[d][i] = invalid_idx<idx_t>();
-    }
-  }
-
-  for (ptrdiff_t i = 0; i < local2global_size; ++i) {
-    const count_t e_begin = local_n2e_ptr[i];
-    const count_t e_end = local_n2e_ptr[i + 1];
-    const idx_t node = local2global[i];
-
-    for (ptrdiff_t e = e_begin; e < e_end; ++e) {
-      const element_idx_t element_idx = local_n2e_idx[e];
-      const int element_owner =
-          rank_owner(n_global_elements, element_idx, comm_size);
-      if (comm_rank == element_owner) {
-        for (int d = 0; d < nnodesxelem; ++d) {
-          if (node == elems[d][element_idx - element_start]) {
-            local_elements[d][element_idx - element_start] =
-                i; // local node index
-            break;
-          }
-        }
-      }
-    }
-  }
-  return SMESH_SUCCESS;
-}
-
 } // namespace smesh
