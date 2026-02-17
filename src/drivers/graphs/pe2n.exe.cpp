@@ -20,12 +20,12 @@ using namespace smesh;
 namespace {
 static int
 redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
-                 const ptrdiff_t n_local_nodes, const ptrdiff_t n_global_nodes,
+                 const ptrdiff_t n_local2global, const ptrdiff_t n_global_nodes,
                  const ptrdiff_t n_global_elements,
                  const count_t *const SMESH_RESTRICT n2eptr,
                  const element_idx_t *const SMESH_RESTRICT n2e_idx,
-                 ptrdiff_t *const SMESH_RESTRICT out_local_nodes_size,
-                 idx_t **const SMESH_RESTRICT out_local_nodes,
+                 ptrdiff_t *const SMESH_RESTRICT out_local2global_size,
+                 idx_t **const SMESH_RESTRICT out_local2global,
                  count_t **const SMESH_RESTRICT out_local_n2e_ptr,
                  element_idx_t **const SMESH_RESTRICT out_local_n2e_idx) {
   int *send_elements_displs = (int *)calloc(comm_size + 1, sizeof(int));
@@ -35,7 +35,7 @@ redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
   int *send_nodes_displs = (int *)calloc(comm_size + 1, sizeof(int));
 
   ptrdiff_t max_adj_count = 0;
-  for (ptrdiff_t i = 0; i < n_local_nodes; ++i) {
+  for (ptrdiff_t i = 0; i < n_local2global; ++i) {
     const count_t e_begin = n2eptr[i];
     const count_t e_end = n2eptr[i + 1];
     max_adj_count = std::max(max_adj_count, (ptrdiff_t)(e_end - e_begin));
@@ -45,7 +45,7 @@ redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
       std::max<ptrdiff_t>(1, max_adj_count);
   int *connected_ranks = (int *)malloc(
       static_cast<size_t>(connected_ranks_capacity) * sizeof(int));
-  for (ptrdiff_t i = 0; i < n_local_nodes; ++i) {
+  for (ptrdiff_t i = 0; i < n_local2global; ++i) {
     const count_t e_begin = n2eptr[i];
     const count_t e_end = n2eptr[i + 1];
     // if (e_end == e_begin) {
@@ -87,7 +87,7 @@ redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
       (count_t *)malloc(send_nodes_size * sizeof(count_t));
 
   ptrdiff_t node_start = rank_start(n_global_nodes, comm_size, comm_rank);
-  for (ptrdiff_t i = 0; i < n_local_nodes; ++i) {
+  for (ptrdiff_t i = 0; i < n_local2global; ++i) {
     const count_t e_begin = n2eptr[i];
     const count_t e_end = n2eptr[i + 1];
     // if (e_end == e_begin) {
@@ -136,18 +136,18 @@ redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
         recv_elements_displs[r] + recv_elements_count[r];
   }
 
-  const ptrdiff_t local_nodes_size = recv_nodes_displs[comm_size];
-  idx_t *local_nodes = (idx_t *)malloc(local_nodes_size * sizeof(idx_t));
+  const ptrdiff_t local2global_size = recv_nodes_displs[comm_size];
+  idx_t *local2global = (idx_t *)malloc(local2global_size * sizeof(idx_t));
 
   count_t *local_n2e_ptr =
-      (count_t *)malloc((local_nodes_size + 1) * sizeof(count_t));
+      (count_t *)malloc((local2global_size + 1) * sizeof(count_t));
 
   const ptrdiff_t local_n2e_size = recv_elements_displs[comm_size];
   element_idx_t *local_n2e_idx =
       (element_idx_t *)malloc(local_n2e_size * sizeof(element_idx_t));
 
   MPI_Alltoallv(send_nodes, send_nodes_count, send_nodes_displs,
-                smesh::mpi_type<idx_t>(), local_nodes, recv_nodes_count,
+                smesh::mpi_type<idx_t>(), local2global, recv_nodes_count,
                 recv_nodes_displs, smesh::mpi_type<idx_t>(), comm);
 
   local_n2e_ptr[0] = 0;
@@ -155,7 +155,7 @@ redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
                 smesh::mpi_type<count_t>(), &local_n2e_ptr[1], recv_nodes_count,
                 recv_nodes_displs, smesh::mpi_type<count_t>(), comm);
 
-  for (int r = 0; r < local_nodes_size; r++) {
+  for (int r = 0; r < local2global_size; r++) {
     local_n2e_ptr[r + 1] += local_n2e_ptr[r];
   }
 
@@ -178,10 +178,53 @@ redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
   free(recv_nodes_displs);
   free(recv_elements_displs);
 
-  *out_local_nodes_size = local_nodes_size;
-  *out_local_nodes = local_nodes;
+  *out_local2global_size = local2global_size;
+  *out_local2global = local2global;
   *out_local_n2e_ptr = local_n2e_ptr;
   *out_local_n2e_idx = local_n2e_idx;
+  return SMESH_SUCCESS;
+}
+
+static int localize_element_indicies(
+    const int comm_size, const int comm_rank, const ptrdiff_t n_global_elements,
+    const ptrdiff_t n_local_elements, const int nnodesxelem,
+    idx_t *const *const SMESH_RESTRICT elems, const ptrdiff_t local2global_size,
+    const idx_t *const SMESH_RESTRICT local2global,
+    const count_t *const SMESH_RESTRICT local_n2e_ptr,
+    const element_idx_t *const SMESH_RESTRICT local_n2e_idx,
+    idx_t **const SMESH_RESTRICT local_elements) {
+  const ptrdiff_t element_start =
+      rank_start(n_global_elements, comm_size, comm_rank);
+
+  for (int d = 0; d < nnodesxelem; ++d) {
+    for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
+      local_elements[d][i] = invalid_idx<idx_t>();
+    }
+  }
+
+  for (ptrdiff_t i = 0; i < local2global_size; ++i) {
+    const count_t e_begin = local_n2e_ptr[i];
+    const count_t e_end = local_n2e_ptr[i + 1];
+    const idx_t node = local2global[i];
+
+    for (ptrdiff_t e = e_begin; e < e_end; ++e) {
+      const element_idx_t element_idx = local_n2e_idx[e];
+      const int element_owner =
+          rank_owner(n_global_elements, element_idx, comm_size);
+      // printf("element_idx: %ld, element_owner: %d\n", (long)element_idx,
+      //  element_owner);
+      if (comm_rank == element_owner) {
+        for (int d = 0; d < nnodesxelem; ++d) {
+          if (node == elems[d][element_idx - element_start]) {
+            local_elements[d][element_idx - element_start] =
+                i; // local node index
+            break;
+          }
+        }
+      }
+    }
+  }
+
   return SMESH_SUCCESS;
 }
 } // namespace
@@ -214,10 +257,10 @@ int main(int argc, char **argv) {
 
     int spatial_dim;
     geom_t **points;
-    ptrdiff_t n_local_nodes;
+    ptrdiff_t n_local2global;
     ptrdiff_t n_global_nodes;
     mesh_coordinates_from_folder(comm->get(), mesh_folder, &spatial_dim,
-                                 &points, &n_local_nodes, &n_global_nodes);
+                                 &points, &n_local2global, &n_global_nodes);
 
     count_t *n2eptr;
     element_idx_t *n2e_idx;
@@ -230,64 +273,44 @@ int main(int argc, char **argv) {
 
     SMESH_TRACE_SCOPE("pe2n+output (distributed)");
     create_n2e<idx_t, count_t, element_idx_t>(
-        comm->get(), n_local_elements, n_global_elements, n_local_nodes,
+        comm->get(), n_local_elements, n_global_elements, n_local2global,
         n_global_nodes, nnodesxelem, elems, &n2eptr, &n2e_idx);
 
     // Ensure it is always the same
-    sort_n2e<count_t, element_idx_t>(n_local_nodes, n2eptr, n2e_idx);
+    sort_n2e<count_t, element_idx_t>(n_local2global, n2eptr, n2e_idx);
 
-    ptrdiff_t local_nodes_size = 0;
-    idx_t *local_nodes = nullptr;
+    ptrdiff_t local2global_size = 0;
+    idx_t *local2global = nullptr;
     count_t *local_n2e_ptr = nullptr;
     element_idx_t *local_n2e_idx = nullptr;
-    redistribute_n2e(comm->get(), comm_size, comm_rank, n_local_nodes,
+    redistribute_n2e(comm->get(), comm_size, comm_rank, n_local2global,
                      n_global_nodes, n_global_elements, n2eptr, n2e_idx,
-                     &local_nodes_size, &local_nodes, &local_n2e_ptr,
+                     &local2global_size, &local2global, &local_n2e_ptr,
                      &local_n2e_idx);
+    
+    // We do not need them anymore
+    free(n2eptr);
+    free(n2e_idx);
 
-    ptrdiff_t element_start =
-        rank_start(n_global_elements, comm_size, comm_rank);
     idx_t **local_elements = (idx_t **)malloc(nnodesxelem * sizeof(idx_t *));
     for (int d = 0; d < nnodesxelem; ++d) {
       local_elements[d] = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
-
-      for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
-        local_elements[d][i] = invalid_idx<idx_t>();
-      }
     }
-
-    for (ptrdiff_t i = 0; i < local_nodes_size; ++i) {
-      const count_t e_begin = local_n2e_ptr[i];
-      const count_t e_end = local_n2e_ptr[i + 1];
-      const idx_t node = local_nodes[i];
-
-      for (ptrdiff_t e = e_begin; e < e_end; ++e) {
-        const element_idx_t element_idx = local_n2e_idx[e];
-        const int element_owner =
-            rank_owner(n_global_elements, element_idx, comm_size);
-        // printf("element_idx: %ld, element_owner: %d\n", (long)element_idx,
-        //  element_owner);
-        if (comm_rank == element_owner) {
-          for (int d = 0; d < nnodesxelem; ++d) {
-            if (node == elems[d][element_idx - element_start]) {
-              local_elements[d][element_idx - element_start] =
-                  i; // local node index
-              break;
-            }
-          }
-        }
-      }
-    }
+    
+    localize_element_indicies(comm_size, comm_rank, n_global_elements,
+                              n_local_elements, nnodesxelem, elems,
+                              local2global_size, local2global, local_n2e_ptr,
+                              local_n2e_idx, local_elements);
 
     for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
       for (int d = 0; d < nnodesxelem; ++d) {
         const idx_t li = local_elements[d][i];
         if (li == invalid_idx<idx_t>() || li < 0 ||
-            static_cast<ptrdiff_t>(li) >= local_nodes_size) {
+            static_cast<ptrdiff_t>(li) >= local2global_size) {
           SMESH_ERROR(
               "pe2n.exe: unmapped node for local element %ld (d=%d) on rank "
               "%d (li=%d recv_nodes_size=%ld)\n",
-              (long)i, d, comm_rank, (int)li, (long)local_nodes_size);
+              (long)i, d, comm_rank, (int)li, (long)local2global_size);
         }
       }
     }
@@ -297,12 +320,10 @@ int main(int argc, char **argv) {
              n_global_nodes);
     }
 
-    free(n2eptr);
-    free(n2e_idx);
     free(elems);
     free(points);
 
-    free(local_nodes);
+    free(local2global);
     free(local_n2e_ptr);
     free(local_n2e_idx);
     for (int d = 0; d < nnodesxelem; ++d) {
