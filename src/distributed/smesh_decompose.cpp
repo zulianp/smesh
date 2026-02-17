@@ -1,9 +1,26 @@
 #include "smesh_decompose.impl.hpp"
+#include "smesh_types.hpp"
+
+#define SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(T)                                 \
+  template int create_n2e<T, T, T>(                                             \
+      MPI_Comm, const ptrdiff_t, const ptrdiff_t, const ptrdiff_t,              \
+      const ptrdiff_t, const int,                                               \
+      const T *const SMESH_RESTRICT *const SMESH_RESTRICT, T **, T **);         \
+  template int redistribute_n2e<T, T, T>(                                       \
+      MPI_Comm, const int, const int, const ptrdiff_t, const ptrdiff_t,         \
+      const ptrdiff_t, const T *const SMESH_RESTRICT,                           \
+      const T *const SMESH_RESTRICT, ptrdiff_t *const SMESH_RESTRICT,           \
+      T **const SMESH_RESTRICT, T **const SMESH_RESTRICT,                       \
+      T **const SMESH_RESTRICT);                                                \
+  template int localize_element_indicies<T, T, T>(                              \
+      const int, const int, const ptrdiff_t, const ptrdiff_t, const int,        \
+      T *const *const SMESH_RESTRICT, const ptrdiff_t,                          \
+      const T *const SMESH_RESTRICT, const T *const SMESH_RESTRICT,             \
+      const T *const SMESH_RESTRICT, T **const SMESH_RESTRICT)
 
 namespace smesh {
-template int create_n2e<int, int, int>(MPI_Comm comm, const ptrdiff_t n_local_elements,
-               const ptrdiff_t n_global_elements, const ptrdiff_t n_local_nodes,
-               const ptrdiff_t n_global_nodes, const int nnodesxelem,
-               const int *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
-               int **out_n2eptr, int **out_elindex);
-}
+SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i32);
+SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i64);
+} // namespace smesh
+
+#undef SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE
