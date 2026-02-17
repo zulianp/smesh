@@ -19,7 +19,7 @@ using namespace smesh;
 
 int main(int argc, char **argv) {
 
-  SMESH_TRACE_SCOPE("n2e.exe");
+  SMESH_TRACE_SCOPE("pe2n.exe");
   auto ctx = initialize(argc, argv);
 
   if (argc != 3) {
@@ -80,10 +80,15 @@ int main(int argc, char **argv) {
       max_adj_count = std::max(max_adj_count, (ptrdiff_t)(e_end - e_begin));
     }
 
-    int *connected_ranks = (int *)malloc(max_adj_count * sizeof(int));
+    const ptrdiff_t connected_ranks_capacity = std::max<ptrdiff_t>(1, max_adj_count);
+    int *connected_ranks =
+        (int *)malloc(static_cast<size_t>(connected_ranks_capacity) * sizeof(int));
     for (ptrdiff_t i = 0; i < n_local_nodes; ++i) {
       const count_t e_begin = n2eptr[i];
       const count_t e_end = n2eptr[i + 1];
+      // if (e_end == e_begin) {
+      //   continue;
+      // }
       for (ptrdiff_t e = e_begin; e < e_end; ++e) {
         const element_idx_t element_idx = n2e_idx[e];
         const int element_owner =
@@ -91,10 +96,10 @@ int main(int argc, char **argv) {
         connected_ranks[e - e_begin] = element_owner;
       }
 
-      const count_t n_connected_ranks =
-          sort_and_unique(connected_ranks, e_end - e_begin);
+      const size_t n_connected_ranks =
+          sort_and_unique(connected_ranks, static_cast<size_t>(e_end - e_begin));
 
-      for (ptrdiff_t r = 0; r < n_connected_ranks; ++r) {
+      for (size_t r = 0; r < n_connected_ranks; ++r) {
         send_nodes_displs[connected_ranks[r] + 1]++;
         send_elements_displs[connected_ranks[r] + 1] += e_end - e_begin;
       }
@@ -105,18 +110,27 @@ int main(int argc, char **argv) {
       send_elements_displs[r + 1] += send_elements_displs[r];
     }
 
+    send_nodes_displs[0] = 0;
+    for (int r = 0; r < comm_size; r++) {
+      send_nodes_displs[r + 1] += send_nodes_displs[r];
+    }
+
     const ptrdiff_t send_elements_size = send_elements_displs[comm_size];
     element_idx_t *send_elements =
         (element_idx_t *)malloc(send_elements_size * sizeof(element_idx_t));
 
     const ptrdiff_t send_nodes_size = send_nodes_displs[comm_size];
     idx_t *send_nodes = (idx_t *)malloc(send_nodes_size * sizeof(idx_t));
-    idx_t *send_n2e_count = (idx_t *)malloc(send_nodes_size * sizeof(idx_t));
+    count_t *send_n2e_count =
+        (count_t *)malloc(send_nodes_size * sizeof(count_t));
 
     ptrdiff_t node_start = rank_start(n_global_nodes, comm_size, comm_rank);
     for (ptrdiff_t i = 0; i < n_local_nodes; ++i) {
       const count_t e_begin = n2eptr[i];
       const count_t e_end = n2eptr[i + 1];
+      // if (e_end == e_begin) {
+      //   continue;
+      // }
       for (ptrdiff_t e = e_begin; e < e_end; ++e) {
         const element_idx_t element_idx = n2e_idx[e];
         const int element_owner =
@@ -124,19 +138,17 @@ int main(int argc, char **argv) {
         connected_ranks[e - e_begin] = element_owner;
       }
 
-      const count_t n_connected_ranks =
-          sort_and_unique(connected_ranks, e_end - e_begin);
+      const size_t n_connected_ranks =
+          sort_and_unique(connected_ranks, static_cast<size_t>(e_end - e_begin));
 
-      for (ptrdiff_t r = 0; r < n_connected_ranks; ++r) {
-        send_nodes[send_nodes_displs[connected_ranks[r]] +
-                   send_nodes_count[connected_ranks[r]]] = node_start + i;
+      for (size_t r = 0; r < n_connected_ranks; ++r) {
+        const int cr = connected_ranks[r];
+        const int node_pos = send_nodes_displs[cr] + send_nodes_count[cr];
+        send_nodes[node_pos] = node_start + i;
+        send_n2e_count[node_pos] = e_end - e_begin;
 
-        send_n2e_count[send_nodes_displs[connected_ranks[r]] +
-                       send_nodes_count[connected_ranks[r]]] = e_end - e_begin;
-
-        send_nodes_count[connected_ranks[r]]++;
+        send_nodes_count[cr]++;
         for (ptrdiff_t e = e_begin; e < e_end; ++e) {
-          const int cr = connected_ranks[r];
           const element_idx_t element_idx = n2e_idx[e];
           send_elements[send_elements_displs[cr] + send_elements_count[cr]++] =
               element_idx;
@@ -161,13 +173,10 @@ int main(int argc, char **argv) {
 
     int *recv_nodes_count = (int *)calloc(comm_size, sizeof(int));
     int *recv_elements_count = (int *)calloc(comm_size, sizeof(int));
-    MPI_Alltoall(send_nodes_count, 1, MPI_INT, recv_nodes_count, 1, MPI_INT,
-                 comm->get());
+    MPI_Alltoall(send_nodes_count, 1, MPI_INT, recv_nodes_count, 1, MPI_INT, comm->get());
 
     MPI_Alltoall(send_elements_count, 1, MPI_INT, recv_elements_count, 1,
                  MPI_INT, comm->get());
-
-                 
 
     int *recv_nodes_displs = (int *)malloc((comm_size + 1) * sizeof(int));
     int *recv_elements_displs = (int *)malloc((comm_size + 1) * sizeof(int));
@@ -189,22 +198,23 @@ int main(int argc, char **argv) {
     element_idx_t *recv_elements =
         (element_idx_t *)malloc(recv_elements_size * sizeof(element_idx_t));
 
-    MPI_Alltoallv(send_nodes, send_nodes_count, send_nodes_displs, MPI_INT,
-                  recv_nodes, recv_nodes_count, recv_nodes_displs, MPI_INT,
-                  comm->get());
+    MPI_Alltoallv(send_nodes, send_nodes_count, send_nodes_displs,
+                  smesh::mpi_type<idx_t>(), recv_nodes, recv_nodes_count,
+                  recv_nodes_displs, smesh::mpi_type<idx_t>(), comm->get());
 
     recv_n2e_ptr[0] = 0;
-    MPI_Alltoallv(send_n2e_count, send_nodes_count, send_nodes_displs, MPI_INT,
-                  &recv_n2e_ptr[1], recv_nodes_count, recv_nodes_displs,
-                  MPI_INT, comm->get());
+    MPI_Alltoallv(send_n2e_count, send_nodes_count, send_nodes_displs,
+                  smesh::mpi_type<count_t>(), &recv_n2e_ptr[1], recv_nodes_count,
+                  recv_nodes_displs, smesh::mpi_type<count_t>(), comm->get());
 
     for (int r = 0; r < recv_nodes_size; r++) {
       recv_n2e_ptr[r + 1] += recv_n2e_ptr[r];
     }
 
     MPI_Alltoallv(send_elements, send_elements_count, send_elements_displs,
-                  MPI_INT, recv_elements, recv_elements_count,
-                  recv_elements_displs, MPI_INT, comm->get());
+                  smesh::mpi_type<element_idx_t>(), recv_elements,
+                  recv_elements_count, recv_elements_displs,
+                  smesh::mpi_type<element_idx_t>(), comm->get());
 
 
     // comm->print_callback([&](std::ostream &os) {
@@ -251,15 +261,28 @@ int main(int argc, char **argv) {
       }
     }
 
-    comm->print_callback([&](std::ostream &os) {
-      for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
-        for (int d = 0; d < nnodesxelem; ++d) {
-          os << recv_nodes[local_elements[d][i]] << " ";
+    for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
+      for (int d = 0; d < nnodesxelem; ++d) {
+        const idx_t li = local_elements[d][i];
+        if (li == invalid_idx<idx_t>() || li < 0 ||
+            static_cast<ptrdiff_t>(li) >= recv_nodes_size) {
+          SMESH_ERROR(
+              "pe2n.exe: unmapped node for local element %ld (d=%d) on rank "
+              "%d (li=%d recv_nodes_size=%ld)\n",
+              (long)i, d, comm_rank, (int)li, (long)recv_nodes_size);
         }
-        os << "\n";
       }
-      os << "\n";
-    });
+    }
+
+    // comm->print_callback([&](std::ostream &os) {
+    //   for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
+    //     for (int d = 0; d < nnodesxelem; ++d) {
+    //       os << recv_nodes[local_elements[d][i]] << " ";
+    //     }
+    //     os << "\n";
+    //   }
+    //   os << "\n";
+    // });
 
     if (!comm_rank) {
       printf("#elements: %ld  #nodes: %ld\n", n_global_elements,
@@ -278,10 +301,18 @@ int main(int argc, char **argv) {
     free(send_nodes_displs);
     free(send_elements);
     free(send_nodes);
+    free(send_n2e_count);
     free(recv_nodes_count);
     free(recv_elements_count);
+    free(recv_nodes_displs);
+    free(recv_elements_displs);
     free(recv_nodes);
+    free(recv_n2e_ptr);
     free(recv_elements);
+    for (int d = 0; d < nnodesxelem; ++d) {
+      free(local_elements[d]);
+    }
+    free(local_elements);
   }
 
   return SMESH_SUCCESS;
