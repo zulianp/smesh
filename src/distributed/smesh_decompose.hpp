@@ -113,10 +113,13 @@ int localize_element_indices(
         const int comm_size, const int comm_rank, const ptrdiff_t n_global_elements,
         const ptrdiff_t n_local_elements, const int nnodesxelem,
         const ptrdiff_t local2global_size,
-        const count_t *const SMESH_RESTRICT local_n2e_ptr,
-        const element_idx_t *const SMESH_RESTRICT local_n2e_idx,
+        count_t *const SMESH_RESTRICT local_n2e_ptr,
+        element_idx_t *const SMESH_RESTRICT local_n2e_idx,
         idx_t *const SMESH_RESTRICT local2global,
-        idx_t **const SMESH_RESTRICT local_elements);    
+        idx_t **const SMESH_RESTRICT local_elements,
+        ptrdiff_t *const SMESH_RESTRICT out_n_owned,
+        ptrdiff_t *const SMESH_RESTRICT out_n_shared,
+        ptrdiff_t *const SMESH_RESTRICT out_n_ghosts);    
 } // namespace smesh
 
 #endif // SMESH_DECOMPOSE_HPP

@@ -75,7 +75,7 @@ int main(int argc, char **argv) {
                      n_global_nodes, n_global_elements, n2eptr, n2e_idx,
                      &local2global_size, &local2global, &local_n2e_ptr,
                      &local_n2e_idx);
-    
+
     // We do not need them anymore
     free(n2eptr);
     free(n2e_idx);
@@ -86,15 +86,20 @@ int main(int argc, char **argv) {
     }
 
     localize_element_indices(comm_size, comm_rank, n_global_elements,
-                              n_local_elements, nnodesxelem, elems,
-                              local2global_size, local_n2e_ptr,
-                              local_n2e_idx, local2global,local_elements);
+                             n_local_elements, nnodesxelem, elems,
+                             local2global_size, local_n2e_ptr, local_n2e_idx,
+                             local2global, local_elements);
 
-
+    ptrdiff_t n_owned  = 0;
+    ptrdiff_t n_shared = 0;
+    ptrdiff_t n_ghosts = 0;
     rearrange_local_nodes(comm_size, comm_rank, n_global_elements,
-                              n_local_elements, nnodesxelem,
-                              local2global_size, local_n2e_ptr,
-                              local_n2e_idx, local2global,local_elements);
+                          n_local_elements, nnodesxelem, local2global_size,
+                          local_n2e_ptr, local_n2e_idx, local2global,
+                          local_elements, &n_owned, &n_shared, &n_ghosts);
+
+    
+
 
     for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
       for (int d = 0; d < nnodesxelem; ++d) {
@@ -108,6 +113,9 @@ int main(int argc, char **argv) {
         }
       }
     }
+
+    
+    
 
     if (!comm_rank) {
       printf("#elements: %ld  #nodes: %ld\n", n_global_elements,

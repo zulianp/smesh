@@ -28,7 +28,7 @@ int create_n2e(MPI_Comm comm, const ptrdiff_t n_local_elements,
   const ptrdiff_t nodes_start = rank_start(n_global_nodes, size, rank);
   const ptrdiff_t elements_start = rank_start(n_global_elements, size, rank);
 
-  assert(n_local_nodes == rank_split(n_global_nodes, size, rank));
+  SMESH_ASSERT(n_local_nodes == rank_split(n_global_nodes, size, rank));
 
   for (int d = 0; d < nnodesxelem; d++) {
     for (ptrdiff_t e = 0; e < n_local_elements; e++) {
@@ -91,7 +91,7 @@ int create_n2e(MPI_Comm comm, const ptrdiff_t n_local_elements,
     int end = recv_displs[r + 1];
     for (int i = begin; i < end; i++) {
       recv_nodes[i] -= nodes_start;
-      assert(recv_nodes[i] >= 0 && recv_nodes[i] < n_local_nodes);
+      SMESH_ASSERT(recv_nodes[i] >= 0 && recv_nodes[i] < n_local_nodes);
       n2e_ptr[recv_nodes[i] + 1]++;
     }
   }
@@ -341,16 +341,20 @@ int localize_element_indices(
 // 1) owned, 2) shared, 3) ghosts and modify the local2global index accordingly
 // Ownership is determine based on the smallest rank associated to the
 // indicident element
-//
+// Attention: it invalidates local_n2e and local_n2e_idx
 template <typename idx_t, typename count_t, typename element_idx_t>
-int rearrange_local_nodes(
-    const int comm_size, const int comm_rank, const ptrdiff_t n_global_elements,
-    const ptrdiff_t n_local_elements, const int nnodesxelem,
-    const ptrdiff_t local2global_size,
-    const count_t *const SMESH_RESTRICT local_n2e_ptr,
-    const element_idx_t *const SMESH_RESTRICT local_n2e_idx,
-    idx_t *const SMESH_RESTRICT local2global,
-    idx_t **const SMESH_RESTRICT local_elements) {
+int rearrange_local_nodes(const int comm_size, const int comm_rank,
+                          const ptrdiff_t n_global_elements,
+                          const ptrdiff_t n_local_elements,
+                          const int nnodesxelem,
+                          const ptrdiff_t local2global_size,
+                          count_t *const SMESH_RESTRICT local_n2e_ptr,
+                          element_idx_t *const SMESH_RESTRICT local_n2e_idx,
+                          idx_t *const SMESH_RESTRICT local2global,
+                          idx_t **const SMESH_RESTRICT local_elements,
+                          ptrdiff_t *const SMESH_RESTRICT out_n_owned,
+                          ptrdiff_t *const SMESH_RESTRICT out_n_shared,
+                          ptrdiff_t *const SMESH_RESTRICT out_n_ghosts) {
 
   ptrdiff_t n_owned = 0;
   ptrdiff_t n_shared = 0;
@@ -423,8 +427,30 @@ int rearrange_local_nodes(
   SMESH_ASSERT(count_ghosts == (local2global_size - n_owned));
 #endif
 
-  const ptrdiff_t buff_max = std::max(local2global_size, n_local_elements);
-  idx_t *buff = (idx_t *)malloc(buff_max * sizeof(idx_t));
+  const ptrdiff_t n2e_nnz =
+      static_cast<ptrdiff_t>(local_n2e_ptr[local2global_size]);
+
+  // One reusable scratch buffer (memory-parsimonious):
+  // - used as idx_t[] for copying local_elements[d] and local2global
+  // - used as count_t[] + element_idx_t[] simultaneously for n2e reordering
+  const size_t primary_bytes =
+      static_cast<size_t>(std::max(local2global_size, n_local_elements)) *
+      sizeof(idx_t);
+
+  const size_t ptr_bytes =
+      static_cast<size_t>(local2global_size + 1) * sizeof(count_t);
+
+  auto align_up = [](size_t off, size_t alignment) -> size_t {
+    return (off + alignment - 1) & ~(alignment - 1);
+  };
+
+  const size_t idx_off = align_up(ptr_bytes, alignof(element_idx_t));
+  const size_t idx_bytes = static_cast<size_t>(n2e_nnz) * sizeof(element_idx_t);
+  const size_t n2e_bytes = idx_off + idx_bytes;
+
+  const size_t scratch_bytes = std::max(primary_bytes, n2e_bytes);
+  char *scratch = (char *)malloc(scratch_bytes);
+  idx_t *buff = (idx_t *)scratch;
 
   for (int d = 0; d < nnodesxelem; ++d) {
     memcpy(buff, local_elements[d], n_local_elements * sizeof(idx_t));
@@ -433,13 +459,68 @@ int rearrange_local_nodes(
     }
   }
 
+  // Rearrage n2e
   memcpy(buff, local2global, local2global_size * sizeof(idx_t));
   for (ptrdiff_t i = 0; i < local2global_size; ++i) {
     local2global[index_map[i]] = buff[i];
   }
 
-  free(buff);
+  count_t *temp_local_n2e_ptr = (count_t *)scratch;
+  temp_local_n2e_ptr[0] = 0;
+  for (ptrdiff_t i = 0; i < local2global_size; ++i) {
+    temp_local_n2e_ptr[index_map[i] + 1] =
+        local_n2e_ptr[i + 1] - local_n2e_ptr[i];
+  }
+
+  for (ptrdiff_t i = 0; i < local2global_size; ++i) {
+    temp_local_n2e_ptr[i + 1] += temp_local_n2e_ptr[i];
+  }
+
+  element_idx_t *idx_buff = (element_idx_t *)(scratch + idx_off);
+  memcpy(idx_buff, local_n2e_idx, n2e_nnz * sizeof(element_idx_t));
+  for (ptrdiff_t i = 0; i < local2global_size; ++i) {
+    ptrdiff_t from_begin = local_n2e_ptr[i];
+    idx_t to = index_map[i];
+    ptrdiff_t to_begin = temp_local_n2e_ptr[to];
+    ptrdiff_t to_end = temp_local_n2e_ptr[to + 1];
+
+    SMESH_ASSERT(to_end - to_begin == local_n2e_ptr[i + 1] - from_begin);
+
+    memcpy(local_n2e_idx + to_begin, idx_buff + from_begin,
+           (to_end - to_begin) * sizeof(element_idx_t));
+  }
+
+  memcpy(local_n2e_ptr, temp_local_n2e_ptr,
+         (local2global_size + 1) * sizeof(count_t));
+
+  free(scratch);
   free(index_map);
+
+  *out_n_owned = n_owned;
+  *out_n_shared = n_shared;
+  *out_n_ghosts = local2global_size - n_owned;
+
   return SMESH_SUCCESS;
 }
+
+int expand_aura_elements_inconsistent(
+  // MPI_Comm comm, const int comm_size,
+  //                        const int comm_rank, const ptrdiff_t n_global_elements,
+  //                        const ptrdiff_t n_local_elements,
+  //                        const int nnodesxelem,
+  //                        const ptrdiff_t local2global_size,
+  //                        count_t *const SMESH_RESTRICT local_n2e_ptr,
+  //                        element_idx_t *const SMESH_RESTRICT local_n2e_idx,
+  //                        idx_t *const SMESH_RESTRICT local2global,
+  //                        idx_t **const SMESH_RESTRICT local_elements
+                        ) {
+  // TODO
+  // 1) use the ghost nodes to expand the aura elements
+  // - Create buffers to send the the ghost nodes owner containing the elements with compressed and original global node indices?
+  // - Append the new aura elements to the local_elements array, delay renumbering after global renumbering (otherwise binary search but it is slow)?
+  return SMESH_FAILURE;
+}
+
+int global_node_numbering_and_ghost_setup() { return SMESH_FAILURE; }
+
 } // namespace smesh
