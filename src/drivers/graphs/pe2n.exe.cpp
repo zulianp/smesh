@@ -216,17 +216,6 @@ int main(int argc, char **argv) {
                   recv_elements_count, recv_elements_displs,
                   smesh::mpi_type<element_idx_t>(), comm->get());
 
-
-    // comm->print_callback([&](std::ostream &os) {
-    //   for(ptrdiff_t i = 0; i < recv_nodes_size; ++i) {
-    //     os << "recv_nodes[" << i << "]: " << recv_nodes[i] << " (" << recv_n2e_ptr[i+1] << ")\n";
-    //   }
-
-    //   for(ptrdiff_t i = 0; i < recv_elements_size; ++i) {
-    //     os << "recv_elements[" << i << "]: " << recv_elements[i] << "\n";
-    //   }
-    // });
-
     ptrdiff_t element_start =
         rank_start(n_global_elements, comm_size, comm_rank);
     idx_t **local_elements = (idx_t **)malloc(nnodesxelem * sizeof(idx_t *));
@@ -273,16 +262,6 @@ int main(int argc, char **argv) {
         }
       }
     }
-
-    // comm->print_callback([&](std::ostream &os) {
-    //   for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
-    //     for (int d = 0; d < nnodesxelem; ++d) {
-    //       os << recv_nodes[local_elements[d][i]] << " ";
-    //     }
-    //     os << "\n";
-    //   }
-    //   os << "\n";
-    // });
 
     if (!comm_rank) {
       printf("#elements: %ld  #nodes: %ld\n", n_global_elements,
