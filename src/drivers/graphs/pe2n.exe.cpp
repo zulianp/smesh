@@ -98,6 +98,12 @@ int main(int argc, char **argv) {
                           local_n2e_ptr, local_n2e_idx, local2global,
                           local_elements, &n_owned, &n_shared, &n_ghosts);
 
+    ptrdiff_t n_owned_not_shared = 0;
+rearrange_local_elements(comm_size, comm_rank, n_global_elements,
+                          n_local_elements, nnodesxelem, local2global_size,
+                          local_n2e_ptr, local_n2e_idx, local_elements, n_owned,
+                          &n_owned_not_shared);
+
     for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
       for (int d = 0; d < nnodesxelem; ++d) {
         const idx_t li = local_elements[d][i];

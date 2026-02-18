@@ -108,18 +108,29 @@ int localize_element_indices(
     const idx_t *const SMESH_RESTRICT local2global,
     idx_t **const SMESH_RESTRICT local_elements);
 
-    template <typename idx_t, typename count_t, typename element_idx_t>
-    int rearrange_local_nodes(
-        const int comm_size, const int comm_rank, const ptrdiff_t n_global_elements,
-        const ptrdiff_t n_local_elements, const int nnodesxelem,
-        const ptrdiff_t local2global_size,
-        count_t *const SMESH_RESTRICT local_n2e_ptr,
-        element_idx_t *const SMESH_RESTRICT local_n2e_idx,
-        idx_t *const SMESH_RESTRICT local2global,
-        idx_t **const SMESH_RESTRICT local_elements,
-        ptrdiff_t *const SMESH_RESTRICT out_n_owned,
-        ptrdiff_t *const SMESH_RESTRICT out_n_shared,
-        ptrdiff_t *const SMESH_RESTRICT out_n_ghosts);    
+template <typename idx_t, typename count_t, typename element_idx_t>
+int rearrange_local_nodes(const int comm_size, const int comm_rank,
+                          const ptrdiff_t n_global_elements,
+                          const ptrdiff_t n_local_elements,
+                          const int nnodesxelem,
+                          const ptrdiff_t local2global_size,
+                          count_t *const SMESH_RESTRICT local_n2e_ptr,
+                          element_idx_t *const SMESH_RESTRICT local_n2e_idx,
+                          idx_t *const SMESH_RESTRICT local2global,
+                          idx_t **const SMESH_RESTRICT local_elements,
+                          ptrdiff_t *const SMESH_RESTRICT out_n_owned,
+                          ptrdiff_t *const SMESH_RESTRICT out_n_shared,
+                          ptrdiff_t *const SMESH_RESTRICT out_n_ghosts);
+
+template <typename idx_t, typename count_t, typename element_idx_t>
+int rearrange_local_elements(
+    const int comm_size, const int comm_rank, const ptrdiff_t n_global_elements,
+    const ptrdiff_t n_local_elements, const int nnodesxelem,
+    const ptrdiff_t local2global_size,
+    count_t *const SMESH_RESTRICT local_n2e_ptr,
+    element_idx_t *const SMESH_RESTRICT local_n2e_idx,
+    idx_t **const SMESH_RESTRICT local_elements, const ptrdiff_t n_owned_nodes,
+    ptrdiff_t *const SMESH_RESTRICT n_owned_not_shared);
 } // namespace smesh
 
 #endif // SMESH_DECOMPOSE_HPP

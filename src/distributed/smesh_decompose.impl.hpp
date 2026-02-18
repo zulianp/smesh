@@ -503,28 +503,25 @@ int rearrange_local_nodes(const int comm_size, const int comm_rank,
   return SMESH_SUCCESS;
 }
 
-int rarrange_local_elements(const int comm_size, const int comm_rank,
-  const ptrdiff_t n_global_elements,
-  const ptrdiff_t n_local_elements,
-  const int nnodesxelem,
-  const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
-  const ptrdiff_t local2global_size,
-  count_t *const SMESH_RESTRICT local_n2e_ptr,
-  element_idx_t *const SMESH_RESTRICT local_n2e_idx,
-  idx_t **const SMESH_RESTRICT local_elements,
-  const ptrdiff_t n_owned_nodes,
-  ptrdiff_t *const SMESH_RESTRICT n_owned_not_shared)
-{
+template <typename idx_t, typename count_t, typename element_idx_t>
+int rearrange_local_elements(
+    const int comm_size, const int comm_rank, const ptrdiff_t n_global_elements,
+    const ptrdiff_t n_local_elements, const int nnodesxelem,
+    const ptrdiff_t local2global_size,
+    count_t *const SMESH_RESTRICT local_n2e_ptr,
+    element_idx_t *const SMESH_RESTRICT local_n2e_idx,
+    idx_t **const SMESH_RESTRICT local_elements, const ptrdiff_t n_owned_nodes,
+    ptrdiff_t *const SMESH_RESTRICT n_owned_not_shared) {
   idx_t *old_to_new_map = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
   ptrdiff_t shared_count = 0;
 
-  for(ptrdiff_t i = 0; i < n_local_elements; ++i) {
+  for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
     bool is_shared = false;
-    for(int d = 0; d < nnodesxelem; ++d) {
-      const idx_t node = elems[d][i];
-      if(node >= n_owned_nodes) {
-       is_shared = true;
-       break;
+    for (int d = 0; d < nnodesxelem; ++d) {
+      const idx_t node = local_elements[d][i];
+      if (node >= n_owned_nodes) {
+        is_shared = true;
+        break;
       }
     }
 
@@ -533,13 +530,13 @@ int rarrange_local_elements(const int comm_size, const int comm_rank,
 
   ptrdiff_t shared_offset = n_local_elements - shared_count;
   ptrdiff_t local_offset = 0;
-  for(ptrdiff_t i = 0; i < n_local_elements; ++i) {
+  for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
     bool is_shared = false;
-    for(int d = 0; d < nnodesxelem; ++d) {
-      const idx_t node = elems[d][i];
-      if(node >= n_owned_nodes) {
-       is_shared = true;
-       break;
+    for (int d = 0; d < nnodesxelem; ++d) {
+      const idx_t node = local_elements[d][i];
+      if (node >= n_owned_nodes) {
+        is_shared = true;
+        break;
       }
     }
 
@@ -547,15 +544,16 @@ int rarrange_local_elements(const int comm_size, const int comm_rank,
   }
 
   idx_t *buff = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
-  for(int d = 0; d < nnodesxelem; ++d) {
+  for (int d = 0; d < nnodesxelem; ++d) {
     memcpy(buff, local_elements[d], n_local_elements * sizeof(idx_t));
-    for(ptrdiff_t i = 0; i < n_local_elements; ++i) {
+    for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
       local_elements[d][old_to_new_map[i]] = buff[i];
     }
   }
 
-  for(ptrdiff_t i = 0; i < local_n2e_ptr[local2global_size]; ++i) {
-    if(rank_owner(n_global_elements, local_n2e_idx[i], comm_size) != comm_rank) {
+  for (ptrdiff_t i = 0; i < local_n2e_ptr[local2global_size]; ++i) {
+    if (rank_owner(n_global_elements, local_n2e_idx[i], comm_size) !=
+        comm_rank) {
       // Remote ones are unchanged as we do not yet know the new global indices
       continue;
     }
@@ -564,24 +562,25 @@ int rarrange_local_elements(const int comm_size, const int comm_rank,
 
   free(old_to_new_map);
   free(buff);
-  *n_owned_not_shared =n_local_elements - shared_count;
+  *n_owned_not_shared = n_local_elements - shared_count;
   return SMESH_SUCCESS;
 }
 
 // int expand_aura_elements_inconsistent(
-//     MPI_Comm comm, 
+//     MPI_Comm comm,
 //     const ptrdiff_t n_global_elements, const ptrdiff_t n_local_elements,
 //     const int nnodesxelem, const ptrdiff_t local2global_size,
 //     count_t *const SMESH_RESTRICT local_n2e_ptr,
 //     element_idx_t *const SMESH_RESTRICT local_n2e_idx,
 //     const idx_t *const SMESH_RESTRICT local2global,
 //     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT local_elements,
-//     const ptrdiff_t n_owned, const ptrdiff_t n_shared, const ptrdiff_t n_ghosts,
-//     idx_t **const SMESH_RESTRICT
+//     const ptrdiff_t n_owned, const ptrdiff_t n_shared, const ptrdiff_t
+//     n_ghosts, idx_t **const SMESH_RESTRICT
 //         out_aura_elements, ptrdiff_t *const SMESH_RESTRICT out_n_aura) {
 //   // TODO
 //   // 1) use the ghost nodes to expand the aura elements
-//   // - Create buffers to send the the ghost nodes owner containing the elements
+//   // - Create buffers to send the the ghost nodes owner containing the
+//   elements
 //   // with compressed and original global node indices?
 //   // - Append the new aura elements to the local_elements array, delay
 //   // renumbering after global renumbering (otherwise binary search but it is
