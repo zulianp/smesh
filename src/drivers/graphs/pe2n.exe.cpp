@@ -98,9 +98,6 @@ int main(int argc, char **argv) {
                           local_n2e_ptr, local_n2e_idx, local2global,
                           local_elements, &n_owned, &n_shared, &n_ghosts);
 
-    
-
-
     for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
       for (int d = 0; d < nnodesxelem; ++d) {
         const idx_t li = local_elements[d][i];
