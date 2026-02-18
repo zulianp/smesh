@@ -130,7 +130,8 @@ int rearrange_local_elements(
     count_t *const SMESH_RESTRICT local_n2e_ptr,
     element_idx_t *const SMESH_RESTRICT local_n2e_idx,
     idx_t **const SMESH_RESTRICT local_elements, const ptrdiff_t n_owned_nodes,
-    ptrdiff_t *const SMESH_RESTRICT n_owned_not_shared);
+    ptrdiff_t *const SMESH_RESTRICT n_owned_not_shared,
+    element_idx_t *const SMESH_RESTRICT element_local_to_global);
 } // namespace smesh
 
 #endif // SMESH_DECOMPOSE_HPP

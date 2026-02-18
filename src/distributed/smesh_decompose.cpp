@@ -27,7 +27,7 @@
       const int, const int, const ptrdiff_t, const ptrdiff_t, const int,       \
       const ptrdiff_t, T *const SMESH_RESTRICT, T *const SMESH_RESTRICT,       \
       T **const SMESH_RESTRICT, const ptrdiff_t,                               \
-      ptrdiff_t *const SMESH_RESTRICT)
+      ptrdiff_t *const SMESH_RESTRICT, T *const SMESH_RESTRICT)
 
 namespace smesh {
 SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i32);

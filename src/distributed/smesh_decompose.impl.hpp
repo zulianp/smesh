@@ -511,7 +511,10 @@ int rearrange_local_elements(
     count_t *const SMESH_RESTRICT local_n2e_ptr,
     element_idx_t *const SMESH_RESTRICT local_n2e_idx,
     idx_t **const SMESH_RESTRICT local_elements, const ptrdiff_t n_owned_nodes,
-    ptrdiff_t *const SMESH_RESTRICT n_owned_not_shared) {
+    ptrdiff_t *const SMESH_RESTRICT n_owned_not_shared,
+    element_idx_t *const SMESH_RESTRICT element_local_to_global) {
+  const ptrdiff_t element_start =
+      rank_start(n_global_elements, comm_size, comm_rank);
   idx_t *old_to_new_map = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
   ptrdiff_t shared_count = 0;
 
@@ -557,12 +560,17 @@ int rearrange_local_elements(
       // Remote ones are unchanged as we do not yet know the new global indices
       continue;
     }
-    local_n2e_idx[i] = old_to_new_map[local_n2e_idx[i]];
+    local_n2e_idx[i] =
+        element_start + old_to_new_map[local_n2e_idx[i] - element_start];
+  }
+
+  *n_owned_not_shared = n_local_elements - shared_count;
+  for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
+    element_local_to_global[old_to_new_map[i]] = i + element_start;
   }
 
   free(old_to_new_map);
   free(buff);
-  *n_owned_not_shared = n_local_elements - shared_count;
   return SMESH_SUCCESS;
 }
 

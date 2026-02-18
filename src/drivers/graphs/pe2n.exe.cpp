@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
                              local2global_size, local_n2e_ptr, local_n2e_idx,
                              local2global, local_elements);
 
-    ptrdiff_t n_owned  = 0;
+    ptrdiff_t n_owned = 0;
     ptrdiff_t n_shared = 0;
     ptrdiff_t n_ghosts = 0;
     rearrange_local_nodes(comm_size, comm_rank, n_global_elements,
@@ -98,11 +98,12 @@ int main(int argc, char **argv) {
                           local_n2e_ptr, local_n2e_idx, local2global,
                           local_elements, &n_owned, &n_shared, &n_ghosts);
 
+    element_idx_t *element_local_to_global = (element_idx_t *)malloc(n_local_elements * sizeof(element_idx_t));
     ptrdiff_t n_owned_not_shared = 0;
-rearrange_local_elements(comm_size, comm_rank, n_global_elements,
-                          n_local_elements, nnodesxelem, local2global_size,
-                          local_n2e_ptr, local_n2e_idx, local_elements, n_owned,
-                          &n_owned_not_shared);
+    rearrange_local_elements(comm_size, comm_rank, n_global_elements,
+                             n_local_elements, nnodesxelem, local2global_size,
+                             local_n2e_ptr, local_n2e_idx, local_elements,
+                             n_owned, &n_owned_not_shared, element_local_to_global);
 
     for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
       for (int d = 0; d < nnodesxelem; ++d) {
@@ -116,9 +117,6 @@ rearrange_local_elements(comm_size, comm_rank, n_global_elements,
         }
       }
     }
-
-    
-    
 
     if (!comm_rank) {
       printf("#elements: %ld  #nodes: %ld\n", n_global_elements,
