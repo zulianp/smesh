@@ -601,16 +601,18 @@ int expand_aura_elements_inconsistent(
       n_local_elements - elements_n_shared;
   const ptrdiff_t elements_start =
       rank_start(n_global_elements, comm_size, comm_rank);
-  const ptrdiff_t offset = elements_n_owned_not_shared + elements_start;
+
+  // This is now wrong (as non-shared elements may be aura too)
+  const ptrdiff_t offset = elements_start;
 
   count_t *element_to_rank_count =
-      (count_t *)calloc(elements_n_shared, sizeof(count_t));
+      (count_t *)calloc(n_local_elements, sizeof(count_t));
 
   count_t *element_to_rank_displs =
-      (count_t *)calloc(elements_n_shared + 1, sizeof(count_t));
+      (count_t *)calloc(n_local_elements + 1, sizeof(count_t));
 
   // Construct element to rank
-  for (ptrdiff_t i = node_n_owned; i < node_n_owned + nodes_n_ghosts; ++i) {
+  for (ptrdiff_t i = 0; i < node_n_owned + nodes_n_ghosts; ++i) {
     const count_t e_begin = local_n2e_ptr[i];
     const count_t e_end = local_n2e_ptr[i + 1];
     for (ptrdiff_t e = e_begin; e < e_end; ++e) {
@@ -624,14 +626,14 @@ int expand_aura_elements_inconsistent(
     }
   }
 
-  for (ptrdiff_t i = 0; i < elements_n_shared; ++i) {
+  for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
     element_to_rank_displs[i + 1] += element_to_rank_displs[i];
   }
 
   int *element2rank =
-      (int *)malloc(element_to_rank_displs[elements_n_shared] * sizeof(int));
+      (int *)malloc(element_to_rank_displs[n_local_elements] * sizeof(int));
 
-  for (ptrdiff_t i = node_n_owned; i < node_n_owned + nodes_n_ghosts; ++i) {
+  for (ptrdiff_t i = 0; i < node_n_owned + nodes_n_ghosts; ++i) {
     const count_t e_begin = local_n2e_ptr[i];
     const count_t e_end = local_n2e_ptr[i + 1];
     for (ptrdiff_t e = e_begin; e < e_end; ++e) {
@@ -647,7 +649,7 @@ int expand_aura_elements_inconsistent(
     }
   }
 
-  for (ptrdiff_t i = 0; i < elements_n_shared; ++i) {
+  for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
     element_to_rank_count[i] = sort_and_unique(
         element2rank + element_to_rank_displs[i], element_to_rank_count[i]);
   }
@@ -655,7 +657,7 @@ int expand_aura_elements_inconsistent(
   int *send_elements_displs = (int *)calloc(comm_size + 1, sizeof(int));
   int *send_elements_count = (int *)calloc(comm_size, sizeof(int));
 
-  for (ptrdiff_t i = 0; i < elements_n_shared; ++i) {
+  for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
     for (ptrdiff_t j = 0; j < element_to_rank_count[i]; ++j) {
       send_elements_displs[element2rank[element_to_rank_displs[i] + j] + 1]++;
     }
@@ -668,7 +670,7 @@ int expand_aura_elements_inconsistent(
   element_idx_t *send_elements = (element_idx_t *)malloc(
       send_elements_displs[comm_size] * sizeof(element_idx_t));
 
-  for (ptrdiff_t i = 0; i < elements_n_shared; ++i) {
+  for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
     for (ptrdiff_t j = 0; j < element_to_rank_count[i]; ++j) {
       int rank = element2rank[element_to_rank_displs[i] + j];
       send_elements[send_elements_displs[rank] + send_elements_count[rank]++] =
@@ -698,14 +700,14 @@ int expand_aura_elements_inconsistent(
   idx_t *send_element_nodes =
       (idx_t *)malloc(send_elements_displs[comm_size] * sizeof(idx_t));
   for (int d = 0; d < nnodesxelem; ++d) {
-    for (ptrdiff_t i = 0; i < elements_n_shared; ++i) {
+    for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
       memset(send_element_nodes, 0,
              send_elements_displs[comm_size] * sizeof(idx_t));
       for (ptrdiff_t j = 0; j < element_to_rank_count[i]; ++j) {
         int rank = element2rank[element_to_rank_displs[i] + j];
         send_element_nodes[send_elements_displs[rank] +
                            send_elements_count[rank]++] =
-            local2global[local_elements[d][elements_n_owned_not_shared + i]];
+            local2global[local_elements[d][i]];
       }
     }
 
@@ -824,6 +826,21 @@ int node_ownership_ranges(
   return SMESH_SUCCESS;
 }
 
-// int global_node_numbering_and_ghost_setup() { return SMESH_FAILURE; }
+// TODOs
+// What we have: every rank as the aura elements with old global node indices
+// Aura elements have both ghost and aura nodes (no owned), hence they can be used to create
+// Rank to rank connectivity graphs with renumberd global indices and construct import/export lists
+// for nodal quantities as well as for elemental quantities
+// The steps are:
+// 1) Renumber global nodes (which have more complex ownership structure, see node_ownership_ranges)
+// 2) Renumber the nodes in the aura elements to the new global indices
+// 3) Localize the aura elements nodes (ghosts already have local indices)
+// 4) Append aura elements to the local_elements array
+// 5) Create the import/export lists for nodal quantities (support ghost/aura only or combined)
+// 6) Create the import/export lists for elemental quantities (support ghost/aura only or combined)
 
+int renumber_global_nodes()
+{
+
+}
 } // namespace smesh
