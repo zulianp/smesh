@@ -576,7 +576,8 @@ int rearrange_local_elements(
 
 int expand_aura_elements_inconsistent(
     MPI_Comm comm, const ptrdiff_t n_global_elements,
-    const ptrdiff_t n_local_elements, const ptrdiff_t elements_n_shared,
+    const ptrdiff_t n_local_elements,
+    //  const ptrdiff_t elements_n_shared,
     const int nnodesxelem, count_t *const SMESH_RESTRICT local_n2e_ptr,
     element_idx_t *const SMESH_RESTRICT local_n2e_idx,
     const idx_t *const SMESH_RESTRICT local2global,
@@ -597,8 +598,8 @@ int expand_aura_elements_inconsistent(
   MPI_Comm_rank(comm, &comm_rank);
   MPI_Comm_size(comm, &comm_size);
 
-  const ptrdiff_t elements_n_owned_not_shared =
-      n_local_elements - elements_n_shared;
+  // const ptrdiff_t elements_n_owned_not_shared =
+  //     n_local_elements - elements_n_shared;
   const ptrdiff_t elements_start =
       rank_start(n_global_elements, comm_size, comm_rank);
 
@@ -809,16 +810,15 @@ int prepare_node_renumbering(MPI_Comm comm, const ptrdiff_t n_global_nodes,
   return SMESH_SUCCESS;
 }
 
-int node_ownership_ranges(
-  MPI_Comm comm, 
-  const ptrdiff_t n_owned_nodes,
-  ptrdiff_t *const SMESH_RESTRICT owned_nodes_ranges) {
+int node_ownership_ranges(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
+                          ptrdiff_t *const SMESH_RESTRICT owned_nodes_ranges) {
   int comm_rank, comm_size;
   MPI_Comm_rank(comm, &comm_rank);
   MPI_Comm_size(comm, &comm_size);
 
   owned_nodes_ranges[0] = 0;
-  MPI_Allgather(&n_owned_nodes, 1, MPI_INT, &owned_nodes_ranges[1], 1, MPI_INT, comm);
+  MPI_Allgather(&n_owned_nodes, 1, MPI_INT, &owned_nodes_ranges[1], 1, MPI_INT,
+                comm);
   for (ptrdiff_t i = 0; i < comm_size; ++i) {
     owned_nodes_ranges[i + 1] += owned_nodes_ranges[i];
   }
@@ -826,21 +826,98 @@ int node_ownership_ranges(
   return SMESH_SUCCESS;
 }
 
+// TODO: Stich together the aura elements and the local elements
+// Unify ghost nodes and create local aura node index
+// - we can identify ghost nodes with n2e graph
+// - from e2n graph we can identify the unsorted aura nodes (old global indices)
+
+int stitch_aura_elements(
+    MPI_Comm comm, const ptrdiff_t n_owned_nodes, const ptrdiff_t n_ghost_nodes,
+    const idx_t *const SMESH_RESTRICT local2global, const int nnodesxelem,
+    const ptrdiff_t n_aura_elements,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT e2n_aura,
+    const ptrdiff_t n_local_elements, 
+    idx_t **const SMESH_RESTRICT e2n_local,
+    idx_t **const SMESH_RESTRICT n2n_local2global_out,
+    ptrdiff_t *const SMESH_RESTRICT out_n_aura_nodes) {
+  int comm_rank, comm_size;
+  MPI_Comm_rank(comm, &comm_rank);
+  MPI_Comm_size(comm, &comm_size);
+
+#ifndef NDEBUG
+  auto is_sorted = [](const idx_t *const SMESH_RESTRICT arr,
+                      const ptrdiff_t n) -> bool {
+    for (ptrdiff_t i = 0; i < n - 1; ++i) {
+      if (arr[i] > arr[i + 1]) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  SMESH_ASSERT(is_sorted(local2global, n_owned_nodes + n_ghost_nodes));
+#endif
+
+  idx_t *unique_aura_nodes =
+      (idx_t *)malloc((n_aura_elements * nnodesxelem) * sizeof(idx_t));
+  for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
+    for (ptrdiff_t j = 0; j < nnodesxelem; ++j) {
+      unique_aura_nodes[i * nnodesxelem + j] = e2n_aura[j][i];
+    }
+  }
+
+  const ptrdiff_t n_unique_aura_nodes =
+      sort_and_unique(unique_aura_nodes, n_aura_elements * nnodesxelem);
+
+  idx_t *n2n_local2global =
+      (idx_t *)malloc((n_unique_aura_nodes + n_owned_nodes) * sizeof(idx_t));
+  memcpy(n2n_local2global, local2global,
+         (n_owned_nodes + n_ghost_nodes) * sizeof(idx_t));
+
+  for (ptrdiff_t i = 0, j = n_owned_nodes,
+                 offset = n_owned_nodes + n_ghost_nodes;
+       i < n_unique_aura_nodes; i++) {
+    if (unique_aura_nodes[i] == local2global[j]) {
+      // Skip ghost node
+      j++;
+    } else {
+      // Add aura node
+      n2n_local2global[offset++] = local2global[j];
+    }
+  }
+
+  free(unique_aura_nodes);
+
+  for(int d = 0; d < nnodesxelem; ++d) {
+    for(ptrdiff_t i = 0; i < n_aura_elements; ++i) {
+        idx_t node_global = e2n_aura[d][i];
+        // Search the ghost and aura range
+        auto it = std::lower_bound(n2n_local2global + n_owned_nodes, n2n_local2global + n_owned_nodes + n_unique_aura_nodes, node_global);
+        e2n_aura[d][i] = std::distance(n2n_local2global, it); // Get local index
+        SMESH_ASSERT(e2n_aura[d][i] < n_local_elements);
+    }
+
+    e2n_local[d] = (idx_t *)realloc(e2n_local[d], (n_local_elements + n_aura_elements) * sizeof(idx_t));
+    memcpy(e2n_local[d] + n_local_elements, e2n_local[d], n_aura_elements * sizeof(idx_t));
+  }
+
+  *n2n_local2global_out = n2n_local2global;
+  *out_n_aura_nodes = n_unique_aura_nodes - n_ghost_nodes;
+  return SMESH_SUCCESS;
+}
+
 // TODOs
 // What we have: every rank as the aura elements with old global node indices
-// Aura elements have both ghost and aura nodes (no owned), hence they can be used to create
-// Rank to rank connectivity graphs with renumberd global indices and construct import/export lists
-// for nodal quantities as well as for elemental quantities
-// The steps are:
-// 1) Renumber global nodes (which have more complex ownership structure, see node_ownership_ranges)
-// 2) Renumber the nodes in the aura elements to the new global indices
-// 3) Localize the aura elements nodes (ghosts already have local indices)
-// 4) Append aura elements to the local_elements array
-// 5) Create the import/export lists for nodal quantities (support ghost/aura only or combined)
-// 6) Create the import/export lists for elemental quantities (support ghost/aura only or combined)
+// Aura elements have both ghost and aura nodes (no owned), hence they can be
+// used to create Rank to rank connectivity graphs with renumberd global indices
+// and construct import/export lists for nodal quantities as well as for
+// elemental quantities The steps are: 1) Renumber global nodes (which have more
+// complex ownership structure, see node_ownership_ranges) 2) Renumber the nodes
+// in the aura elements to the new global indices 3) Localize the aura elements
+// nodes (ghosts already have local indices) 4) Append aura elements to the
+// local_elements array 5) Create the import/export lists for nodal quantities
+// (support ghost/aura only or combined) 6) Create the import/export lists for
+// elemental quantities (support ghost/aura only or combined)
 
-int renumber_global_nodes()
-{
 
-}
 } // namespace smesh
