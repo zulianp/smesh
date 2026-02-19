@@ -98,12 +98,16 @@ int main(int argc, char **argv) {
                           local_n2e_ptr, local_n2e_idx, local2global,
                           local_elements, &n_owned, &n_shared, &n_ghosts);
 
-    element_idx_t *element_local_to_global = (element_idx_t *)malloc(n_local_elements * sizeof(element_idx_t));
+    element_idx_t *element_mapping = (element_idx_t *)malloc(n_local_elements * sizeof(element_idx_t));
     ptrdiff_t n_owned_not_shared = 0;
     rearrange_local_elements(comm_size, comm_rank, n_global_elements,
                              n_local_elements, nnodesxelem, local2global_size,
                              local_n2e_ptr, local_n2e_idx, local_elements,
-                             n_owned, &n_owned_not_shared, element_local_to_global);
+                             n_owned, &n_owned_not_shared, element_mapping);
+
+    // TODO: Aura elements construction
+
+    // TODO: Import/Export operations for ghost and aura nodal coefficients for operators
 
     for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
       for (int d = 0; d < nnodesxelem; ++d) {
@@ -129,6 +133,7 @@ int main(int argc, char **argv) {
     free(local2global);
     free(local_n2e_ptr);
     free(local_n2e_idx);
+    free(element_mapping);
     for (int d = 0; d < nnodesxelem; ++d) {
       free(local_elements[d]);
     }

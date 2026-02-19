@@ -305,7 +305,7 @@ int localize_element_indices(
     const element_idx_t *const SMESH_RESTRICT local_n2e_idx,
     const idx_t *const SMESH_RESTRICT local2global,
     idx_t **const SMESH_RESTRICT local_elements) {
-  const ptrdiff_t element_start =
+  const ptrdiff_t elements_start =
       rank_start(n_global_elements, comm_size, comm_rank);
 
   for (int d = 0; d < nnodesxelem; ++d) {
@@ -325,8 +325,8 @@ int localize_element_indices(
           rank_owner(n_global_elements, element_idx, comm_size);
       if (comm_rank == element_owner) {
         for (int d = 0; d < nnodesxelem; ++d) {
-          if (node == elems[d][element_idx - element_start]) {
-            local_elements[d][element_idx - element_start] =
+          if (node == elems[d][element_idx - elements_start]) {
+            local_elements[d][element_idx - elements_start] =
                 i; // local node index
             break;
           }
@@ -513,7 +513,7 @@ int rearrange_local_elements(
     idx_t **const SMESH_RESTRICT local_elements, const ptrdiff_t n_owned_nodes,
     ptrdiff_t *const SMESH_RESTRICT n_owned_not_shared,
     element_idx_t *const SMESH_RESTRICT element_local_to_global) {
-  const ptrdiff_t element_start =
+  const ptrdiff_t elements_start =
       rank_start(n_global_elements, comm_size, comm_rank);
   idx_t *old_to_new_map = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
   ptrdiff_t shared_count = 0;
@@ -561,12 +561,12 @@ int rearrange_local_elements(
       continue;
     }
     local_n2e_idx[i] =
-        element_start + old_to_new_map[local_n2e_idx[i] - element_start];
+        elements_start + old_to_new_map[local_n2e_idx[i] - elements_start];
   }
 
   *n_owned_not_shared = n_local_elements - shared_count;
   for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
-    element_local_to_global[old_to_new_map[i]] = i + element_start;
+    element_local_to_global[old_to_new_map[i]] = i + elements_start;
   }
 
   free(old_to_new_map);
@@ -574,47 +574,255 @@ int rearrange_local_elements(
   return SMESH_SUCCESS;
 }
 
-// int expand_aura_elements_inconsistent(
-//     MPI_Comm comm,
-//     const ptrdiff_t n_global_elements, const ptrdiff_t n_local_elements,
-//     const int nnodesxelem, const ptrdiff_t local2global_size,
-//     count_t *const SMESH_RESTRICT local_n2e_ptr,
-//     element_idx_t *const SMESH_RESTRICT local_n2e_idx,
-//     const idx_t *const SMESH_RESTRICT local2global,
-//     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT local_elements,
-//     const ptrdiff_t n_owned, const ptrdiff_t n_shared, const ptrdiff_t
-//     n_ghosts, idx_t **const SMESH_RESTRICT
-//         out_aura_elements, ptrdiff_t *const SMESH_RESTRICT out_n_aura) {
-//   // TODO
-//   // 1) use the ghost nodes to expand the aura elements
-//   // - Create buffers to send the the ghost nodes owner containing the
-//   elements
-//   // with compressed and original global node indices?
-//   // - Append the new aura elements to the local_elements array, delay
-//   // renumbering after global renumbering (otherwise binary search but it is
-//   // slow)?
+int expand_aura_elements_inconsistent(
+    MPI_Comm comm, const ptrdiff_t n_global_elements,
+    const ptrdiff_t n_local_elements, const ptrdiff_t elements_n_shared,
+    const int nnodesxelem, count_t *const SMESH_RESTRICT local_n2e_ptr,
+    element_idx_t *const SMESH_RESTRICT local_n2e_idx,
+    const idx_t *const SMESH_RESTRICT local2global,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT local_elements,
+    const ptrdiff_t node_n_owned, const ptrdiff_t nodes_n_ghosts,
+    idx_t **const SMESH_RESTRICT out_aura_elements,
+    idx_t **const SMESH_RESTRICT out_aura_element_nodes,
+    ptrdiff_t *const SMESH_RESTRICT out_n_aura) {
+  // TODO
+  // 1) use the ghost nodes to expand the aura elements
+  // - Create buffers to send the the ghost nodes owner containing the elements
+  // with compressed and original global node indices?
+  // - Append the new aura elements to the local_elements array, delay
+  // renumbering after global renumbering (otherwise binary search but it is
+  // slow)?
 
-//   int comm_rank, comm_size;
-//   MPI_Comm_rank(comm, &comm_rank);
-//   MPI_Comm_size(comm, &comm_size);
+  int comm_rank, comm_size;
+  MPI_Comm_rank(comm, &comm_rank);
+  MPI_Comm_size(comm, &comm_size);
 
-//   // Construct element to rank
-//   for(ptrdiff_t i = n_owned; i < n_owned + n_ghosts; ++i) {
-//     const count_t e_begin = local_n2e_ptr[i];
-//     const count_t e_end = local_n2e_ptr[i + 1];
-//     for(ptrdiff_t e = e_begin; e < e_end; ++e) {
-//       const element_idx_t element_idx = local_n2e_idx[e];
-//       const int element_owner =
-//           rank_owner(n_global_elements, element_idx, comm_size);
-//       if(element_owner != comm_rank) {
-//         // All owned elements need to be sent to the element_owner
-//       }
-//     }
+  const ptrdiff_t elements_n_owned_not_shared =
+      n_local_elements - elements_n_shared;
+  const ptrdiff_t elements_start =
+      rank_start(n_global_elements, comm_size, comm_rank);
+  const ptrdiff_t offset = elements_n_owned_not_shared + elements_start;
 
-//   }
+  count_t *element_to_rank_count =
+      (count_t *)calloc(elements_n_shared, sizeof(count_t));
 
-//   return SMESH_FAILURE;
-// }
+  count_t *element_to_rank_displs =
+      (count_t *)calloc(elements_n_shared + 1, sizeof(count_t));
+
+  // Construct element to rank
+  for (ptrdiff_t i = node_n_owned; i < node_n_owned + nodes_n_ghosts; ++i) {
+    const count_t e_begin = local_n2e_ptr[i];
+    const count_t e_end = local_n2e_ptr[i + 1];
+    for (ptrdiff_t e = e_begin; e < e_end; ++e) {
+      const element_idx_t element_idx = local_n2e_idx[e];
+      const int element_owner =
+          rank_owner(n_global_elements, element_idx, comm_size);
+      if (element_owner != comm_rank) {
+        // All owned elements need to be sent to the element_owner
+        element_to_rank_displs[element_idx - offset + 1]++;
+      }
+    }
+  }
+
+  for (ptrdiff_t i = 0; i < elements_n_shared; ++i) {
+    element_to_rank_displs[i + 1] += element_to_rank_displs[i];
+  }
+
+  int *element2rank =
+      (int *)malloc(element_to_rank_displs[elements_n_shared] * sizeof(int));
+
+  for (ptrdiff_t i = node_n_owned; i < node_n_owned + nodes_n_ghosts; ++i) {
+    const count_t e_begin = local_n2e_ptr[i];
+    const count_t e_end = local_n2e_ptr[i + 1];
+    for (ptrdiff_t e = e_begin; e < e_end; ++e) {
+      const element_idx_t element_idx = local_n2e_idx[e];
+      const int element_owner =
+          rank_owner(n_global_elements, element_idx, comm_size);
+      if (element_owner != comm_rank) {
+        // All owned elements need to be sent to the element_owner
+        ptrdiff_t idx = element_idx - offset;
+        element2rank[element_to_rank_displs[idx] +
+                     element_to_rank_count[idx]++] = element_owner;
+      }
+    }
+  }
+
+  for (ptrdiff_t i = 0; i < elements_n_shared; ++i) {
+    element_to_rank_count[i] = sort_and_unique(
+        element2rank + element_to_rank_displs[i], element_to_rank_count[i]);
+  }
+
+  int *send_elements_displs = (int *)calloc(comm_size + 1, sizeof(int));
+  int *send_elements_count = (int *)calloc(comm_size, sizeof(int));
+
+  for (ptrdiff_t i = 0; i < elements_n_shared; ++i) {
+    for (ptrdiff_t j = 0; j < element_to_rank_count[i]; ++j) {
+      send_elements_displs[element2rank[element_to_rank_displs[i] + j] + 1]++;
+    }
+  }
+
+  for (ptrdiff_t i = 0; i < comm_size; ++i) {
+    send_elements_displs[i + 1] += send_elements_displs[i];
+  }
+
+  element_idx_t *send_elements = (element_idx_t *)malloc(
+      send_elements_displs[comm_size] * sizeof(element_idx_t));
+
+  for (ptrdiff_t i = 0; i < elements_n_shared; ++i) {
+    for (ptrdiff_t j = 0; j < element_to_rank_count[i]; ++j) {
+      int rank = element2rank[element_to_rank_displs[i] + j];
+      send_elements[send_elements_displs[rank] + send_elements_count[rank]++] =
+          i + elements_start;
+    }
+  }
+
+  int *recv_elements_count = (int *)calloc(comm_size, sizeof(int));
+  int *recv_elements_displs = (int *)malloc((comm_size + 1) * sizeof(int));
+  MPI_Alltoall(send_elements_count, 1, MPI_INT, recv_elements_count, 1, MPI_INT,
+               comm);
+  recv_elements_displs[0] = 0;
+  for (ptrdiff_t i = 0; i < comm_size; ++i) {
+    recv_elements_displs[i + 1] =
+        recv_elements_displs[i] + recv_elements_count[i];
+  }
+  const ptrdiff_t n_aura_elements = recv_elements_displs[comm_size];
+  element_idx_t *recv_elements = (element_idx_t *)malloc(
+      recv_elements_displs[comm_size] * sizeof(element_idx_t));
+  MPI_Alltoallv(send_elements, send_elements_count, send_elements_displs,
+                smesh::mpi_type<element_idx_t>(), recv_elements,
+                recv_elements_count, recv_elements_displs,
+                smesh::mpi_type<element_idx_t>(), comm);
+
+  *out_aura_elements = recv_elements;
+
+  idx_t *send_element_nodes =
+      (idx_t *)malloc(send_elements_displs[comm_size] * sizeof(idx_t));
+  for (int d = 0; d < nnodesxelem; ++d) {
+    for (ptrdiff_t i = 0; i < elements_n_shared; ++i) {
+      memset(send_element_nodes, 0,
+             send_elements_displs[comm_size] * sizeof(idx_t));
+      for (ptrdiff_t j = 0; j < element_to_rank_count[i]; ++j) {
+        int rank = element2rank[element_to_rank_displs[i] + j];
+        send_element_nodes[send_elements_displs[rank] +
+                           send_elements_count[rank]++] =
+            local2global[local_elements[d][elements_n_owned_not_shared + i]];
+      }
+    }
+
+    idx_t *recv_element_nodes =
+        (idx_t *)malloc(recv_elements_displs[comm_size] * sizeof(idx_t));
+    MPI_Alltoallv(send_element_nodes, send_elements_count, send_elements_displs,
+                  smesh::mpi_type<idx_t>(), recv_element_nodes,
+                  recv_elements_count, recv_elements_displs,
+                  smesh::mpi_type<idx_t>(), comm);
+
+    out_aura_element_nodes[d] = recv_element_nodes;
+  }
+
+  *out_n_aura = n_aura_elements;
+
+  free(element_to_rank_count);
+  free(element_to_rank_displs);
+  free(element2rank);
+  free(send_elements_displs);
+  free(send_elements_count);
+  free(send_elements);
+  free(send_element_nodes);
+  free(recv_elements_count);
+  free(recv_elements_displs);
+
+  return SMESH_SUCCESS;
+}
+
+int prepare_node_renumbering(MPI_Comm comm, const ptrdiff_t n_global_nodes,
+                             const ptrdiff_t owned_nodes_start,
+                             const ptrdiff_t n_owned_nodes,
+                             const idx_t *const SMESH_RESTRICT local2global,
+                             idx_t *const SMESH_RESTRICT global2owned) {
+  int comm_rank, comm_size;
+  MPI_Comm_rank(comm, &comm_rank);
+  MPI_Comm_size(comm, &comm_size);
+
+  const ptrdiff_t nodes_start =
+      rank_start(n_global_nodes, comm_size, comm_rank);
+
+  int *send_nodes_count = (int *)calloc(comm_size, sizeof(int));
+  int *send_nodes_displs = (int *)calloc(comm_size + 1, sizeof(int));
+  int *recv_nodes_count = (int *)calloc(comm_size, sizeof(int));
+  int *recv_nodes_displs = (int *)calloc(comm_size + 1, sizeof(int));
+
+  for (ptrdiff_t i = 0; i < n_owned_nodes; ++i) {
+    const int owner = rank_owner(n_global_nodes, local2global[i], comm_size);
+    send_nodes_displs[owner + 1]++;
+  }
+
+  for (ptrdiff_t i = 0; i < comm_size; ++i) {
+    send_nodes_displs[i + 1] += send_nodes_displs[i];
+  }
+
+  idx_t *send_nodes =
+      (idx_t *)malloc(send_nodes_displs[comm_size] * sizeof(idx_t));
+  idx_t *send_nodes_mapping =
+      (idx_t *)malloc(send_nodes_displs[comm_size] * sizeof(idx_t));
+  for (ptrdiff_t i = 0; i < n_owned_nodes; ++i) {
+    const int owner = rank_owner(n_global_nodes, local2global[i], comm_size);
+    send_nodes_mapping[send_nodes_displs[owner] + send_nodes_count[owner]] =
+        local2global[i];
+    send_nodes[send_nodes_displs[owner] + send_nodes_count[owner]] =
+        owned_nodes_start + i;
+    send_nodes_count[owner]++;
+  }
+
+  MPI_Alltoall(send_nodes_count, 1, MPI_INT, recv_nodes_count, 1, MPI_INT,
+               comm);
+  recv_nodes_displs[0] = 0;
+  for (ptrdiff_t i = 0; i < comm_size; ++i) {
+    recv_nodes_displs[i + 1] += recv_nodes_displs[i] + recv_nodes_count[i];
+  }
+
+  idx_t *recv_nodes =
+      (idx_t *)malloc(recv_nodes_displs[comm_size] * sizeof(idx_t));
+  MPI_Alltoallv(send_nodes, send_nodes_count, send_nodes_displs,
+                smesh::mpi_type<idx_t>(), recv_nodes, recv_nodes_count,
+                recv_nodes_displs, smesh::mpi_type<idx_t>(), comm);
+
+  idx_t *recv_nodes_mapping =
+      (idx_t *)malloc(recv_nodes_displs[comm_size] * sizeof(idx_t));
+  MPI_Alltoallv(send_nodes_mapping, send_nodes_count, send_nodes_displs,
+                smesh::mpi_type<idx_t>(), recv_nodes_mapping, recv_nodes_count,
+                recv_nodes_displs, smesh::mpi_type<idx_t>(), comm);
+
+  for (ptrdiff_t i = 0; i < recv_nodes_displs[comm_size]; ++i) {
+    global2owned[recv_nodes_mapping[i] - nodes_start] = recv_nodes[i];
+  }
+
+  free(send_nodes_count);
+  free(send_nodes_displs);
+  free(recv_nodes_count);
+  free(recv_nodes_displs);
+  free(send_nodes);
+  free(send_nodes_mapping);
+  free(recv_nodes);
+  free(recv_nodes_mapping);
+  return SMESH_SUCCESS;
+}
+
+int node_ownership_ranges(
+  MPI_Comm comm, 
+  const ptrdiff_t n_owned_nodes,
+  ptrdiff_t *const SMESH_RESTRICT owned_nodes_ranges) {
+  int comm_rank, comm_size;
+  MPI_Comm_rank(comm, &comm_rank);
+  MPI_Comm_size(comm, &comm_size);
+
+  owned_nodes_ranges[0] = 0;
+  MPI_Allgather(&n_owned_nodes, 1, MPI_INT, &owned_nodes_ranges[1], 1, MPI_INT, comm);
+  for (ptrdiff_t i = 0; i < comm_size; ++i) {
+    owned_nodes_ranges[i + 1] += owned_nodes_ranges[i];
+  }
+
+  return SMESH_SUCCESS;
+}
 
 // int global_node_numbering_and_ghost_setup() { return SMESH_FAILURE; }
 
