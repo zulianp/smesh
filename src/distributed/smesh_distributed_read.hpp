@@ -34,7 +34,7 @@ int mesh_from_folder(
     ptrdiff_t *nelements_out, idx_t ***elements_out, int *spatial_dim_out,
     ptrdiff_t *nnodes_out, geom_t ***points_out, ptrdiff_t *n_owned_nodes_out,
     ptrdiff_t *n_owned_elements_out, element_idx_t **element_mapping_out,
-    idx_t **node_mapping_out, int **node_owner_out, idx_t **node_offsets_out,
+    idx_t **node_mapping_out, int **node_owner_out, ptrdiff_t **node_offsets_out,
     idx_t **ghosts_out, ptrdiff_t *n_owned_nodes_with_ghosts_out,
     ptrdiff_t *n_shared_elements_out,
     ptrdiff_t *n_owned_elements_with_ghosts_out);

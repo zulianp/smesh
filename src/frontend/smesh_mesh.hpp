@@ -116,7 +116,7 @@ public:
 
   SharedBuffer<count_t> node_to_node_rowptr() const;
   SharedBuffer<idx_t> node_to_node_colidx() const;
-  SharedBuffer<idx_t> node_offsets() const;
+  SharedBuffer<ptrdiff_t> node_offsets() const;
   SharedBuffer<idx_t> ghosts() const;
   SharedBuffer<int> node_owner() const;
   SharedBuffer<idx_t> node_mapping() const;

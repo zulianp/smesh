@@ -164,7 +164,7 @@ int mesh_build_global_ids(MPI_Comm comm, const ptrdiff_t n_nodes,
                           const ptrdiff_t n_owned_nodes_with_ghosts,
                           idx_t *node_mapping,
                           // int *node_owner,
-                          idx_t **node_offsets_out, idx_t **ghosts_out
+                          ptrdiff_t **node_offsets_out, idx_t **ghosts_out
                           // ,
                           // ptrdiff_t *n_owned_nodes_with_ghosts_out
 ) {
@@ -192,10 +192,10 @@ int mesh_build_global_ids(MPI_Comm comm, const ptrdiff_t n_nodes,
   n_gnodes = global_node_offset + n_owned_nodes;
   MPI_Bcast(&n_gnodes, 1, smesh::mpi_type<idx_t>(), size - 1, comm);
 
-  idx_t *node_offsets = (idx_t *)malloc((size + 1) * sizeof(idx_t));
+  ptrdiff_t *node_offsets = (ptrdiff_t *)malloc((size + 1) * sizeof(ptrdiff_t));
   SMESH_MPI_CATCH(MPI_Allgather(&global_node_offset, 1,
-                                smesh::mpi_type<idx_t>(), node_offsets, 1,
-                                smesh::mpi_type<idx_t>(), comm));
+                                smesh::mpi_type<ptrdiff_t>(), node_offsets, 1,
+                                smesh::mpi_type<ptrdiff_t>(), comm));
 
   node_offsets[size] = n_gnodes;
 
@@ -930,7 +930,7 @@ int mesh_from_folder(
     ptrdiff_t *nelements_out, idx_t ***elements_out, int *spatial_dim_out,
     ptrdiff_t *nnodes_out, geom_t ***points_out, ptrdiff_t *n_owned_nodes_out,
     ptrdiff_t *n_owned_elements_out, element_idx_t **element_mapping_out,
-    idx_t **node_mapping_out, int **node_owner_out, idx_t **node_offsets_out,
+    idx_t **node_mapping_out, int **node_owner_out, ptrdiff_t **node_offsets_out,
     idx_t **ghosts_out, ptrdiff_t *n_owned_nodes_with_ghosts_out,
     ptrdiff_t *n_shared_elements_out,
     ptrdiff_t *n_owned_elements_with_ghosts_out) {

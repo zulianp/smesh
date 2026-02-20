@@ -11,13 +11,15 @@ namespace smesh {
 
 template <typename idx_t>
 int exchange_create(MPI_Comm comm, const ptrdiff_t n_local_nodes,
-                    const ptrdiff_t n_owned_nodes, int *const node_owner,
-                    const idx_t *const node_offsets, const idx_t *const ghosts,
+                    const ptrdiff_t n_owned_nodes,
+                    const int *const SMESH_RESTRICT node_owner,
+                    const ptrdiff_t *const SMESH_RESTRICT node_offsets,
+                    const idx_t *const SMESH_RESTRICT ghosts,
                     int *const SMESH_RESTRICT send_count,
                     int *const SMESH_RESTRICT send_displs,
                     int *const SMESH_RESTRICT recv_count,
                     int *const SMESH_RESTRICT recv_displs,
-                    idx_t **const SMESH_RESTRICT sparse_idx) {
+                    idx_t **const SMESH_RESTRICT out_sparse_idx) {
   int rank, size;
 
   MPI_Comm_rank(comm, &rank);
@@ -68,7 +70,7 @@ int exchange_create(MPI_Comm comm, const ptrdiff_t n_local_nodes,
     }
   }
 
-  *sparse_idx = remote_ghosts;
+  *out_sparse_idx = remote_ghosts;
   return SMESH_SUCCESS;
 }
 

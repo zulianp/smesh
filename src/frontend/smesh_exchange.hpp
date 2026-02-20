@@ -19,8 +19,8 @@ public:
 #if defined(SMESH_ENABLE_MPI)
   static std::shared_ptr<Exchange>
   create(const std::shared_ptr<Communicator> &comm, const ptrdiff_t nnodes,
-         const ptrdiff_t n_owned_nodes, int *const node_owner,
-         const idx_t *const node_offsets, const idx_t *const ghosts);
+         const ptrdiff_t n_owned_nodes, const int *const node_owner,
+         const ptrdiff_t *const node_offsets, const idx_t *const ghosts);
 #endif
   Exchange(const std::shared_ptr<Communicator> &comm);
   ~Exchange();

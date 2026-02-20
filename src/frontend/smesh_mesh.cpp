@@ -129,7 +129,7 @@ public:
   SharedBuffer<idx_t> node_mapping;
   SharedBuffer<int> node_owner;
   SharedBuffer<element_idx_t> element_mapping;
-  SharedBuffer<idx_t> node_offsets;
+  SharedBuffer<ptrdiff_t> node_offsets;
   SharedBuffer<idx_t> ghosts;
 
   // Metadata
@@ -340,7 +340,7 @@ int Mesh::read(const Path &path) {
     element_idx_t *element_mapping;
     idx_t *node_mapping;
     int *node_owner;
-    idx_t *node_offsets;
+    ptrdiff_t *node_offsets;
     idx_t *ghosts;
     ptrdiff_t n_owned_nodes_with_ghosts;
     ptrdiff_t n_shared_elements;
@@ -378,7 +378,7 @@ int Mesh::read(const Path &path) {
     int comm_size;
     MPI_Comm_size(impl_->comm->get(), &comm_size);
     impl_->node_offsets =
-        manage_host_buffer<idx_t>(comm_size + 1, node_offsets);
+        manage_host_buffer<ptrdiff_t>(comm_size + 1, node_offsets);
 
     ptrdiff_t n_ghost_nodes = nnodes - n_owned_nodes;
     impl_->ghosts = manage_host_buffer<idx_t>(n_ghost_nodes, ghosts);
@@ -846,7 +846,7 @@ SharedBuffer<idx_t> Mesh::element_mapping() const {
   return impl_->element_mapping;
 }
 
-SharedBuffer<idx_t> Mesh::node_offsets() const { return impl_->node_offsets; }
+SharedBuffer<ptrdiff_t> Mesh::node_offsets() const { return impl_->node_offsets; }
 SharedBuffer<idx_t> Mesh::ghosts() const { return impl_->ghosts; }
 SharedBuffer<int> Mesh::node_owner() const { return impl_->node_owner; }
 

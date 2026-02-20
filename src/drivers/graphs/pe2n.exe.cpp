@@ -204,14 +204,52 @@ int main(int argc, char **argv) {
     node_ownership_ranges(comm->get(), n_owned, owned_node_ranges);
     int *owner = (int *)malloc(n_local_nodes * sizeof(int));
     determine_ownership(comm_size, comm_rank, n_owned, n_ghosts, n_aura_nodes,
-      ghost_and_aura_to_owned, owned_node_ranges, owner);
+                        ghost_and_aura_to_owned, owned_node_ranges, owner);
 
     Path path_block = output_folder / std::to_string(comm_rank);
     create_directory(path_block);
-    mesh_to_folder(path_block, nnodesxelem == 8? HEX8 : nnodesxelem == 10? TET10 : TET4, n_local_elements + n_aura_elements,
-                   local_elements, spatial_dim, n_local_nodes, local_points);
+    mesh_to_folder(path_block,
+                   nnodesxelem == 8    ? HEX8
+                   : nnodesxelem == 10 ? TET10
+                                       : TET4,
+                   n_local_elements + n_aura_elements, local_elements,
+                   spatial_dim, n_local_nodes, local_points);
 
     array_write(path_block / "owner.int32", owner, n_local_nodes);
+
+    {
+      int *send_count = (int *)malloc(comm_size * sizeof(int));
+      int *send_displs = (int *)malloc((comm_size + 1) * sizeof(int));
+      int *recv_count = (int *)malloc(comm_size * sizeof(int));
+      int *recv_displs = (int *)malloc((comm_size + 1) * sizeof(int));
+      idx_t *scatter_idx  = nullptr;
+      exchange_create<idx_t>(comm->get(), n_local_nodes, n_owned, owner, owned_node_ranges,
+                      ghost_and_aura_to_owned, send_count, send_displs,
+                      recv_count, recv_displs, &scatter_idx);
+
+      idx_t *owner_global = (idx_t *)malloc(n_local_nodes * sizeof(idx_t));
+      for (ptrdiff_t i = 0; i < n_owned; ++i) {
+        owner_global[i] = owned_node_ranges[comm_rank] + i;
+      }
+
+      idx_t *gather_buffer = (idx_t *)malloc(
+          (recv_count[comm_size - 1] + recv_displs[comm_size - 1]) *
+          sizeof(idx_t));
+          
+      // FIXME? Check why it is crashing here with  mpiexec -np 2 ./pe2n tet4_cube sdsds
+      exchange_gather(comm->get(), n_local_nodes, recv_count, recv_displs, send_count,
+                      send_displs, scatter_idx, owner_global, gather_buffer);
+
+      array_write(path_block / "owner_global.int32", owner_global, n_local_nodes);
+
+      free(send_count);
+      free(send_displs);
+      free(recv_count);
+      free(recv_displs);
+      free(scatter_idx);
+      free(gather_buffer);
+      free(owner_global);
+    }
 
     for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
       for (int d = 0; d < nnodesxelem; ++d) {

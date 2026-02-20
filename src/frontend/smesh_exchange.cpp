@@ -46,7 +46,7 @@ Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh) {
 std::shared_ptr<Exchange>
 Exchange::create(const std::shared_ptr<Communicator> &comm,
                  const ptrdiff_t nnodes, const ptrdiff_t n_owned_nodes,
-                 int *const node_owner, const idx_t *const node_offsets,
+                 const int *const node_owner, const ptrdiff_t *const node_offsets,
                  const idx_t *const ghosts) {
   int size = comm->size();
   auto ret = std::make_shared<Exchange>(comm);
