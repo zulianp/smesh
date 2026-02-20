@@ -159,6 +159,7 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
                      idx_t **const SMESH_RESTRICT out_local2global,
                      count_t **const SMESH_RESTRICT out_local_n2e_ptr,
                      element_idx_t **const SMESH_RESTRICT out_local_n2e_idx) {
+  SMESH_TRACE_SCOPE("redistribute_n2e");
   int *send_elements_displs = (int *)calloc(comm_size + 1, sizeof(int));
   int *send_elements_count = (int *)calloc(comm_size, sizeof(int));
 
@@ -826,6 +827,39 @@ int node_ownership_ranges(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
   return SMESH_SUCCESS;
 }
 
+template <typename idx_t>
+int determine_ownership(const int comm_size, const int comm_rank,
+                        const ptrdiff_t n_owned_nodes, const ptrdiff_t n_ghosts,
+                        const ptrdiff_t n_aura_nodes,
+                        const idx_t *const SMESH_RESTRICT local2owned,
+                        const ptrdiff_t *const SMESH_RESTRICT owned_nodes_range,
+                        int *const SMESH_RESTRICT owner) {
+  for (ptrdiff_t i = 0; i < n_owned_nodes; ++i) {
+    owner[i] = comm_rank;
+  }
+
+  const ptrdiff_t ghost_start = n_owned_nodes;
+  const ptrdiff_t aura_start = n_owned_nodes + n_ghosts;
+  const ptrdiff_t aura_end = n_owned_nodes + n_ghosts + n_aura_nodes;
+
+  for (ptrdiff_t i = ghost_start, r = 0; i < aura_start && r < comm_size;) {
+    if (local2owned[i] >= owned_nodes_range[r + 1]) {
+      r++;
+    } else if (local2owned[i] < owned_nodes_range[r + 1]) {
+      owner[i++] = r;
+    }
+  }
+
+  for (ptrdiff_t i = aura_start, r = 0; i < aura_end && r < comm_size;) {
+    if (local2owned[i] >= owned_nodes_range[r + 1]) {
+      r++;
+    } else if (local2owned[i] < owned_nodes_range[r + 1]) {
+      owner[i++] = r;
+    }
+  }
+  return SMESH_SUCCESS;
+}
+
 // TODO: Stich together the aura elements and the local elements
 // Unify ghost nodes and create local aura node index
 // - we can identify ghost nodes with n2e graph
@@ -833,10 +867,8 @@ int node_ownership_ranges(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
 
 template <typename idx_t>
 int stitch_aura_elements(
-    MPI_Comm comm, 
-    const ptrdiff_t n_owned_nodes, 
-    const ptrdiff_t n_shared_nodes,
-    const ptrdiff_t n_ghost_nodes,
+    MPI_Comm comm, const ptrdiff_t n_owned_nodes,
+    const ptrdiff_t n_shared_nodes, const ptrdiff_t n_ghost_nodes,
     const idx_t *const SMESH_RESTRICT local2global, const int nnodesxelem,
     const ptrdiff_t n_aura_elements,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT e2n_aura,
@@ -857,13 +889,15 @@ int stitch_aura_elements(
   // });
 
   SMESH_ASSERT(is_sorted(local2global, n_owned_nodes - n_shared_nodes));
-  SMESH_ASSERT(is_sorted(local2global + n_owned_nodes - n_shared_nodes, n_shared_nodes));
+  SMESH_ASSERT(
+      is_sorted(local2global + n_owned_nodes - n_shared_nodes, n_shared_nodes));
   SMESH_ASSERT(is_sorted(local2global + n_owned_nodes, n_ghost_nodes));
 #endif
 
   const idx_t *const owned_begin = local2global;
   const idx_t *const owned_end = local2global + n_owned_nodes - n_shared_nodes;
-  const idx_t *const shared_begin = local2global + n_owned_nodes - n_shared_nodes;
+  const idx_t *const shared_begin =
+      local2global + n_owned_nodes - n_shared_nodes;
   const idx_t *const shared_end = local2global + n_owned_nodes;
   const idx_t *const ghost_begin = local2global + n_owned_nodes;
   const idx_t *const ghost_end = local2global + n_local_nodes;

@@ -11,6 +11,7 @@
 
 #include "smesh_communicator.hpp"
 #include "smesh_decompose.hpp"
+#include "smesh_distributed_aura.hpp"
 #include "smesh_distributed_base.hpp"
 #include "smesh_distributed_read.hpp"
 #include "smesh_distributed_write.hpp"
@@ -191,8 +192,26 @@ int main(int argc, char **argv) {
       comm->barrier();
     }
 
-    // TODO: Import/Export operations for ghost and aura nodal coefficients for
-    // operators
+    const ptrdiff_t n_local_nodes = n_owned + n_ghosts + n_aura_nodes;
+    geom_t **local_points = (geom_t **)malloc(spatial_dim * sizeof(geom_t *));
+    for (int d = 0; d < spatial_dim; ++d) {
+      local_points[d] = (geom_t *)malloc(n_local_nodes * sizeof(geom_t));
+      gather_mapped_field(comm->get(), n_local_nodes, n_global_nodes,
+                          local2global, smesh::mpi_type<geom_t>(), points[d],
+                          local_points[d]);
+    }
+
+    node_ownership_ranges(comm->get(), n_owned, owned_node_ranges);
+    int *owner = (int *)malloc(n_local_nodes * sizeof(int));
+    determine_ownership(comm_size, comm_rank, n_owned, n_ghosts, n_aura_nodes,
+                        local2global, owned_node_ranges, owner);
+
+    Path path_block = output_folder / std::to_string(comm_rank);
+    create_directory(path_block);
+    mesh_to_folder(path_block, HEX8, n_local_elements + n_aura_elements,
+                   local_elements, spatial_dim, n_local_nodes, local_points);
+
+    array_write(path_block / "owner.int32", owner, n_local_nodes);
 
     for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
       for (int d = 0; d < nnodesxelem; ++d) {
@@ -232,6 +251,12 @@ int main(int argc, char **argv) {
       free(local_elements[d]);
     }
     free(local_elements);
+    free(owner);
+
+    for (int d = 0; d < spatial_dim; ++d) {
+      free(local_points[d]);
+    }
+    free(local_points);
   }
 
   return SMESH_SUCCESS;

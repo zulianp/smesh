@@ -159,7 +159,8 @@ int node_ownership_ranges(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
 
 template <typename idx_t>
 int stitch_aura_elements(
-    MPI_Comm comm, const ptrdiff_t n_owned_nodes, const ptrdiff_t n_shared_nodes, const ptrdiff_t n_ghost_nodes,
+    MPI_Comm comm, const ptrdiff_t n_owned_nodes,
+    const ptrdiff_t n_shared_nodes, const ptrdiff_t n_ghost_nodes,
     const idx_t *const SMESH_RESTRICT local2global, const int nnodesxelem,
     const ptrdiff_t n_aura_elements,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT e2n_aura,
@@ -175,6 +176,14 @@ int collect_ghost_and_aura_import_indices(
     const idx_t *const SMESH_RESTRICT global2owned,
     const ptrdiff_t *const SMESH_RESTRICT owned_node_ranges,
     idx_t *const SMESH_RESTRICT ghost_and_aura_to_owned);
+
+template<typename idx_t>
+int determine_ownership(const int comm_size, const int comm_rank,
+                        const ptrdiff_t n_owned_nodes, const ptrdiff_t n_ghosts,
+                        const ptrdiff_t n_aura_nodes,
+                        const idx_t *const SMESH_RESTRICT local2owned,
+                        const ptrdiff_t *const SMESH_RESTRICT owned_nodes_range,
+                        int *const SMESH_RESTRICT owner);
 
 } // namespace smesh
 

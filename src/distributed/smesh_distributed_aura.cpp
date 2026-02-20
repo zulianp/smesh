@@ -3,12 +3,15 @@
 #include "smesh_types.hpp"
 
 #define SMESH_INSTANTIATE_EXCHANGE_CREATE(IDX_T)                               \
-  template int exchange_create<IDX_T>(MPI_Comm, ptrdiff_t, ptrdiff_t, int *,  \
-                                       const IDX_T *, const IDX_T *, int *,    \
-                                       int *, int *, int *, IDX_T **)
+  template int exchange_create<IDX_T>(MPI_Comm, ptrdiff_t, ptrdiff_t, int *,   \
+                                      const IDX_T *, const IDX_T *, int *,     \
+                                      int *, int *, int *, IDX_T **);          \
+  template int gather_mapped_field<IDX_T>(MPI_Comm, ptrdiff_t, ptrdiff_t,      \
+                                          const IDX_T *, MPI_Datatype,         \
+                                          const void *, void *)
 
 #define SMESH_INSTANTIATE_EXCHANGE_SCATTER_ADD(IDX_T, T)                       \
-  template int exchange_scatter_add<IDX_T, T>(                                \
+  template int exchange_scatter_add<IDX_T, T>(                                 \
       MPI_Comm, ptrdiff_t, const int *, const int *, const int *, const int *, \
       const IDX_T *, T *, T *)
 
