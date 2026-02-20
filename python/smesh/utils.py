@@ -2,7 +2,7 @@ import glob
 import numpy as np
 
 def dtype_to_extension(dtype):
-    return f".{dtype.name}"
+    return f"{np.dtype(dtype).name}"
 
 def extension_to_dtype(extension):
     if extension == "raw":

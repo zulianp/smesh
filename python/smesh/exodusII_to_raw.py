@@ -5,6 +5,7 @@ import numpy as np
 import sys
 import os
 import getopt
+from utils import dtype_to_extension
 
 # import pdb
 
@@ -49,14 +50,14 @@ def exodusII_to_raw(input_mesh, output_folder):
 
     for i in range(0, dims):
         x = np.array(coords[i, :]).astype(geom_t)
-        x.tofile(f"{output_folder}/{coordnames[i]}.raw")
+        x.tofile(f"{output_folder}/{coordnames[i]}.{dtype_to_extension(geom_t)}")
 
     n_time_steps = 1
     if "time_whole" in nc.variables:
         time_whole = nc.variables["time_whole"]
         n_time_steps = time_whole.shape[0]
         t = np.array(time_whole[:]).astype(np.float32)
-        t.tofile(f"{output_folder}/time_whole.raw")
+        t.tofile(f"{output_folder}/time_whole.{dtype_to_extension(np.float32)}")
 
     print(f"n_time_steps = {n_time_steps}")
 
@@ -79,14 +80,14 @@ def exodusII_to_raw(input_mesh, output_folder):
             var_path_prefix = f"{point_data_dir}/{var_name}"
 
             if n_time_steps <= 1:
-                path = f"{var_path_prefix}.raw"
+                path = f"{var_path_prefix}.{dtype_to_extension(var.dtype)}"
 
                 data = np.array(var[:])
                 data.tofile(path)
             else:
                 size_padding = int(np.ceil(np.log10(n_time_steps)))
 
-                format_string = f"%s.%0.{size_padding}d.raw"
+                format_string = f"%s.%0.{size_padding}d.{dtype_to_extension(var.dtype)}"
 
                 for t in range(0, n_time_steps):
                     data = np.array(var[t, :])
@@ -156,7 +157,7 @@ def exodusII_to_raw(input_mesh, output_folder):
 
         for i in range(0, nnodesxelem):
             ii = np.array(connect[:, i]).astype(idx_t) - 1
-            ii.tofile(f"{output_folder}/i{i}.raw")
+            ii.tofile(f"{output_folder}/i{i}.{dtype_to_extension(idx_t)}")
 
     else:
         num_nod_per_el_ref = 0
@@ -201,7 +202,7 @@ def exodusII_to_raw(input_mesh, output_folder):
 
             if name != None:
                 np.array([block_begin, block_end], dtype=np.int64).tofile(
-                    f"{output_folder}/blocks/{name}.int64.raw"
+                    f"{output_folder}/blocks/{name}.{dtype_to_extension(np.int64)}"
                 )
 
             connect[block_begin:block_end, :] = connect_b[:].astype(idx_t)
@@ -209,7 +210,7 @@ def exodusII_to_raw(input_mesh, output_folder):
 
         for i in range(0, nnodesxelem):
             ii = np.array(connect[:, i]).astype(idx_t) - 1
-            ii.tofile(f"{output_folder}/i{i}.raw")
+            ii.tofile(f"{output_folder}/i{i}.{dtype_to_extension(idx_t)}")
 
     #########################################
     # Sidesets
