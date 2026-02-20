@@ -155,7 +155,7 @@ int main(int argc, char **argv) {
         comm->get(), n_owned, n_ghosts, n_aura_nodes, n_global_nodes,
         local2global, global2owned, owned_node_ranges, ghost_and_aura_to_owned);
 
-    if (true) {
+    if (false) {
       comm->print_callback([&](std::ostream &os) {
         for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
           for (int d = 0; d < nnodesxelem; ++d) {

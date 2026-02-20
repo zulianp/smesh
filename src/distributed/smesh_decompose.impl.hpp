@@ -996,11 +996,6 @@ int collect_ghost_and_aura_import_indices(
     recv_nodes[i] = global2owned[static_cast<ptrdiff_t>(recv_nodes[i] - nodes_start)];
   }
 
-  // idx_t *back_nodes =
-  //     (idx_t *)malloc(static_cast<size_t>(n_import) * sizeof(idx_t));
-  // idx_t *back_pos =
-  //     (idx_t *)malloc(static_cast<size_t>(n_import) * sizeof(idx_t));
-
   SMESH_MPI_CATCH(MPI_Alltoallv(
       recv_nodes, recv_count, recv_displs, smesh::mpi_type<idx_t>(), send_nodes,
       send_count, send_displs, smesh::mpi_type<idx_t>(), comm));
@@ -1020,8 +1015,6 @@ int collect_ghost_and_aura_import_indices(
   free(send_pos);
   free(recv_nodes);
   free(recv_pos);
-  // free(back_nodes);
-  // free(back_pos);
   free(cursor);
   return SMESH_SUCCESS;
 }
