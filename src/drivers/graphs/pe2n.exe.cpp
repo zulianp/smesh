@@ -204,11 +204,11 @@ int main(int argc, char **argv) {
     node_ownership_ranges(comm->get(), n_owned, owned_node_ranges);
     int *owner = (int *)malloc(n_local_nodes * sizeof(int));
     determine_ownership(comm_size, comm_rank, n_owned, n_ghosts, n_aura_nodes,
-                        local2global, owned_node_ranges, owner);
+      ghost_and_aura_to_owned, owned_node_ranges, owner);
 
     Path path_block = output_folder / std::to_string(comm_rank);
     create_directory(path_block);
-    mesh_to_folder(path_block, HEX8, n_local_elements + n_aura_elements,
+    mesh_to_folder(path_block, nnodesxelem == 8? HEX8 : nnodesxelem == 10? TET10 : TET4, n_local_elements + n_aura_elements,
                    local_elements, spatial_dim, n_local_nodes, local_points);
 
     array_write(path_block / "owner.int32", owner, n_local_nodes);

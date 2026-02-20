@@ -626,7 +626,8 @@ int expand_aura_elements_inconsistent(
   const ptrdiff_t elements_start =
       rank_start(n_global_elements, comm_size, comm_rank);
 
-  const ptrdiff_t n_local_nodes = node_n_owned + nodes_n_ghosts;
+      SMESH_UNUSED(nodes_n_ghosts);
+  const ptrdiff_t n_local_nodes = node_n_owned;// + nodes_n_ghosts;
   const ptrdiff_t n2e_nnz =
       static_cast<ptrdiff_t>(local_n2e_ptr[n_local_nodes]);
 
@@ -827,6 +828,8 @@ int node_ownership_ranges(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
   return SMESH_SUCCESS;
 }
 
+
+// TODO: This is wrong fix
 template <typename idx_t>
 int determine_ownership(const int comm_size, const int comm_rank,
                         const ptrdiff_t n_owned_nodes, const ptrdiff_t n_ghosts,
@@ -838,23 +841,19 @@ int determine_ownership(const int comm_size, const int comm_rank,
     owner[i] = comm_rank;
   }
 
-  const ptrdiff_t ghost_start = n_owned_nodes;
-  const ptrdiff_t aura_start = n_owned_nodes + n_ghosts;
-  const ptrdiff_t aura_end = n_owned_nodes + n_ghosts + n_aura_nodes;
-
-  for (ptrdiff_t i = ghost_start, r = 0; i < aura_start && r < comm_size;) {
+  for (ptrdiff_t i = 0, r = 0; i < n_ghosts && r < comm_size;) {
     if (local2owned[i] >= owned_nodes_range[r + 1]) {
       r++;
     } else if (local2owned[i] < owned_nodes_range[r + 1]) {
-      owner[i++] = r;
+      owner[n_owned_nodes + i++] = r;
     }
   }
 
-  for (ptrdiff_t i = aura_start, r = 0; i < aura_end && r < comm_size;) {
+  for (ptrdiff_t i = n_ghosts, r = 0; i < n_ghosts + n_aura_nodes && r < comm_size;) {
     if (local2owned[i] >= owned_nodes_range[r + 1]) {
       r++;
     } else if (local2owned[i] < owned_nodes_range[r + 1]) {
-      owner[i++] = r;
+      owner[n_owned_nodes + i++] = r;
     }
   }
   return SMESH_SUCCESS;
