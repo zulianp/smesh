@@ -11,6 +11,21 @@
 
 namespace smesh {
 
+template <typename idx_t>
+static bool is_sorted(const idx_t *const SMESH_RESTRICT arr,
+                      const ptrdiff_t n) {
+
+  bool ret = true;
+  for (ptrdiff_t i = 0; i < n - 1; ++i) {
+    if (arr[i] > arr[i + 1]) {
+      printf("arr[%ld] = %ld > arr[%ld] = %ld\n", (long)i, (long)arr[i],
+             (long)(i + 1), (long)arr[i + 1]);
+      ret = false;
+    }
+  }
+  return ret;
+}
+
 template <typename idx_t, typename count_t, typename element_idx_t>
 int create_n2e(MPI_Comm comm, const ptrdiff_t n_local_elements,
                const ptrdiff_t n_global_elements, const ptrdiff_t n_local_nodes,
@@ -56,6 +71,9 @@ int create_n2e(MPI_Comm comm, const ptrdiff_t n_local_elements,
 
   const ptrdiff_t send_size = send_displs[size];
   const ptrdiff_t recv_size = recv_displs[size];
+
+  // TODO: prepare and use compressed version of e2n with e2n_ptr and e2n_idx
+  // (this saves repeating the element index in send_elements and send_nodes)
 
   element_idx_t *send_elements =
       (element_idx_t *)malloc(send_size * sizeof(element_idx_t));
@@ -311,6 +329,8 @@ int localize_element_indices(
   const ptrdiff_t elements_start =
       rank_start(n_global_elements, comm_size, comm_rank);
 
+  SMESH_ASSERT(is_sorted(local2global, local2global_size));
+
   for (int d = 0; d < nnodesxelem; ++d) {
     for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
       local_elements[d][i] = invalid_idx<idx_t>();
@@ -504,6 +524,10 @@ int rearrange_local_nodes(const int comm_size, const int comm_rank,
   *out_n_shared = n_shared;
   *out_n_ghosts = local2global_size - n_owned;
 
+  SMESH_ASSERT(is_sorted(local2global, n_owned - n_shared));
+  SMESH_ASSERT(is_sorted(local2global + n_owned - n_shared, n_shared));
+  SMESH_ASSERT(is_sorted(local2global + n_owned, local2global_size - n_owned));
+
   return SMESH_SUCCESS;
 }
 
@@ -517,7 +541,7 @@ int rearrange_local_elements(
     idx_t **const SMESH_RESTRICT local_elements, const ptrdiff_t n_owned_nodes,
     ptrdiff_t *const SMESH_RESTRICT n_owned_not_shared,
     element_idx_t *const SMESH_RESTRICT element_local_to_global) {
-    SMESH_TRACE_SCOPE("rearrange_local_elements");
+  SMESH_TRACE_SCOPE("rearrange_local_elements");
   const ptrdiff_t elements_start =
       rank_start(n_global_elements, comm_size, comm_rank);
   idx_t *old_to_new_map = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
@@ -602,11 +626,11 @@ int expand_aura_elements_inconsistent(
       rank_start(n_global_elements, comm_size, comm_rank);
 
   const ptrdiff_t n_local_nodes = node_n_owned + nodes_n_ghosts;
-  const ptrdiff_t n2e_nnz = static_cast<ptrdiff_t>(local_n2e_ptr[n_local_nodes]);
+  const ptrdiff_t n2e_nnz =
+      static_cast<ptrdiff_t>(local_n2e_ptr[n_local_nodes]);
 
-  element_idx_t *remote_elements =
-      (element_idx_t *)malloc(static_cast<size_t>(n2e_nnz) *
-                              sizeof(element_idx_t));
+  element_idx_t *remote_elements = (element_idx_t *)malloc(
+      static_cast<size_t>(n2e_nnz) * sizeof(element_idx_t));
   ptrdiff_t n_remote = 0;
   for (ptrdiff_t i = 0; i < n_local_nodes; ++i) {
     const count_t e_begin = local_n2e_ptr[i];
@@ -627,7 +651,8 @@ int expand_aura_elements_inconsistent(
   int *send_count = (int *)calloc(comm_size, sizeof(int));
   int *send_displs = (int *)calloc(comm_size + 1, sizeof(int));
   for (ptrdiff_t i = 0; i < n_unique_remote; ++i) {
-    const int owner = rank_owner(n_global_elements, remote_elements[i], comm_size);
+    const int owner =
+        rank_owner(n_global_elements, remote_elements[i], comm_size);
     send_displs[owner + 1]++;
   }
 
@@ -635,9 +660,8 @@ int expand_aura_elements_inconsistent(
     send_displs[r + 1] += send_displs[r];
   }
 
-  element_idx_t *send_elements =
-      (element_idx_t *)malloc(static_cast<size_t>(send_displs[comm_size]) *
-                              sizeof(element_idx_t));
+  element_idx_t *send_elements = (element_idx_t *)malloc(
+      static_cast<size_t>(send_displs[comm_size]) * sizeof(element_idx_t));
 
   for (ptrdiff_t i = 0; i < n_unique_remote; ++i) {
     const element_idx_t element_idx = remote_elements[i];
@@ -658,27 +682,26 @@ int expand_aura_elements_inconsistent(
   }
 
   const ptrdiff_t recv_size = recv_displs[comm_size];
-  element_idx_t *recv_elements =
-      (element_idx_t *)malloc(static_cast<size_t>(recv_size) *
-                              sizeof(element_idx_t));
+  element_idx_t *recv_elements = (element_idx_t *)malloc(
+      static_cast<size_t>(recv_size) * sizeof(element_idx_t));
 
-  SMESH_MPI_CATCH(MPI_Alltoallv(
-      send_elements, send_count, send_displs, smesh::mpi_type<element_idx_t>(),
-      recv_elements, recv_count, recv_displs, smesh::mpi_type<element_idx_t>(),
-      comm));
+  SMESH_MPI_CATCH(MPI_Alltoallv(send_elements, send_count, send_displs,
+                                smesh::mpi_type<element_idx_t>(), recv_elements,
+                                recv_count, recv_displs,
+                                smesh::mpi_type<element_idx_t>(), comm));
 
-  element_idx_t *old_to_new =
-      (element_idx_t *)malloc(static_cast<size_t>(n_local_elements) *
-                              sizeof(element_idx_t));
+  element_idx_t *old_to_new = (element_idx_t *)malloc(
+      static_cast<size_t>(n_local_elements) * sizeof(element_idx_t));
   for (ptrdiff_t new_idx = 0; new_idx < n_local_elements; ++new_idx) {
     const element_idx_t old_global = element_local_to_global[new_idx];
-    const ptrdiff_t old_off = static_cast<ptrdiff_t>(old_global - elements_start);
+    const ptrdiff_t old_off =
+        static_cast<ptrdiff_t>(old_global - elements_start);
     old_to_new[old_off] = static_cast<element_idx_t>(new_idx);
   }
 
   for (int d = 0; d < nnodesxelem; ++d) {
-    idx_t *send_nodes = (idx_t *)malloc(static_cast<size_t>(recv_size) *
-                                        sizeof(idx_t));
+    idx_t *send_nodes =
+        (idx_t *)malloc(static_cast<size_t>(recv_size) * sizeof(idx_t));
     for (ptrdiff_t i = 0; i < recv_size; ++i) {
       const element_idx_t element_old = recv_elements[i];
       const ptrdiff_t old_off =
@@ -687,8 +710,8 @@ int expand_aura_elements_inconsistent(
       send_nodes[i] = local2global[local_elements[d][local_e]];
     }
 
-    idx_t *recv_nodes = (idx_t *)malloc(static_cast<size_t>(send_displs[comm_size]) *
-                                        sizeof(idx_t));
+    idx_t *recv_nodes = (idx_t *)malloc(
+        static_cast<size_t>(send_displs[comm_size]) * sizeof(idx_t));
     SMESH_MPI_CATCH(MPI_Alltoallv(
         send_nodes, recv_count, recv_displs, smesh::mpi_type<idx_t>(),
         recv_nodes, send_count, send_displs, smesh::mpi_type<idx_t>(), comm));
@@ -794,8 +817,8 @@ int node_ownership_ranges(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
   MPI_Comm_size(comm, &comm_size);
 
   owned_nodes_ranges[0] = 0;
-  MPI_Allgather(&n_owned_nodes, 1, mpi_type<ptrdiff_t>(), &owned_nodes_ranges[1], 1, mpi_type<ptrdiff_t>(),
-                comm);
+  MPI_Allgather(&n_owned_nodes, 1, mpi_type<ptrdiff_t>(),
+                &owned_nodes_ranges[1], 1, mpi_type<ptrdiff_t>(), comm);
   for (ptrdiff_t i = 0; i < comm_size; ++i) {
     owned_nodes_ranges[i + 1] += owned_nodes_ranges[i];
   }
@@ -810,7 +833,10 @@ int node_ownership_ranges(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
 
 template <typename idx_t>
 int stitch_aura_elements(
-    MPI_Comm comm, const ptrdiff_t n_owned_nodes, const ptrdiff_t n_ghost_nodes,
+    MPI_Comm comm, 
+    const ptrdiff_t n_owned_nodes, 
+    const ptrdiff_t n_shared_nodes,
+    const ptrdiff_t n_ghost_nodes,
     const idx_t *const SMESH_RESTRICT local2global, const int nnodesxelem,
     const ptrdiff_t n_aura_elements,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT e2n_aura,
@@ -818,40 +844,33 @@ int stitch_aura_elements(
     idx_t **const SMESH_RESTRICT n2n_local2global_out,
     ptrdiff_t *const SMESH_RESTRICT out_n_aura_nodes) {
   SMESH_TRACE_SCOPE("stitch_aura_elements");
-#ifdef NDEBUG
   (void)comm;
-#endif
   const ptrdiff_t n_local_nodes = n_owned_nodes + n_ghost_nodes;
 
 #ifndef NDEBUG
-  auto is_sorted = [&](const idx_t *const SMESH_RESTRICT arr,
-                      const ptrdiff_t n) -> bool {
+  // Communicator::wrap(comm)->print_callback([&](std::ostream &os) {
+  //   os << "local2global: " << n_owned_nodes << "\n";
+  //   for (ptrdiff_t i = 0; i < n_owned_nodes; ++i) {
+  //     os << local2global[i] << " ";
+  //   }
+  //   os << "\n";
+  // });
 
-                        int rank;
-                        MPI_Comm_rank(comm, &rank);
-                      bool ret = true;
-    for (ptrdiff_t i = 0; i < n - 1; ++i) {
-      if (arr[i] > arr[i + 1]) {
-        printf("[%d] arr[%ld] = %ld > arr[%ld] = %ld\n", rank, i, (long)arr[i], i + 1,  (long)arr[i + 1]);
-        ret = false;
-      }
-    }
-    return ret;
-  };
-
-  SMESH_ASSERT(is_sorted(local2global, n_owned_nodes));
+  SMESH_ASSERT(is_sorted(local2global, n_owned_nodes - n_shared_nodes));
+  SMESH_ASSERT(is_sorted(local2global + n_owned_nodes - n_shared_nodes, n_shared_nodes));
   SMESH_ASSERT(is_sorted(local2global + n_owned_nodes, n_ghost_nodes));
 #endif
 
   const idx_t *const owned_begin = local2global;
-  const idx_t *const owned_end = local2global + n_owned_nodes;
+  const idx_t *const owned_end = local2global + n_owned_nodes - n_shared_nodes;
+  const idx_t *const shared_begin = local2global + n_owned_nodes - n_shared_nodes;
+  const idx_t *const shared_end = local2global + n_owned_nodes;
   const idx_t *const ghost_begin = local2global + n_owned_nodes;
   const idx_t *const ghost_end = local2global + n_local_nodes;
 
   const ptrdiff_t aura_flat_n = n_aura_elements * nnodesxelem;
-  idx_t *aura_nodes =
-      (idx_t *)malloc(static_cast<size_t>(std::max<ptrdiff_t>(1, aura_flat_n)) *
-                      sizeof(idx_t));
+  idx_t *aura_nodes = (idx_t *)malloc(
+      static_cast<size_t>(std::max<ptrdiff_t>(1, aura_flat_n)) * sizeof(idx_t));
   for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
     for (int d = 0; d < nnodesxelem; ++d) {
       aura_nodes[i * nnodesxelem + d] = e2n_aura[d][i];
@@ -861,10 +880,10 @@ int stitch_aura_elements(
   const ptrdiff_t n_unique_aura_nodes =
       static_cast<ptrdiff_t>(sort_and_unique(aura_nodes, aura_flat_n));
 
-  idx_t *aura_new =
-      (idx_t *)malloc(static_cast<size_t>(std::max<ptrdiff_t>(1, n_unique_aura_nodes)) *
-                      sizeof(idx_t));
-  
+  idx_t *aura_new = (idx_t *)malloc(
+      static_cast<size_t>(std::max<ptrdiff_t>(1, n_unique_aura_nodes)) *
+      sizeof(idx_t));
+
   ptrdiff_t n_aura_nodes = 0;
 
   for (ptrdiff_t i = 0; i < n_unique_aura_nodes; ++i) {
@@ -875,6 +894,12 @@ int stitch_aura_elements(
       continue;
     }
 
+    it = std::lower_bound(shared_begin, shared_end, g);
+    const bool is_shared = (it != shared_end && *it == g);
+    if (is_shared) {
+      continue;
+    }
+
     it = std::lower_bound(ghost_begin, ghost_end, g);
     const bool is_ghost = (it != ghost_end && *it == g);
     if (!is_ghost) {
@@ -882,15 +907,20 @@ int stitch_aura_elements(
     }
   }
 
-  idx_t *n2n_local2global =
-      (idx_t *)malloc(static_cast<size_t>(n_local_nodes + n_aura_nodes) *
-                      sizeof(idx_t));
+  idx_t *n2n_local2global = (idx_t *)malloc(
+      static_cast<size_t>(n_local_nodes + n_aura_nodes) * sizeof(idx_t));
   memcpy(n2n_local2global, local2global, n_local_nodes * sizeof(idx_t));
-  memcpy(&n2n_local2global[n_local_nodes], aura_new, n_aura_nodes * sizeof(idx_t));
+  memcpy(&n2n_local2global[n_local_nodes], aura_new,
+         n_aura_nodes * sizeof(idx_t));
 
   auto find_local = [&](const idx_t g) -> idx_t {
     auto it = std::lower_bound(owned_begin, owned_end, g);
     if (it != owned_end && *it == g) {
+      return static_cast<idx_t>(it - local2global);
+    }
+
+    it = std::lower_bound(shared_begin, shared_end, g);
+    if (it != shared_end && *it == g) {
       return static_cast<idx_t>(it - local2global);
     }
 
@@ -925,14 +955,11 @@ int stitch_aura_elements(
 
 template <typename idx_t>
 int collect_ghost_and_aura_import_indices(
-    MPI_Comm comm, 
-    const ptrdiff_t n_owned_nodes, 
-    const ptrdiff_t n_ghost_nodes,
-    const ptrdiff_t n_aura_nodes,
-    const ptrdiff_t n_global_nodes,
+    MPI_Comm comm, const ptrdiff_t n_owned_nodes, const ptrdiff_t n_ghost_nodes,
+    const ptrdiff_t n_aura_nodes, const ptrdiff_t n_global_nodes,
     const idx_t *const SMESH_RESTRICT local2global,
     const idx_t *const SMESH_RESTRICT global2owned,
-    const ptrdiff_t * const SMESH_RESTRICT owned_node_ranges,
+    const ptrdiff_t *const SMESH_RESTRICT owned_node_ranges,
     idx_t *const SMESH_RESTRICT ghost_and_aura_to_owned) {
   SMESH_TRACE_SCOPE("collect_ghost_and_aura_import_indices");
   (void)owned_node_ranges;
@@ -941,7 +968,8 @@ int collect_ghost_and_aura_import_indices(
   MPI_Comm_size(comm, &comm_size);
 
   const ptrdiff_t n_import = n_ghost_nodes + n_aura_nodes;
-  const ptrdiff_t nodes_start = rank_start(n_global_nodes, comm_size, comm_rank);
+  const ptrdiff_t nodes_start =
+      rank_start(n_global_nodes, comm_size, comm_rank);
 
   int *send_count = (int *)calloc(comm_size, sizeof(int));
   int *send_displs = (int *)calloc(comm_size + 1, sizeof(int));
@@ -958,8 +986,10 @@ int collect_ghost_and_aura_import_indices(
     send_displs[r + 1] += send_displs[r];
   }
 
-  idx_t *send_nodes = (idx_t *)malloc(static_cast<size_t>(n_import) * sizeof(idx_t));
-  idx_t *send_pos = (idx_t *)malloc(static_cast<size_t>(n_import) * sizeof(idx_t));
+  idx_t *send_nodes =
+      (idx_t *)malloc(static_cast<size_t>(n_import) * sizeof(idx_t));
+  idx_t *send_pos =
+      (idx_t *)malloc(static_cast<size_t>(n_import) * sizeof(idx_t));
   int *cursor = (int *)calloc(comm_size, sizeof(int));
 
   for (ptrdiff_t i = 0; i < n_import; ++i) {
@@ -988,20 +1018,21 @@ int collect_ghost_and_aura_import_indices(
   SMESH_MPI_CATCH(MPI_Alltoallv(
       send_nodes, send_count, send_displs, smesh::mpi_type<idx_t>(), recv_nodes,
       recv_count, recv_displs, smesh::mpi_type<idx_t>(), comm));
-  SMESH_MPI_CATCH(MPI_Alltoallv(
-      send_pos, send_count, send_displs, smesh::mpi_type<idx_t>(), recv_pos,
-      recv_count, recv_displs, smesh::mpi_type<idx_t>(), comm));
+  SMESH_MPI_CATCH(MPI_Alltoallv(send_pos, send_count, send_displs,
+                                smesh::mpi_type<idx_t>(), recv_pos, recv_count,
+                                recv_displs, smesh::mpi_type<idx_t>(), comm));
 
   for (ptrdiff_t i = 0; i < recv_total; ++i) {
-    recv_nodes[i] = global2owned[static_cast<ptrdiff_t>(recv_nodes[i] - nodes_start)];
+    recv_nodes[i] =
+        global2owned[static_cast<ptrdiff_t>(recv_nodes[i] - nodes_start)];
   }
 
   SMESH_MPI_CATCH(MPI_Alltoallv(
       recv_nodes, recv_count, recv_displs, smesh::mpi_type<idx_t>(), send_nodes,
       send_count, send_displs, smesh::mpi_type<idx_t>(), comm));
-  SMESH_MPI_CATCH(MPI_Alltoallv(
-      recv_pos, recv_count, recv_displs, smesh::mpi_type<idx_t>(), send_pos,
-      send_count, send_displs, smesh::mpi_type<idx_t>(), comm));
+  SMESH_MPI_CATCH(MPI_Alltoallv(recv_pos, recv_count, recv_displs,
+                                smesh::mpi_type<idx_t>(), send_pos, send_count,
+                                send_displs, smesh::mpi_type<idx_t>(), comm));
 
   for (ptrdiff_t i = 0; i < n_import; ++i) {
     ghost_and_aura_to_owned[send_pos[i]] = send_nodes[i];

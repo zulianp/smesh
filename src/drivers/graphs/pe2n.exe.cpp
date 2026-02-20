@@ -140,7 +140,7 @@ int main(int argc, char **argv) {
 
     idx_t *local2global_with_aura = nullptr;
     ptrdiff_t n_aura_nodes = 0;
-    stitch_aura_elements(comm->get(), n_owned, n_ghosts, local2global,
+    stitch_aura_elements(comm->get(), n_owned, n_shared, n_ghosts, local2global,
                          nnodesxelem, n_aura_elements, aura_element_nodes,
                          n_local_elements, local_elements,
                          &local2global_with_aura, &n_aura_nodes);
@@ -156,6 +156,8 @@ int main(int argc, char **argv) {
         local2global, global2owned, owned_node_ranges, ghost_and_aura_to_owned);
 
     if (false) {
+      comm->barrier();
+
       comm->print_callback([&](std::ostream &os) {
         for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
           for (int d = 0; d < nnodesxelem; ++d) {
@@ -178,7 +180,8 @@ int main(int argc, char **argv) {
            << owned_node_ranges[comm_rank + 1] << "\n";
 
         os << "n_shared: " << n_shared << " ";
-        os << "n_ghosts: " << n_ghosts << " n_aura_nodes: " << n_aura_nodes << "\n";
+        os << "n_ghosts: " << n_ghosts << " n_aura_nodes: " << n_aura_nodes
+           << "\n";
         for (ptrdiff_t i = 0; i < n_ghosts + n_aura_nodes; ++i) {
           os << ghost_and_aura_to_owned[i] << " ";
         }

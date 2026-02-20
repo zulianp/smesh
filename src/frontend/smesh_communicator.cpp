@@ -82,10 +82,13 @@ Communicator::Impl::~Impl() = default;
 
 void Communicator::print_callback(
     const std::function<void(std::ostream &)> &callback) const {
+  std::cout << std::flush;
   std::stringstream ss;
   callback(ss);
   int rank = this->rank();
   int size = this->size();
+
+  barrier();
 
   for (int r = 0; r < size; r++) {
     if (r == rank) {

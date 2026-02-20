@@ -38,7 +38,7 @@
       MPI_Comm, const ptrdiff_t, const ptrdiff_t, const ptrdiff_t,             \
       const IDX_T *const SMESH_RESTRICT, IDX_T *const SMESH_RESTRICT);         \
   template int stitch_aura_elements<IDX_T>(                                    \
-      MPI_Comm, const ptrdiff_t, const ptrdiff_t,                              \
+      MPI_Comm, const ptrdiff_t,  const ptrdiff_t, const ptrdiff_t,            \
       const IDX_T *const SMESH_RESTRICT, const int, const ptrdiff_t,           \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, const ptrdiff_t,      \
       IDX_T **const SMESH_RESTRICT, IDX_T **const SMESH_RESTRICT,             \
