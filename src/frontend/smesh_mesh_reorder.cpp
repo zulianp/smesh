@@ -66,8 +66,8 @@ int SFC::reorder(Mesh &mesh) {
               mesh.points()->data(), b->data());
 
   auto encoding = create_host_buffer<u32>(n_elements);
-  int err = iter->second(n_elements, b->data()[0], b->data()[1], b->data()[2],
-                         encoding->data());
+  SMESH_CATCH(iter->second(n_elements, b->data()[0], b->data()[1], b->data()[2],
+                           encoding->data()));
 
   auto buff =
       malloc(std::max(n_elements * sizeof(idx_t), n_nodes * sizeof(geom_t)));
@@ -81,30 +81,33 @@ int SFC::reorder(Mesh &mesh) {
               return key[l] < key[r];
             });
 
-  err |= mesh_block_reorder(nxe, n_elements, mesh.elements()->data(), idx,
-                            mesh.elements()->data());
+  SMESH_CATCH(mesh_block_reorder(nxe, n_elements, mesh.elements()->data(), idx,
+                                 mesh.elements()->data()));
 
   auto n2n_scatter = create_host_buffer<idx_t>(n_nodes);
+  for (ptrdiff_t i = 0; i < n_nodes; i++) {
+    n2n_scatter->data()[i] = invalid_idx<idx_t>();
+  }
 
   idx_t next_node_idx = 0;
-  err |= mesh_block_renumber_element_nodes<idx_t>(
+  SMESH_CATCH(mesh_block_renumber_element_nodes<idx_t>(
       nxe, n_elements, mesh.elements()->data(), &next_node_idx,
-      n2n_scatter->data());
+      n2n_scatter->data()));
 
   auto coords = (geom_t *)buff;
   memcpy(coords, mesh.points()->data()[0], n_nodes * sizeof(geom_t));
-  err |= reorder_scatter(n_nodes, n2n_scatter->data(), coords,
-                         mesh.points()->data()[0]);
+  SMESH_CATCH(reorder_scatter(n_nodes, n2n_scatter->data(), coords,
+                              mesh.points()->data()[0]));
 
   memcpy(coords, mesh.points()->data()[1], n_nodes * sizeof(geom_t));
-  err |= reorder_scatter(n_nodes, n2n_scatter->data(), coords,
-                         mesh.points()->data()[1]);
+  SMESH_CATCH(reorder_scatter(n_nodes, n2n_scatter->data(), coords,
+                              mesh.points()->data()[1]));
 
   memcpy(coords, mesh.points()->data()[2], n_nodes * sizeof(geom_t));
-  err |= reorder_scatter(n_nodes, n2n_scatter->data(), coords,
-                         mesh.points()->data()[2]);
+  SMESH_CATCH(reorder_scatter(n_nodes, n2n_scatter->data(), coords,
+                              mesh.points()->data()[2]));
 
   free(buff);
-  return err;
+  return SMESH_SUCCESS;
 }
 } // namespace smesh

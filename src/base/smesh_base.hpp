@@ -4,12 +4,11 @@
 #include "smesh_config.hpp"
 
 #include <assert.h>
+#include <cassert>
 #include <chrono>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <cassert>
-
 
 #ifdef __GNUC__
 #include <execinfo.h>
@@ -70,13 +69,21 @@
     SMESH_ABORT();                                                             \
   } while (0)
 
+#define SMESH_CATCH(err)                                                       \
+  do {                                                                         \
+    int err__ = err;                                                           \
+    if (err__ != SMESH_SUCCESS) {                                              \
+      SMESH_ERROR("SMESH error: %s:%d", __FILE__, __LINE__);                   \
+    }                                                                          \
+  } while (0)
+
 #define SMESH_IMPLEMENT_ME() SMESH_ERROR("Implement me!\n")
 
 #ifdef NDEBUG
 #define SMESH_INLINE inline
 #define SMESH_FORCE_INLINE inline __attribute__((always_inline))
 #else
-#define SMESH_INLINE  // No inline in debug mode
+#define SMESH_INLINE       // No inline in debug mode
 #define SMESH_FORCE_INLINE // No force inline in debug mode
 #endif
 
@@ -142,7 +149,6 @@ inline double time_seconds() { return time_milliseconds() / 1000.0; }
     }                                                                          \
   }
 #endif
-
 
 } // namespace smesh
 

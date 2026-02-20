@@ -19,17 +19,17 @@ int main(int argc, char **argv) {
             argv[0]);
     return SMESH_FAILURE;
   }
-
-  int ret = SMESH_SUCCESS;
+  
   {
     auto mesh = Mesh::create_from_file(ctx->communicator(), Path(argv[1]));
     auto sfc = SFC::create_from_env();
-    ret = sfc->reorder(*mesh);
 
-    if (ret != SMESH_SUCCESS) {
+    if (sfc->reorder(*mesh) == SMESH_SUCCESS) {
       mesh->write(Path(argv[2]));
+      return SMESH_SUCCESS;
+    } else {
+      SMESH_ERROR("SFC reordering failed\n");
+      return SMESH_FAILURE;
     }
   }
-
-  return ret;
 }

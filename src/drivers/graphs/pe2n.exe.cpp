@@ -235,9 +235,7 @@ int main(int argc, char **argv) {
       idx_t *gather_buffer = (idx_t *)malloc(
           (recv_count[comm_size - 1] + recv_displs[comm_size - 1]) *
           sizeof(idx_t));
-          
-      // FIXME? Check why it is crashing here with  mpiexec -np 2 ./pe2n tet4_cube sdsds
-      exchange_gather(comm->get(), n_local_nodes, recv_count, recv_displs, send_count,
+      exchange_gather(comm->get(), n_owned, recv_count, recv_displs, send_count,
                       send_displs, scatter_idx, owner_global, gather_buffer);
 
       array_write(path_block / "owner_global.int32", owner_global, n_local_nodes);
