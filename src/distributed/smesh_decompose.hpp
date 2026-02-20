@@ -133,8 +133,49 @@ int rearrange_local_elements(
     ptrdiff_t *const SMESH_RESTRICT n_owned_not_shared,
     element_idx_t *const SMESH_RESTRICT element_local_to_global);
 
+template <typename idx_t, typename count_t, typename element_idx_t>
+int expand_aura_elements_inconsistent(
+    MPI_Comm comm, const ptrdiff_t n_global_elements,
+    const ptrdiff_t n_local_elements, const int nnodesxelem,
+    count_t *const SMESH_RESTRICT local_n2e_ptr,
+    element_idx_t *const SMESH_RESTRICT local_n2e_idx,
+    const idx_t *const SMESH_RESTRICT local2global,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT local_elements,
+    const element_idx_t *const SMESH_RESTRICT element_local_to_global,
+    const ptrdiff_t node_n_owned, const ptrdiff_t nodes_n_ghosts,
+    idx_t **const SMESH_RESTRICT out_aura_elements,
+    idx_t **const SMESH_RESTRICT out_aura_element_nodes,
+    ptrdiff_t *const SMESH_RESTRICT out_n_aura);
 
-// TODO: add missing declarations
+template <typename idx_t>
+int prepare_node_renumbering(MPI_Comm comm, const ptrdiff_t n_global_nodes,
+                             const ptrdiff_t owned_nodes_start,
+                             const ptrdiff_t n_owned_nodes,
+                             const idx_t *const SMESH_RESTRICT local2global,
+                             idx_t *const SMESH_RESTRICT global2owned);
+
+int node_ownership_ranges(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
+                          ptrdiff_t *const SMESH_RESTRICT owned_nodes_ranges);
+
+template <typename idx_t>
+int stitch_aura_elements(
+    MPI_Comm comm, const ptrdiff_t n_owned_nodes, const ptrdiff_t n_ghost_nodes,
+    const idx_t *const SMESH_RESTRICT local2global, const int nnodesxelem,
+    const ptrdiff_t n_aura_elements,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT e2n_aura,
+    const ptrdiff_t n_local_elements, idx_t **const SMESH_RESTRICT e2n_local,
+    idx_t **const SMESH_RESTRICT n2n_local2global_out,
+    ptrdiff_t *const SMESH_RESTRICT out_n_aura_nodes);
+
+template <typename idx_t>
+int collect_ghost_and_aura_import_indices(
+    MPI_Comm comm, const ptrdiff_t n_owned_nodes, const ptrdiff_t n_ghost_nodes,
+    const ptrdiff_t n_aura_nodes, const ptrdiff_t n_global_nodes,
+    const idx_t *const SMESH_RESTRICT local2global,
+    const idx_t *const SMESH_RESTRICT global2owned,
+    const ptrdiff_t *const SMESH_RESTRICT owned_node_ranges,
+    idx_t *const SMESH_RESTRICT ghost_and_aura_to_owned);
+
 } // namespace smesh
 
 #endif // SMESH_DECOMPOSE_HPP

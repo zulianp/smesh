@@ -98,16 +98,98 @@ int main(int argc, char **argv) {
                           local_n2e_ptr, local_n2e_idx, local2global,
                           local_elements, &n_owned, &n_shared, &n_ghosts);
 
-    element_idx_t *element_mapping = (element_idx_t *)malloc(n_local_elements * sizeof(element_idx_t));
+    element_idx_t *element_mapping =
+        (element_idx_t *)malloc(n_local_elements * sizeof(element_idx_t));
     ptrdiff_t n_owned_not_shared = 0;
     rearrange_local_elements(comm_size, comm_rank, n_global_elements,
                              n_local_elements, nnodesxelem, local2global_size,
                              local_n2e_ptr, local_n2e_idx, local_elements,
                              n_owned, &n_owned_not_shared, element_mapping);
 
-    // TODO: Aura elements construction
+    idx_t *aura_elements = nullptr;
+    idx_t **aura_element_nodes =
+        (idx_t **)malloc(nnodesxelem * sizeof(idx_t *));
+    for (int d = 0; d < nnodesxelem; ++d) {
+      aura_element_nodes[d] = nullptr;
+    }
+    ptrdiff_t n_aura_elements = 0;
+    expand_aura_elements_inconsistent(
+        comm->get(), n_global_elements, n_local_elements, nnodesxelem,
+        local_n2e_ptr, local_n2e_idx, local2global, local_elements,
+        element_mapping, n_owned, n_ghosts, &aura_elements, aura_element_nodes,
+        &n_aura_elements);
 
-    // TODO: Import/Export operations for ghost and aura nodal coefficients for operators
+    long long owned_nodes_start_ll = 0;
+    long long n_owned_ll = (long long)n_owned;
+    SMESH_MPI_CATCH(MPI_Exscan(&n_owned_ll, &owned_nodes_start_ll, 1,
+                               MPI_LONG_LONG, MPI_SUM, comm->get()));
+    if (!comm_rank) {
+      owned_nodes_start_ll = 0;
+    }
+    const ptrdiff_t owned_nodes_start =
+        static_cast<ptrdiff_t>(owned_nodes_start_ll);
+
+    idx_t *global2owned = (idx_t *)calloc(
+        rank_split(n_global_nodes, comm_size, comm_rank), sizeof(idx_t));
+    prepare_node_renumbering(comm->get(), n_global_nodes, owned_nodes_start,
+                             n_owned, local2global, global2owned);
+
+    ptrdiff_t *owned_node_ranges =
+        (ptrdiff_t *)malloc((comm_size + 1) * sizeof(ptrdiff_t));
+    node_ownership_ranges(comm->get(), n_owned, owned_node_ranges);
+
+    idx_t *local2global_with_aura = nullptr;
+    ptrdiff_t n_aura_nodes = 0;
+    stitch_aura_elements(comm->get(), n_owned, n_ghosts, local2global,
+                         nnodesxelem, n_aura_elements, aura_element_nodes,
+                         n_local_elements, local_elements,
+                         &local2global_with_aura, &n_aura_nodes);
+    free(local2global);
+    local2global = local2global_with_aura;
+    local2global_size = n_owned + n_ghosts + n_aura_nodes;
+
+    SMESH_ASSERT(n_ghosts + n_aura_nodes > 0 || comm_size == 1);
+    idx_t *ghost_and_aura_to_owned =
+        (idx_t *)malloc((n_ghosts + n_aura_nodes) * sizeof(idx_t));
+    collect_ghost_and_aura_import_indices(
+        comm->get(), n_owned, n_ghosts, n_aura_nodes, n_global_nodes,
+        local2global, global2owned, owned_node_ranges, ghost_and_aura_to_owned);
+
+    if (true) {
+      comm->print_callback([&](std::ostream &os) {
+        for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
+          for (int d = 0; d < nnodesxelem; ++d) {
+            os << local2global[local_elements[d][i]] << " ";
+          }
+          os << "\n";
+        }
+        os << "\n";
+
+        for (ptrdiff_t i = n_local_elements;
+             i < n_local_elements + n_aura_elements; ++i) {
+          for (int d = 0; d < nnodesxelem; ++d) {
+            os << local2global[local_elements[d][i]] << " ";
+          }
+          os << "\n";
+        }
+        os << "\n";
+
+        os << "range: " << owned_node_ranges[comm_rank] << " "
+           << owned_node_ranges[comm_rank + 1] << "\n";
+
+        os << "n_shared: " << n_shared << " ";
+        os << "n_ghosts: " << n_ghosts << " n_aura_nodes: " << n_aura_nodes << "\n";
+        for (ptrdiff_t i = 0; i < n_ghosts + n_aura_nodes; ++i) {
+          os << ghost_and_aura_to_owned[i] << " ";
+        }
+        os << "\n";
+      });
+
+      comm->barrier();
+    }
+
+    // TODO: Import/Export operations for ghost and aura nodal coefficients for
+    // operators
 
     for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
       for (int d = 0; d < nnodesxelem; ++d) {
@@ -126,6 +208,15 @@ int main(int argc, char **argv) {
       printf("#elements: %ld  #nodes: %ld\n", n_global_elements,
              n_global_nodes);
     }
+
+    free(ghost_and_aura_to_owned);
+    free(global2owned);
+    free(owned_node_ranges);
+    free(aura_elements);
+    for (int d = 0; d < nnodesxelem; ++d) {
+      free(aura_element_nodes[d]);
+    }
+    free(aura_element_nodes);
 
     free(elems);
     free(points);
