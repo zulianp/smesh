@@ -156,6 +156,28 @@ int mesh_refine(
     }
   }
 
+     // Generate p2 coordinates
+     for (ptrdiff_t i = 0; i < n_coarse_nodes; i++) {
+      const count_t begin = n2n_ptr[i];
+      const count_t end   = n2n_ptr[i + 1];
+
+      for (count_t k = begin; k < end; k++) {
+          const idx_t j = n2n_idx[k];
+
+          if (i < j) {
+              const idx_t nidx = edge_idx[k];
+
+              for (int d = 0; d < spatial_dim; d++) {
+                  geom_t xi = refined_points[d][i];
+                  geom_t xj = refined_points[d][j];
+
+                  // Midpoint
+                  refined_points[d][nidx] = (xi + xj) / 2;
+              }
+          }
+      }
+  }
+
   free(edge_idx);
   return SMESH_SUCCESS;
 }

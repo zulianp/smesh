@@ -1524,6 +1524,7 @@ std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
                             out->n_nodes(), out->points()->data(),
                             n2n_upper_triangular_ptr, n2n_upper_triangular_idx,
                             refined_elements->data(), refined_points->data());
+                            
 
       if (err != SMESH_SUCCESS) {
         SMESH_ERROR("Refinement failed\n");
