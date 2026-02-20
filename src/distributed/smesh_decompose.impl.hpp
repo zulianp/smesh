@@ -836,8 +836,7 @@ int stitch_aura_elements(
     const idx_t *const SMESH_RESTRICT local2global, const int nnodesxelem,
     const ptrdiff_t n_aura_elements,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT e2n_aura,
-    const ptrdiff_t n_local_elements, 
-    idx_t **const SMESH_RESTRICT e2n_local,
+    const ptrdiff_t n_local_elements, idx_t **const SMESH_RESTRICT e2n_local,
     idx_t **const SMESH_RESTRICT n2n_local2global_out,
     ptrdiff_t *const SMESH_RESTRICT out_n_aura_nodes) {
   int comm_rank, comm_size;
@@ -888,21 +887,94 @@ int stitch_aura_elements(
 
   free(unique_aura_nodes);
 
-  for(int d = 0; d < nnodesxelem; ++d) {
-    for(ptrdiff_t i = 0; i < n_aura_elements; ++i) {
-        idx_t node_global = e2n_aura[d][i];
-        // Search the ghost and aura range
-        auto it = std::lower_bound(n2n_local2global + n_owned_nodes, n2n_local2global + n_owned_nodes + n_unique_aura_nodes, node_global);
-        e2n_aura[d][i] = std::distance(n2n_local2global, it); // Get local index
-        SMESH_ASSERT(e2n_aura[d][i] < n_local_elements);
+  for (int d = 0; d < nnodesxelem; ++d) {
+    for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
+      idx_t node_global = e2n_aura[d][i];
+      // Search the ghost and aura range
+      auto it = std::lower_bound(
+          n2n_local2global + n_owned_nodes,
+          n2n_local2global + n_owned_nodes + n_unique_aura_nodes, node_global);
+      e2n_aura[d][i] = std::distance(n2n_local2global, it); // Get local index
+      SMESH_ASSERT(e2n_aura[d][i] < n_local_elements);
     }
 
-    e2n_local[d] = (idx_t *)realloc(e2n_local[d], (n_local_elements + n_aura_elements) * sizeof(idx_t));
-    memcpy(e2n_local[d] + n_local_elements, e2n_local[d], n_aura_elements * sizeof(idx_t));
+    e2n_local[d] = (idx_t *)realloc(
+        e2n_local[d], (n_local_elements + n_aura_elements) * sizeof(idx_t));
+    memcpy(e2n_local[d] + n_local_elements, e2n_local[d],
+           n_aura_elements * sizeof(idx_t));
   }
 
   *n2n_local2global_out = n2n_local2global;
   *out_n_aura_nodes = n_unique_aura_nodes - n_ghost_nodes;
+  return SMESH_SUCCESS;
+}
+
+int collect_ghost_and_aura_import_indices(
+    MPI_Comm comm, 
+    const ptrdiff_t n_owned_nodes, 
+    const ptrdiff_t n_ghost_nodes,
+    const ptrdiff_t n_aura_nodes,
+    const ptrdiff_t n_global_nodes,
+    const idx_t *const SMESH_RESTRICT local2global,
+    const idx_t *const SMESH_RESTRICT global2owned,
+    const ptrdiff_t * const SMESH_RESTRICT owned_node_ranges,
+    idx_t *const SMESH_RESTRICT ghost_and_aura_to_owned) {
+  int comm_rank, comm_size;
+  MPI_Comm_rank(comm, &comm_rank);
+  MPI_Comm_size(comm, &comm_size);
+
+  int *send_count = (int *)calloc(comm_size, sizeof(int));
+  int *send_displs = (int *)calloc(comm_size + 1, sizeof(int));
+  int *recv_count = (int *)calloc(comm_size, sizeof(int));
+  int *recv_displs = (int *)calloc(comm_size + 1, sizeof(int));
+
+  ptrdiff_t nodes_start = rank_start(n_global_nodes, comm_size, comm_rank);
+  ptrdiff_t node_offset = n_owned_nodes;
+  ptrdiff_t n_nodes = n_owned_nodes + n_ghost_nodes + n_aura_nodes;
+
+  for(ptrdiff_t i = node_offset; i < n_nodes; ++i) {
+    const int owner = rank_owner(n_global_nodes, local2global[i], comm_size);
+    send_displs[owner + 1]++;
+  }
+
+  for(ptrdiff_t i = 0; i < comm_size; ++i) {
+    send_displs[i + 1] += send_displs[i];
+  }
+
+  for(ptrdiff_t i = node_offset; i < n_nodes; ++i) {
+    const int owner = rank_owner(n_global_nodes, local2global[i], comm_size);
+    ghost_and_aura_to_owned[send_displs[owner] + send_count[owner]++] = local2global[i];
+  }
+
+  MPI_Alltoall(send_count, 1, MPI_INT, recv_count, 1, MPI_INT,
+               comm);
+
+  recv_displs[0] = 0;
+  for(ptrdiff_t i = 0; i < comm_size; ++i) {
+    recv_displs[i + 1] = recv_displs[i] + recv_count[i];
+  }
+
+  idx_t *recv_original = (idx_t *)malloc(recv_displs[comm_size] * sizeof(idx_t));
+  MPI_Alltoallv(ghost_and_aura_to_owned, send_count, send_displs,
+                smesh::mpi_type<idx_t>(), recv_original, recv_count, recv_displs,
+                smesh::mpi_type<idx_t>(), comm);
+
+  for(int r = 0; r < comm_size; ++r) {
+    for(ptrdiff_t i = owned_node_ranges[r]; i < owned_node_ranges[r + 1]; ++i) {
+      recv_original[i] = global2owned[recv_original[i] - nodes_start];
+    }
+  }
+
+  // Invert communication direction
+  MPI_Alltoallv(recv_original, recv_count, recv_displs,
+    smesh::mpi_type<idx_t>(), ghost_and_aura_to_owned , send_count, send_displs,
+    smesh::mpi_type<idx_t>(), comm);
+
+  free(send_count);
+  free(send_displs);
+  free(recv_count);
+  free(recv_displs);
+  free(recv_original);
   return SMESH_SUCCESS;
 }
 
@@ -918,6 +990,5 @@ int stitch_aura_elements(
 // local_elements array 5) Create the import/export lists for nodal quantities
 // (support ghost/aura only or combined) 6) Create the import/export lists for
 // elemental quantities (support ghost/aura only or combined)
-
 
 } // namespace smesh

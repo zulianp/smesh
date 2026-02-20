@@ -29,6 +29,8 @@
       T **const SMESH_RESTRICT, const ptrdiff_t,                               \
       ptrdiff_t *const SMESH_RESTRICT, T *const SMESH_RESTRICT)
 
+    //   TODO: add missing instantiations
+
 namespace smesh {
 SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i32);
 SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i64);

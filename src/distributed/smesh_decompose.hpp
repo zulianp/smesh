@@ -132,6 +132,9 @@ int rearrange_local_elements(
     idx_t **const SMESH_RESTRICT local_elements, const ptrdiff_t n_owned_nodes,
     ptrdiff_t *const SMESH_RESTRICT n_owned_not_shared,
     element_idx_t *const SMESH_RESTRICT element_local_to_global);
+
+
+// TODO: add missing declarations
 } // namespace smesh
 
 #endif // SMESH_DECOMPOSE_HPP
