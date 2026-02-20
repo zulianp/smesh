@@ -829,7 +829,35 @@ int node_ownership_ranges(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
 }
 
 
-// TODO: This is wrong fix
+// template <typename idx_t>
+// int determine_ownership(const int comm_size, const int comm_rank,
+//                         const ptrdiff_t n_owned_nodes, const ptrdiff_t n_ghosts,
+//                         const ptrdiff_t n_aura_nodes,
+//                         const idx_t *const SMESH_RESTRICT local2owned,
+//                         const ptrdiff_t *const SMESH_RESTRICT owned_nodes_range,
+//                         int *const SMESH_RESTRICT owner) {
+//   for (ptrdiff_t i = 0; i < n_owned_nodes; ++i) {
+//     owner[i] = comm_rank;
+//   }
+
+//   for (ptrdiff_t i = 0, r = 0; i < n_ghosts && r < comm_size;) {
+//     if (local2owned[i] >= owned_nodes_range[r + 1]) {
+//       r++;
+//     } else if (local2owned[i] < owned_nodes_range[r + 1]) {
+//       owner[n_owned_nodes + i++] = r;
+//     }
+//   }
+
+//   for (ptrdiff_t i = n_ghosts, r = 0; i < n_ghosts + n_aura_nodes && r < comm_size;) {
+//     if (local2owned[i] >= owned_nodes_range[r + 1]) {
+//       r++;
+//     } else if (local2owned[i] < owned_nodes_range[r + 1]) {
+//       owner[n_owned_nodes + i++] = r;
+//     }
+//   }
+//   return SMESH_SUCCESS;
+// }
+
 template <typename idx_t>
 int determine_ownership(const int comm_size, const int comm_rank,
                         const ptrdiff_t n_owned_nodes, const ptrdiff_t n_ghosts,
@@ -841,20 +869,23 @@ int determine_ownership(const int comm_size, const int comm_rank,
     owner[i] = comm_rank;
   }
 
-  for (ptrdiff_t i = 0, r = 0; i < n_ghosts && r < comm_size;) {
-    if (local2owned[i] >= owned_nodes_range[r + 1]) {
-      r++;
-    } else if (local2owned[i] < owned_nodes_range[r + 1]) {
-      owner[n_owned_nodes + i++] = r;
-    }
-  }
+  auto rank_of_owned = [&](const idx_t owned_idx) -> int {
+    SMESH_ASSERT(owned_idx >= 0);
+    const ptrdiff_t idx = static_cast<ptrdiff_t>(owned_idx);
+    const ptrdiff_t *const begin = owned_nodes_range;
+    const ptrdiff_t *const end = owned_nodes_range + comm_size + 1;
+    const ptrdiff_t *it = std::upper_bound(begin, end, idx);
+    const int r = static_cast<int>(it - begin) - 1;
+    SMESH_ASSERT(r >= 0);
+    SMESH_ASSERT(r < comm_size);
+    SMESH_ASSERT(idx >= owned_nodes_range[r]);
+    SMESH_ASSERT(idx < owned_nodes_range[r + 1]);
+    return r;
+  };
 
-  for (ptrdiff_t i = n_ghosts, r = 0; i < n_ghosts + n_aura_nodes && r < comm_size;) {
-    if (local2owned[i] >= owned_nodes_range[r + 1]) {
-      r++;
-    } else if (local2owned[i] < owned_nodes_range[r + 1]) {
-      owner[n_owned_nodes + i++] = r;
-    }
+  const ptrdiff_t n_import = n_ghosts + n_aura_nodes;
+  for (ptrdiff_t i = 0; i < n_import; ++i) {
+    owner[n_owned_nodes + i] = rank_of_owned(local2owned[i]);
   }
   return SMESH_SUCCESS;
 }

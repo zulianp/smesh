@@ -100,7 +100,7 @@ int exchange_scatter_add(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
 }
 
 template <typename idx_t, typename T>
-int exchange_gather(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
+ int exchange_gather(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                     const int *const SMESH_RESTRICT send_count,
                     const int *const SMESH_RESTRICT send_displs,
                     const int *const SMESH_RESTRICT recv_count,
@@ -120,6 +120,43 @@ int exchange_gather(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
 
   return SMESH_SUCCESS;
 }
+
+
+// template <typename idx_t, typename T>
+//  int exchange_gather(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
+//                     const int *const SMESH_RESTRICT send_count,
+//                     const int *const SMESH_RESTRICT send_displs,
+//                     const int *const SMESH_RESTRICT recv_count,
+//                     const int *const SMESH_RESTRICT recv_displs,
+//                     const idx_t *const SMESH_RESTRICT gather_idx,
+//                     T *const SMESH_RESTRICT inout,
+//                     T *const SMESH_RESTRICT aux_gather_buffer) {
+//   int size;
+//   MPI_Comm_size(comm, &size);
+
+//   ptrdiff_t total_send = 0;
+// #ifndef NDEBUG
+//   int expected_displ = 0;
+// #endif
+//   for (int r = 0; r < size; ++r) {
+//     SMESH_ASSERT(send_count[r] >= 0);
+// #ifndef NDEBUG
+//     SMESH_ASSERT(send_displs[r] == expected_displ);
+//     expected_displ += send_count[r];
+// #endif
+//     total_send += (ptrdiff_t)send_count[r];
+//   }
+
+//   for (ptrdiff_t i = 0; i < total_send; ++i) {
+//     aux_gather_buffer[i] = inout[gather_idx[i]];
+//   }
+
+//   SMESH_MPI_CATCH(MPI_Alltoallv(aux_gather_buffer, send_count, send_displs,
+//                                 mpi_type<T>(), &inout[n_owned_nodes],
+//                                 recv_count, recv_displs, mpi_type<T>(), comm));
+
+//   return SMESH_SUCCESS;
+// }
 
 template <typename idx_t>
 int gather_mapped_field(MPI_Comm comm, const ptrdiff_t n_local,
