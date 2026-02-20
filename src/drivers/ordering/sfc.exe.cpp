@@ -25,8 +25,7 @@ int main(int argc, char **argv) {
     auto sfc = SFC::create_from_env();
 
     if (sfc->reorder(*mesh) == SMESH_SUCCESS) {
-      mesh->write(Path(argv[2]));
-      return SMESH_SUCCESS;
+      return mesh->write(Path(argv[2]));
     } else {
       SMESH_ERROR("SFC reordering failed\n");
       return SMESH_FAILURE;
