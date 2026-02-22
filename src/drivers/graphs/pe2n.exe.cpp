@@ -156,41 +156,16 @@ int main(int argc, char **argv) {
         comm->get(), n_owned, n_ghosts, n_aura_nodes, n_global_nodes,
         local2global, global2owned, owned_node_ranges, ghost_and_aura_to_owned);
 
-    if (false) {
-      comm->barrier();
+    node_ownership_ranges(comm->get(), n_owned, owned_node_ranges);
+    int *owner =
+        (int *)malloc((n_owned + n_ghosts + n_aura_nodes) * sizeof(int));
+    determine_ownership(comm_size, comm_rank, n_owned, n_ghosts, n_aura_nodes,
+                        ghost_and_aura_to_owned, owned_node_ranges, owner);
 
-      comm->print_callback([&](std::ostream &os) {
-        for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
-          for (int d = 0; d < nnodesxelem; ++d) {
-            os << local2global[local_elements[d][i]] << " ";
-          }
-          os << "\n";
-        }
-        os << "\n";
-
-        for (ptrdiff_t i = n_local_elements;
-             i < n_local_elements + n_aura_elements; ++i) {
-          for (int d = 0; d < nnodesxelem; ++d) {
-            os << local2global[local_elements[d][i]] << " ";
-          }
-          os << "\n";
-        }
-        os << "\n";
-
-        os << "range: " << owned_node_ranges[comm_rank] << " "
-           << owned_node_ranges[comm_rank + 1] << "\n";
-
-        os << "n_shared: " << n_shared << " ";
-        os << "n_ghosts: " << n_ghosts << " n_aura_nodes: " << n_aura_nodes
-           << "\n";
-        for (ptrdiff_t i = 0; i < n_ghosts + n_aura_nodes; ++i) {
-          os << ghost_and_aura_to_owned[i] << " ";
-        }
-        os << "\n";
-      });
-
-      comm->barrier();
-    }
+    group_ghost_and_aura_by_rank(comm_size, n_owned, n_ghosts, n_aura_nodes,
+                                 local2global, ghost_and_aura_to_owned, owner,
+                                 nnodesxelem, n_local_elements, n_aura_elements,
+                                 local_elements);
 
     const ptrdiff_t n_local_nodes = n_owned + n_ghosts + n_aura_nodes;
     geom_t **local_points = (geom_t **)malloc(spatial_dim * sizeof(geom_t *));
@@ -200,11 +175,6 @@ int main(int argc, char **argv) {
                           local2global, smesh::mpi_type<geom_t>(), points[d],
                           local_points[d]);
     }
-
-    node_ownership_ranges(comm->get(), n_owned, owned_node_ranges);
-    int *owner = (int *)malloc(n_local_nodes * sizeof(int));
-    determine_ownership(comm_size, comm_rank, n_owned, n_ghosts, n_aura_nodes,
-                        ghost_and_aura_to_owned, owned_node_ranges, owner);
 
     Path path_block = output_folder / std::to_string(comm_rank);
     create_directory(path_block);
@@ -222,70 +192,27 @@ int main(int argc, char **argv) {
       int *send_displs = (int *)malloc((comm_size + 1) * sizeof(int));
       int *recv_count = (int *)malloc(comm_size * sizeof(int));
       int *recv_displs = (int *)malloc((comm_size + 1) * sizeof(int));
-      idx_t *scatter_idx  = nullptr;
+      idx_t *scatter_idx = nullptr;
 
-      // `exchange_create` / `exchange_gather` assume the ghost (and aura) nodes
-      // are grouped by owner rank within the [n_owned, n_local) range. Aura
-      // nodes are appended after stitching and are not guaranteed to satisfy
-      // that ordering, so pack into a temporary owner-grouped ordering for the
-      // exchange and then unpack back into the original local ordering.
-      const ptrdiff_t n_import = n_ghosts + n_aura_nodes;
-      int *pack_count = (int *)calloc(comm_size, sizeof(int));
-      int *pack_displs = (int *)calloc(comm_size + 1, sizeof(int));
-      int *pack_cursor = (int *)calloc(comm_size, sizeof(int));
-      for (ptrdiff_t i = 0; i < n_import; ++i) {
-        const int r = owner[n_owned + i];
-        SMESH_ASSERT(r >= 0 && r < comm_size);
-        pack_count[r]++;
-      }
-      pack_displs[0] = 0;
-      for (int r = 0; r < comm_size; ++r) {
-        pack_displs[r + 1] = pack_displs[r] + pack_count[r];
-      }
-
-      idx_t *ghosts_packed = (idx_t *)malloc((size_t)n_import * sizeof(idx_t));
-      ptrdiff_t *packed_to_local =
-          (ptrdiff_t *)malloc((size_t)n_import * sizeof(ptrdiff_t));
-      int *owner_packed = (int *)malloc((size_t)n_local_nodes * sizeof(int));
-      for (ptrdiff_t i = 0; i < n_owned; ++i) {
-        owner_packed[i] = comm_rank;
-      }
-      for (ptrdiff_t i = 0; i < n_import; ++i) {
-        const int r = owner[n_owned + i];
-        const int slot = pack_displs[r] + pack_cursor[r]++;
-        ghosts_packed[slot] = ghost_and_aura_to_owned[i];
-        packed_to_local[slot] = i;
-        owner_packed[n_owned + (ptrdiff_t)slot] = r;
-      }
-
-      exchange_create<idx_t>(comm->get(), n_local_nodes, n_owned, owner_packed,
-                             owned_node_ranges, ghosts_packed, send_count,
-                             send_displs, recv_count, recv_displs, &scatter_idx);
+      exchange_create<idx_t>(comm->get(), n_local_nodes, n_owned, owner,
+                             owned_node_ranges, ghost_and_aura_to_owned,
+                             send_count, send_displs, recv_count, recv_displs,
+                             &scatter_idx);
 
       idx_t *owner_global = (idx_t *)malloc(n_local_nodes * sizeof(idx_t));
       for (ptrdiff_t i = 0; i < n_owned; ++i) {
         owner_global[i] = owned_node_ranges[comm_rank] + i;
       }
 
-      idx_t *owner_global_packed =
-          (idx_t *)malloc((size_t)n_local_nodes * sizeof(idx_t));
-      for (ptrdiff_t i = 0; i < n_owned; ++i) {
-        owner_global_packed[i] = owner_global[i];
-      }
-
       idx_t *gather_buffer = (idx_t *)malloc(
           (recv_count[comm_size - 1] + recv_displs[comm_size - 1]) *
           sizeof(idx_t));
+
       exchange_gather(comm->get(), n_owned, recv_count, recv_displs, send_count,
-                      send_displs, scatter_idx, owner_global_packed,
-                      gather_buffer);
+                      send_displs, scatter_idx, owner_global, gather_buffer);
 
-      for (ptrdiff_t k = 0; k < n_import; ++k) {
-        const ptrdiff_t local_pos = packed_to_local[k];
-        owner_global[n_owned + local_pos] = owner_global_packed[n_owned + k];
-      }
-
-      array_write(path_block / "owner_global.int32", owner_global, n_local_nodes);
+      array_write(path_block / "owner_global.int32", owner_global,
+                  n_local_nodes);
 
       free(send_count);
       free(send_displs);
@@ -293,14 +220,7 @@ int main(int argc, char **argv) {
       free(recv_displs);
       free(scatter_idx);
       free(gather_buffer);
-      free(owner_global_packed);
       free(owner_global);
-      free(ghosts_packed);
-      free(packed_to_local);
-      free(owner_packed);
-      free(pack_count);
-      free(pack_displs);
-      free(pack_cursor);
     }
 
     for (ptrdiff_t i = 0; i < n_local_elements; ++i) {

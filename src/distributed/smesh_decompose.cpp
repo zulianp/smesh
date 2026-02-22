@@ -50,7 +50,12 @@
   template int determine_ownership<IDX_T>(                                     \
       const int, const int, const ptrdiff_t, const ptrdiff_t, const ptrdiff_t, \
       const IDX_T *const SMESH_RESTRICT,                                       \
-      const ptrdiff_t *const SMESH_RESTRICT, int *const SMESH_RESTRICT);
+      const ptrdiff_t *const SMESH_RESTRICT, int *const SMESH_RESTRICT); \
+  template int group_ghost_and_aura_by_rank<IDX_T>(                            \
+      const int, const ptrdiff_t, const ptrdiff_t, const ptrdiff_t,             \
+      IDX_T *const SMESH_RESTRICT, IDX_T *const SMESH_RESTRICT, int *const SMESH_RESTRICT, \
+      const int, const ptrdiff_t, const ptrdiff_t, IDX_T **const SMESH_RESTRICT)
+
 
 // NOTE: `expand_aura_elements_inconsistent` currently requires `idx_t` and
 // `element_idx_t` to match due to its output pointer type.

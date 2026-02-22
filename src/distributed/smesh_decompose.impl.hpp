@@ -626,8 +626,8 @@ int expand_aura_elements_inconsistent(
   const ptrdiff_t elements_start =
       rank_start(n_global_elements, comm_size, comm_rank);
 
-      SMESH_UNUSED(nodes_n_ghosts);
-  const ptrdiff_t n_local_nodes = node_n_owned;// + nodes_n_ghosts;
+  SMESH_UNUSED(nodes_n_ghosts);
+  const ptrdiff_t n_local_nodes = node_n_owned; // + nodes_n_ghosts;
   const ptrdiff_t n2e_nnz =
       static_cast<ptrdiff_t>(local_n2e_ptr[n_local_nodes]);
 
@@ -828,14 +828,13 @@ int node_ownership_ranges(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
   return SMESH_SUCCESS;
 }
 
-
 // template <typename idx_t>
 // int determine_ownership(const int comm_size, const int comm_rank,
-//                         const ptrdiff_t n_owned_nodes, const ptrdiff_t n_ghosts,
-//                         const ptrdiff_t n_aura_nodes,
-//                         const idx_t *const SMESH_RESTRICT local2owned,
-//                         const ptrdiff_t *const SMESH_RESTRICT owned_nodes_range,
-//                         int *const SMESH_RESTRICT owner) {
+//                         const ptrdiff_t n_owned_nodes, const ptrdiff_t
+//                         n_ghosts, const ptrdiff_t n_aura_nodes, const idx_t
+//                         *const SMESH_RESTRICT local2owned, const ptrdiff_t
+//                         *const SMESH_RESTRICT owned_nodes_range, int *const
+//                         SMESH_RESTRICT owner) {
 //   for (ptrdiff_t i = 0; i < n_owned_nodes; ++i) {
 //     owner[i] = comm_rank;
 //   }
@@ -848,7 +847,8 @@ int node_ownership_ranges(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
 //     }
 //   }
 
-//   for (ptrdiff_t i = n_ghosts, r = 0; i < n_ghosts + n_aura_nodes && r < comm_size;) {
+//   for (ptrdiff_t i = n_ghosts, r = 0; i < n_ghosts + n_aura_nodes && r <
+//   comm_size;) {
 //     if (local2owned[i] >= owned_nodes_range[r + 1]) {
 //       r++;
 //     } else if (local2owned[i] < owned_nodes_range[r + 1]) {
@@ -865,6 +865,7 @@ int determine_ownership(const int comm_size, const int comm_rank,
                         const idx_t *const SMESH_RESTRICT local2owned,
                         const ptrdiff_t *const SMESH_RESTRICT owned_nodes_range,
                         int *const SMESH_RESTRICT owner) {
+  SMESH_TRACE_SCOPE("determine_ownership");
   for (ptrdiff_t i = 0; i < n_owned_nodes; ++i) {
     owner[i] = comm_rank;
   }
@@ -1111,6 +1112,81 @@ int collect_ghost_and_aura_import_indices(
   free(recv_nodes);
   free(recv_pos);
   free(cursor);
+  return SMESH_SUCCESS;
+}
+
+template <typename idx_t>
+int group_ghost_and_aura_by_rank(
+    const int comm_size,  const ptrdiff_t n_owned,
+    const ptrdiff_t n_ghosts, const ptrdiff_t n_aura_nodes,
+    idx_t *const SMESH_RESTRICT local2global,
+    idx_t *const SMESH_RESTRICT ghost_and_aura_to_owned,
+    int *const SMESH_RESTRICT owner,
+    const int nnodesxelem,
+    const ptrdiff_t n_local_elements,
+    const ptrdiff_t n_aura_elements,
+    idx_t **const SMESH_RESTRICT local_elements) {
+  SMESH_TRACE_SCOPE("group_ghost_and_aura_by_rank");
+  {
+    const ptrdiff_t n_import = n_ghosts + n_aura_nodes;
+    if (comm_size > 1 && n_import > 0) {
+      ptrdiff_t *displs =
+          (ptrdiff_t *)calloc((size_t)comm_size + 1, sizeof(ptrdiff_t));
+      ptrdiff_t *cursor =
+          (ptrdiff_t *)calloc((size_t)comm_size, sizeof(ptrdiff_t));
+
+      for (ptrdiff_t i = 0; i < n_import; ++i) {
+        const int r = owner[n_owned + i];
+        displs[(size_t)r + 1]++;
+      }
+      for (int r = 0; r < comm_size; ++r) {
+        displs[(size_t)r + 1] += displs[(size_t)r];
+      }
+
+      idx_t *old_to_new =
+          (idx_t *)malloc((size_t)n_import * sizeof(idx_t));
+      idx_t *ghost_tmp =
+          (idx_t *)malloc((size_t)n_import * sizeof(idx_t));
+      idx_t *l2g_tmp = (idx_t *)malloc((size_t)n_import * sizeof(idx_t));
+      int *owner_tmp = (int *)malloc((size_t)n_import * sizeof(int));
+
+      for (ptrdiff_t i = 0; i < n_import; ++i) {
+        const int r = owner[n_owned + i];
+        const ptrdiff_t pos = displs[(size_t)r] + cursor[(size_t)r]++;
+        old_to_new[i] = static_cast<idx_t>(pos);
+        ghost_tmp[pos] = ghost_and_aura_to_owned[i];
+        l2g_tmp[pos] = local2global[n_owned + i];
+        owner_tmp[pos] = r;
+      }
+
+      for (ptrdiff_t pos = 0; pos < n_import; ++pos) {
+        ghost_and_aura_to_owned[pos] = ghost_tmp[pos];
+        local2global[n_owned + pos] = l2g_tmp[pos];
+        owner[n_owned + pos] = owner_tmp[pos];
+      }
+
+      const ptrdiff_t n_total_elements = n_local_elements + n_aura_elements;
+      const idx_t owned_base = static_cast<idx_t>(n_owned);
+      for (int d = 0; d < nnodesxelem; ++d) {
+        idx_t *const e2n = local_elements[d];
+        for (ptrdiff_t e = 0; e < n_total_elements; ++e) {
+          const idx_t li = e2n[e];
+          if (li >= owned_base) {
+            const ptrdiff_t old_import =
+                static_cast<ptrdiff_t>(li - owned_base);
+            e2n[e] = owned_base + old_to_new[old_import];
+          }
+        }
+      }
+
+      free(owner_tmp);
+      free(l2g_tmp);
+      free(ghost_tmp);
+      free(old_to_new);
+      free(displs);
+      free(cursor);
+    }
+  }
   return SMESH_SUCCESS;
 }
 

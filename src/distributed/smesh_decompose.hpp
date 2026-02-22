@@ -177,13 +177,26 @@ int collect_ghost_and_aura_import_indices(
     const ptrdiff_t *const SMESH_RESTRICT owned_node_ranges,
     idx_t *const SMESH_RESTRICT ghost_and_aura_to_owned);
 
-template<typename idx_t>
+template <typename idx_t>
 int determine_ownership(const int comm_size, const int comm_rank,
                         const ptrdiff_t n_owned_nodes, const ptrdiff_t n_ghosts,
                         const ptrdiff_t n_aura_nodes,
                         const idx_t *const SMESH_RESTRICT local2owned,
                         const ptrdiff_t *const SMESH_RESTRICT owned_nodes_range,
                         int *const SMESH_RESTRICT owner);
+
+                        template <typename idx_t>
+int group_ghost_and_aura_by_rank(
+    const int comm_size,  const ptrdiff_t n_owned,
+    const ptrdiff_t n_ghosts, const ptrdiff_t n_aura_nodes,
+    idx_t *const SMESH_RESTRICT local2global,
+    idx_t *const SMESH_RESTRICT ghost_and_aura_to_owned,
+    int *const SMESH_RESTRICT owner,
+    const int nnodesxelem,
+    const ptrdiff_t n_local_elements,
+    const ptrdiff_t n_aura_elements,
+    idx_t **const SMESH_RESTRICT local_elements);
+
 
 } // namespace smesh
 

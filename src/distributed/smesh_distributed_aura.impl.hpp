@@ -80,7 +80,7 @@ int exchange_scatter_add(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                          const int *const SMESH_RESTRICT send_displs,
                          const int *const SMESH_RESTRICT recv_count,
                          const int *const SMESH_RESTRICT recv_displs,
-                         const idx_t *const SMESH_RESTRICT sparse_idx,
+                         const idx_t *const SMESH_RESTRICT scatter_idx,
                          T *const SMESH_RESTRICT inout,
                          T *const SMESH_RESTRICT added_buffer) {
   // Exchange ghosts
@@ -93,14 +93,14 @@ int exchange_scatter_add(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
   ptrdiff_t count = recv_count[size - 1] + recv_displs[size - 1];
   for (ptrdiff_t i = 0; i < count; i++) {
     SMESH_ASSERT(added_buffer[i] == added_buffer[i]);
-    inout[sparse_idx[i]] += added_buffer[i];
+    inout[scatter_idx[i]] += added_buffer[i];
   }
 
   return SMESH_SUCCESS;
 }
 
 template <typename idx_t, typename T>
- int exchange_gather(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
+int exchange_gather(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                     const int *const SMESH_RESTRICT send_count,
                     const int *const SMESH_RESTRICT send_displs,
                     const int *const SMESH_RESTRICT recv_count,
@@ -120,7 +120,6 @@ template <typename idx_t, typename T>
 
   return SMESH_SUCCESS;
 }
-
 
 // template <typename idx_t, typename T>
 //  int exchange_gather(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
@@ -153,7 +152,8 @@ template <typename idx_t, typename T>
 
 //   SMESH_MPI_CATCH(MPI_Alltoallv(aux_gather_buffer, send_count, send_displs,
 //                                 mpi_type<T>(), &inout[n_owned_nodes],
-//                                 recv_count, recv_displs, mpi_type<T>(), comm));
+//                                 recv_count, recv_displs, mpi_type<T>(),
+//                                 comm));
 
 //   return SMESH_SUCCESS;
 // }
