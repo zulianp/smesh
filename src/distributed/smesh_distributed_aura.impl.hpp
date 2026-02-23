@@ -30,6 +30,13 @@ int exchange_create(MPI_Comm comm, const ptrdiff_t n_local_nodes,
   memset(recv_count, 0, size * sizeof(int));
   memset(recv_displs, 0, (size + 1) * sizeof(int));
 
+#ifndef NDEBUG
+  // We need to ensure that the node owners are sorted
+  for (ptrdiff_t i = n_owned_nodes; i < n_local_nodes - 1; i++) {
+    SMESH_ASSERT(node_owner[i] <= node_owner[i + 1]);
+  }
+#endif
+
   //   Loop over all ghost nodes
   for (ptrdiff_t i = n_owned_nodes; i < n_local_nodes; i++) {
     SMESH_ASSERT(node_owner[i] >= 0);
