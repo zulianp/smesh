@@ -2,11 +2,13 @@
 
 #include "smesh_distributed_base.hpp"
 #include "smesh_distributed_write.hpp"
+#include "smesh_alltoallv.impl.hpp"
 #include "smesh_types.hpp"
 #include "matrixio_array.h"
 
 #include <chrono>
 #include <fstream>
+#include <limits>
 
 namespace smesh {
 
@@ -108,8 +110,8 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
     local_output_size = n_global - begin;
   }
 
-  int *send_count = (int *)malloc((size) * sizeof(int));
-  memset(send_count, 0, (size) * sizeof(int));
+  i64 *send_count = (i64 *)malloc((size_t)size * sizeof(i64));
+  memset(send_count, 0, (size_t)size * sizeof(i64));
 
   for (ptrdiff_t i = 0; i < n_local; ++i) {
     const idx_t idx = mapping[i];
@@ -117,29 +119,28 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
     send_count[dest_rank]++;
   }
 
-  int *recv_count = (int *)malloc((size) * sizeof(int));
-  SMESH_MPI_CATCH(MPI_Alltoall(send_count, 1, smesh::mpi_type<idx_t>(),
-                               recv_count, 1, smesh::mpi_type<idx_t>(), comm));
+  i64 *recv_count = (i64 *)malloc((size_t)size * sizeof(i64));
+  SMESH_MPI_CATCH(MPI_Alltoall(send_count, 1, smesh::mpi_type<i64>(),
+                               recv_count, 1, smesh::mpi_type<i64>(), comm));
 
-  int *send_displs = (int *)malloc(size * sizeof(int));
-  int *recv_displs = (int *)malloc(size * sizeof(int));
+  i64 *send_displs = (i64 *)malloc(((size_t)size + 1) * sizeof(i64));
+  i64 *recv_displs = (i64 *)malloc(((size_t)size + 1) * sizeof(i64));
   ptrdiff_t *book_keeping = (ptrdiff_t *)calloc(size, sizeof(ptrdiff_t));
 
   send_displs[0] = 0;
   recv_displs[0] = 0;
 
   // Create data displacements for sending
-  for (int i = 0; i < size - 1; ++i) {
+  for (int i = 0; i < size; ++i) {
     send_displs[i + 1] = send_displs[i] + send_count[i];
   }
 
   // Create data displacements for receiving
-  for (int i = 0; i < size - 1; ++i) {
+  for (int i = 0; i < size; ++i) {
     recv_displs[i + 1] = recv_displs[i] + recv_count[i];
   }
 
-//   const ptrdiff_t total_recv = recv_displs[size - 1] + recv_count[size - 1];
-  const ptrdiff_t total_recv = (ptrdiff_t)recv_displs[size - 1] + (ptrdiff_t)recv_count[size - 1];
+  const ptrdiff_t total_recv = (ptrdiff_t)recv_displs[size];
   // #region agent log
   {
     if (total_recv > local_output_size) {
@@ -178,30 +179,47 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
     book_keeping[dest_rank]++;
   }
 
-  idx_t *recv_list = (idx_t *)malloc(local_output_size * sizeof(idx_t));
-  uint8_t *recv_data = (uint8_t *)malloc(local_output_size * type_size);
+  idx_t *recv_list = (idx_t *)malloc((size_t)total_recv * sizeof(idx_t));
+  uint8_t *recv_data =
+      (uint8_t *)malloc((size_t)total_recv * (size_t)type_size);
 
   ///////////////////////////////////
   // Send indices
   ///////////////////////////////////
 
-  SMESH_MPI_CATCH(MPI_Alltoallv(send_list, send_count, send_displs,
-                                smesh::mpi_type<idx_t>(), recv_list, recv_count,
-                                recv_displs, smesh::mpi_type<idx_t>(), comm));
+  const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
+  SMESH_MPI_CATCH(all_to_allv_64(send_list, send_count, send_displs, recv_list,
+                                 recv_count, recv_displs, comm, max_chunk_size));
 
   ///////////////////////////////////
   // Send data
   ///////////////////////////////////
 
-  SMESH_MPI_CATCH(MPI_Alltoallv(send_data_and_final_storage, send_count,
-                                send_displs, data_type, recv_data, recv_count,
-                                recv_displs, data_type, comm));
+  i64 *send_bytes_count = (i64 *)malloc((size_t)size * sizeof(i64));
+  i64 *send_bytes_displs = (i64 *)malloc(((size_t)size + 1) * sizeof(i64));
+  i64 *recv_bytes_count = (i64 *)malloc((size_t)size * sizeof(i64));
+  i64 *recv_bytes_displs = (i64 *)malloc(((size_t)size + 1) * sizeof(i64));
+  for (int r = 0; r < size; ++r) {
+    send_bytes_count[r] = send_count[r] * (i64)type_size;
+    recv_bytes_count[r] = recv_count[r] * (i64)type_size;
+    send_bytes_displs[r] = send_displs[r] * (i64)type_size;
+    recv_bytes_displs[r] = recv_displs[r] * (i64)type_size;
+  }
+  send_bytes_displs[size] = send_displs[size] * (i64)type_size;
+  recv_bytes_displs[size] = recv_displs[size] * (i64)type_size;
+  SMESH_MPI_CATCH(all_to_allv_64(send_data_and_final_storage, send_bytes_count,
+                                 send_bytes_displs, recv_data, recv_bytes_count,
+                                 recv_bytes_displs, comm, max_chunk_size));
+  free(send_bytes_count);
+  free(send_bytes_displs);
+  free(recv_bytes_count);
+  free(recv_bytes_displs);
 
   ///////////////////////////////////
   // Unpack indexed data
   ///////////////////////////////////
 
-  for (ptrdiff_t i = 0; i < local_output_size; ++i) {
+  for (ptrdiff_t i = 0; i < total_recv; ++i) {
     ptrdiff_t dest = recv_list[i] - begin;
     SMESH_ASSERT(dest >= 0);
     SMESH_ASSERT(dest < local_output_size);

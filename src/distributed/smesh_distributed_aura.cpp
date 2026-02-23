@@ -9,10 +9,10 @@
       const int *const SMESH_RESTRICT node_owner,                              \
       const ptrdiff_t *const SMESH_RESTRICT node_offsets,                      \
       const IDX_T *const SMESH_RESTRICT ghosts,                                \
-      int *const SMESH_RESTRICT send_count,                                    \
-      int *const SMESH_RESTRICT send_displs,                                   \
-      int *const SMESH_RESTRICT recv_count,                                    \
-      int *const SMESH_RESTRICT recv_displs,                                   \
+      i64 *const SMESH_RESTRICT send_count,                                    \
+      i64 *const SMESH_RESTRICT send_displs,                                   \
+      i64 *const SMESH_RESTRICT recv_count,                                    \
+      i64 *const SMESH_RESTRICT recv_displs,                                   \
       IDX_T **const SMESH_RESTRICT out_sparse_idx);                            \
   template int gather_mapped_field<IDX_T>(MPI_Comm, ptrdiff_t, ptrdiff_t,      \
                                           const IDX_T *, MPI_Datatype,         \
@@ -20,12 +20,12 @@
 
 #define SMESH_INSTANTIATE_EXCHANGE_SCATTER_ADD(IDX_T, T)                       \
   template int exchange_scatter_add<IDX_T, T>(                                 \
-      MPI_Comm, ptrdiff_t, const int *, const int *, const int *, const int *, \
+      MPI_Comm, ptrdiff_t, const i64 *, const i64 *, const i64 *, const i64 *, \
       const IDX_T *, T *, T *);                                                \
   template int exchange_gather<IDX_T, T>(                                      \
-      MPI_Comm, const ptrdiff_t, const int *const SMESH_RESTRICT,              \
-      const int *const SMESH_RESTRICT, const int *const SMESH_RESTRICT,        \
-      const int *const SMESH_RESTRICT, const IDX_T *const SMESH_RESTRICT,      \
+      MPI_Comm, const ptrdiff_t, const i64 *const SMESH_RESTRICT,              \
+      const i64 *const SMESH_RESTRICT, const i64 *const SMESH_RESTRICT,        \
+      const i64 *const SMESH_RESTRICT, const IDX_T *const SMESH_RESTRICT,      \
       T *const SMESH_RESTRICT, T *const SMESH_RESTRICT)
 
 #define SMESH_INSTANTIATE_EXCHANGE_SCATTER_ADD_FOR_IDX(IDX_T)                  \

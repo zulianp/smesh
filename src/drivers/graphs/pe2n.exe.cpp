@@ -188,10 +188,10 @@ int main(int argc, char **argv) {
     array_write(path_block / "owner.int32", owner, n_local_nodes);
 
     { // FIXME find better solution for coding this
-      int *send_count = (int *)malloc(comm_size * sizeof(int));
-      int *send_displs = (int *)malloc((comm_size + 1) * sizeof(int));
-      int *recv_count = (int *)malloc(comm_size * sizeof(int));
-      int *recv_displs = (int *)malloc((comm_size + 1) * sizeof(int));
+      i64 *send_count = (i64 *)malloc((size_t)comm_size * sizeof(i64));
+      i64 *send_displs = (i64 *)malloc(((size_t)comm_size + 1) * sizeof(i64));
+      i64 *recv_count = (i64 *)malloc((size_t)comm_size * sizeof(i64));
+      i64 *recv_displs = (i64 *)malloc(((size_t)comm_size + 1) * sizeof(i64));
       idx_t *scatter_idx = nullptr;
 
       exchange_create<idx_t>(comm->get(), n_local_nodes, n_owned, owner,
@@ -205,8 +205,7 @@ int main(int argc, char **argv) {
       }
 
       idx_t *gather_buffer = (idx_t *)malloc(
-          (recv_count[comm_size - 1] + recv_displs[comm_size - 1]) *
-          sizeof(idx_t));
+          (size_t)recv_displs[comm_size] * sizeof(idx_t));
 
       exchange_gather(comm->get(), n_owned, recv_count, recv_displs, send_count,
                       send_displs, scatter_idx, owner_global, gather_buffer);

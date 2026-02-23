@@ -2,24 +2,27 @@
 #define SMESH_ALLTOALLV_IMPL_HPP
 
 #include "smesh_base.hpp"
+#include "smesh_communicator.hpp"
 #include "smesh_distributed_base.hpp"
+#include "smesh_tracer.hpp"
 #include "smesh_types.hpp"
 
 namespace smesh {
 
-template <typename T>
-int all_to_allv_64(T *send_elements, i64 *large_send_count,
-                   i64 *large_send_displs, T *recv_elements,
-                   i64 *large_recv_count, i64 *large_recv_displs, MPI_Comm comm,
-                   i64 max_chunk_size) {
-  // MPI_Alltoallv_c ??
-  SMESH_TRACE_SCOPE("all_to_allv_64");
+inline int
+all_to_allv_64_b(const void *send_elements, const i64 *large_send_count,
+                 const i64 *large_send_displs, MPI_Datatype send_datatype,
+                 void *recv_elements, const i64 *large_recv_count,
+                 const i64 *large_recv_displs, MPI_Datatype recv_datatype,
+                 MPI_Comm comm, i64 max_chunk_size) {
 
+  using byte_t = unsigned char;
+
+  SMESH_TRACE_SCOPE("all_to_allv_64");
   SMESH_ASSERT(max_chunk_size > 0);
 
   int size;
   MPI_Comm_size(comm, &size);
-
   const i64 i32_max = (i64)std::numeric_limits<int>::max();
   // const i64 i32_max  = max_chunk_size * size;
 
@@ -47,7 +50,6 @@ int all_to_allv_64(T *send_elements, i64 *large_send_count,
                                 MPI_MIN, comm));
 
   const i64 n_rounds = div_round_up(global_max_peer_count, max_chunk_size);
-  printf("n_rounds: %lld\n", n_rounds);
 
   int *send_displs = (int *)calloc(size + 1, sizeof(int));
   int *send_count = (int *)calloc(size, sizeof(int));
@@ -63,8 +65,8 @@ int all_to_allv_64(T *send_elements, i64 *large_send_count,
     }
 
     SMESH_MPI_CATCH(MPI_Alltoallv(send_elements, send_count, send_displs,
-                                  mpi_type<T>(), recv_elements, recv_count,
-                                  recv_displs, mpi_type<T>(), comm));
+                                  send_datatype, recv_elements, recv_count,
+                                  recv_displs, recv_datatype, comm));
   } else {
     SMESH_ASSERT(max_chunk_size <= i32_max);
     SMESH_ASSERT((i64)size * max_chunk_size <= i32_max);
@@ -72,8 +74,15 @@ int all_to_allv_64(T *send_elements, i64 *large_send_count,
     i64 *send_offsets = (i64 *)calloc(size, sizeof(i64));
     i64 *recv_offsets = (i64 *)calloc(size, sizeof(i64));
 
-    T *send_buffer = (T *)malloc((size_t)local_send_buffer_size * sizeof(T));
-    T *recv_buffer = (T *)malloc((size_t)local_recv_buffer_size * sizeof(T));
+    int send_type_size;
+    int recv_type_size;
+    SMESH_MPI_CATCH(MPI_Type_size(send_datatype, &send_type_size));
+    SMESH_MPI_CATCH(MPI_Type_size(recv_datatype, &recv_type_size));
+
+    byte_t *send_buffer =
+        (byte_t *)malloc((size_t)local_send_buffer_size * send_type_size);
+    byte_t *recv_buffer =
+        (byte_t *)malloc((size_t)local_recv_buffer_size * recv_type_size);
 
     for (i64 round = 0; round < n_rounds; round++) {
       send_displs[0] = 0;
@@ -89,8 +98,9 @@ int all_to_allv_64(T *send_elements, i64 *large_send_count,
 
         if (send_chunk) {
           const i64 send_begin = large_send_displs[r] + send_offsets[r];
-          memcpy(&send_buffer[send_displs[r]], &send_elements[send_begin],
-                 (size_t)send_chunk * sizeof(T));
+          memcpy(&send_buffer[send_displs[r] * send_type_size],
+                 &((byte_t *)send_elements)[send_begin * send_type_size],
+                 (size_t)send_chunk * send_type_size);
           send_offsets[r] += send_chunk;
         }
 
@@ -103,8 +113,8 @@ int all_to_allv_64(T *send_elements, i64 *large_send_count,
       }
 
       SMESH_MPI_CATCH(MPI_Alltoallv(send_buffer, send_count, send_displs,
-                                    mpi_type<T>(), recv_buffer, recv_count,
-                                    recv_displs, mpi_type<T>(), comm));
+                                    send_datatype, recv_buffer, recv_count,
+                                    recv_displs, recv_datatype, comm));
 
       for (int r = 0; r < size; r++) {
         const int recv_chunk = recv_count[r];
@@ -112,8 +122,9 @@ int all_to_allv_64(T *send_elements, i64 *large_send_count,
           continue;
 
         const i64 recv_begin = large_recv_displs[r] + recv_offsets[r];
-        memcpy(&recv_elements[recv_begin], &recv_buffer[recv_displs[r]],
-               (size_t)recv_chunk * sizeof(T));
+        memcpy(&((byte_t *)recv_elements)[recv_begin * recv_type_size],
+               &recv_buffer[recv_displs[r] * recv_type_size],
+               (size_t)recv_chunk * recv_type_size);
         recv_offsets[r] += recv_chunk;
       }
     }
@@ -129,6 +140,18 @@ int all_to_allv_64(T *send_elements, i64 *large_send_count,
   free(recv_displs);
   free(recv_count);
   return SMESH_SUCCESS;
+}
+
+template <typename T>
+int all_to_allv_64(const T *send_elements, const i64 *large_send_count,
+                   const i64 *large_send_displs, T *recv_elements,
+                   const i64 *large_recv_count, const i64 *large_recv_displs,
+                   MPI_Comm comm, i64 max_chunk_size) {
+
+  return all_to_allv_64_b(send_elements, large_send_count, large_send_displs,
+                          mpi_type<T>(), recv_elements, large_recv_count,
+                          large_recv_displs, mpi_type<T>(), comm,
+                          max_chunk_size);
 }
 
 } // namespace smesh

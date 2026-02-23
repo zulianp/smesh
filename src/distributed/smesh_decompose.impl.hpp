@@ -7,6 +7,7 @@
 #include "smesh_sort.hpp"
 #include "smesh_tracer.hpp"
 #include <algorithm>
+#include <limits>
 #include <mpi.h>
 #include <stddef.h>
 
@@ -39,11 +40,11 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
                      count_t **const SMESH_RESTRICT out_local_n2e_ptr,
                      element_idx_t **const SMESH_RESTRICT out_local_n2e_idx) {
   SMESH_TRACE_SCOPE("redistribute_n2e");
-  int *send_elements_displs = (int *)calloc(comm_size + 1, sizeof(int));
-  int *send_elements_count = (int *)calloc(comm_size, sizeof(int));
+  i64 *send_elements_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
+  i64 *send_elements_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
 
-  int *send_nodes_count = (int *)calloc(comm_size, sizeof(int));
-  int *send_nodes_displs = (int *)calloc(comm_size + 1, sizeof(int));
+  i64 *send_nodes_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
+  i64 *send_nodes_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
 
   ptrdiff_t max_adj_count = 0;
   for (ptrdiff_t i = 0; i < n_local2global; ++i) {
@@ -88,14 +89,15 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
     send_nodes_displs[r + 1] += send_nodes_displs[r];
   }
 
-  const ptrdiff_t send_elements_size = send_elements_displs[comm_size];
-  element_idx_t *send_elements =
-      (element_idx_t *)malloc(send_elements_size * sizeof(element_idx_t));
+  const i64 send_elements_size = send_elements_displs[comm_size];
+  element_idx_t *send_elements = (element_idx_t *)malloc(
+      (size_t)send_elements_size * sizeof(element_idx_t));
 
-  const ptrdiff_t send_nodes_size = send_nodes_displs[comm_size];
-  idx_t *send_nodes = (idx_t *)malloc(send_nodes_size * sizeof(idx_t));
+  const i64 send_nodes_size = send_nodes_displs[comm_size];
+  idx_t *send_nodes =
+      (idx_t *)malloc((size_t)send_nodes_size * sizeof(idx_t));
   count_t *send_n2e_count =
-      (count_t *)malloc(send_nodes_size * sizeof(count_t));
+      (count_t *)malloc((size_t)send_nodes_size * sizeof(count_t));
 
   ptrdiff_t node_start = rank_start(n_global_nodes, comm_size, comm_rank);
   for (ptrdiff_t i = 0; i < n_local2global; ++i) {
@@ -116,29 +118,32 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
 
     for (size_t r = 0; r < n_connected_ranks; ++r) {
       const int cr = connected_ranks[r];
-      const int node_pos = send_nodes_displs[cr] + send_nodes_count[cr];
+      const i64 node_pos = send_nodes_displs[cr] + send_nodes_count[cr];
       send_nodes[node_pos] = node_start + i;
       send_n2e_count[node_pos] = e_end - e_begin;
 
       send_nodes_count[cr]++;
       for (ptrdiff_t e = e_begin; e < e_end; ++e) {
         const element_idx_t element_idx = n2e_idx[e];
-        send_elements[send_elements_displs[cr] + send_elements_count[cr]++] =
-            element_idx;
+        const i64 element_pos =
+            send_elements_displs[cr] + send_elements_count[cr]++;
+        send_elements[element_pos] = element_idx;
       }
     }
   }
 
-  int *recv_nodes_count = (int *)calloc(comm_size, sizeof(int));
-  int *recv_elements_count = (int *)calloc(comm_size, sizeof(int));
-  MPI_Alltoall(send_nodes_count, 1, MPI_INT, recv_nodes_count, 1, MPI_INT,
-               comm);
+  i64 *recv_nodes_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
+  i64 *recv_elements_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
+  MPI_Alltoall(send_nodes_count, 1, mpi_type<i64>(), recv_nodes_count, 1,
+               mpi_type<i64>(), comm);
 
-  MPI_Alltoall(send_elements_count, 1, MPI_INT, recv_elements_count, 1, MPI_INT,
-               comm);
+  MPI_Alltoall(send_elements_count, 1, mpi_type<i64>(), recv_elements_count, 1,
+               mpi_type<i64>(), comm);
 
-  int *recv_nodes_displs = (int *)malloc((comm_size + 1) * sizeof(int));
-  int *recv_elements_displs = (int *)malloc((comm_size + 1) * sizeof(int));
+  i64 *recv_nodes_displs =
+      (i64 *)malloc(((size_t)comm_size + 1) * sizeof(i64));
+  i64 *recv_elements_displs =
+      (i64 *)malloc(((size_t)comm_size + 1) * sizeof(i64));
   recv_nodes_displs[0] = 0;
   recv_elements_displs[0] = 0;
   for (int r = 0; r < comm_size; r++) {
@@ -147,33 +152,37 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
         recv_elements_displs[r] + recv_elements_count[r];
   }
 
-  const ptrdiff_t local2global_size = recv_nodes_displs[comm_size];
-  idx_t *local2global = (idx_t *)malloc(local2global_size * sizeof(idx_t));
+  const ptrdiff_t local2global_size = (ptrdiff_t)recv_nodes_displs[comm_size];
+  idx_t *local2global =
+      (idx_t *)malloc((size_t)local2global_size * sizeof(idx_t));
 
   count_t *local_n2e_ptr =
       (count_t *)malloc((local2global_size + 1) * sizeof(count_t));
 
-  const ptrdiff_t local_n2e_size = recv_elements_displs[comm_size];
-  element_idx_t *local_n2e_idx =
-      (element_idx_t *)malloc(local_n2e_size * sizeof(element_idx_t));
+  const ptrdiff_t local_n2e_size =
+      (ptrdiff_t)recv_elements_displs[comm_size];
+  element_idx_t *local_n2e_idx = (element_idx_t *)malloc(
+      (size_t)local_n2e_size * sizeof(element_idx_t));
 
-  MPI_Alltoallv(send_nodes, send_nodes_count, send_nodes_displs,
-                smesh::mpi_type<idx_t>(), local2global, recv_nodes_count,
-                recv_nodes_displs, smesh::mpi_type<idx_t>(), comm);
+  const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / comm_size;
+  SMESH_MPI_CATCH(all_to_allv_64(send_nodes, send_nodes_count, send_nodes_displs,
+                                 local2global, recv_nodes_count,
+                                 recv_nodes_displs, comm, max_chunk_size));
 
   local_n2e_ptr[0] = 0;
-  MPI_Alltoallv(send_n2e_count, send_nodes_count, send_nodes_displs,
-                smesh::mpi_type<count_t>(), &local_n2e_ptr[1], recv_nodes_count,
-                recv_nodes_displs, smesh::mpi_type<count_t>(), comm);
+  SMESH_MPI_CATCH(all_to_allv_64(send_n2e_count, send_nodes_count,
+                                 send_nodes_displs, &local_n2e_ptr[1],
+                                 recv_nodes_count, recv_nodes_displs, comm,
+                                 max_chunk_size));
 
-  for (int r = 0; r < local2global_size; r++) {
+  for (ptrdiff_t r = 0; r < local2global_size; r++) {
     local_n2e_ptr[r + 1] += local_n2e_ptr[r];
   }
 
-  MPI_Alltoallv(send_elements, send_elements_count, send_elements_displs,
-                smesh::mpi_type<element_idx_t>(), local_n2e_idx,
-                recv_elements_count, recv_elements_displs,
-                smesh::mpi_type<element_idx_t>(), comm);
+  SMESH_MPI_CATCH(all_to_allv_64(send_elements, send_elements_count,
+                                 send_elements_displs, local_n2e_idx,
+                                 recv_elements_count, recv_elements_displs,
+                                 comm, max_chunk_size));
 
   // Free internal send/recv buffers; keep only outputs.
   free(connected_ranks);
@@ -529,8 +538,8 @@ int expand_aura_elements_inconsistent(
   const ptrdiff_t n_unique_remote =
       static_cast<ptrdiff_t>(sort_and_unique(remote_elements, n_remote));
 
-  int *send_count = (int *)calloc(comm_size, sizeof(int));
-  int *send_displs = (int *)calloc(comm_size + 1, sizeof(int));
+  i64 *send_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
+  i64 *send_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
   for (ptrdiff_t i = 0; i < n_unique_remote; ++i) {
     const int owner =
         rank_owner(n_global_elements, remote_elements[i], comm_size);
@@ -552,24 +561,25 @@ int expand_aura_elements_inconsistent(
 
   free(remote_elements);
 
-  int *recv_count = (int *)calloc(comm_size, sizeof(int));
-  int *recv_displs = (int *)malloc((comm_size + 1) * sizeof(int));
+  i64 *recv_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
+  i64 *recv_displs = (i64 *)malloc(((size_t)comm_size + 1) * sizeof(i64));
   SMESH_MPI_CATCH(
-      MPI_Alltoall(send_count, 1, MPI_INT, recv_count, 1, MPI_INT, comm));
+      MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1,
+                   mpi_type<i64>(), comm));
 
   recv_displs[0] = 0;
   for (int r = 0; r < comm_size; ++r) {
     recv_displs[r + 1] = recv_displs[r] + recv_count[r];
   }
 
-  const ptrdiff_t recv_size = recv_displs[comm_size];
+  const i64 recv_size = recv_displs[comm_size];
   element_idx_t *recv_elements = (element_idx_t *)malloc(
       static_cast<size_t>(recv_size) * sizeof(element_idx_t));
 
-  SMESH_MPI_CATCH(MPI_Alltoallv(send_elements, send_count, send_displs,
-                                smesh::mpi_type<element_idx_t>(), recv_elements,
-                                recv_count, recv_displs,
-                                smesh::mpi_type<element_idx_t>(), comm));
+  const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / comm_size;
+  SMESH_MPI_CATCH(all_to_allv_64(send_elements, send_count, send_displs,
+                                 recv_elements, recv_count, recv_displs, comm,
+                                 max_chunk_size));
 
   element_idx_t *old_to_new = (element_idx_t *)malloc(
       static_cast<size_t>(n_local_elements) * sizeof(element_idx_t));
@@ -583,7 +593,7 @@ int expand_aura_elements_inconsistent(
   for (int d = 0; d < nnodesxelem; ++d) {
     idx_t *send_nodes =
         (idx_t *)malloc(static_cast<size_t>(recv_size) * sizeof(idx_t));
-    for (ptrdiff_t i = 0; i < recv_size; ++i) {
+    for (i64 i = 0; i < recv_size; ++i) {
       const element_idx_t element_old = recv_elements[i];
       const ptrdiff_t old_off =
           static_cast<ptrdiff_t>(element_old - elements_start);
@@ -593,9 +603,9 @@ int expand_aura_elements_inconsistent(
 
     idx_t *recv_nodes = (idx_t *)malloc(
         static_cast<size_t>(send_displs[comm_size]) * sizeof(idx_t));
-    SMESH_MPI_CATCH(MPI_Alltoallv(
-        send_nodes, recv_count, recv_displs, smesh::mpi_type<idx_t>(),
-        recv_nodes, send_count, send_displs, smesh::mpi_type<idx_t>(), comm));
+    SMESH_MPI_CATCH(all_to_allv_64(send_nodes, recv_count, recv_displs,
+                                   recv_nodes, send_count, send_displs, comm,
+                                   max_chunk_size));
 
     out_aura_element_nodes[d] = recv_nodes;
     free(send_nodes);
@@ -629,10 +639,10 @@ int prepare_node_renumbering(MPI_Comm comm, const ptrdiff_t n_global_nodes,
   const ptrdiff_t nodes_start =
       rank_start(n_global_nodes, comm_size, comm_rank);
 
-  int *send_nodes_count = (int *)calloc(comm_size, sizeof(int));
-  int *send_nodes_displs = (int *)calloc(comm_size + 1, sizeof(int));
-  int *recv_nodes_count = (int *)calloc(comm_size, sizeof(int));
-  int *recv_nodes_displs = (int *)calloc(comm_size + 1, sizeof(int));
+  i64 *send_nodes_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
+  i64 *send_nodes_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
+  i64 *recv_nodes_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
+  i64 *recv_nodes_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
 
   for (ptrdiff_t i = 0; i < n_owned_nodes; ++i) {
     const int owner = rank_owner(n_global_nodes, local2global[i], comm_size);
@@ -644,9 +654,9 @@ int prepare_node_renumbering(MPI_Comm comm, const ptrdiff_t n_global_nodes,
   }
 
   idx_t *send_nodes =
-      (idx_t *)malloc(send_nodes_displs[comm_size] * sizeof(idx_t));
+      (idx_t *)malloc((size_t)send_nodes_displs[comm_size] * sizeof(idx_t));
   idx_t *send_nodes_mapping =
-      (idx_t *)malloc(send_nodes_displs[comm_size] * sizeof(idx_t));
+      (idx_t *)malloc((size_t)send_nodes_displs[comm_size] * sizeof(idx_t));
   for (ptrdiff_t i = 0; i < n_owned_nodes; ++i) {
     const int owner = rank_owner(n_global_nodes, local2global[i], comm_size);
     send_nodes_mapping[send_nodes_displs[owner] + send_nodes_count[owner]] =
@@ -656,24 +666,26 @@ int prepare_node_renumbering(MPI_Comm comm, const ptrdiff_t n_global_nodes,
     send_nodes_count[owner]++;
   }
 
-  MPI_Alltoall(send_nodes_count, 1, MPI_INT, recv_nodes_count, 1, MPI_INT,
-               comm);
+  SMESH_MPI_CATCH(MPI_Alltoall(send_nodes_count, 1, mpi_type<i64>(),
+                               recv_nodes_count, 1, mpi_type<i64>(), comm));
   recv_nodes_displs[0] = 0;
   for (ptrdiff_t i = 0; i < comm_size; ++i) {
-    recv_nodes_displs[i + 1] += recv_nodes_displs[i] + recv_nodes_count[i];
+    recv_nodes_displs[i + 1] = recv_nodes_displs[i] + recv_nodes_count[i];
   }
 
+  const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / comm_size;
   idx_t *recv_nodes =
-      (idx_t *)malloc(recv_nodes_displs[comm_size] * sizeof(idx_t));
-  MPI_Alltoallv(send_nodes, send_nodes_count, send_nodes_displs,
-                smesh::mpi_type<idx_t>(), recv_nodes, recv_nodes_count,
-                recv_nodes_displs, smesh::mpi_type<idx_t>(), comm);
+      (idx_t *)malloc((size_t)recv_nodes_displs[comm_size] * sizeof(idx_t));
+  SMESH_MPI_CATCH(all_to_allv_64(send_nodes, send_nodes_count, send_nodes_displs,
+                                 recv_nodes, recv_nodes_count, recv_nodes_displs,
+                                 comm, max_chunk_size));
 
   idx_t *recv_nodes_mapping =
-      (idx_t *)malloc(recv_nodes_displs[comm_size] * sizeof(idx_t));
-  MPI_Alltoallv(send_nodes_mapping, send_nodes_count, send_nodes_displs,
-                smesh::mpi_type<idx_t>(), recv_nodes_mapping, recv_nodes_count,
-                recv_nodes_displs, smesh::mpi_type<idx_t>(), comm);
+      (idx_t *)malloc((size_t)recv_nodes_displs[comm_size] * sizeof(idx_t));
+  SMESH_MPI_CATCH(all_to_allv_64(send_nodes_mapping, send_nodes_count,
+                                 send_nodes_displs, recv_nodes_mapping,
+                                 recv_nodes_count, recv_nodes_displs, comm,
+                                 max_chunk_size));
 
   for (ptrdiff_t i = 0; i < recv_nodes_displs[comm_size]; ++i) {
     global2owned[recv_nodes_mapping[i] - nodes_start] = recv_nodes[i];
@@ -915,10 +927,10 @@ int collect_ghost_and_aura_import_indices(
   const ptrdiff_t nodes_start =
       rank_start(n_global_nodes, comm_size, comm_rank);
 
-  int *send_count = (int *)calloc(comm_size, sizeof(int));
-  int *send_displs = (int *)calloc(comm_size + 1, sizeof(int));
-  int *recv_count = (int *)calloc(comm_size, sizeof(int));
-  int *recv_displs = (int *)calloc(comm_size + 1, sizeof(int));
+  i64 *send_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
+  i64 *send_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
+  i64 *recv_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
+  i64 *recv_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
 
   for (ptrdiff_t i = 0; i < n_import; ++i) {
     const idx_t g = local2global[n_owned_nodes + i];
@@ -934,19 +946,20 @@ int collect_ghost_and_aura_import_indices(
       (idx_t *)malloc(static_cast<size_t>(n_import) * sizeof(idx_t));
   idx_t *send_pos =
       (idx_t *)malloc(static_cast<size_t>(n_import) * sizeof(idx_t));
-  int *cursor = (int *)calloc(comm_size, sizeof(int));
+  i64 *cursor = (i64 *)calloc((size_t)comm_size, sizeof(i64));
 
   for (ptrdiff_t i = 0; i < n_import; ++i) {
     const idx_t g = local2global[n_owned_nodes + i];
     const int owner = rank_owner(n_global_nodes, g, comm_size);
-    const int slot = send_displs[owner] + cursor[owner]++;
+    const i64 slot = send_displs[owner] + cursor[owner]++;
     send_nodes[slot] = g;
     send_pos[slot] = static_cast<idx_t>(i);
     send_count[owner]++;
   }
 
   SMESH_MPI_CATCH(
-      MPI_Alltoall(send_count, 1, MPI_INT, recv_count, 1, MPI_INT, comm));
+      MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1,
+                   mpi_type<i64>(), comm));
 
   recv_displs[0] = 0;
   for (int r = 0; r < comm_size; ++r) {
@@ -959,24 +972,21 @@ int collect_ghost_and_aura_import_indices(
   idx_t *recv_pos =
       (idx_t *)malloc(static_cast<size_t>(recv_total) * sizeof(idx_t));
 
-  SMESH_MPI_CATCH(MPI_Alltoallv(
-      send_nodes, send_count, send_displs, smesh::mpi_type<idx_t>(), recv_nodes,
-      recv_count, recv_displs, smesh::mpi_type<idx_t>(), comm));
-  SMESH_MPI_CATCH(MPI_Alltoallv(send_pos, send_count, send_displs,
-                                smesh::mpi_type<idx_t>(), recv_pos, recv_count,
-                                recv_displs, smesh::mpi_type<idx_t>(), comm));
+  const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / comm_size;
+  SMESH_MPI_CATCH(all_to_allv_64(send_nodes, send_count, send_displs, recv_nodes,
+                                 recv_count, recv_displs, comm, max_chunk_size));
+  SMESH_MPI_CATCH(all_to_allv_64(send_pos, send_count, send_displs, recv_pos,
+                                 recv_count, recv_displs, comm, max_chunk_size));
 
   for (ptrdiff_t i = 0; i < recv_total; ++i) {
     recv_nodes[i] =
         global2owned[static_cast<ptrdiff_t>(recv_nodes[i] - nodes_start)];
   }
 
-  SMESH_MPI_CATCH(MPI_Alltoallv(
-      recv_nodes, recv_count, recv_displs, smesh::mpi_type<idx_t>(), send_nodes,
-      send_count, send_displs, smesh::mpi_type<idx_t>(), comm));
-  SMESH_MPI_CATCH(MPI_Alltoallv(recv_pos, recv_count, recv_displs,
-                                smesh::mpi_type<idx_t>(), send_pos, send_count,
-                                send_displs, smesh::mpi_type<idx_t>(), comm));
+  SMESH_MPI_CATCH(all_to_allv_64(recv_nodes, recv_count, recv_displs, send_nodes,
+                                 send_count, send_displs, comm, max_chunk_size));
+  SMESH_MPI_CATCH(all_to_allv_64(recv_pos, recv_count, recv_displs, send_pos,
+                                 send_count, send_displs, comm, max_chunk_size));
 
   for (ptrdiff_t i = 0; i < n_import; ++i) {
     ghost_and_aura_to_owned[send_pos[i]] = send_nodes[i];

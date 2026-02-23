@@ -16,10 +16,10 @@ public:
   std::shared_ptr<Communicator> comm;
   ptrdiff_t nnodes;
   ptrdiff_t n_owned_nodes;
-  SharedBuffer<int> send_count;
-  SharedBuffer<int> send_displs;
-  SharedBuffer<int> recv_count;
-  SharedBuffer<int> recv_displs;
+  SharedBuffer<i64> send_count;
+  SharedBuffer<i64> send_displs;
+  SharedBuffer<i64> recv_count;
+  SharedBuffer<i64> recv_displs;
   SharedBuffer<idx_t> sparse_idx;
   SharedBuffer<char> buffer;
   Impl(const std::shared_ptr<Communicator> &comm) : comm(comm) {}
@@ -52,10 +52,10 @@ Exchange::create(const std::shared_ptr<Communicator> &comm,
   auto ret = std::make_shared<Exchange>(comm);
   ret->impl_->nnodes = nnodes;
   ret->impl_->n_owned_nodes = n_owned_nodes;
-  ret->impl_->send_count = create_host_buffer<int>(size);
-  ret->impl_->send_displs = create_host_buffer<int>(size + 1);
-  ret->impl_->recv_count = create_host_buffer<int>(size);
-  ret->impl_->recv_displs = create_host_buffer<int>(size + 1);
+  ret->impl_->send_count = create_host_buffer<i64>(size);
+  ret->impl_->send_displs = create_host_buffer<i64>(size + 1);
+  ret->impl_->recv_count = create_host_buffer<i64>(size);
+  ret->impl_->recv_displs = create_host_buffer<i64>(size + 1);
   ret->impl_->sparse_idx = create_host_buffer<idx_t>(nnodes);
 
   idx_t *sparse_idx = nullptr;
@@ -65,12 +65,11 @@ Exchange::create(const std::shared_ptr<Communicator> &comm,
                   ret->impl_->recv_count->data(),
                   ret->impl_->recv_displs->data(), &sparse_idx);
 
-  auto recv_count = ret->impl_->recv_count->data();
   auto recv_displs = ret->impl_->recv_displs->data();
-  ptrdiff_t buffer_size = recv_count[size - 1] + recv_displs[size - 1];
+  const ptrdiff_t buffer_size = recv_count[size - 1] + recv_displs[size - 1];
 
   ret->impl_->sparse_idx =
-      manage_host_buffer<idx_t>(recv_displs[size], sparse_idx);
+      manage_host_buffer<idx_t>((ptrdiff_t)recv_displs[size], sparse_idx);
   ret->impl_->buffer =
       create_host_buffer<char>(buffer_size * SIZE_LARGEST_TYPE);
 
