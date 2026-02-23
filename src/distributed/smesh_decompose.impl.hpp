@@ -27,20 +27,20 @@ static bool is_sorted(const idx_t *const SMESH_RESTRICT arr,
   return ret;
 }
 
-template <typename idx_t, typename count_t, typename element_idx_t>
-int create_n2e(MPI_Comm comm, const ptrdiff_t n_local_elements,
-               const ptrdiff_t n_global_elements, const ptrdiff_t n_local_nodes,
-               const ptrdiff_t n_global_nodes, const int nnodesxelem,
-               const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
-               count_t **out_n2eptr, element_idx_t **out_n2e_idx) {
-  // return create_n2e_small(comm, n_local_elements, n_global_elements,
-  //                         n_local_nodes, n_global_nodes, nnodesxelem, elements,
-  //                         out_n2eptr, out_n2e_idx);
+// template <typename idx_t, typename count_t, typename element_idx_t>
+// int create_n2e(MPI_Comm comm, const ptrdiff_t n_local_elements,
+//                const ptrdiff_t n_global_elements, const ptrdiff_t n_local_nodes,
+//                const ptrdiff_t n_global_nodes, const int nnodesxelem,
+//                const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+//                count_t **out_n2eptr, element_idx_t **out_n2e_idx) {
+//   // return create_n2e_small(comm, n_local_elements, n_global_elements,
+//   //                         n_local_nodes, n_global_nodes, nnodesxelem, elements,
+//   //                         out_n2eptr, out_n2e_idx);
 
-  return create_n2e_large(comm, n_local_elements, n_global_elements,
-    n_local_nodes, n_global_nodes, nnodesxelem, elements,
-    out_n2eptr, out_n2e_idx);
-}
+//   return create_n2e_large(comm, n_local_elements, n_global_elements,
+//     n_local_nodes, n_global_nodes, nnodesxelem, elements,
+//     out_n2eptr, out_n2e_idx);
+// }
 
 template <typename idx_t, typename count_t, typename element_idx_t>
 int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,

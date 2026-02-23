@@ -1,0 +1,135 @@
+#ifndef SMESH_ALLTOALLV_IMPL_HPP
+#define SMESH_ALLTOALLV_IMPL_HPP
+
+#include "smesh_base.hpp"
+#include "smesh_distributed_base.hpp"
+#include "smesh_types.hpp"
+
+namespace smesh {
+
+template <typename T>
+int all_to_allv_64(T *send_elements, i64 *large_send_count,
+                   i64 *large_send_displs, T *recv_elements,
+                   i64 *large_recv_count, i64 *large_recv_displs, MPI_Comm comm,
+                   i64 max_chunk_size) {
+  // MPI_Alltoallv_c ??
+  SMESH_TRACE_SCOPE("all_to_allv_64");
+
+  SMESH_ASSERT(max_chunk_size > 0);
+
+  int size;
+  MPI_Comm_size(comm, &size);
+
+  const i64 i32_max = (i64)std::numeric_limits<int>::max();
+  // const i64 i32_max  = max_chunk_size * size;
+
+  i64 local_max_peer_count = 0;
+  i64 local_send_buffer_size = 0;
+  i64 local_recv_buffer_size = 0;
+  for (int r = 0; r < size; r++) {
+    local_max_peer_count = std::max(local_max_peer_count, large_send_count[r]);
+    local_max_peer_count = std::max(local_max_peer_count, large_recv_count[r]);
+    local_send_buffer_size += std::min(max_chunk_size, large_send_count[r]);
+    local_recv_buffer_size += std::min(max_chunk_size, large_recv_count[r]);
+  }
+
+  i64 global_max_peer_count = 0;
+  SMESH_MPI_CATCH(MPI_Allreduce(&local_max_peer_count, &global_max_peer_count,
+                                1, mpi_type<i64>(), MPI_MAX, comm));
+
+  const int local_fits_i32 =
+      (local_max_peer_count <= i32_max && large_send_displs[size] <= i32_max &&
+       large_recv_displs[size] <= i32_max)
+          ? 1
+          : 0;
+  int global_fits_i32 = 0;
+  SMESH_MPI_CATCH(MPI_Allreduce(&local_fits_i32, &global_fits_i32, 1, MPI_INT,
+                                MPI_MIN, comm));
+
+  const i64 n_rounds = div_round_up(global_max_peer_count, max_chunk_size);
+  printf("n_rounds: %lld\n", n_rounds);
+
+  int *send_displs = (int *)calloc(size + 1, sizeof(int));
+  int *send_count = (int *)calloc(size, sizeof(int));
+  int *recv_displs = (int *)calloc((size + 1), sizeof(int));
+  int *recv_count = (int *)calloc(size, sizeof(int));
+
+  if (global_fits_i32) {
+    for (int r = 0; r < size; r++) {
+      send_count[r] = (int)large_send_count[r];
+      recv_count[r] = (int)large_recv_count[r];
+      send_displs[r] = (int)large_send_displs[r];
+      recv_displs[r] = (int)large_recv_displs[r];
+    }
+
+    SMESH_MPI_CATCH(MPI_Alltoallv(send_elements, send_count, send_displs,
+                                  mpi_type<T>(), recv_elements, recv_count,
+                                  recv_displs, mpi_type<T>(), comm));
+  } else {
+    SMESH_ASSERT(max_chunk_size <= i32_max);
+    SMESH_ASSERT((i64)size * max_chunk_size <= i32_max);
+
+    i64 *send_offsets = (i64 *)calloc(size, sizeof(i64));
+    i64 *recv_offsets = (i64 *)calloc(size, sizeof(i64));
+
+    T *send_buffer = (T *)malloc((size_t)local_send_buffer_size * sizeof(T));
+    T *recv_buffer = (T *)malloc((size_t)local_recv_buffer_size * sizeof(T));
+
+    for (i64 round = 0; round < n_rounds; round++) {
+      send_displs[0] = 0;
+      recv_displs[0] = 0;
+
+      for (int r = 0; r < size; r++) {
+        const i64 send_remaining = large_send_count[r] - send_offsets[r];
+        const int send_chunk =
+            (send_remaining > 0) ? (int)std::min(max_chunk_size, send_remaining)
+                                 : 0;
+        send_count[r] = send_chunk;
+        send_displs[r + 1] = send_displs[r] + send_chunk;
+
+        if (send_chunk) {
+          const i64 send_begin = large_send_displs[r] + send_offsets[r];
+          memcpy(&send_buffer[send_displs[r]], &send_elements[send_begin],
+                 (size_t)send_chunk * sizeof(T));
+          send_offsets[r] += send_chunk;
+        }
+
+        const i64 recv_remaining = large_recv_count[r] - recv_offsets[r];
+        const int recv_chunk =
+            (recv_remaining > 0) ? (int)std::min(max_chunk_size, recv_remaining)
+                                 : 0;
+        recv_count[r] = recv_chunk;
+        recv_displs[r + 1] = recv_displs[r] + recv_chunk;
+      }
+
+      SMESH_MPI_CATCH(MPI_Alltoallv(send_buffer, send_count, send_displs,
+                                    mpi_type<T>(), recv_buffer, recv_count,
+                                    recv_displs, mpi_type<T>(), comm));
+
+      for (int r = 0; r < size; r++) {
+        const int recv_chunk = recv_count[r];
+        if (!recv_chunk)
+          continue;
+
+        const i64 recv_begin = large_recv_displs[r] + recv_offsets[r];
+        memcpy(&recv_elements[recv_begin], &recv_buffer[recv_displs[r]],
+               (size_t)recv_chunk * sizeof(T));
+        recv_offsets[r] += recv_chunk;
+      }
+    }
+
+    free(send_buffer);
+    free(recv_buffer);
+    free(send_offsets);
+    free(recv_offsets);
+  }
+
+  free(send_displs);
+  free(send_count);
+  free(recv_displs);
+  free(recv_count);
+  return SMESH_SUCCESS;
+}
+
+} // namespace smesh
+#endif // SMESH_ALLTOALLV_IMPL_HPP
