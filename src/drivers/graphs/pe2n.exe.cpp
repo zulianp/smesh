@@ -18,6 +18,8 @@
 
 using namespace smesh;
 
+using l2g_t = idx_t;
+
 int main(int argc, char **argv) {
 
   SMESH_TRACE_SCOPE("pe2n.exe");
@@ -69,7 +71,8 @@ int main(int argc, char **argv) {
     sort_n2e<count_t, element_idx_t>(n_local2global, n2eptr, n2e_idx);
 
     ptrdiff_t local2global_size = 0;
-    idx_t *local2global = nullptr;
+    // idx_t *local2global = nullptr;
+    l2g_t *local2global = nullptr;
     count_t *local_n2e_ptr = nullptr;
     element_idx_t *local_n2e_idx = nullptr;
     redistribute_n2e(comm->get(), comm_size, comm_rank, n_local2global,
@@ -139,7 +142,7 @@ int main(int argc, char **argv) {
         (ptrdiff_t *)malloc((comm_size + 1) * sizeof(ptrdiff_t));
     node_ownership_ranges(comm->get(), n_owned, owned_node_ranges);
 
-    idx_t *local2global_with_aura = nullptr;
+    l2g_t *local2global_with_aura = nullptr;
     ptrdiff_t n_aura_nodes = 0;
     stitch_aura_elements(comm->get(), n_owned, n_shared, n_ghosts, local2global,
                          nnodesxelem, n_aura_elements, aura_element_nodes,
