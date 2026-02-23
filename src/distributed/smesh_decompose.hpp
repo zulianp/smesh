@@ -59,6 +59,9 @@ inline int rank_owner(const ptrdiff_t n, const ptrdiff_t gidx,
   }
 }
 
+// TODO add a separate template parameter for local2global type where it appears in smesh_decompose.*
+
+
 template <typename idx_t, typename count_t, typename element_idx_t>
 int create_n2e(MPI_Comm comm, const ptrdiff_t n_local_elements,
                const ptrdiff_t n_global_elements, const ptrdiff_t n_local_nodes,

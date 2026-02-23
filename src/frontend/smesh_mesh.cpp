@@ -126,9 +126,9 @@ public:
   SharedBuffer<geom_t *> points; // Node coordinates
 
   // MPI-related data using Buffers
-  SharedBuffer<idx_t> node_mapping;
+  SharedBuffer<large_idx_t> node_mapping;
   SharedBuffer<int> node_owner;
-  SharedBuffer<element_idx_t> element_mapping;
+  SharedBuffer<large_idx_t> element_mapping;
   SharedBuffer<ptrdiff_t> node_offsets;
   SharedBuffer<idx_t> ghosts;
 
@@ -337,8 +337,8 @@ int Mesh::read(const Path &path) {
     geom_t **points;
     ptrdiff_t n_owned_nodes;
     ptrdiff_t n_owned_elements;
-    element_idx_t *element_mapping;
-    idx_t *node_mapping;
+    large_idx_t *element_mapping;
+    large_idx_t *node_mapping;
     int *node_owner;
     ptrdiff_t *node_offsets;
     idx_t *ghosts;
@@ -370,10 +370,10 @@ int Mesh::read(const Path &path) {
     impl_->spatial_dim = spatial_dim;
     impl_->nnodes = nnodes;
     impl_->points = manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
-    impl_->node_mapping = manage_host_buffer<idx_t>(nnodes, node_mapping);
+    impl_->node_mapping = manage_host_buffer<large_idx_t>(nnodes, node_mapping);
     impl_->node_owner = manage_host_buffer<int>(nnodes, node_owner);
     impl_->element_mapping =
-        manage_host_buffer<element_idx_t>(nelements, element_mapping);
+        manage_host_buffer<large_idx_t>(nelements, element_mapping);
 
     int comm_size;
     MPI_Comm_size(impl_->comm->get(), &comm_size);
@@ -841,8 +841,8 @@ ptrdiff_t Mesh::n_owned_elements_with_ghosts() const {
 }
 ptrdiff_t Mesh::n_shared_elements() const { return impl_->n_shared_elements; }
 
-SharedBuffer<idx_t> Mesh::node_mapping() const { return impl_->node_mapping; }
-SharedBuffer<idx_t> Mesh::element_mapping() const {
+SharedBuffer<large_idx_t> Mesh::node_mapping() const { return impl_->node_mapping; }
+SharedBuffer<large_idx_t> Mesh::element_mapping() const {
   return impl_->element_mapping;
 }
 
@@ -857,7 +857,7 @@ SharedBuffer<idx_t *> Mesh::default_elements() {
   return impl_->default_elements();
 }
 
-void Mesh::set_node_mapping(const SharedBuffer<idx_t> &node_mapping) {
+void Mesh::set_node_mapping(const SharedBuffer<large_idx_t> &node_mapping) {
   impl_->node_mapping = node_mapping;
 }
 
@@ -1594,7 +1594,7 @@ mesh_from_sideset(const std::shared_ptr<Mesh> &mesh,
   auto surf_points =
       create_host_buffer<geom_t>(mesh->spatial_dimension(), n_surf_nodes);
 
-  auto mapping = create_host_buffer<idx_t>(n_surf_nodes);
+  auto mapping = create_host_buffer<large_idx_t>(n_surf_nodes);
   auto b_surf_points = surf_points->data();
   auto b_mapping = mapping->data();
 

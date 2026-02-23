@@ -162,7 +162,7 @@ template <typename idx_t>
 int mesh_build_global_ids(MPI_Comm comm, const ptrdiff_t n_nodes,
                           const ptrdiff_t n_owned_nodes,
                           const ptrdiff_t n_owned_nodes_with_ghosts,
-                          idx_t *node_mapping,
+                          large_idx_t *node_mapping,
                           // int *node_owner,
                           ptrdiff_t **node_offsets_out, idx_t **ghosts_out
                           // ,
@@ -231,7 +231,7 @@ int mesh_build_global_ids(MPI_Comm comm, const ptrdiff_t n_nodes,
   const ptrdiff_t extent_owned_with_ghosts = n_owned_nodes_with_ghosts;
   const ptrdiff_t n_ghost_nodes = n_nodes - n_owned_nodes;
 
-  idx_t *ghost_keys = &node_mapping[begin_owned_with_ghosts];
+  large_idx_t *ghost_keys = &node_mapping[begin_owned_with_ghosts];
   idx_t *ghost_ids = (idx_t *)malloc(
       std::max(extent_owned_with_ghosts, n_ghost_nodes) * sizeof(idx_t));
 
@@ -922,13 +922,13 @@ int mesh_coordinates_from_folder(MPI_Comm comm, const Path &folder,
   }
 }
 
-template <typename idx_t, typename geom_t, typename element_idx_t>
+template <typename idx_t, typename geom_t>
 int mesh_from_folder(
     const MPI_Comm comm, const Path &folder, int *nnodesxelem_out,
     ptrdiff_t *nelements_out, idx_t ***elements_out, int *spatial_dim_out,
     ptrdiff_t *nnodes_out, geom_t ***points_out, ptrdiff_t *n_owned_nodes_out,
-    ptrdiff_t *n_owned_elements_out, element_idx_t **element_mapping_out,
-    idx_t **node_mapping_out, int **node_owner_out,
+    ptrdiff_t *n_owned_elements_out, large_idx_t **element_mapping_out,
+    large_idx_t **node_mapping_out, int **node_owner_out,
     ptrdiff_t **node_offsets_out, idx_t **ghosts_out,
     ptrdiff_t *n_owned_nodes_with_ghosts_out, ptrdiff_t *n_shared_elements_out,
     ptrdiff_t *n_owned_elements_with_ghosts_out) {
@@ -958,15 +958,15 @@ int mesh_from_folder(
     mesh_block_from_folder(comm, folder, &nnodesxelem, &elems,
                            &n_local_elements, &n_elements);
 
-    idx_t *unique_idx =
-        (idx_t *)malloc(sizeof(idx_t) * n_local_elements * nnodesxelem);
+    large_idx_t *unique_idx =
+        (large_idx_t *)malloc(sizeof(large_idx_t) * n_local_elements * nnodesxelem);
     for (int d = 0; d < nnodesxelem; ++d) {
       memcpy(&unique_idx[d * n_local_elements], elems[d],
-             sizeof(idx_t) * n_local_elements);
+             sizeof(large_idx_t) * n_local_elements);
     }
 
     ptrdiff_t n_unique =
-        sort_and_unique<idx_t>(unique_idx, n_local_elements * nnodesxelem);
+        sort_and_unique<large_idx_t>(unique_idx, n_local_elements * nnodesxelem);
 
     int ndims = 0;
     ptrdiff_t n_local_nodes = 0, n_nodes = 0;
@@ -976,12 +976,12 @@ int mesh_from_folder(
 
     ////////////////////////////////////////////////////////////////////////////////
 
-    idx_t *input_node_partitions = (idx_t *)malloc(sizeof(idx_t) * (size + 1));
-    memset(input_node_partitions, 0, sizeof(idx_t) * (size + 1));
+    large_idx_t *input_node_partitions = (large_idx_t *)malloc(sizeof(large_idx_t) * (size + 1));
+    memset(input_node_partitions, 0, sizeof(large_idx_t) * (size + 1));
     input_node_partitions[rank + 1] = n_local_nodes;
 
     SMESH_MPI_CATCH(MPI_Allreduce(MPI_IN_PLACE, &input_node_partitions[1], size,
-                                  smesh::mpi_type<idx_t>(), MPI_SUM, comm));
+                                  smesh::mpi_type<large_idx_t>(), MPI_SUM, comm));
 
     for (int r = 0; r < size; ++r) {
       input_node_partitions[r + 1] += input_node_partitions[r];
@@ -991,9 +991,9 @@ int mesh_from_folder(
     memset(gather_node_count, 0, (size_t)size * sizeof(i64));
 
     for (ptrdiff_t i = 0; i < n_unique; ++i) {
-      idx_t idx = unique_idx[i];
+      large_idx_t idx = unique_idx[i];
       const int owner =
-          find_owner_rank(idx, n_local_nodes, size, input_node_partitions);
+          find_owner_rank<large_idx_t>(idx, n_local_nodes, size, input_node_partitions);
 
       assert(owner < size);
       assert(owner >= 0);
@@ -1028,8 +1028,8 @@ int mesh_from_folder(
 
     const ptrdiff_t size_send_list = (ptrdiff_t)scatter_node_displs[size];
 
-    idx_t *send_list = (idx_t *)malloc(sizeof(idx_t) * size_send_list);
-    memset(send_list, 0, sizeof(idx_t) * size_send_list);
+    large_idx_t *send_list = (large_idx_t *)malloc(sizeof(large_idx_t) * size_send_list);
+    memset(send_list, 0, sizeof(large_idx_t) * size_send_list);
 
     const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
     SMESH_MPI_CATCH(all_to_allv_64(
@@ -1251,8 +1251,8 @@ int mesh_from_folder(
       }
 
       // FIXME?
-      idx_t *element_mapping =
-          (idx_t *)malloc(n_local_elements * sizeof(idx_t));
+      large_idx_t *element_mapping =
+          (large_idx_t *)malloc(n_local_elements * sizeof(large_idx_t));
 
       ptrdiff_t counter = 0;
       for (ptrdiff_t e = 0; e < n_local_elements; ++e) {

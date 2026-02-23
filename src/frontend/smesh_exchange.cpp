@@ -66,6 +66,7 @@ Exchange::create(const std::shared_ptr<Communicator> &comm,
                   ret->impl_->recv_displs->data(), &sparse_idx);
 
   auto recv_displs = ret->impl_->recv_displs->data();
+  auto recv_count = ret->impl_->recv_count->data();
   const ptrdiff_t buffer_size = recv_count[size - 1] + recv_displs[size - 1];
 
   ret->impl_->sparse_idx =

@@ -119,8 +119,8 @@ public:
   SharedBuffer<ptrdiff_t> node_offsets() const;
   SharedBuffer<idx_t> ghosts() const;
   SharedBuffer<int> node_owner() const;
-  SharedBuffer<idx_t> node_mapping() const;
-  SharedBuffer<idx_t> element_mapping() const;
+  SharedBuffer<large_idx_t> node_mapping() const;
+  SharedBuffer<large_idx_t> element_mapping() const;
 
   const geom_t *points(const int coord) const;
   const idx_t *idx(const int node_num) const;
@@ -208,7 +208,7 @@ public:
   int split_boundary_layer();
   int renumber_nodes();
   int renumber_nodes(const SharedBuffer<idx_t> &node_mapping);
-  void set_node_mapping(const SharedBuffer<idx_t> &node_mapping);
+  void set_node_mapping(const SharedBuffer<large_idx_t> &node_mapping);
   void set_comm(const std::shared_ptr<Communicator> &comm);
   void set_element_type(const enum ElemType element_type);
   std::pair<SharedBuffer<geom_t>, SharedBuffer<geom_t>> compute_bounding_box();

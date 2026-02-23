@@ -24,12 +24,12 @@ template int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
                                     ptrdiff_t *const n_local_elements_out,
                                     ptrdiff_t *const n_global_elements_out);
 
-template int mesh_from_folder<i32, f32, i32>(
+template int mesh_from_folder<i32, f32>(
     const MPI_Comm comm, const Path &folder, int *nnodesxelem_out,
     ptrdiff_t *nelements_out, i32 ***elements_out, int *spatial_dim_out,
     ptrdiff_t *nnodes_out, f32 ***points_out, ptrdiff_t *n_owned_nodes_out,
-    ptrdiff_t *n_owned_elements_out, i32 **element_mapping_out,
-    i32 **node_mapping_out, int **node_owner_out, ptrdiff_t **node_offsets_out,
+    ptrdiff_t *n_owned_elements_out, large_idx_t **element_mapping_out,
+    large_idx_t **node_mapping_out, int **node_owner_out, ptrdiff_t **node_offsets_out,
     i32 **ghosts_out, ptrdiff_t *n_owned_nodes_with_ghosts_out,
     ptrdiff_t *n_shared_elements_out,
     ptrdiff_t *n_owned_elements_with_ghosts_out);
