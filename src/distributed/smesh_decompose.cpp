@@ -7,7 +7,7 @@
       const ptrdiff_t, const int,                                              \
       const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, COUNT_T **,     \
       ELEM_IDX_T **);                                                          \
-  template int redistribute_n2e<IDX_T, COUNT_T, ELEM_IDX_T>(                   \
+  template int redistribute_n2e<COUNT_T, ELEM_IDX_T, IDX_T>(                   \
       MPI_Comm, const int, const int, const ptrdiff_t, const ptrdiff_t,        \
       const ptrdiff_t, const COUNT_T *const SMESH_RESTRICT,                    \
       const ELEM_IDX_T *const SMESH_RESTRICT, ptrdiff_t *const SMESH_RESTRICT, \

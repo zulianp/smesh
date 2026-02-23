@@ -28,7 +28,7 @@ static bool is_sorted(const idx_t *const SMESH_RESTRICT arr,
   return ret;
 }
 
-template <typename idx_t, typename count_t, typename element_idx_t>
+template <typename count_t, typename element_idx_t, typename local2global_t>
 int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
                      const ptrdiff_t n_local2global,
                      const ptrdiff_t n_global_nodes,
@@ -36,7 +36,7 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
                      const count_t *const SMESH_RESTRICT n2eptr,
                      const element_idx_t *const SMESH_RESTRICT n2e_idx,
                      ptrdiff_t *const SMESH_RESTRICT out_local2global_size,
-                     idx_t **const SMESH_RESTRICT out_local2global,
+                     local2global_t **const SMESH_RESTRICT out_local2global,
                      count_t **const SMESH_RESTRICT out_local_n2e_ptr,
                      element_idx_t **const SMESH_RESTRICT out_local_n2e_idx) {
   SMESH_TRACE_SCOPE("redistribute_n2e");
@@ -94,8 +94,8 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
       (size_t)send_elements_size * sizeof(element_idx_t));
 
   const i64 send_nodes_size = send_nodes_displs[comm_size];
-  idx_t *send_nodes =
-      (idx_t *)malloc((size_t)send_nodes_size * sizeof(idx_t));
+  local2global_t *send_nodes = (local2global_t *)malloc(
+      (size_t)send_nodes_size * sizeof(local2global_t));
   count_t *send_n2e_count =
       (count_t *)malloc((size_t)send_nodes_size * sizeof(count_t));
 
@@ -153,8 +153,8 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
   }
 
   const ptrdiff_t local2global_size = (ptrdiff_t)recv_nodes_displs[comm_size];
-  idx_t *local2global =
-      (idx_t *)malloc((size_t)local2global_size * sizeof(idx_t));
+  local2global_t *local2global = (local2global_t *)malloc(
+      (size_t)local2global_size * sizeof(local2global_t));
 
   count_t *local_n2e_ptr =
       (count_t *)malloc((local2global_size + 1) * sizeof(count_t));
@@ -205,14 +205,15 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
   return SMESH_SUCCESS;
 }
 
-template <typename idx_t, typename count_t, typename element_idx_t>
+template <typename idx_t, typename count_t, typename element_idx_t,
+          typename local2global_t>
 int localize_element_indices(
     const int comm_size, const int comm_rank, const ptrdiff_t n_global_elements,
     const ptrdiff_t n_local_elements, const int nnodesxelem,
     idx_t *const *const SMESH_RESTRICT elems, const ptrdiff_t local2global_size,
     const count_t *const SMESH_RESTRICT local_n2e_ptr,
     const element_idx_t *const SMESH_RESTRICT local_n2e_idx,
-    const idx_t *const SMESH_RESTRICT local2global,
+    const local2global_t *const SMESH_RESTRICT local2global,
     idx_t **const SMESH_RESTRICT local_elements) {
   SMESH_TRACE_SCOPE("localize_element_indices");
   const ptrdiff_t elements_start =
@@ -229,7 +230,7 @@ int localize_element_indices(
   for (ptrdiff_t i = 0; i < local2global_size; ++i) {
     const count_t e_begin = local_n2e_ptr[i];
     const count_t e_end = local_n2e_ptr[i + 1];
-    const idx_t node = local2global[i];
+    const local2global_t node = local2global[i];
 
     for (ptrdiff_t e = e_begin; e < e_end; ++e) {
       const element_idx_t element_idx = local_n2e_idx[e];
@@ -237,7 +238,8 @@ int localize_element_indices(
           rank_owner(n_global_elements, element_idx, comm_size);
       if (comm_rank == element_owner) {
         for (int d = 0; d < nnodesxelem; ++d) {
-          if (node == elems[d][element_idx - elements_start]) {
+          if (node == static_cast<local2global_t>(
+                          elems[d][element_idx - elements_start])) {
             local_elements[d][element_idx - elements_start] =
                 i; // local node index
             break;
@@ -254,7 +256,8 @@ int localize_element_indices(
 // Ownership is determine based on the smallest rank associated to the
 // indicident element
 // Attention: it invalidates local_n2e and local_n2e_idx
-template <typename idx_t, typename count_t, typename element_idx_t>
+template <typename idx_t, typename count_t, typename element_idx_t,
+          typename local2global_t>
 int rearrange_local_nodes(const int comm_size, const int comm_rank,
                           const ptrdiff_t n_global_elements,
                           const ptrdiff_t n_local_elements,
@@ -262,7 +265,7 @@ int rearrange_local_nodes(const int comm_size, const int comm_rank,
                           const ptrdiff_t local2global_size,
                           count_t *const SMESH_RESTRICT local_n2e_ptr,
                           element_idx_t *const SMESH_RESTRICT local_n2e_idx,
-                          idx_t *const SMESH_RESTRICT local2global,
+                          local2global_t *const SMESH_RESTRICT local2global,
                           idx_t **const SMESH_RESTRICT local_elements,
                           ptrdiff_t *const SMESH_RESTRICT out_n_owned,
                           ptrdiff_t *const SMESH_RESTRICT out_n_shared,
@@ -346,9 +349,9 @@ int rearrange_local_nodes(const int comm_size, const int comm_rank,
   // One reusable scratch buffer (memory-parsimonious):
   // - used as idx_t[] for copying local_elements[d] and local2global
   // - used as count_t[] + element_idx_t[] simultaneously for n2e reordering
-  const size_t primary_bytes =
-      static_cast<size_t>(std::max(local2global_size, n_local_elements)) *
-      sizeof(idx_t);
+  const size_t primary_bytes = std::max(
+      static_cast<size_t>(n_local_elements) * sizeof(idx_t),
+      static_cast<size_t>(local2global_size) * sizeof(local2global_t));
 
   const size_t ptr_bytes =
       static_cast<size_t>(local2global_size + 1) * sizeof(count_t);
@@ -373,9 +376,10 @@ int rearrange_local_nodes(const int comm_size, const int comm_rank,
   }
 
   // Rearrage n2e
-  memcpy(buff, local2global, local2global_size * sizeof(idx_t));
+  local2global_t *l2g_buff = (local2global_t *)scratch;
+  memcpy(l2g_buff, local2global, local2global_size * sizeof(local2global_t));
   for (ptrdiff_t i = 0; i < local2global_size; ++i) {
-    local2global[index_map[i]] = buff[i];
+    local2global[index_map[i]] = l2g_buff[i];
   }
 
   count_t *temp_local_n2e_ptr = (count_t *)scratch;
@@ -492,14 +496,15 @@ int rearrange_local_elements(
   return SMESH_SUCCESS;
 }
 
-template <typename idx_t, typename count_t, typename element_idx_t>
+template <typename idx_t, typename count_t, typename element_idx_t,
+          typename local2global_t>
 int expand_aura_elements_inconsistent(
     MPI_Comm comm, const ptrdiff_t n_global_elements,
     const ptrdiff_t n_local_elements,
     //  const ptrdiff_t elements_n_shared,
     const int nnodesxelem, count_t *const SMESH_RESTRICT local_n2e_ptr,
     element_idx_t *const SMESH_RESTRICT local_n2e_idx,
-    const idx_t *const SMESH_RESTRICT local2global,
+    const local2global_t *const SMESH_RESTRICT local2global,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT local_elements,
     const element_idx_t *const SMESH_RESTRICT element_local_to_global,
     const ptrdiff_t node_n_owned, const ptrdiff_t nodes_n_ghosts,
@@ -598,7 +603,7 @@ int expand_aura_elements_inconsistent(
       const ptrdiff_t old_off =
           static_cast<ptrdiff_t>(element_old - elements_start);
       const element_idx_t local_e = old_to_new[old_off];
-      send_nodes[i] = local2global[local_elements[d][local_e]];
+      send_nodes[i] = static_cast<idx_t>(local2global[local_elements[d][local_e]]);
     }
 
     idx_t *recv_nodes = (idx_t *)malloc(
@@ -625,11 +630,11 @@ int expand_aura_elements_inconsistent(
   return SMESH_SUCCESS;
 }
 
-template <typename idx_t>
+template <typename idx_t, typename local2global_t>
 int prepare_node_renumbering(MPI_Comm comm, const ptrdiff_t n_global_nodes,
                              const ptrdiff_t owned_nodes_start,
                              const ptrdiff_t n_owned_nodes,
-                             const idx_t *const SMESH_RESTRICT local2global,
+                             const local2global_t *const SMESH_RESTRICT local2global,
                              idx_t *const SMESH_RESTRICT global2owned) {
   SMESH_TRACE_SCOPE("prepare_node_renumbering");
   int comm_rank, comm_size;
@@ -655,8 +660,8 @@ int prepare_node_renumbering(MPI_Comm comm, const ptrdiff_t n_global_nodes,
 
   idx_t *send_nodes =
       (idx_t *)malloc((size_t)send_nodes_displs[comm_size] * sizeof(idx_t));
-  idx_t *send_nodes_mapping =
-      (idx_t *)malloc((size_t)send_nodes_displs[comm_size] * sizeof(idx_t));
+  local2global_t *send_nodes_mapping = (local2global_t *)malloc(
+      (size_t)send_nodes_displs[comm_size] * sizeof(local2global_t));
   for (ptrdiff_t i = 0; i < n_owned_nodes; ++i) {
     const int owner = rank_owner(n_global_nodes, local2global[i], comm_size);
     send_nodes_mapping[send_nodes_displs[owner] + send_nodes_count[owner]] =
@@ -680,15 +685,16 @@ int prepare_node_renumbering(MPI_Comm comm, const ptrdiff_t n_global_nodes,
                                  recv_nodes, recv_nodes_count, recv_nodes_displs,
                                  comm, max_chunk_size));
 
-  idx_t *recv_nodes_mapping =
-      (idx_t *)malloc((size_t)recv_nodes_displs[comm_size] * sizeof(idx_t));
+  local2global_t *recv_nodes_mapping = (local2global_t *)malloc(
+      (size_t)recv_nodes_displs[comm_size] * sizeof(local2global_t));
   SMESH_MPI_CATCH(all_to_allv_64(send_nodes_mapping, send_nodes_count,
                                  send_nodes_displs, recv_nodes_mapping,
                                  recv_nodes_count, recv_nodes_displs, comm,
                                  max_chunk_size));
 
   for (ptrdiff_t i = 0; i < recv_nodes_displs[comm_size]; ++i) {
-    global2owned[recv_nodes_mapping[i] - nodes_start] = recv_nodes[i];
+    const ptrdiff_t off = static_cast<ptrdiff_t>(recv_nodes_mapping[i]) - nodes_start;
+    global2owned[off] = recv_nodes[i];
   }
 
   free(send_nodes_count);
@@ -787,15 +793,16 @@ int determine_ownership(const int comm_size, const int comm_rank,
 // - we can identify ghost nodes with n2e graph
 // - from e2n graph we can identify the unsorted aura nodes (old global indices)
 
-template <typename idx_t>
+template <typename idx_t, typename local2global_t>
 int stitch_aura_elements(
     MPI_Comm comm, const ptrdiff_t n_owned_nodes,
     const ptrdiff_t n_shared_nodes, const ptrdiff_t n_ghost_nodes,
-    const idx_t *const SMESH_RESTRICT local2global, const int nnodesxelem,
+    const local2global_t *const SMESH_RESTRICT local2global,
+    const int nnodesxelem,
     const ptrdiff_t n_aura_elements,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT e2n_aura,
     const ptrdiff_t n_local_elements, idx_t **const SMESH_RESTRICT e2n_local,
-    idx_t **const SMESH_RESTRICT n2n_local2global_out,
+    local2global_t **const SMESH_RESTRICT n2n_local2global_out,
     ptrdiff_t *const SMESH_RESTRICT out_n_aura_nodes) {
   SMESH_TRACE_SCOPE("stitch_aura_elements");
   (void)comm;
@@ -816,34 +823,37 @@ int stitch_aura_elements(
   SMESH_ASSERT(is_sorted(local2global + n_owned_nodes, n_ghost_nodes));
 #endif
 
-  const idx_t *const owned_begin = local2global;
-  const idx_t *const owned_end = local2global + n_owned_nodes - n_shared_nodes;
-  const idx_t *const shared_begin =
+  const local2global_t *const owned_begin = local2global;
+  const local2global_t *const owned_end =
       local2global + n_owned_nodes - n_shared_nodes;
-  const idx_t *const shared_end = local2global + n_owned_nodes;
-  const idx_t *const ghost_begin = local2global + n_owned_nodes;
-  const idx_t *const ghost_end = local2global + n_local_nodes;
+  const local2global_t *const shared_begin =
+      local2global + n_owned_nodes - n_shared_nodes;
+  const local2global_t *const shared_end = local2global + n_owned_nodes;
+  const local2global_t *const ghost_begin = local2global + n_owned_nodes;
+  const local2global_t *const ghost_end = local2global + n_local_nodes;
 
   const ptrdiff_t aura_flat_n = n_aura_elements * nnodesxelem;
-  idx_t *aura_nodes = (idx_t *)malloc(
-      static_cast<size_t>(std::max<ptrdiff_t>(1, aura_flat_n)) * sizeof(idx_t));
+  local2global_t *aura_nodes = (local2global_t *)malloc(
+      static_cast<size_t>(std::max<ptrdiff_t>(1, aura_flat_n)) *
+      sizeof(local2global_t));
   for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
     for (int d = 0; d < nnodesxelem; ++d) {
-      aura_nodes[i * nnodesxelem + d] = e2n_aura[d][i];
+      aura_nodes[i * nnodesxelem + d] =
+          static_cast<local2global_t>(e2n_aura[d][i]);
     }
   }
 
   const ptrdiff_t n_unique_aura_nodes =
       static_cast<ptrdiff_t>(sort_and_unique(aura_nodes, aura_flat_n));
 
-  idx_t *aura_new = (idx_t *)malloc(
+  local2global_t *aura_new = (local2global_t *)malloc(
       static_cast<size_t>(std::max<ptrdiff_t>(1, n_unique_aura_nodes)) *
-      sizeof(idx_t));
+      sizeof(local2global_t));
 
   ptrdiff_t n_aura_nodes = 0;
 
   for (ptrdiff_t i = 0; i < n_unique_aura_nodes; ++i) {
-    const idx_t g = aura_nodes[i];
+    const local2global_t g = aura_nodes[i];
     auto it = std::lower_bound(owned_begin, owned_end, g);
     const bool is_owned = (it != owned_end && *it == g);
     if (is_owned) {
@@ -863,13 +873,15 @@ int stitch_aura_elements(
     }
   }
 
-  idx_t *n2n_local2global = (idx_t *)malloc(
-      static_cast<size_t>(n_local_nodes + n_aura_nodes) * sizeof(idx_t));
-  memcpy(n2n_local2global, local2global, n_local_nodes * sizeof(idx_t));
+  local2global_t *n2n_local2global = (local2global_t *)malloc(
+      static_cast<size_t>(n_local_nodes + n_aura_nodes) *
+      sizeof(local2global_t));
+  memcpy(n2n_local2global, local2global,
+         static_cast<size_t>(n_local_nodes) * sizeof(local2global_t));
   memcpy(&n2n_local2global[n_local_nodes], aura_new,
-         n_aura_nodes * sizeof(idx_t));
+         static_cast<size_t>(n_aura_nodes) * sizeof(local2global_t));
 
-  auto find_local = [&](const idx_t g) -> idx_t {
+  auto find_local = [&](const local2global_t g) -> idx_t {
     auto it = std::lower_bound(owned_begin, owned_end, g);
     if (it != owned_end && *it == g) {
       return static_cast<idx_t>(it - local2global);
@@ -891,7 +903,8 @@ int stitch_aura_elements(
 
   for (int d = 0; d < nnodesxelem; ++d) {
     for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
-      e2n_aura[d][i] = find_local(e2n_aura[d][i]);
+      e2n_aura[d][i] =
+          find_local(static_cast<local2global_t>(e2n_aura[d][i]));
     }
 
     e2n_local[d] = (idx_t *)realloc(
@@ -909,11 +922,11 @@ int stitch_aura_elements(
   return SMESH_SUCCESS;
 }
 
-template <typename idx_t>
+template <typename idx_t, typename local2global_t>
 int collect_ghost_and_aura_import_indices(
     MPI_Comm comm, const ptrdiff_t n_owned_nodes, const ptrdiff_t n_ghost_nodes,
     const ptrdiff_t n_aura_nodes, const ptrdiff_t n_global_nodes,
-    const idx_t *const SMESH_RESTRICT local2global,
+    const local2global_t *const SMESH_RESTRICT local2global,
     const idx_t *const SMESH_RESTRICT global2owned,
     const ptrdiff_t *const SMESH_RESTRICT owned_node_ranges,
     idx_t *const SMESH_RESTRICT ghost_and_aura_to_owned) {
@@ -933,7 +946,7 @@ int collect_ghost_and_aura_import_indices(
   i64 *recv_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
 
   for (ptrdiff_t i = 0; i < n_import; ++i) {
-    const idx_t g = local2global[n_owned_nodes + i];
+    const local2global_t g = local2global[n_owned_nodes + i];
     const int owner = rank_owner(n_global_nodes, g, comm_size);
     send_displs[owner + 1]++;
   }
@@ -942,14 +955,14 @@ int collect_ghost_and_aura_import_indices(
     send_displs[r + 1] += send_displs[r];
   }
 
-  idx_t *send_nodes =
-      (idx_t *)malloc(static_cast<size_t>(n_import) * sizeof(idx_t));
+  local2global_t *send_nodes = (local2global_t *)malloc(
+      static_cast<size_t>(n_import) * sizeof(local2global_t));
   idx_t *send_pos =
       (idx_t *)malloc(static_cast<size_t>(n_import) * sizeof(idx_t));
   i64 *cursor = (i64 *)calloc((size_t)comm_size, sizeof(i64));
 
   for (ptrdiff_t i = 0; i < n_import; ++i) {
-    const idx_t g = local2global[n_owned_nodes + i];
+    const local2global_t g = local2global[n_owned_nodes + i];
     const int owner = rank_owner(n_global_nodes, g, comm_size);
     const i64 slot = send_displs[owner] + cursor[owner]++;
     send_nodes[slot] = g;
@@ -967,8 +980,8 @@ int collect_ghost_and_aura_import_indices(
   }
 
   const ptrdiff_t recv_total = recv_displs[comm_size];
-  idx_t *recv_nodes =
-      (idx_t *)malloc(static_cast<size_t>(recv_total) * sizeof(idx_t));
+  local2global_t *recv_nodes = (local2global_t *)malloc(
+      static_cast<size_t>(recv_total) * sizeof(local2global_t));
   idx_t *recv_pos =
       (idx_t *)malloc(static_cast<size_t>(recv_total) * sizeof(idx_t));
 
@@ -979,8 +992,8 @@ int collect_ghost_and_aura_import_indices(
                                  recv_count, recv_displs, comm, max_chunk_size));
 
   for (ptrdiff_t i = 0; i < recv_total; ++i) {
-    recv_nodes[i] =
-        global2owned[static_cast<ptrdiff_t>(recv_nodes[i] - nodes_start)];
+    const ptrdiff_t off = static_cast<ptrdiff_t>(recv_nodes[i]) - nodes_start;
+    recv_nodes[i] = static_cast<local2global_t>(global2owned[off]);
   }
 
   SMESH_MPI_CATCH(all_to_allv_64(recv_nodes, recv_count, recv_displs, send_nodes,
@@ -989,7 +1002,7 @@ int collect_ghost_and_aura_import_indices(
                                  send_count, send_displs, comm, max_chunk_size));
 
   for (ptrdiff_t i = 0; i < n_import; ++i) {
-    ghost_and_aura_to_owned[send_pos[i]] = send_nodes[i];
+    ghost_and_aura_to_owned[send_pos[i]] = static_cast<idx_t>(send_nodes[i]);
   }
 
   free(send_count);
@@ -1004,10 +1017,11 @@ int collect_ghost_and_aura_import_indices(
   return SMESH_SUCCESS;
 }
 
-template <typename idx_t>
+template <typename idx_t, typename local2global_t>
 int group_ghost_and_aura_by_rank(
     const int comm_size, const ptrdiff_t n_owned, const ptrdiff_t n_ghosts,
-    const ptrdiff_t n_aura_nodes, idx_t *const SMESH_RESTRICT local2global,
+    const ptrdiff_t n_aura_nodes,
+    local2global_t *const SMESH_RESTRICT local2global,
     idx_t *const SMESH_RESTRICT ghost_and_aura_to_owned,
     int *const SMESH_RESTRICT owner, const int nnodesxelem,
     const ptrdiff_t n_local_elements, const ptrdiff_t n_aura_elements,
@@ -1031,7 +1045,8 @@ int group_ghost_and_aura_by_rank(
 
       idx_t *old_to_new = (idx_t *)malloc((size_t)n_import * sizeof(idx_t));
       idx_t *ghost_tmp = (idx_t *)malloc((size_t)n_import * sizeof(idx_t));
-      idx_t *l2g_tmp = (idx_t *)malloc((size_t)n_import * sizeof(idx_t));
+      local2global_t *l2g_tmp = (local2global_t *)malloc(
+          (size_t)n_import * sizeof(local2global_t));
       int *owner_tmp = (int *)malloc((size_t)n_import * sizeof(int));
 
       for (ptrdiff_t i = 0; i < n_import; ++i) {
