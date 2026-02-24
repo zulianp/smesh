@@ -600,8 +600,8 @@ SharedBuffer<idx_t> Mesh::node_to_node_colidx() const {
 }
 
 std::shared_ptr<Mesh>
-Mesh::create_hex8_cube(const std::shared_ptr<Communicator> &comm, const int nx,
-                       const int ny, const int nz, const geom_t xmin,
+Mesh::create_hex8_cube(const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx,
+                       const ptrdiff_t ny, const ptrdiff_t nz, const geom_t xmin,
                        const geom_t ymin, const geom_t zmin, const geom_t xmax,
                        const geom_t ymax, const geom_t zmax) {
   auto ret = std::make_shared<Mesh>(comm);
@@ -629,7 +629,7 @@ Mesh::create_hex8_cube(const std::shared_ptr<Communicator> &comm, const int nx,
 
 std::shared_ptr<Mesh>
 Mesh::create_tri3_square(const std::shared_ptr<Communicator> &comm,
-                         const int nx, const int ny, const geom_t xmin,
+                         const ptrdiff_t nx, const ptrdiff_t ny, const geom_t xmin,
                          const geom_t ymin, const geom_t xmax,
                          const geom_t ymax) {
   auto ret = std::make_shared<Mesh>(comm);
@@ -657,7 +657,7 @@ Mesh::create_tri3_square(const std::shared_ptr<Communicator> &comm,
 
 std::shared_ptr<Mesh>
 Mesh::create_quad4_square(const std::shared_ptr<Communicator> &comm,
-                          const int nx, const int ny, const geom_t xmin,
+                          const ptrdiff_t nx, const ptrdiff_t ny, const geom_t xmin,
                           const geom_t ymin, const geom_t xmax,
                           const geom_t ymax) {
   auto ret = std::make_shared<Mesh>(comm);
@@ -685,8 +685,8 @@ Mesh::create_quad4_square(const std::shared_ptr<Communicator> &comm,
 
 std::shared_ptr<Mesh>
 Mesh::create_square(const std::shared_ptr<Communicator> &comm,
-                    const enum ElemType element_type, const int nx,
-                    const int ny, const geom_t xmin, const geom_t ymin,
+                    const enum ElemType element_type, const ptrdiff_t nx,
+                    const ptrdiff_t ny, const geom_t xmin, const geom_t ymin,
                     const geom_t xmax, const geom_t ymax) {
   switch (element_type) {
   case QUAD4:
@@ -702,7 +702,7 @@ Mesh::create_square(const std::shared_ptr<Communicator> &comm,
 std::shared_ptr<Mesh>
 Mesh::create_quad4_ring(const std::shared_ptr<Communicator> &comm,
                         const geom_t inner_radius, const geom_t outer_radius,
-                        const int nlayers, const int nelements) {
+                        const ptrdiff_t nlayers, const ptrdiff_t nelements) {
   auto elements = create_host_buffer<idx_t>(4, nlayers * nelements);
   auto points = create_host_buffer<geom_t>(3, (nlayers + 1) * nelements);
   mesh_fill_quad4_ring<idx_t, geom_t>(inner_radius, outer_radius, nlayers,
@@ -714,8 +714,8 @@ Mesh::create_quad4_ring(const std::shared_ptr<Communicator> &comm,
 }
 
 std::shared_ptr<Mesh> Mesh::create_hex8_checkerboard_cube(
-    const std::shared_ptr<Communicator> &comm, const int nx, const int ny,
-    const int nz, const geom_t xmin, const geom_t ymin, const geom_t zmin,
+    const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx, const ptrdiff_t ny,
+    const ptrdiff_t nz, const geom_t xmin, const geom_t ymin, const geom_t zmin,
     const geom_t xmax, const geom_t ymax, const geom_t zmax) {
   auto ret = std::make_shared<Mesh>(comm);
   const ptrdiff_t nelements = nx * ny * nz;
@@ -752,8 +752,8 @@ std::shared_ptr<Mesh> Mesh::create_hex8_checkerboard_cube(
 }
 
 std::shared_ptr<Mesh> Mesh::create_hex8_bidomain_cube(
-    const std::shared_ptr<Communicator> &comm, const int nx, const int ny,
-    const int nz, const geom_t xmin, const geom_t ymin, const geom_t zmin,
+    const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx, const ptrdiff_t ny,
+    const ptrdiff_t nz, const geom_t xmin, const geom_t ymin, const geom_t zmin,
     const geom_t xmax, const geom_t ymax, const geom_t zmax) {
   auto ret = std::make_shared<Mesh>(comm);
   const ptrdiff_t nelements = nx * ny * nz;
@@ -859,8 +859,8 @@ std::shared_ptr<Mesh> Mesh::create_hex8_reference_cube() {
 }
 
 std::shared_ptr<Mesh>
-Mesh::create_tet4_cube(const std::shared_ptr<Communicator> &comm, const int nx,
-                       const int ny, const int nz, const geom_t xmin,
+Mesh::create_tet4_cube(const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx,
+                       const ptrdiff_t ny, const ptrdiff_t nz, const geom_t xmin,
                        const geom_t ymin, const geom_t zmin, const geom_t xmax,
                        const geom_t ymax, const geom_t zmax) {
   auto ret = std::make_shared<Mesh>(comm);
@@ -888,8 +888,8 @@ Mesh::create_tet4_cube(const std::shared_ptr<Communicator> &comm, const int nx,
 
 std::shared_ptr<Mesh>
 Mesh::create_cube(const std::shared_ptr<Communicator> &comm,
-                  const enum ElemType element_type, const int nx, const int ny,
-                  const int nz, const geom_t xmin, const geom_t ymin,
+                  const enum ElemType element_type, const ptrdiff_t nx, const ptrdiff_t ny,
+                  const ptrdiff_t nz, const geom_t xmin, const geom_t ymin,
                   const geom_t zmin, const geom_t xmax, const geom_t ymax,
                   const geom_t zmax) {
   switch (element_type) {

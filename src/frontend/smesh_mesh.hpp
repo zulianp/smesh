@@ -148,58 +148,58 @@ public:
 
   static std::shared_ptr<Mesh>
   create_cube(const std::shared_ptr<Communicator> &comm,
-              const enum ElemType element_type, const int nx = 1,
-              const int ny = 1, const int nz = 1, const geom_t xmin = 0,
+              const enum ElemType element_type, const ptrdiff_t nx = 1,
+              const ptrdiff_t ny = 1, const ptrdiff_t nz = 1, const geom_t xmin = 0,
               const geom_t ymin = 0, const geom_t zmin = 0,
               const geom_t xmax = 1, const geom_t ymax = 1,
               const geom_t zmax = 1);
 
   static std::shared_ptr<Mesh>
-  create_hex8_cube(const std::shared_ptr<Communicator> &comm, const int nx = 1,
-                   const int ny = 1, const int nz = 1, const geom_t xmin = 0,
+  create_hex8_cube(const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx = 1,
+                   const ptrdiff_t ny = 1, const ptrdiff_t nz = 1, const geom_t xmin = 0,
                    const geom_t ymin = 0, const geom_t zmin = 0,
                    const geom_t xmax = 1, const geom_t ymax = 1,
                    const geom_t zmax = 1);
 
   static std::shared_ptr<Mesh>
-  create_tet4_cube(const std::shared_ptr<Communicator> &comm, const int nx = 1,
-                   const int ny = 1, const int nz = 1, const geom_t xmin = 0,
+  create_tet4_cube(const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx = 1,
+                   const ptrdiff_t ny = 1, const ptrdiff_t nz = 1, const geom_t xmin = 0,
                    const geom_t ymin = 0, const geom_t zmin = 0,
                    const geom_t xmax = 1, const geom_t ymax = 1,
                    const geom_t zmax = 1);
 
   static std::shared_ptr<Mesh>
   create_square(const std::shared_ptr<Communicator> &comm,
-                const enum ElemType element_type, const int nx = 1,
-                const int ny = 1, const geom_t xmin = 0, const geom_t ymin = 0,
+                const enum ElemType element_type, const ptrdiff_t nx = 1,
+                const ptrdiff_t ny = 1, const geom_t xmin = 0, const geom_t ymin = 0,
                 const geom_t xmax = 1, const geom_t ymax = 1);
 
   static std::shared_ptr<Mesh>
   create_tri3_square(const std::shared_ptr<Communicator> &comm,
-                     const int nx = 1, const int ny = 1, const geom_t xmin = 0,
+                     const ptrdiff_t nx = 1, const ptrdiff_t ny = 1, const geom_t xmin = 0,
                      const geom_t ymin = 0, const geom_t xmax = 1,
                      const geom_t ymax = 1);
 
   static std::shared_ptr<Mesh>
   create_quad4_square(const std::shared_ptr<Communicator> &comm,
-                      const int nx = 1, const int ny = 1, const geom_t xmin = 0,
+                      const ptrdiff_t nx = 1, const ptrdiff_t ny = 1, const geom_t xmin = 0,
                       const geom_t ymin = 0, const geom_t xmax = 1,
                       const geom_t ymax = 1);
 
   static std::shared_ptr<Mesh>
   create_quad4_ring(const std::shared_ptr<Communicator> &comm,
                     const geom_t inner_radius, const geom_t outer_radius,
-                    const int nlayers, const int nelements);
+                    const ptrdiff_t nlayers, const ptrdiff_t nelements);
 
   static std::shared_ptr<Mesh> create_hex8_checkerboard_cube(
-      const std::shared_ptr<Communicator> &comm, const int nx = 2,
-      const int ny = 2, const int nz = 2, const geom_t xmin = 0,
+      const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx = 2,
+      const ptrdiff_t ny = 2, const ptrdiff_t nz = 2, const geom_t xmin = 0,
       const geom_t ymin = 0, const geom_t zmin = 0, const geom_t xmax = 1,
       const geom_t ymax = 1, const geom_t zmax = 1);
 
   static std::shared_ptr<Mesh> create_hex8_bidomain_cube(
-      const std::shared_ptr<Communicator> &comm, const int nx = 2,
-      const int ny = 2, const int nz = 2, const geom_t xmin = 0,
+      const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx = 2,
+      const ptrdiff_t ny = 2, const ptrdiff_t nz = 2, const geom_t xmin = 0,
       const geom_t ymin = 0, const geom_t zmin = 0, const geom_t xmax = 1,
       const geom_t ymax = 1, const geom_t zmax = 1);
 
