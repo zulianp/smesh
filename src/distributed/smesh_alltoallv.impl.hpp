@@ -36,15 +36,14 @@ all_to_allv_64_b(const void *send_elements, const i64 *large_send_count,
     local_recv_buffer_size += std::min(max_chunk_size, large_recv_count[r]);
   }
 
+  i64 all_count = large_send_displs[size - 1] + large_send_count[size- 1];
+  all_count = std::max(all_count, large_recv_displs[size - 1] + large_recv_count[size - 1]);
+
   i64 global_max_peer_count = 0;
   SMESH_MPI_CATCH(MPI_Allreduce(&local_max_peer_count, &global_max_peer_count,
                                 1, mpi_type<i64>(), MPI_MAX, comm));
 
-  const int local_fits_i32 =
-      (local_max_peer_count <= i32_max && large_send_displs[size] <= i32_max &&
-       large_recv_displs[size] <= i32_max)
-          ? 1
-          : 0;
+  const int local_fits_i32 = all_count <= i32_max;
   int global_fits_i32 = 0;
   SMESH_MPI_CATCH(MPI_Allreduce(&local_fits_i32, &global_fits_i32, 1, MPI_INT,
                                 MPI_MIN, comm));
