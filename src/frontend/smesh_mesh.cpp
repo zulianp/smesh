@@ -348,12 +348,15 @@ int Mesh::read(const Path &path) {
       &nnodesxelem,
       &dist->impl_->n_elements_global,
       &dist->impl_->n_elements_owned,
+      &dist->impl_->n_elements_shared,
       &dist->impl_->n_elements_ghosts,
       &element_mapping,
       &elements,
       // Nodes
       &spatial_dim, &dist->impl_->n_nodes_global,
-      &dist->impl_->n_nodes_owned, &dist->impl_->n_nodes_ghosts,
+      &dist->impl_->n_nodes_owned,
+      &dist->impl_->n_nodes_shared,
+      &dist->impl_->n_nodes_ghosts,
       &node_mapping, &points,
       // Distributed connectivities
       &node_owner, &node_offsets, &ghosts) != SMESH_SUCCESS) {
@@ -367,7 +370,7 @@ int Mesh::read(const Path &path) {
     dist->impl_->node_mapping = manage_host_buffer<large_idx_t>(dist->n_nodes_local(), node_mapping);
     dist->impl_->node_owner = manage_host_buffer<int>(dist->n_nodes_local(), node_owner);
     dist->impl_->element_mapping =
-        manage_host_buffer<large_idx_t>(dist->n_elements_local(), element_mapping);
+        manage_host_buffer<large_idx_t>(dist->n_elements_owned(), element_mapping);
 
     int comm_size;
     MPI_Comm_size(impl_->comm->get(), &comm_size);

@@ -33,11 +33,14 @@ int mesh_from_folder(const MPI_Comm comm, const Path &folder,
                      // Elements
                      int *nnodesxelem_out, ptrdiff_t *n_global_elements_out,
                      ptrdiff_t *n_owned_elements_out,
+                     ptrdiff_t *n_shared_elements_out,
                      ptrdiff_t *n_ghost_elements_out,
                      large_idx_t **element_mapping_out, idx_t ***elements_out,
                      // Nodes
                      int *spatial_dim_out, ptrdiff_t *n_global_nodes_out,
-                     ptrdiff_t *n_owned_nodes_out, ptrdiff_t *n_ghost_nodes_out,
+                     ptrdiff_t *n_owned_nodes_out, 
+                     ptrdiff_t *n_shared_nodes_out,
+                     ptrdiff_t *n_ghost_nodes_out,
                      large_idx_t **node_mapping_out, geom_t ***points_out,
                      // Distributed connectivities
                      int **node_owner_out, ptrdiff_t **node_offsets_out,

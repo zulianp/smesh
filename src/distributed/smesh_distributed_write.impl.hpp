@@ -1,37 +1,16 @@
 #define SMESH_DISTRIBUTED_WRITE_IMPL_HPP
 
+#include "matrixio_array.h"
+#include "smesh_alltoallv.impl.hpp"
 #include "smesh_distributed_base.hpp"
 #include "smesh_distributed_write.hpp"
-#include "smesh_alltoallv.impl.hpp"
 #include "smesh_types.hpp"
-#include "matrixio_array.h"
 
 #include <chrono>
 #include <fstream>
 #include <limits>
 
 namespace smesh {
-
-// #region agent log
-static inline void smesh_dbglog_write(const char *location, const char *message,
-                                      const std::string &data_json) {
-  using namespace std::chrono;
-  const auto ts =
-      duration_cast<milliseconds>(system_clock::now().time_since_epoch())
-          .count();
-  std::ofstream os("/Users/patrickzulian/Desktop/code/smesh/.cursor/debug.log",
-                   std::ios::app);
-  if (!os.good())
-    return;
-  os << "{\"id\":\"log_" << ts << "_" << location << "\","
-     << "\"timestamp\":" << ts << ","
-     << "\"runId\":\"pre\","
-     << "\"hypothesisId\":\"W\","
-     << "\"location\":\"" << location << "\","
-     << "\"message\":\"" << message << "\","
-     << "\"data\":" << data_json << "}\n";
-}
-// #endregion
 
 template <typename FileType, typename T>
 int array_write_convert(MPI_Comm comm, const Path &path,
@@ -60,7 +39,7 @@ int array_write_convert_from_extension(MPI_Comm comm, const Path &path,
                                        const ptrdiff_t n_local_elements,
                                        const ptrdiff_t n_global_elements) {
   auto ext = path.extension();
-  if (ext == ".raw") {
+  if (ext == "raw") {
     return array_write(comm, path.c_str(), smesh::mpi_type<T>(), data,
                        n_local_elements, n_global_elements);
   } else if (ext == "float16") {
@@ -81,7 +60,11 @@ int array_write_convert_from_extension(MPI_Comm comm, const Path &path,
   } else if (ext == "int64") {
     return array_write_convert<i64, T>(comm, path, data, n_local_elements,
                                        n_global_elements);
-  } else {
+  } 
+  // else  if (ext == "txt") {
+  //   return SMESH_SUCCESS;
+  // } 
+  else {
     SMESH_ERROR("Unsupported file extension %s for file %s\n", ext.c_str(),
                 path.c_str());
     return SMESH_FAILURE;
@@ -115,7 +98,8 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
 
   for (ptrdiff_t i = 0; i < n_local; ++i) {
     const idx_t idx = mapping[i];
-    int dest_rank = std::min(size - 1, static_cast<int>(idx / local_output_size_no_remainder));
+    int dest_rank = std::min(
+        size - 1, static_cast<int>(idx / local_output_size_no_remainder));
     send_count[dest_rank]++;
   }
 
@@ -141,33 +125,16 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
   }
 
   const ptrdiff_t total_recv = (ptrdiff_t)recv_displs[size];
-  // #region agent log
-  {
-    if (total_recv > local_output_size) {
-      smesh_dbglog_write(
-          "smesh_distributed_write.impl.hpp:write_mapped_field",
-          "recv larger than output segment",
-          std::string("{\"rank\":") + std::to_string(rank) +
-              ",\"size\":" + std::to_string(size) +
-              ",\"n_local\":" + std::to_string((long long)n_local) +
-              ",\"n_global\":" + std::to_string((long long)n_global) +
-              ",\"begin\":" + std::to_string((long long)begin) +
-              ",\"local_output_size\":" +
-              std::to_string((long long)local_output_size) +
-              ",\"total_recv\":" + std::to_string((long long)total_recv) + "}");
-    }
-  }
-  // #endregion
-
-  idx_t *send_list = (idx_t *)malloc(n_local * sizeof(idx_t));
+  large_idx_t *send_list = (large_idx_t *)malloc(n_local * sizeof(large_idx_t));
 
   ptrdiff_t n_buff = std::max(n_local, local_output_size);
   uint8_t *send_data_and_final_storage = (uint8_t *)malloc(n_buff * type_size);
 
   // Pack data and indices
   for (ptrdiff_t i = 0; i < n_local; ++i) {
-    const idx_t idx = mapping[i];
-    int dest_rank = std::min(size - 1, static_cast<int>(idx / local_output_size_no_remainder));
+    const large_idx_t idx = mapping[i];
+    int dest_rank = std::min(
+        size - 1, static_cast<int>(idx / local_output_size_no_remainder));
     SMESH_ASSERT(dest_rank < size);
 
     // Put index and data into buffers
@@ -179,7 +146,7 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
     book_keeping[dest_rank]++;
   }
 
-  idx_t *recv_list = (idx_t *)malloc((size_t)total_recv * sizeof(idx_t));
+  large_idx_t *recv_list = (large_idx_t *)malloc((size_t)total_recv * sizeof(large_idx_t));
   uint8_t *recv_data =
       (uint8_t *)malloc((size_t)total_recv * (size_t)type_size);
 
@@ -189,47 +156,20 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
 
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
   SMESH_MPI_CATCH(all_to_allv_64(send_list, send_count, send_displs, recv_list,
-                                 recv_count, recv_displs, comm, max_chunk_size));
+                                 recv_count, recv_displs, comm,
+                                 max_chunk_size));
 
   ///////////////////////////////////
   // Send data
   ///////////////////////////////////
 
-  i64 *send_bytes_count = (i64 *)malloc((size_t)size * sizeof(i64));
-  i64 *send_bytes_displs = (i64 *)malloc(((size_t)size + 1) * sizeof(i64));
-  i64 *recv_bytes_count = (i64 *)malloc((size_t)size * sizeof(i64));
-  i64 *recv_bytes_displs = (i64 *)malloc(((size_t)size + 1) * sizeof(i64));
-  for (int r = 0; r < size; ++r) {
-    send_bytes_count[r] = send_count[r] * (i64)type_size;
-    recv_bytes_count[r] = recv_count[r] * (i64)type_size;
-    send_bytes_displs[r] = send_displs[r] * (i64)type_size;
-    recv_bytes_displs[r] = recv_displs[r] * (i64)type_size;
-  }
-  send_bytes_displs[size] = send_displs[size] * (i64)type_size;
-  recv_bytes_displs[size] = recv_displs[size] * (i64)type_size;
-  SMESH_MPI_CATCH(all_to_allv_64(send_data_and_final_storage, send_bytes_count,
-                                 send_bytes_displs, recv_data, recv_bytes_count,
-                                 recv_bytes_displs, comm, max_chunk_size));
-  free(send_bytes_count);
-  free(send_bytes_displs);
-  free(recv_bytes_count);
-  free(recv_bytes_displs);
+  SMESH_MPI_CATCH(all_to_allv_64_b(
+      send_data_and_final_storage, send_count, send_displs, data_type,
+      recv_data, recv_count, recv_displs, data_type, comm, max_chunk_size));
 
-  ///////////////////////////////////
-  // Unpack indexed data
-  ///////////////////////////////////
-
-  for (ptrdiff_t i = 0; i < total_recv; ++i) {
-    ptrdiff_t dest = recv_list[i] - begin;
-    SMESH_ASSERT(dest >= 0);
-    SMESH_ASSERT(dest < local_output_size);
-    memcpy((void *)&send_data_and_final_storage[dest * type_size],
-           (void *)&recv_data[i * type_size], type_size);
-  }
-
-  int ret = array_write_convert_from_extension(comm, output_path,
-                                               send_data_and_final_storage,
-                                               local_output_size, n_global);
+  int ret =
+      array_write(comm, output_path.c_str(), data_type,
+                  send_data_and_final_storage, local_output_size, n_global);
 
   ///////////////////////////////////
   // Clean-up

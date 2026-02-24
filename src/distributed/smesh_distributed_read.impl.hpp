@@ -530,11 +530,14 @@ int mesh_from_folder(const MPI_Comm comm, const Path &folder,
                      // Elements
                      int *nnodesxelem_out, ptrdiff_t *n_global_elements_out,
                      ptrdiff_t *n_owned_elements_out,
+                     ptrdiff_t *n_shared_elements_out,
                      ptrdiff_t *n_ghost_elements_out,
                      large_idx_t **element_mapping_out, idx_t ***elements_out,
                      // Nodes
                      int *spatial_dim_out, ptrdiff_t *n_global_nodes_out,
-                     ptrdiff_t *n_owned_nodes_out, ptrdiff_t *n_ghost_nodes_out,
+                     ptrdiff_t *n_owned_nodes_out, 
+                     ptrdiff_t *n_shared_nodes_out,
+                     ptrdiff_t *n_ghost_nodes_out,
                      large_idx_t **node_mapping_out, geom_t ***points_out,
                      // Distributed connectivities
                      int **node_owner_out, ptrdiff_t **node_offsets_out,
@@ -588,6 +591,10 @@ int mesh_from_folder(const MPI_Comm comm, const Path &folder,
                            n_local_elements, nnodesxelem, elems,
                            local2global_size, local_n2e_ptr, local_n2e_idx,
                            local2global, local_elements);
+  for (int d = 0; d < nnodesxelem; ++d) {
+    free(elems[d]);
+  }
+  free(elems);
 
   ptrdiff_t n_owned = 0;
   ptrdiff_t n_shared = 0;
@@ -615,6 +622,8 @@ int mesh_from_folder(const MPI_Comm comm, const Path &folder,
       comm, n_global_elements, n_local_elements, nnodesxelem, local_n2e_ptr,
       local_n2e_idx, local2global, local_elements, element_mapping, n_owned,
       n_ghosts, &aura_elements, aura_element_nodes, &n_aura_elements);
+  free(local_n2e_ptr);
+  free(local_n2e_idx);
 
   long long owned_nodes_start_ll = 0;
   long long n_owned_ll = (long long)n_owned;
@@ -636,11 +645,18 @@ int mesh_from_folder(const MPI_Comm comm, const Path &folder,
   node_ownership_ranges(comm, n_owned, owned_node_ranges);
 
   large_idx_t *local2global_with_aura = nullptr;
+
+  // FIXME append aura nodes to element_mapping
   ptrdiff_t n_aura_nodes = 0;
   stitch_aura_elements(comm, n_owned, n_shared, n_ghosts, local2global,
                        nnodesxelem, n_aura_elements, aura_element_nodes,
                        n_local_elements, local_elements,
                        &local2global_with_aura, &n_aura_nodes);
+  free(aura_elements);
+  for (int d = 0; d < nnodesxelem; ++d) {
+    free(aura_element_nodes[d]);
+  }
+  free(aura_element_nodes);
   free(local2global);
   local2global = local2global_with_aura;
   local2global_size = n_owned + n_ghosts + n_aura_nodes;
@@ -668,12 +684,26 @@ int mesh_from_folder(const MPI_Comm comm, const Path &folder,
     local_points[d] = (geom_t *)malloc(n_local_nodes * sizeof(geom_t));
     gather_mapped_field(comm, n_local_nodes, n_global_nodes, local2global,
                         smesh::mpi_type<geom_t>(), points[d], local_points[d]);
+    free(points[d]);
   }
+  free(points);
+
+  ptrdiff_t n_shared_elements = 0;
+  for(ptrdiff_t i = 0; i < n_local_elements; ++i) {
+    for(int d = 0; d < nnodesxelem; ++d) {
+         idx_t node = local_elements[d][i];
+         if(owner[node] != comm_rank) {
+          n_shared_elements++;
+            break;
+      }
+    }
+  } 
 
   // Elements
   *nnodesxelem_out = nnodesxelem;
   *n_global_elements_out = n_global_elements;
   *n_owned_elements_out = n_local_elements;
+  *n_shared_elements_out = n_shared_elements;
   *n_ghost_elements_out = n_aura_elements;
   *element_mapping_out = element_mapping;
   *elements_out = local_elements;
@@ -682,6 +712,7 @@ int mesh_from_folder(const MPI_Comm comm, const Path &folder,
   *spatial_dim_out = spatial_dim;
   *n_global_nodes_out = n_global_nodes;
   *n_owned_nodes_out = n_owned;
+  *n_shared_nodes_out = n_shared;
   *n_ghost_nodes_out = n_ghosts;
   *node_mapping_out = local2global;
   *points_out = local_points;

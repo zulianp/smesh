@@ -1,5 +1,5 @@
 #include "smesh_output.hpp"
-
+#include "smesh_env.hpp"
 #include "smesh_common.hpp"
 #include "smesh_glob.hpp"
 
@@ -50,8 +50,9 @@ int Output::write_nodal(const std::string &field_name,
   if (mesh->comm()->size() > 1) {
     auto dist = mesh->distributed();
     auto data_type = mpi_type_from_primitive_type(type);
-    return write_mapped_field(mesh->comm()->get(), path, dist->n_nodes_owned(), dist->n_nodes_global(),
-                              dist->node_mapping()->data(), data_type, data);
+    return write_mapped_field(
+      mesh->comm()->get(), path, dist->n_nodes_owned(), dist->n_nodes_global(),
+      dist->node_mapping()->data(), data_type, data);
   }
 #endif
   return array_write(path, type, data, mesh->n_nodes());
@@ -71,7 +72,7 @@ int Output::write_elemental(const std::string &field_name,
   }
 
   auto path = Path(impl_->path) / (field_name + "." + str(type));
-  
+
 #if defined(SMESH_ENABLE_MPI)
   if (mesh->comm()->size() > 1) {
     auto dist = mesh->distributed();
