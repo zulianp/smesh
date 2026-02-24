@@ -1,6 +1,18 @@
 #include "smesh_distributed_read.impl.hpp"
 #include "smesh_types.hpp"
 
+#define SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(IDX_T, GEOM_T,             \
+                                                    LARGE_IDX_T)               \
+  template int mesh_from_folder<IDX_T, GEOM_T, LARGE_IDX_T>(                   \
+      const MPI_Comm comm, const Path &folder, int *nnodesxelem_out,           \
+      ptrdiff_t *n_global_elements_out, ptrdiff_t *n_owned_elements_out,       \
+      ptrdiff_t *n_ghost_elements_out, large_idx_t **element_mapping_out,      \
+      idx_t ***elements_out, int *spatial_dim_out,                             \
+      ptrdiff_t *n_global_nodes_out, ptrdiff_t *n_owned_nodes_out,             \
+      ptrdiff_t *n_ghost_nodes_out, large_idx_t **node_mapping_out,            \
+      geom_t ***points_out, int **node_owner_out,                              \
+      ptrdiff_t **node_offsets_out, idx_t **ghosts_out)
+
 namespace smesh {
 // Explicit instantiation
 template int read_mapped_field<i32>(MPI_Comm comm, const char *input_path,
@@ -24,13 +36,8 @@ template int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
                                     ptrdiff_t *const n_local_elements_out,
                                     ptrdiff_t *const n_global_elements_out);
 
-template int mesh_from_folder<i32, f32>(
-    const MPI_Comm comm, const Path &folder, int *nnodesxelem_out,
-    ptrdiff_t *nelements_out, i32 ***elements_out, int *spatial_dim_out,
-    ptrdiff_t *nnodes_out, f32 ***points_out, ptrdiff_t *n_owned_nodes_out,
-    ptrdiff_t *n_owned_elements_out, large_idx_t **element_mapping_out,
-    large_idx_t **node_mapping_out, int **node_owner_out, ptrdiff_t **node_offsets_out,
-    i32 **ghosts_out, ptrdiff_t *n_owned_nodes_with_ghosts_out,
-    ptrdiff_t *n_shared_elements_out,
-    ptrdiff_t *n_owned_elements_with_ghosts_out);
+SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i32, f32, i32);
+SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i32, f32, i64);
 } // namespace smesh
+
+#undef SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER

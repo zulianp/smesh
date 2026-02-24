@@ -124,7 +124,7 @@ int rearrange_local_nodes(const int comm_size, const int comm_rank,
                           ptrdiff_t *const SMESH_RESTRICT out_n_shared,
                           ptrdiff_t *const SMESH_RESTRICT out_n_ghosts);
 
-template <typename idx_t, typename count_t, typename element_idx_t>
+template <typename idx_t, typename count_t, typename element_idx_t, typename large_idx_t>
 int rearrange_local_elements(
     const int comm_size, const int comm_rank, const ptrdiff_t n_global_elements,
     const ptrdiff_t n_local_elements, const int nnodesxelem,
@@ -133,18 +133,17 @@ int rearrange_local_elements(
     element_idx_t *const SMESH_RESTRICT local_n2e_idx,
     idx_t **const SMESH_RESTRICT local_elements, const ptrdiff_t n_owned_nodes,
     ptrdiff_t *const SMESH_RESTRICT n_owned_not_shared,
-    element_idx_t *const SMESH_RESTRICT element_local_to_global);
+    large_idx_t *const SMESH_RESTRICT element_local_to_global);
 
-template <typename idx_t, typename count_t, typename element_idx_t,
-          typename local2global_t = idx_t>
+template <typename idx_t, typename count_t, typename element_idx_t, typename large_idx_t>
 int expand_aura_elements_inconsistent(
     MPI_Comm comm, const ptrdiff_t n_global_elements,
     const ptrdiff_t n_local_elements, const int nnodesxelem,
     count_t *const SMESH_RESTRICT local_n2e_ptr,
     element_idx_t *const SMESH_RESTRICT local_n2e_idx,
-    const local2global_t *const SMESH_RESTRICT local2global,
+    const large_idx_t *const SMESH_RESTRICT local2global,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT local_elements,
-    const element_idx_t *const SMESH_RESTRICT element_local_to_global,
+    const large_idx_t *const SMESH_RESTRICT element_local_to_global,
     const ptrdiff_t node_n_owned, const ptrdiff_t nodes_n_ghosts,
     idx_t **const SMESH_RESTRICT out_aura_elements,
     idx_t **const SMESH_RESTRICT out_aura_element_nodes,

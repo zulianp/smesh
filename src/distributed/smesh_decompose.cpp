@@ -1,7 +1,9 @@
 #include "smesh_decompose.impl.hpp"
 #include "smesh_types.hpp"
 
-#define SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(IDX_T, COUNT_T, ELEM_IDX_T)       \
+// TODO: fix compilation errors for instantiation
+
+#define SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(IDX_T, COUNT_T, ELEM_IDX_T, LARGE_IDX_T)       \
   template int create_n2e<IDX_T, COUNT_T, ELEM_IDX_T>(                         \
       MPI_Comm, const ptrdiff_t, const ptrdiff_t, const ptrdiff_t,             \
       const ptrdiff_t, const int,                                              \
@@ -25,7 +27,7 @@
       ELEM_IDX_T *const SMESH_RESTRICT, IDX_T *const SMESH_RESTRICT,           \
       IDX_T **const SMESH_RESTRICT, ptrdiff_t *const SMESH_RESTRICT,           \
       ptrdiff_t *const SMESH_RESTRICT, ptrdiff_t *const SMESH_RESTRICT);       \
-  template int rearrange_local_elements<IDX_T, COUNT_T, ELEM_IDX_T>(           \
+  template int rearrange_local_elements<IDX_T, COUNT_T, ELEM_IDX_T, LARGE_IDX_T>(           \
       const int, const int, const ptrdiff_t, const ptrdiff_t, const int,       \
       const ptrdiff_t, COUNT_T *const SMESH_RESTRICT,                          \
       ELEM_IDX_T *const SMESH_RESTRICT, IDX_T **const SMESH_RESTRICT,          \
@@ -71,14 +73,14 @@
 
 namespace smesh {
 
-SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i32, i32, i32);
-SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i32, i32, i64);
-SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i32, i64, i32);
-SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i32, i64, i64);
-SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i64, i32, i32);
-SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i64, i32, i64);
-SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i64, i64, i32);
-SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i64, i64, i64);
+SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i32, i32, i32, large_idx_t);
+SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i32, i32, i64, large_idx_t);
+SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i32, i64, i32, large_idx_t);
+SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i32, i64, i64, large_idx_t);
+SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i64, i32, i32, large_idx_t);
+SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i64, i32, i64, large_idx_t);
+SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i64, i64, i32, large_idx_t);
+SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i64, i64, i64, large_idx_t);
 
 SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE_IDX(i32);
 SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE_IDX(i64);

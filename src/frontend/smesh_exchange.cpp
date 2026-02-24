@@ -33,9 +33,10 @@ Exchange::~Exchange() = default;
 std::shared_ptr<Exchange>
 Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh) {
 #if defined(SMESH_ENABLE_MPI)
-  return create(mesh->comm(), mesh->n_nodes(), mesh->n_owned_nodes(),
-                mesh->node_owner()->data(), mesh->node_offsets()->data(),
-                mesh->ghosts()->data());
+  auto dist = mesh->distributed();
+  return create(mesh->comm(), dist->n_nodes_global(), dist->n_nodes_owned(),
+                dist->node_owner()->data(), dist->node_offsets()->data(),
+                dist->ghosts()->data());
 
 #else
   return std::make_shared<Exchange>(mesh->comm());

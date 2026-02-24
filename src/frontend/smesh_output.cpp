@@ -45,20 +45,16 @@ int Output::write_nodal(const std::string &field_name,
   }
 
   auto path = Path(impl_->path) / (field_name + "." + str(type));
-  ptrdiff_t n = mesh->n_owned_nodes();
+  
 #if defined(SMESH_ENABLE_MPI)
   if (mesh->comm()->size() > 1) {
-    mesh->comm()->print_callback([&](std::ostream &os) {
-      os << "Owned nodes: " << n << "\n";
-      os << "Global nodes: " << mesh->n_nodes() << "\n";
-    });
-
+    auto dist = mesh->distributed();
     auto data_type = mpi_type_from_primitive_type(type);
-    return write_mapped_field(mesh->comm()->get(), path, n, mesh->n_nodes(),
-                              mesh->node_mapping()->data(), data_type, data);
+    return write_mapped_field(mesh->comm()->get(), path, dist->n_nodes_owned(), dist->n_nodes_global(),
+                              dist->node_mapping()->data(), data_type, data);
   }
 #endif
-  return array_write(path, type, data, n);
+  return array_write(path, type, data, mesh->n_nodes());
 }
 
 int Output::write_elemental(const std::string &field_name,
@@ -75,15 +71,16 @@ int Output::write_elemental(const std::string &field_name,
   }
 
   auto path = Path(impl_->path) / (field_name + "." + str(type));
-  ptrdiff_t n = mesh->n_owned_elements();
+  
 #if defined(SMESH_ENABLE_MPI)
   if (mesh->comm()->size() > 1) {
+    auto dist = mesh->distributed();
     auto data_type = mpi_type_from_primitive_type(type);
-    return write_mapped_field(mesh->comm()->get(), path, n, mesh->n_elements(),
-                              mesh->element_mapping()->data(), data_type, data);
+    return write_mapped_field(mesh->comm()->get(), path, dist->n_elements_owned(), dist->n_elements_global(),
+                              dist->element_mapping()->data(), data_type, data);
   }
 #endif
-  return array_write(path, type, data, n);
+  return array_write(path, type, data, mesh->n_elements());
 }
 
 } // namespace smesh

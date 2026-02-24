@@ -39,8 +39,31 @@ public:
   ptrdiff_t n_elements_global;
   ptrdiff_t n_elements_owned;
   ptrdiff_t n_elements_shared;
-  ptrdiff_t n_elements_aura;
+  ptrdiff_t n_elements_ghosts;
+
+  SharedBuffer<large_idx_t> node_mapping;
+  SharedBuffer<large_idx_t> element_mapping;
+
+  SharedBuffer<int> node_owner;
+  SharedBuffer<ptrdiff_t> node_offsets;
+  SharedBuffer<idx_t> ghosts;
 };
+
+SharedBuffer<large_idx_t> Distributed::node_mapping() const {
+  return impl_->node_mapping;
+}
+SharedBuffer<large_idx_t> Distributed::element_mapping() const {
+  return impl_->element_mapping;
+}
+SharedBuffer<int> Distributed::node_owner() const {
+  return impl_->node_owner;
+}
+SharedBuffer<ptrdiff_t> Distributed::node_offsets() const {
+  return impl_->node_offsets;
+}
+SharedBuffer<idx_t> Distributed::ghosts() const {
+  return impl_->ghosts;
+}
 
 Distributed::Distributed() : impl_(std::make_unique<Impl>()) {}
 Distributed::~Distributed() = default;
@@ -59,7 +82,7 @@ ptrdiff_t Distributed::n_nodes_owned() const { return impl_->n_nodes_owned; }
 ptrdiff_t Distributed::n_nodes_shared() const { return impl_->n_nodes_shared; }
 ptrdiff_t Distributed::n_nodes_ghosts() const { return impl_->n_nodes_ghosts; }
 ptrdiff_t Distributed::n_elements_local() const {
-  return impl_->n_elements_owned + impl_->n_elements_aura;
+  return impl_->n_elements_owned + impl_->n_elements_ghosts;
 }
 ptrdiff_t Distributed::n_elements_owned_not_shared() const {
   return impl_->n_elements_owned - impl_->n_elements_shared;
@@ -70,8 +93,8 @@ ptrdiff_t Distributed::n_elements_owned() const {
 ptrdiff_t Distributed::n_elements_shared() const {
   return impl_->n_elements_shared;
 }
-ptrdiff_t Distributed::n_elements_aura() const {
-  return impl_->n_elements_aura;
+ptrdiff_t Distributed::n_elements_ghosts() const {
+  return impl_->n_elements_ghosts;
 }
 
 static ptrdiff_t
@@ -122,27 +145,10 @@ class Mesh::Impl {
 public:
   std::shared_ptr<Communicator> comm;
   std::vector<std::shared_ptr<Block>> blocks;
+  SharedBuffer<geom_t *> points;
+  SharedBuffer<idx_t> node_mapping;
 
-  SharedBuffer<geom_t *> points; // Node coordinates
-
-  // MPI-related data using Buffers
-  SharedBuffer<large_idx_t> node_mapping;
-  SharedBuffer<int> node_owner;
-  SharedBuffer<large_idx_t> element_mapping;
-  SharedBuffer<ptrdiff_t> node_offsets;
-  SharedBuffer<idx_t> ghosts;
-
-  // Metadata
-  int spatial_dim;
-  ptrdiff_t nnodes;
-
-  // MPI ownership info
-  ptrdiff_t n_owned_nodes;
-  ptrdiff_t n_owned_nodes_with_ghosts;
-  ptrdiff_t n_owned_elements;
-  ptrdiff_t n_owned_elements_with_ghosts;
-  ptrdiff_t n_shared_elements;
-
+  std::shared_ptr<Distributed> distributed;
   std::shared_ptr<NodeToNodeGraph> crs_graph;
   std::shared_ptr<NodeToNodeGraph> crs_graph_upper_triangular;
   std::shared_ptr<NodeToElementGraph> node_to_element_graph;
@@ -152,22 +158,14 @@ public:
   void clear() {
     comm = nullptr;
     blocks.clear();
-    spatial_dim = 0;
-    nnodes = 0;
     points = nullptr;
-    node_mapping = nullptr;
-    node_owner = nullptr;
-    element_mapping = nullptr;
-    node_offsets = nullptr;
-    ghosts = nullptr;
-    n_owned_nodes = 0;
-    n_owned_nodes_with_ghosts = 0;
-    n_owned_elements = 0;
-    n_owned_elements_with_ghosts = 0;
-    n_shared_elements = 0;
+    distributed = nullptr;
     crs_graph = nullptr;
     crs_graph_upper_triangular = nullptr;
+    distributed = nullptr;
+    node_to_element_graph = nullptr;
   }
+
 
   // Helper methods for backward compatibility
   ptrdiff_t total_elements() const {
@@ -204,9 +202,12 @@ public:
     count_t *rowptr{nullptr};
     element_idx_t *colidx{nullptr};
 
+    const ptrdiff_t nnodes = points->extent(1);
     create_n2e(default_elements()->extent(1), nnodes,
                default_elements()->extent(0), default_elements()->data(),
                &rowptr, &colidx);
+
+               
 
     node_to_element_graph = std::make_shared<Mesh::NodeToElementGraph>(
         Buffer<count_t>::own(nnodes + 1, rowptr, free, MEMORY_SPACE_HOST),
@@ -222,8 +223,6 @@ Mesh::Mesh(const std::shared_ptr<Communicator> &comm,
            SharedBuffer<geom_t *> points)
     : impl_(std::make_unique<Impl>()) {
   impl_->comm = comm;
-  impl_->spatial_dim = points->extent(0);
-  impl_->nnodes = points->extent(1);
   impl_->points = points;
 
   // Create default block
@@ -239,8 +238,6 @@ Mesh::Mesh(const std::shared_ptr<Communicator> &comm,
            SharedBuffer<geom_t *> points)
     : impl_(std::make_unique<Impl>()) {
   impl_->comm = comm;
-  impl_->spatial_dim = points->extent(0);
-  impl_->nnodes = points->extent(1);
   impl_->points = points;
   impl_->blocks = blocks;
 }
@@ -300,10 +297,11 @@ int Mesh::read(const Path &path) {
     geom_t **points = nullptr;
     int nnodesxelem;
     int spatial_dim;
+    ptrdiff_t nnodes;
     ptrdiff_t nelements;
 
     if (mesh_from_folder(path, &nnodesxelem, &nelements, &elements,
-                         &spatial_dim, &impl_->nnodes,
+                         &spatial_dim, &nnodes,
                          &points) != SMESH_SUCCESS) {
       return SMESH_FAILURE;
     }
@@ -311,14 +309,7 @@ int Mesh::read(const Path &path) {
     auto elements_buffer =
         manage_host_buffer<idx_t>(nnodesxelem, nelements, elements);
     impl_->points =
-        manage_host_buffer<geom_t>(spatial_dim, impl_->nnodes, points);
-    impl_->spatial_dim = spatial_dim;
-    impl_->nnodes = impl_->nnodes;
-    impl_->n_owned_nodes = impl_->nnodes;
-    impl_->n_owned_elements = nelements;
-    impl_->n_owned_elements_with_ghosts = 0;
-    impl_->n_shared_elements = 0;
-    impl_->n_owned_nodes_with_ghosts = 0;
+        manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
 
     // Create default block
     auto default_block = std::make_shared<Block>();
@@ -329,65 +320,50 @@ int Mesh::read(const Path &path) {
   }
 #ifdef SMESH_ENABLE_MPI
   else {
-    int nnodesxelem;
-    ptrdiff_t nelements;
-    idx_t **elements;
-    int spatial_dim;
-    ptrdiff_t nnodes;
-    geom_t **points;
-    ptrdiff_t n_owned_nodes;
-    ptrdiff_t n_owned_elements;
-    large_idx_t *element_mapping;
-    large_idx_t *node_mapping;
-    int *node_owner;
-    ptrdiff_t *node_offsets;
-    idx_t *ghosts;
-    ptrdiff_t n_owned_nodes_with_ghosts;
-    ptrdiff_t n_shared_elements;
-    ptrdiff_t n_owned_elements_with_ghosts;
 
-    if (mesh_from_folder(impl_->comm->get(), path, &nnodesxelem, &nelements,
-                         &elements, &spatial_dim, &nnodes, &points,
-                         &n_owned_nodes, &n_owned_elements, &element_mapping,
-                         &node_mapping, &node_owner, &node_offsets, &ghosts,
-                         &n_owned_nodes_with_ghosts, &n_shared_elements,
-                         &n_owned_elements_with_ghosts) != SMESH_SUCCESS) {
+    auto dist = std::make_shared<Distributed>();
+    int nnodesxelem;
+    large_idx_t *element_mapping = nullptr;
+    large_idx_t *node_mapping = nullptr;
+    idx_t **elements = nullptr;
+    geom_t **points = nullptr;
+    ptrdiff_t *node_offsets = nullptr;
+    int *node_owner = nullptr;
+    idx_t *ghosts = nullptr;
+
+    int spatial_dim;
+    if(mesh_from_folder(
+      impl_->comm->get(), path,
+      // Elements
+      &nnodesxelem,
+      &dist->impl_->n_elements_global,
+      &dist->impl_->n_elements_owned,
+      &dist->impl_->n_elements_ghosts,
+      &element_mapping,
+      &elements,
+      // Nodes
+      &spatial_dim, &dist->impl_->n_nodes_global,
+      &dist->impl_->n_nodes_owned, &dist->impl_->n_nodes_ghosts,
+      &node_mapping, &points,
+      // Distributed connectivities
+      &node_owner, &node_offsets, &ghosts) != SMESH_SUCCESS) {
       return SMESH_FAILURE;
     }
 
-    impl_->comm->print_callback([&](std::ostream &os) {
-      os << "N nodes: " << nnodes << "\n";
-      os << "N owned nodes: " << n_owned_nodes << "\n";
-      os << "N owned nodes with ghosts: " << n_owned_nodes_with_ghosts << "\n";
-      os << "N shared elements: " << n_shared_elements << "\n";
-      os << "N owned elements: " << n_owned_elements << "\n";
-      os << "N owned elements with ghosts: " << n_owned_elements_with_ghosts
-         << "\n";
-    });
-
     auto elements_buffer =
-        manage_host_buffer<idx_t>(nnodesxelem, nelements, elements);
-    impl_->spatial_dim = spatial_dim;
-    impl_->nnodes = nnodes;
-    impl_->points = manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
-    impl_->node_mapping = manage_host_buffer<large_idx_t>(nnodes, node_mapping);
-    impl_->node_owner = manage_host_buffer<int>(nnodes, node_owner);
-    impl_->element_mapping =
-        manage_host_buffer<large_idx_t>(nelements, element_mapping);
+        manage_host_buffer<idx_t>(nnodesxelem, dist->n_elements_local(), elements);
+    impl_->points = manage_host_buffer<geom_t>(spatial_dim, dist->n_nodes_local(), points);
+    dist->impl_->node_mapping = manage_host_buffer<large_idx_t>(dist->n_nodes_local(), node_mapping);
+    dist->impl_->node_owner = manage_host_buffer<int>(dist->n_nodes_local(), node_owner);
+    dist->impl_->element_mapping =
+        manage_host_buffer<large_idx_t>(dist->n_elements_local(), element_mapping);
 
     int comm_size;
     MPI_Comm_size(impl_->comm->get(), &comm_size);
-    impl_->node_offsets =
+    dist->impl_->node_offsets =
         manage_host_buffer<ptrdiff_t>(comm_size + 1, node_offsets);
 
-    ptrdiff_t n_ghost_nodes = nnodes - n_owned_nodes;
-    impl_->ghosts = manage_host_buffer<idx_t>(n_ghost_nodes, ghosts);
-
-    impl_->n_owned_nodes = n_owned_nodes;
-    impl_->n_owned_nodes_with_ghosts = n_owned_nodes_with_ghosts;
-    impl_->n_owned_elements = n_owned_elements;
-    impl_->n_owned_elements_with_ghosts = n_owned_elements_with_ghosts;
-    impl_->n_shared_elements = n_shared_elements;
+    dist->impl_->ghosts = manage_host_buffer<idx_t>(dist->impl_->n_nodes_ghosts, ghosts);
 
     // Create default block
     auto default_block = std::make_shared<Block>();
@@ -436,8 +412,8 @@ int Mesh::write(const Path &path) const {
     return mesh_to_folder(path, impl_->blocks[0]->element_type(),
                           impl_->blocks[0]->elements()->extent(1),
                           impl_->blocks[0]->elements()->data(),
-                          impl_->spatial_dim, impl_->nnodes,
-                          impl_->points->data());
+                          this->spatial_dimension(), this->n_nodes(),
+                          this->points()->data());
   } else {
     std::vector<ptrdiff_t> n_elements;
     std::vector<enum ElemType> element_types;
@@ -452,7 +428,7 @@ int Mesh::write(const Path &path) const {
     }
     return mesh_multiblock_to_folder(
         path, block_names, element_types, n_elements, elements.data(),
-        impl_->spatial_dim, impl_->nnodes, impl_->points->data());
+        this->spatial_dimension(), this->n_nodes(), this->points()->data());
   }
 }
 
@@ -525,7 +501,7 @@ int Mesh::initialize_node_to_node_graph() {
 
   if (impl_->blocks.size() == 1) {
     create_crs_graph_for_elem_type(
-        impl_->default_element_type(), impl_->total_elements(), impl_->nnodes,
+        impl_->default_element_type(), impl_->total_elements(), this->n_nodes(),
         impl_->default_elements()->data(), &rowptr, &colidx);
   } else {
     // AoS to SoA
@@ -541,12 +517,12 @@ int Mesh::initialize_node_to_node_graph() {
 
     create_multiblock_crs_graph(impl_->blocks.size(), element_types.data(),
                                 n_elements.data(), elements.data(),
-                                impl_->nnodes, &rowptr, &colidx);
+                                this->n_nodes(), &rowptr, &colidx);
   }
 
   impl_->crs_graph = std::make_shared<Mesh::NodeToNodeGraph>(
-      Buffer<count_t>::own(impl_->nnodes + 1, rowptr, free, MEMORY_SPACE_HOST),
-      Buffer<idx_t>::own(rowptr[impl_->nnodes], colidx, free,
+      Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free, MEMORY_SPACE_HOST),
+      Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free,
                          MEMORY_SPACE_HOST));
 
   return SMESH_SUCCESS;
@@ -563,7 +539,7 @@ Mesh::node_to_node_graph_upper_triangular() {
 
   if (impl_->blocks.size() == 1) {
     create_crs_graph_upper_triangular_from_element(
-        impl_->total_elements(), impl_->nnodes,
+        impl_->total_elements(), this->n_nodes(),
         elem_num_nodes(impl_->default_element_type()),
         impl_->default_elements()->data(), &rowptr, &colidx);
   } else {
@@ -580,12 +556,12 @@ Mesh::node_to_node_graph_upper_triangular() {
 
     create_multiblock_crs_graph_upper_triangular(
         impl_->blocks.size(), element_types.data(), n_elements.data(),
-        elements.data(), impl_->nnodes, &rowptr, &colidx);
+        elements.data(), this->n_nodes(), &rowptr, &colidx);
   }
 
   impl_->crs_graph_upper_triangular = std::make_shared<Mesh::NodeToNodeGraph>(
-      Buffer<count_t>::own(impl_->nnodes + 1, rowptr, free, MEMORY_SPACE_HOST),
-      Buffer<idx_t>::own(rowptr[impl_->nnodes], colidx, free,
+      Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free, MEMORY_SPACE_HOST),
+      Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free,
                          MEMORY_SPACE_HOST));
 
   return impl_->crs_graph_upper_triangular;
@@ -615,13 +591,8 @@ Mesh::create_hex8_cube(const std::shared_ptr<Communicator> &comm, const int nx,
   const ptrdiff_t nelements = nx * ny * nz;
   const ptrdiff_t nnodes = (nx + 1) * (ny + 1) * (nz + 1);
 
-  ret->impl_->spatial_dim = 3;
-  ret->impl_->nnodes = nnodes;
   ret->impl_->points = create_host_buffer<geom_t>(3, nnodes);
   auto elements_buffer = create_host_buffer<idx_t>(8, nelements);
-
-  ret->impl_->n_owned_nodes = nnodes;
-  ret->impl_->n_owned_elements = nelements;
 
   auto points = ret->impl_->points->data();
   auto elements = elements_buffer->data();
@@ -648,13 +619,8 @@ Mesh::create_tri3_square(const std::shared_ptr<Communicator> &comm,
   const ptrdiff_t nelements = 2 * nx * ny;
   const ptrdiff_t nnodes = (nx + 1) * (ny + 1);
 
-  ret->impl_->spatial_dim = 2;
-  ret->impl_->nnodes = nnodes;
   ret->impl_->points = create_host_buffer<geom_t>(2, nnodes);
   auto elements_buffer = create_host_buffer<idx_t>(3, nelements);
-
-  ret->impl_->n_owned_nodes = nnodes;
-  ret->impl_->n_owned_elements = nelements;
 
   auto points = ret->impl_->points->data();
   auto elements = elements_buffer->data();
@@ -681,13 +647,8 @@ Mesh::create_quad4_square(const std::shared_ptr<Communicator> &comm,
   const ptrdiff_t nelements = nx * ny;
   const ptrdiff_t nnodes = (nx + 1) * (ny + 1);
 
-  ret->impl_->spatial_dim = 2;
-  ret->impl_->nnodes = nnodes;
   ret->impl_->points = create_host_buffer<geom_t>(2, nnodes);
   auto elements_buffer = create_host_buffer<idx_t>(4, nelements);
-
-  ret->impl_->n_owned_nodes = nnodes;
-  ret->impl_->n_owned_elements = nelements;
 
   auto points = ret->impl_->points->data();
   auto elements = elements_buffer->data();
@@ -747,14 +708,9 @@ std::shared_ptr<Mesh> Mesh::create_hex8_checkerboard_cube(
     SMESH_ERROR("nx, ny, and nz must be even");
   }
 
-  ret->impl_->spatial_dim = 3;
-  ret->impl_->nnodes = nnodes;
   ret->impl_->points = create_host_buffer<geom_t>(3, nnodes);
   auto white_elements_buffer = create_host_buffer<idx_t>(8, nelements / 2);
   auto black_elements_buffer = create_host_buffer<idx_t>(8, nelements / 2);
-
-  ret->impl_->n_owned_nodes = nnodes;
-  ret->impl_->n_owned_elements = nelements;
 
   auto points = ret->impl_->points->data();
   auto white_elements = white_elements_buffer->data();
@@ -786,14 +742,9 @@ std::shared_ptr<Mesh> Mesh::create_hex8_bidomain_cube(
   const ptrdiff_t nelements = nx * ny * nz;
   const ptrdiff_t nnodes = (nx + 1) * (ny + 1) * (nz + 1);
 
-  ret->impl_->spatial_dim = 3;
-  ret->impl_->nnodes = nnodes;
   ret->impl_->points = create_host_buffer<geom_t>(3, nnodes);
   auto left_elements_buffer = create_host_buffer<idx_t>(8, nelements / 2);
   auto right_elements_buffer = create_host_buffer<idx_t>(8, nelements / 2);
-
-  ret->impl_->n_owned_nodes = nnodes;
-  ret->impl_->n_owned_elements = nelements;
 
   auto points = ret->impl_->points->data();
   auto left_elements = left_elements_buffer->data();
@@ -819,45 +770,27 @@ std::shared_ptr<Mesh> Mesh::create_hex8_bidomain_cube(
   return ret;
 }
 
-int Mesh::spatial_dimension() const { return impl_->spatial_dim; }
+int Mesh::spatial_dimension() const { return points()->extent(0); }
 int Mesh::n_nodes_per_element() const {
   return elem_num_nodes(impl_->default_element_type());
 }
 
-ptrdiff_t Mesh::n_nodes() const { return impl_->nnodes; }
+ptrdiff_t Mesh::n_nodes() const { return points()->extent(1); }
 ptrdiff_t Mesh::n_elements() const { return impl_->total_elements(); }
 
 enum ElemType Mesh::element_type() const {
   return impl_->default_element_type();
 }
 
-ptrdiff_t Mesh::n_owned_nodes() const { return impl_->n_owned_nodes; }
-ptrdiff_t Mesh::n_owned_nodes_with_ghosts() const {
-  return impl_->n_owned_nodes_with_ghosts;
-}
-ptrdiff_t Mesh::n_owned_elements() const { return impl_->n_owned_elements; }
-ptrdiff_t Mesh::n_owned_elements_with_ghosts() const {
-  return impl_->n_owned_elements_with_ghosts;
-}
-ptrdiff_t Mesh::n_shared_elements() const { return impl_->n_shared_elements; }
-
-SharedBuffer<large_idx_t> Mesh::node_mapping() const { return impl_->node_mapping; }
-SharedBuffer<large_idx_t> Mesh::element_mapping() const {
-  return impl_->element_mapping;
-}
-
-SharedBuffer<ptrdiff_t> Mesh::node_offsets() const { return impl_->node_offsets; }
-SharedBuffer<idx_t> Mesh::ghosts() const { return impl_->ghosts; }
-SharedBuffer<int> Mesh::node_owner() const { return impl_->node_owner; }
-
 SharedBuffer<geom_t *> Mesh::points() { return impl_->points; }
+SharedBuffer<geom_t *> Mesh::points() const { return impl_->points; }
 
 SharedBuffer<idx_t *> Mesh::elements() { return impl_->default_elements(); }
 SharedBuffer<idx_t *> Mesh::default_elements() {
   return impl_->default_elements();
 }
 
-void Mesh::set_node_mapping(const SharedBuffer<large_idx_t> &node_mapping) {
+void Mesh::set_node_mapping(const SharedBuffer<idx_t> &node_mapping) {
   impl_->node_mapping = node_mapping;
 }
 
@@ -890,8 +823,6 @@ Mesh::blocks(const std::vector<std::string> &block_names) const {
 
 std::shared_ptr<Mesh> Mesh::create_hex8_reference_cube() {
   auto ret = std::make_shared<Mesh>(Communicator::null());
-  ret->impl_->spatial_dim = 3;
-  ret->impl_->nnodes = 8;
   ret->impl_->points = create_host_buffer<geom_t>(3, 8);
   auto elements_buffer = create_host_buffer<idx_t>(8, 1);
 
@@ -920,13 +851,8 @@ Mesh::create_tet4_cube(const std::shared_ptr<Communicator> &comm, const int nx,
   const ptrdiff_t nnodes_vertices = (nx + 1) * (ny + 1) * (nz + 1);
   const ptrdiff_t nnodes_total = nnodes_vertices + nelements;
 
-  ret->impl_->spatial_dim = 3;
-  ret->impl_->nnodes = nnodes_total;
   ret->impl_->points = create_host_buffer<geom_t>(3, nnodes_total);
   auto elements_buffer = create_host_buffer<idx_t>(4, nelements * 12);
-
-  ret->impl_->n_owned_nodes = nnodes_total;
-  ret->impl_->n_owned_elements = nelements * 12;
 
   auto points = ret->impl_->points->data();
   auto elements = elements_buffer->data();
@@ -1594,7 +1520,7 @@ mesh_from_sideset(const std::shared_ptr<Mesh> &mesh,
   auto surf_points =
       create_host_buffer<geom_t>(mesh->spatial_dimension(), n_surf_nodes);
 
-  auto mapping = create_host_buffer<large_idx_t>(n_surf_nodes);
+  auto mapping = create_host_buffer<idx_t>(n_surf_nodes);
   auto b_surf_points = surf_points->data();
   auto b_mapping = mapping->data();
 

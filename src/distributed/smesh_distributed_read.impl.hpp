@@ -1,5 +1,8 @@
+#include "smesh_decompose.hpp"
+#include "smesh_distributed_aura.hpp"
 #include "smesh_distributed_read.hpp"
 #include "smesh_file_extensions.hpp"
+#include "smesh_graph.hpp"
 #include "smesh_path.hpp"
 #include "smesh_read.hpp"
 #include "smesh_sort.hpp"
@@ -22,28 +25,6 @@
 #include "smesh_distributed_base.hpp"
 
 namespace smesh {
-
-// #region agent log
-static inline void smesh_dbglog(const char *location, const char *message,
-                                const std::string &data_json, const char *runId,
-                                const char *hypothesisId) {
-  using namespace std::chrono;
-  const auto ts =
-      duration_cast<milliseconds>(system_clock::now().time_since_epoch())
-          .count();
-  std::ofstream os("/Users/patrickzulian/Desktop/code/smesh/.cursor/debug.log",
-                   std::ios::app);
-  if (!os.good())
-    return;
-  os << "{\"id\":\"log_" << ts << "_" << location << "\","
-     << "\"timestamp\":" << ts << ","
-     << "\"runId\":\"" << runId << "\","
-     << "\"hypothesisId\":\"" << hypothesisId << "\","
-     << "\"location\":\"" << location << "\","
-     << "\"message\":\"" << message << "\","
-     << "\"data\":" << data_json << "}\n";
-}
-// #endregion
 
 template <typename Index, typename T>
 SMESH_INLINE void array_remap_scatter(const ptrdiff_t n,
@@ -156,347 +137,6 @@ int array_create_from_file_convert_from_extension(
                 path.c_str());
     return SMESH_FAILURE;
   }
-}
-
-template <typename idx_t>
-int mesh_build_global_ids(MPI_Comm comm, const ptrdiff_t n_nodes,
-                          const ptrdiff_t n_owned_nodes,
-                          const ptrdiff_t n_owned_nodes_with_ghosts,
-                          large_idx_t *node_mapping,
-                          // int *node_owner,
-                          ptrdiff_t **node_offsets_out, idx_t **ghosts_out
-                          // ,
-                          // ptrdiff_t *n_owned_nodes_with_ghosts_out
-) {
-  int rank, size;
-  MPI_Comm_rank(comm, &rank);
-  MPI_Comm_size(comm, &size);
-
-  // #region agent log
-  smesh_dbglog("smesh_distributed_read.impl.hpp:mesh_build_global_ids", "enter",
-               std::string("{\"rank\":") + std::to_string(rank) +
-                   ",\"size\":" + std::to_string(size) + ",\"n_nodes\":" +
-                   std::to_string((long long)n_nodes) + ",\"n_owned_nodes\":" +
-                   std::to_string((long long)n_owned_nodes) +
-                   ",\"n_owned_nodes_with_ghosts\":" +
-                   std::to_string((long long)n_owned_nodes_with_ghosts) + "}",
-               "pre", "B");
-  // #endregion
-
-  idx_t n_gnodes = n_owned_nodes;
-  idx_t global_node_offset = 0;
-  MPI_Exscan(&n_gnodes, &global_node_offset, 1, smesh::mpi_type<idx_t>(),
-             MPI_SUM, comm);
-
-  n_gnodes = global_node_offset + n_owned_nodes;
-  MPI_Bcast(&n_gnodes, 1, smesh::mpi_type<idx_t>(), size - 1, comm);
-
-  ptrdiff_t *node_offsets = (ptrdiff_t *)malloc((size + 1) * sizeof(ptrdiff_t));
-  SMESH_MPI_CATCH(MPI_Allgather(&global_node_offset, 1,
-                                smesh::mpi_type<ptrdiff_t>(), node_offsets, 1,
-                                smesh::mpi_type<ptrdiff_t>(), comm));
-
-  node_offsets[size] = n_gnodes;
-
-  const ptrdiff_t n_lnodes_no_reminder = n_gnodes / size;
-  const idx_t begin = node_offsets[rank];
-  const idx_t end = node_offsets[rank + 1];
-  const ptrdiff_t n_lnodes_temp = (ptrdiff_t)(end - begin);
-
-  // #region agent log
-  smesh_dbglog("smesh_distributed_read.impl.hpp:mesh_build_global_ids",
-               "post-scan",
-               std::string("{\"rank\":") + std::to_string(rank) +
-                   ",\"global_node_offset\":" +
-                   std::to_string((long long)global_node_offset) +
-                   ",\"n_gnodes\":" + std::to_string((long long)n_gnodes) +
-                   ",\"n_lnodes_no_reminder\":" +
-                   std::to_string((long long)n_lnodes_no_reminder) +
-                   ",\"begin\":" + std::to_string((long long)begin) + "}",
-               "pre", "C");
-  // #endregion
-
-  // #region agent log
-  smesh_dbglog("smesh_distributed_read.impl.hpp:mesh_build_global_ids", "range",
-               std::string("{\"rank\":") + std::to_string(rank) +
-                   ",\"begin\":" + std::to_string((long long)begin) +
-                   ",\"end\":" + std::to_string((long long)end) +
-                   ",\"range\":" + std::to_string((long long)n_lnodes_temp) +
-                   "}",
-               "pre", "C");
-  // #endregion
-
-  const ptrdiff_t begin_owned_with_ghosts =
-      n_owned_nodes - n_owned_nodes_with_ghosts;
-  const ptrdiff_t extent_owned_with_ghosts = n_owned_nodes_with_ghosts;
-  const ptrdiff_t n_ghost_nodes = n_nodes - n_owned_nodes;
-
-  large_idx_t *ghost_keys = &node_mapping[begin_owned_with_ghosts];
-  idx_t *ghost_ids = (idx_t *)malloc(
-      std::max(extent_owned_with_ghosts, n_ghost_nodes) * sizeof(idx_t));
-
-  i64 *send_displs = (i64 *)malloc(((size_t)size + 1) * sizeof(i64));
-  i64 *recv_displs = (i64 *)malloc(((size_t)size + 1) * sizeof(i64));
-  i64 *send_count = (i64 *)calloc((size_t)size, sizeof(i64));
-  i64 *recv_count = (i64 *)malloc((size_t)size * sizeof(i64));
-
-  for (ptrdiff_t i = 0; i < extent_owned_with_ghosts; i++) {
-    ghost_ids[i] = global_node_offset + begin_owned_with_ghosts + i;
-    assert(ghost_ids[i] < n_gnodes);
-  }
-
-  for (ptrdiff_t i = 0; i < extent_owned_with_ghosts; i++) {
-    const idx_t idx = ghost_keys[i];
-    int dest_rank = 0;
-    {
-      auto ub = std::upper_bound(node_offsets, node_offsets + (size + 1), idx);
-      dest_rank = (int)((ub - node_offsets) - 1);
-      dest_rank = std::max(0, std::min(dest_rank, size - 1));
-    }
-    assert(dest_rank < size);
-    assert(dest_rank >= 0);
-
-    send_count[dest_rank]++;
-  }
-
-  SMESH_MPI_CATCH(MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1,
-                               mpi_type<i64>(), comm));
-
-  send_displs[0] = 0;
-  for (int r = 0; r < size; r++) {
-    send_displs[r + 1] = send_displs[r] + send_count[r];
-  }
-
-  recv_displs[0] = 0;
-  for (int r = 0; r < size; r++) {
-    recv_displs[r + 1] = recv_displs[r] + recv_count[r];
-  }
-
-  idx_t *recv_key_buff =
-      (idx_t *)malloc((size_t)recv_displs[size] * sizeof(idx_t));
-
-  // Pack send buffers by destination rank.
-  idx_t *send_key_buff =
-      (idx_t *)malloc((size_t)send_displs[size] * sizeof(idx_t));
-  idx_t *send_id_buff =
-      (idx_t *)malloc((size_t)send_displs[size] * sizeof(idx_t));
-  i64 *bk_send = (i64 *)calloc((size_t)size, sizeof(i64));
-  for (ptrdiff_t i = 0; i < extent_owned_with_ghosts; i++) {
-    const idx_t idx = ghost_keys[i];
-    int dest_rank = 0;
-    {
-      auto ub = std::upper_bound(node_offsets, node_offsets + (size + 1), idx);
-      dest_rank = (int)((ub - node_offsets) - 1);
-      dest_rank = std::max(0, std::min(dest_rank, size - 1));
-    }
-    const i64 off = send_displs[dest_rank] + bk_send[dest_rank]++;
-    send_key_buff[off] = ghost_keys[i];
-    send_id_buff[off] = ghost_ids[i];
-  }
-  free(bk_send);
-
-  const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
-  SMESH_MPI_CATCH(all_to_allv_64(send_key_buff, send_count, send_displs,
-                                 recv_key_buff, recv_count, recv_displs, comm,
-                                 max_chunk_size));
-
-  idx_t *recv_ids_buff =
-      (idx_t *)malloc((size_t)recv_displs[size] * sizeof(idx_t));
-
-  SMESH_MPI_CATCH(all_to_allv_64(send_id_buff, send_count, send_displs,
-                                 recv_ids_buff, recv_count, recv_displs, comm,
-                                 max_chunk_size));
-
-  free(send_key_buff);
-  free(send_id_buff);
-
-  idx_t *mapping = (idx_t *)malloc(n_lnodes_temp * sizeof(idx_t));
-
-#ifndef NDEBUG
-  for (ptrdiff_t i = 0; i < n_lnodes_temp; i++) {
-    mapping[i] = smesh::invalid_idx<idx_t>();
-  }
-#endif
-
-  // Fill mapping
-  for (int r = 0; r < size; r++) {
-    const i64 proc_begin = recv_displs[r];
-    const i64 proc_extent = recv_count[r];
-
-    idx_t *keys = &recv_key_buff[proc_begin];
-    idx_t *ids = &recv_ids_buff[proc_begin];
-
-    for (i64 k = 0; k < proc_extent; k++) {
-      idx_t iii = keys[k] - begin;
-
-      // #region agent log
-      static int logged_bad_key = 0;
-      if (!logged_bad_key && (iii < 0 || iii >= n_lnodes_temp)) {
-        logged_bad_key = 1;
-        smesh_dbglog(
-            "smesh_distributed_read.impl.hpp:mesh_build_global_ids",
-            "bad key in Fill mapping",
-            std::string("{\"rank\":") + std::to_string(rank) + ",\"r\":" +
-                std::to_string(r) + ",\"k\":" + std::to_string((long long)k) +
-                ",\"proc_extent\":" + std::to_string((long long)proc_extent) +
-                ",\"key\":" + std::to_string((long long)keys[k]) +
-                ",\"begin\":" + std::to_string((long long)begin) +
-                ",\"end\":" + std::to_string((long long)end) + ",\"iii\":" +
-                std::to_string((long long)iii) + ",\"n_lnodes_temp\":" +
-                std::to_string((long long)n_lnodes_temp) +
-                ",\"node_offsets0\":" +
-                std::to_string((long long)node_offsets[0]) +
-                ",\"node_offsets1\":" +
-                std::to_string((long long)node_offsets[1]) +
-                ",\"node_offsets2\":" +
-                std::to_string((long long)node_offsets[2]) + "}",
-            "pre", "D");
-      }
-      // #endregion
-
-      assert(iii >= 0);
-      assert(iii < n_lnodes_temp);
-
-      mapping[iii] = ids[k];
-    }
-  }
-
-  /////////////////////////////////////////////////
-  // Gather query ghost nodes
-  memset(send_count, 0, (size_t)size * sizeof(i64));
-
-  // Get the query nodes
-  ghost_keys = &node_mapping[n_owned_nodes];
-
-  idx_t *recv_idx = (idx_t *)malloc(n_ghost_nodes * sizeof(idx_t));
-  idx_t *exchange_buff = (idx_t *)malloc(n_ghost_nodes * sizeof(idx_t));
-  {
-    for (ptrdiff_t i = 0; i < n_ghost_nodes; i++) {
-      const idx_t idx = ghost_keys[i];
-      int dest_rank = 0;
-      {
-        auto ub =
-            std::upper_bound(node_offsets, node_offsets + (size + 1), idx);
-        dest_rank = (int)((ub - node_offsets) - 1);
-        dest_rank = std::max(0, std::min(dest_rank, size - 1));
-      }
-
-      assert(dest_rank < size);
-      assert(dest_rank >= 0);
-
-      send_count[dest_rank]++;
-    }
-
-    send_displs[0] = 0;
-    for (int r = 0; r < size; r++) {
-      send_displs[r + 1] = send_displs[r] + send_count[r];
-    }
-
-    memset(send_count, 0, (size_t)size * sizeof(i64));
-
-    for (ptrdiff_t i = 0; i < n_ghost_nodes; i++) {
-      const idx_t idx = ghost_keys[i];
-      int dest_rank = 0;
-      {
-        auto ub =
-            std::upper_bound(node_offsets, node_offsets + (size + 1), idx);
-        dest_rank = (int)((ub - node_offsets) - 1);
-        dest_rank = std::max(0, std::min(dest_rank, size - 1));
-      }
-
-      assert(dest_rank < size);
-      assert(dest_rank >= 0);
-
-      const i64 offset = send_displs[dest_rank] + send_count[dest_rank]++;
-      exchange_buff[offset] = idx;
-      recv_idx[offset] = i;
-    }
-  }
-
-  SMESH_MPI_CATCH(MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1,
-                               mpi_type<i64>(), comm));
-
-  recv_displs[0] = 0;
-  for (int r = 0; r < size; r++) {
-    recv_displs[r + 1] = recv_displs[r] + recv_count[r];
-  }
-
-  recv_key_buff = (idx_t *)realloc(recv_key_buff,
-                                   (size_t)recv_displs[size] * sizeof(idx_t));
-
-  SMESH_MPI_CATCH(all_to_allv_64(exchange_buff, send_count, send_displs,
-                                 recv_key_buff, recv_count, recv_displs, comm,
-                                 max_chunk_size));
-
-  // Query mapping
-  for (int r = 0; r < size; r++) {
-    const i64 proc_begin = recv_displs[r];
-    const i64 proc_extent = recv_count[r];
-
-    idx_t *keys = &recv_key_buff[proc_begin];
-
-    for (i64 k = 0; k < proc_extent; k++) {
-      idx_t iii = keys[k] - begin;
-
-      if (iii >= n_lnodes_temp) {
-        printf("[%d] %lld < %d < %lld\n", rank, (long long)begin, (int)keys[k],
-               (long long)(begin + (idx_t)n_lnodes_temp));
-      }
-
-      assert(iii < n_lnodes_temp);
-      assert(iii >= 0);
-      // #region agent log
-      static int logged_missing = 0;
-      if (!logged_missing && mapping[iii] < 0) {
-        logged_missing = 1;
-        smesh_dbglog("smesh_distributed_read.impl.hpp:mesh_build_global_ids",
-                     "missing mapping in Query mapping",
-                     std::string("{\"rank\":") + std::to_string(rank) +
-                         ",\"r\":" + std::to_string(r) +
-                         ",\"k\":" + std::to_string((long long)k) +
-                         ",\"key\":" + std::to_string((long long)keys[k]) +
-                         ",\"begin\":" + std::to_string((long long)begin) +
-                         ",\"end\":" + std::to_string((long long)end) +
-                         ",\"iii\":" + std::to_string((long long)iii) +
-                         ",\"mapping_val\":" +
-                         std::to_string((long long)mapping[iii]) + "}",
-                     "pre", "E");
-      }
-      // #endregion
-      assert(mapping[iii] >= 0);
-      keys[k] = mapping[iii];
-    }
-  }
-
-  // Send back
-  SMESH_MPI_CATCH(all_to_allv_64(recv_key_buff, recv_count, recv_displs,
-                                 exchange_buff, send_count, send_displs, comm,
-                                 max_chunk_size));
-
-  idx_t *ghosts = (idx_t *)malloc(n_ghost_nodes * sizeof(idx_t));
-  for (ptrdiff_t i = 0; i < n_ghost_nodes; i++) {
-    ghosts[recv_idx[i]] = exchange_buff[i];
-  }
-
-  free(recv_idx);
-  free(exchange_buff);
-
-  /////////////////////////////////////////////////
-
-  *node_offsets_out = node_offsets;
-  *ghosts_out = ghosts;
-
-  // Clean-up
-  free(send_count);
-  free(recv_count);
-  free(send_displs);
-  free(recv_displs);
-  free(recv_key_buff);
-  free(recv_ids_buff);
-  free(mapping);
-  free(ghost_ids);
-
-  return SMESH_SUCCESS;
 }
 
 // ------------------
@@ -722,24 +362,6 @@ int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
   std::vector<Path> i_files =
       detect_files(folder / "i*.*", {"raw", "int16", "int32", "int64"});
 
-  // #region agent log
-  {
-    int rank = -1, size = -1;
-    MPI_Comm_rank(comm, &rank);
-    MPI_Comm_size(comm, &size);
-    const std::string first =
-        i_files.empty() ? std::string("") : i_files[0].to_string();
-    smesh_dbglog("smesh_distributed_read.impl.hpp:mesh_block_from_folder",
-                 "detected i_files",
-                 std::string("{\"rank\":") + std::to_string(rank) +
-                     ",\"size\":" + std::to_string(size) + ",\"folder\":\"" +
-                     folder.to_string() + "\",\"i_files_count\":" +
-                     std::to_string((long long)i_files.size()) +
-                     ",\"first\":\"" + first + "\"}",
-                 "pre", "A");
-  }
-  // #endregion
-
   int nnodesxelem = i_files.size();
   *elems = (idx_t **)malloc(sizeof(idx_t *) * nnodesxelem);
   for (int d = 0; d < nnodesxelem; ++d) {
@@ -851,25 +473,6 @@ int mesh_coordinates_from_folder(MPI_Comm comm, const Path &folder,
     points_paths.push_back(z_file[0]);
   }
 
-  // #region agent log
-  {
-    int rank = -1, size = -1;
-    MPI_Comm_rank(comm, &rank);
-    MPI_Comm_size(comm, &size);
-    const std::string p0 =
-        points_paths.empty() ? std::string("") : points_paths[0].to_string();
-    smesh_dbglog("smesh_distributed_read.impl.hpp:mesh_coordinates_from_folder",
-                 "detected coord files",
-                 std::string("{\"rank\":") + std::to_string(rank) +
-                     ",\"size\":" + std::to_string(size) + ",\"folder\":\"" +
-                     folder.to_string() + "\",\"ndims\":" +
-                     std::to_string(ndims) + ",\"paths_count\":" +
-                     std::to_string((long long)points_paths.size()) +
-                     ",\"p0\":\"" + p0 + "\"}",
-                 "pre", "A");
-  }
-  // #endregion
-
   geom_t **points = (geom_t **)calloc(ndims, sizeof(geom_t *));
 
   ptrdiff_t n_local_nodes = 0;
@@ -922,432 +525,176 @@ int mesh_coordinates_from_folder(MPI_Comm comm, const Path &folder,
   }
 }
 
-template <typename idx_t, typename geom_t>
-int mesh_from_folder(
-    const MPI_Comm comm, const Path &folder, int *nnodesxelem_out,
-    ptrdiff_t *nelements_out, idx_t ***elements_out, int *spatial_dim_out,
-    ptrdiff_t *nnodes_out, geom_t ***points_out, ptrdiff_t *n_owned_nodes_out,
-    ptrdiff_t *n_owned_elements_out, large_idx_t **element_mapping_out,
-    large_idx_t **node_mapping_out, int **node_owner_out,
-    ptrdiff_t **node_offsets_out, idx_t **ghosts_out,
-    ptrdiff_t *n_owned_nodes_with_ghosts_out, ptrdiff_t *n_shared_elements_out,
-    ptrdiff_t *n_owned_elements_with_ghosts_out) {
-  // SMESH_TRACE_SCOPE("mesh_from_folder");
-  int rank, size;
-  MPI_Comm_rank(comm, &rank);
-  MPI_Comm_size(comm, &size);
-
-  static const int remap_elements = 1;
-
-  if (size > 1) {
-    // #region agent log
-    smesh_dbglog("smesh_distributed_read.impl.hpp:mesh_from_folder",
-                 "enter MPI path",
-                 std::string("{\"rank\":") + std::to_string(rank) +
-                     ",\"size\":" + std::to_string(size) + ",\"folder\":\"" +
-                     folder.to_string() + "\"}",
-                 "pre", "A");
-    // #endregion
-    ////////////////////////////////////////////////////////////////////////////////
-    // Read elements
-    ////////////////////////////////////////////////////////////////////////////////
-
-    int nnodesxelem = 0;
-    ptrdiff_t n_local_elements = 0, n_elements = 0;
-    idx_t **elems = nullptr;
-    mesh_block_from_folder(comm, folder, &nnodesxelem, &elems,
-                           &n_local_elements, &n_elements);
-
-    large_idx_t *unique_idx =
-        (large_idx_t *)malloc(sizeof(large_idx_t) * n_local_elements * nnodesxelem);
-    for (int d = 0; d < nnodesxelem; ++d) {
-      memcpy(&unique_idx[d * n_local_elements], elems[d],
-             sizeof(large_idx_t) * n_local_elements);
-    }
-
-    ptrdiff_t n_unique =
-        sort_and_unique<large_idx_t>(unique_idx, n_local_elements * nnodesxelem);
-
-    int ndims = 0;
-    ptrdiff_t n_local_nodes = 0, n_nodes = 0;
-    geom_t **xyz = nullptr;
-    mesh_coordinates_from_folder(comm, folder, &ndims, &xyz, &n_local_nodes,
-                                 &n_nodes);
-
-    ////////////////////////////////////////////////////////////////////////////////
-
-    large_idx_t *input_node_partitions = (large_idx_t *)malloc(sizeof(large_idx_t) * (size + 1));
-    memset(input_node_partitions, 0, sizeof(large_idx_t) * (size + 1));
-    input_node_partitions[rank + 1] = n_local_nodes;
-
-    SMESH_MPI_CATCH(MPI_Allreduce(MPI_IN_PLACE, &input_node_partitions[1], size,
-                                  smesh::mpi_type<large_idx_t>(), MPI_SUM, comm));
-
-    for (int r = 0; r < size; ++r) {
-      input_node_partitions[r + 1] += input_node_partitions[r];
-    }
-
-    i64 *gather_node_count = (i64 *)malloc((size_t)size * sizeof(i64));
-    memset(gather_node_count, 0, (size_t)size * sizeof(i64));
-
-    for (ptrdiff_t i = 0; i < n_unique; ++i) {
-      large_idx_t idx = unique_idx[i];
-      const int owner =
-          find_owner_rank<large_idx_t>(idx, n_local_nodes, size, input_node_partitions);
-
-      assert(owner < size);
-      assert(owner >= 0);
-
-      assert(idx >= input_node_partitions[owner]);
-      assert(idx < input_node_partitions[owner + 1]);
-
-      gather_node_count[owner]++;
-    }
-
-    i64 *scatter_node_count = (i64 *)malloc((size_t)size * sizeof(i64));
-    memset(scatter_node_count, 0, (size_t)size * sizeof(i64));
-
-    SMESH_MPI_CATCH(MPI_Alltoall(gather_node_count, 1, smesh::mpi_type<i64>(),
-                                 scatter_node_count, 1, smesh::mpi_type<i64>(),
-                                 comm));
-
-    i64 *gather_node_displs = (i64 *)malloc(((size_t)size + 1) * sizeof(i64));
-    i64 *scatter_node_displs = (i64 *)malloc(((size_t)size + 1) * sizeof(i64));
-
-    gather_node_displs[0] = 0;
-    scatter_node_displs[0] = 0;
-
-    for (int i = 0; i < size; i++) {
-      gather_node_displs[i + 1] = gather_node_displs[i] + gather_node_count[i];
-    }
-
-    for (int i = 0; i < size; i++) {
-      scatter_node_displs[i + 1] =
-          scatter_node_displs[i] + scatter_node_count[i];
-    }
-
-    const ptrdiff_t size_send_list = (ptrdiff_t)scatter_node_displs[size];
-
-    large_idx_t *send_list = (large_idx_t *)malloc(sizeof(large_idx_t) * size_send_list);
-    memset(send_list, 0, sizeof(large_idx_t) * size_send_list);
-
-    const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
-    SMESH_MPI_CATCH(all_to_allv_64(
-        unique_idx, gather_node_count, gather_node_displs, send_list,
-        scatter_node_count, scatter_node_displs, comm, max_chunk_size));
-
-    ///////////////////////////////////////////////////////////////////////
-
-    // Remove offset
-    for (ptrdiff_t i = 0; i < size_send_list; ++i) {
-      send_list[i] -= input_node_partitions[rank];
-    }
-
-    ///////////////////////////////////////////////////////////////////////
-    // Exchange points
-
-    geom_t *sendx = (geom_t *)malloc(size_send_list * sizeof(geom_t));
-    geom_t **part_xyz = (geom_t **)malloc(sizeof(geom_t *) * ndims);
-
-    for (int d = 0; d < ndims; ++d) {
-      // Fill buffer
-      for (ptrdiff_t i = 0; i < size_send_list; ++i) {
-        sendx[i] = xyz[d][send_list[i]];
-      }
-
-      geom_t *recvx = (geom_t *)malloc(n_unique * sizeof(geom_t));
-      SMESH_MPI_CATCH(all_to_allv_64(
-          sendx, scatter_node_count, scatter_node_displs, recvx,
-          gather_node_count, gather_node_displs, comm, max_chunk_size));
-      part_xyz[d] = recvx;
-
-      // Free space
-      free(xyz[d]);
-    }
-
-    free(xyz);
-
-    ///////////////////////////////////////////////////////////////////////
-    // Determine owners
-    int *node_owner = (int *)malloc(n_unique * sizeof(int));
-    int *node_share_count = (int *)calloc(n_unique, sizeof(int));
-
-    {
-      int *decide_node_owner = (int *)malloc(n_local_nodes * sizeof(int));
-      int *send_node_owner = (int *)malloc(size_send_list * sizeof(int));
-
-      int *decide_share_count = (int *)calloc(n_local_nodes, sizeof(int));
-      int *send_share_count = (int *)malloc(size_send_list * sizeof(int));
-
-      for (ptrdiff_t i = 0; i < n_local_nodes; ++i) {
-        decide_node_owner[i] = size;
-      }
-
-      for (int r = 0; r < size; ++r) {
-        const ptrdiff_t begin = (ptrdiff_t)scatter_node_displs[r];
-        const ptrdiff_t end = (ptrdiff_t)scatter_node_displs[r + 1];
-
-        for (ptrdiff_t i = begin; i < end; ++i) {
-          decide_node_owner[send_list[i]] =
-              std::min(decide_node_owner[send_list[i]], r);
-        }
-
-        for (ptrdiff_t i = begin; i < end; ++i) {
-          decide_share_count[send_list[i]]++;
-        }
-      }
-
-      for (int r = 0; r < size; ++r) {
-        const ptrdiff_t begin = (ptrdiff_t)scatter_node_displs[r];
-        const ptrdiff_t end = (ptrdiff_t)scatter_node_displs[r + 1];
-
-        for (ptrdiff_t i = begin; i < end; ++i) {
-          send_node_owner[i] = decide_node_owner[send_list[i]];
-        }
-
-        for (ptrdiff_t i = begin; i < end; ++i) {
-          send_share_count[i] = decide_share_count[send_list[i]];
-        }
-      }
-
-      SMESH_MPI_CATCH(all_to_allv_64(
-          send_node_owner, scatter_node_count, scatter_node_displs, node_owner,
-          gather_node_count, gather_node_displs, comm, max_chunk_size));
-
-      SMESH_MPI_CATCH(all_to_allv_64(send_share_count, scatter_node_count,
-                                     scatter_node_displs, node_share_count,
-                                     gather_node_count, gather_node_displs,
-                                     comm, max_chunk_size));
-
-      free(decide_node_owner);
-      free(send_node_owner);
-
-      free(decide_share_count);
-      free(send_share_count);
-    }
-
-    ///////////////////////////////////////////////////////////////////////
-    // Localize element index
-    for (ptrdiff_t d = 0; d < nnodesxelem; ++d) {
-      for (ptrdiff_t e = 0; e < n_local_elements; ++e) {
-        auto low =
-            std::lower_bound(unique_idx, unique_idx + n_unique, elems[d][e]);
-        elems[d][e] = std::distance(unique_idx, low);
-      }
-    }
-
-    ////////////////////////////////////////////////////////////
-    // Remap node index
-    // We reorder nodes with the following order
-    // 1) locally owned
-    // 2) locally owned and shared by a remote process
-    // 3) Shared, hence owned by a remote process
-
-    idx_t *proc_ptr = (idx_t *)calloc((size + 1), sizeof(idx_t));
-    idx_t *offset = (idx_t *)calloc((size), sizeof(idx_t));
-
-    for (ptrdiff_t node = 0; node < n_unique; ++node) {
-      proc_ptr[node_owner[node] + 1] += 1;
-    }
-
-    const ptrdiff_t n_owned_nodes = proc_ptr[rank + 1];
-    // Remove offset
-    proc_ptr[rank + 1] = 0;
-
-    proc_ptr[0] = n_owned_nodes;
-    for (int r = 0; r < size; ++r) {
-      proc_ptr[r + 1] += proc_ptr[r];
-    }
-
-    // This rank comes first
-    proc_ptr[rank] = 0;
-
-    // Build local remap index
-    idx_t *local_remap = (idx_t *)malloc((n_unique) * sizeof(idx_t));
-    for (ptrdiff_t node = 0; node < n_unique; ++node) {
-      int owner = node_owner[node];
-      local_remap[node] = proc_ptr[owner] + offset[owner]++;
-    }
-
-    if (1) {
-      // Remap based on shared
-      ptrdiff_t owned_shared_count[2] = {0, 0};
-
-      for (ptrdiff_t node = 0; node < n_unique; ++node) {
-        int owner = node_owner[node];
-        if (owner != rank)
-          continue;
-        owned_shared_count[node_share_count[node] > 1]++;
-      }
-
-      ptrdiff_t owned_shared_offset[2] = {0, owned_shared_count[0]};
-      for (ptrdiff_t node = 0; node < n_unique; ++node) {
-        int owner = node_owner[node];
-        if (owner != rank)
-          continue;
-
-        int owned_and_shared = node_share_count[node] > 1;
-        local_remap[node] =
-            proc_ptr[owner] + owned_shared_offset[owned_and_shared]++;
-      }
-
-      *n_owned_nodes_with_ghosts_out = owned_shared_count[1];
-    }
-
-    const size_t max_sz =
-        std::max(sizeof(int), std::max(sizeof(idx_t), sizeof(geom_t)));
-    void *temp_buff = malloc(n_unique * max_sz);
-
-    for (int d = 0; d < ndims; ++d) {
-      geom_t *x = part_xyz[d];
-      array_remap_scatter(n_unique, local_remap, x, temp_buff);
-    }
-
-    array_remap_scatter(n_unique, local_remap, node_owner, temp_buff);
-    array_remap_scatter(n_unique, local_remap, unique_idx, temp_buff);
-    array_remap_scatter(n_unique, local_remap, node_share_count, temp_buff);
-
-    for (int d = 0; d < nnodesxelem; ++d) {
-      for (ptrdiff_t e = 0; e < n_local_elements; ++e) {
-        elems[d][e] = local_remap[elems[d][e]];
-      }
-    }
-
-    free(local_remap);
-    free(proc_ptr);
-    free(temp_buff);
-    free(offset);
-
-    ////////////////////////////////////////////////////////////
-    // Remap element index
-
-    // Reorder elements with the following order
-    // 1) Locally owned element
-    // 2) Elements that are locally owned but have node shared by a remote
-    // process
-
-    if (remap_elements) {
-      idx_t *temp_buff = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
-      uint8_t *is_local = (uint8_t *)calloc(n_local_elements, sizeof(uint8_t));
-
-      for (ptrdiff_t e = 0; e < n_local_elements; ++e) {
-        int is_local_e = 1;
-        int is_owned_and_shared = 0;
-
-        for (int d = 0; d < nnodesxelem; ++d) {
-          const idx_t idx = elems[d][e];
-
-          if (node_owner[idx] != rank) {
-            is_local_e = 0;
-          }
-
-          is_owned_and_shared += node_share_count[idx] > 1;
-        }
-
-        is_local[e] = is_local_e;
-        if (is_local_e && is_owned_and_shared) {
-          is_local[e] += 1;
-        }
-      }
-
-      // FIXME?
-      large_idx_t *element_mapping =
-          (large_idx_t *)malloc(n_local_elements * sizeof(large_idx_t));
-
-      ptrdiff_t counter = 0;
-      for (ptrdiff_t e = 0; e < n_local_elements; ++e) {
-        if (is_local[e] == 1) {
-          element_mapping[counter++] = e;
-        }
-      }
-
-      *n_owned_elements_with_ghosts_out = 0;
-      for (ptrdiff_t e = 0; e < n_local_elements; ++e) {
-        if (is_local[e] == 2) {
-          element_mapping[counter++] = e;
-          (*n_owned_elements_with_ghosts_out)++;
-        }
-      }
-
-      *n_shared_elements_out = n_local_elements - counter;
-      for (ptrdiff_t e = 0; e < n_local_elements; ++e) {
-        if (!is_local[e]) {
-          element_mapping[counter++] = e;
-        }
-      }
-
-      for (int d = 0; d < nnodesxelem; ++d) {
-        array_remap_gather(n_local_elements, element_mapping, elems[d],
-                           temp_buff);
-      }
-
-      *element_mapping_out = element_mapping;
-
-      free(temp_buff);
-      free(is_local);
-    } else {
-      *element_mapping_out = 0;
-      *n_shared_elements_out = 0;
-      *n_owned_elements_with_ghosts_out = 0;
-    }
-
-    ///////////////////////////////////////////////////////////////////////
-    // Free space
-    free(sendx);
-    free(send_list);
-    free(input_node_partitions);
-    free(node_share_count);
-
-    free(scatter_node_count);
-    free(gather_node_count);
-    free(gather_node_displs);
-    free(scatter_node_displs);
-
-    ///////////////////////////////////////////////////////////////////////
-    *spatial_dim_out = ndims;
-    *nnodesxelem_out = nnodesxelem;
-
-    *nelements_out = n_local_elements;
-    *nnodes_out = n_unique;
-
-    *elements_out = elems;
-    *points_out = part_xyz;
-
-    *n_owned_nodes_out = n_owned_nodes;
-    *n_owned_elements_out = n_local_elements - *n_shared_elements_out;
-
-    *node_mapping_out = unique_idx;
-    *node_owner_out = node_owner;
-
-    *ghosts_out = 0;
-    *node_offsets_out = 0;
-
-    // #region agent log
-    smesh_dbglog(
-        "smesh_distributed_read.impl.hpp:mesh_from_folder",
-        "before mesh_build_global_ids",
-        std::string("{\"rank\":") + std::to_string(rank) +
-            ",\"size\":" + std::to_string(size) + ",\"n_nodes_global_file\":" +
-            std::to_string((long long)n_nodes) + ",\"n_local_nodes_file\":" +
-            std::to_string((long long)n_local_nodes) +
-            ",\"n_unique_mesh_nodes\":" + std::to_string((long long)n_unique) +
-            ",\"n_owned_nodes_mesh\":" +
-            std::to_string((long long)n_owned_nodes) +
-            ",\"n_owned_nodes_with_ghosts_mesh\":" +
-            std::to_string((long long)(*n_owned_nodes_with_ghosts_out)) + "}",
-        "pre", "E");
-    // #endregion
-
-    mesh_build_global_ids(comm, n_unique, n_owned_nodes,
-                          *n_owned_nodes_with_ghosts_out, *node_mapping_out,
-                          /**node_owner_out,*/ node_offsets_out,
-                          ghosts_out /*,n_owned_nodes_with_ghosts_out*/);
-
-    return SMESH_SUCCESS;
-  } else {
-    SMESH_ERROR("Serial mesh reading not implemented\n");
-    return SMESH_FAILURE;
+template <typename idx_t, typename geom_t, typename large_idx_t>
+int mesh_from_folder(const MPI_Comm comm, const Path &folder,
+                     // Elements
+                     int *nnodesxelem_out, ptrdiff_t *n_global_elements_out,
+                     ptrdiff_t *n_owned_elements_out,
+                     ptrdiff_t *n_ghost_elements_out,
+                     large_idx_t **element_mapping_out, idx_t ***elements_out,
+                     // Nodes
+                     int *spatial_dim_out, ptrdiff_t *n_global_nodes_out,
+                     ptrdiff_t *n_owned_nodes_out, ptrdiff_t *n_ghost_nodes_out,
+                     large_idx_t **node_mapping_out, geom_t ***points_out,
+                     // Distributed connectivities
+                     int **node_owner_out, ptrdiff_t **node_offsets_out,
+                     idx_t **ghosts_out) {
+
+  int comm_rank, comm_size;
+  MPI_Comm_rank(comm, &comm_rank);
+  MPI_Comm_size(comm, &comm_size);
+  int nnodesxelem;
+  idx_t **elems;
+  ptrdiff_t n_local_elements;
+  ptrdiff_t n_global_elements;
+  mesh_block_from_folder<idx_t>(comm, folder, &nnodesxelem, &elems,
+                                &n_local_elements, &n_global_elements);
+
+  int spatial_dim;
+  geom_t **points;
+  ptrdiff_t n_local2global;
+  ptrdiff_t n_global_nodes;
+  mesh_coordinates_from_folder(comm, folder, &spatial_dim, &points,
+                               &n_local2global, &n_global_nodes);
+
+  count_t *n2eptr;
+  element_idx_t *n2e_idx;
+  create_n2e<idx_t, count_t, element_idx_t>(
+      comm, n_local_elements, n_global_elements, n_local2global, n_global_nodes,
+      nnodesxelem, elems, &n2eptr, &n2e_idx);
+
+  // Ensure it is always the same
+  sort_n2e<count_t, element_idx_t>(n_local2global, n2eptr, n2e_idx);
+
+  ptrdiff_t local2global_size = 0;
+  // idx_t *local2global = nullptr;
+  large_idx_t *local2global = nullptr;
+  count_t *local_n2e_ptr = nullptr;
+  element_idx_t *local_n2e_idx = nullptr;
+  redistribute_n2e(comm, comm_size, comm_rank, n_local2global, n_global_nodes,
+                   n_global_elements, n2eptr, n2e_idx, &local2global_size,
+                   &local2global, &local_n2e_ptr, &local_n2e_idx);
+
+  // We do not need them anymore
+  free(n2eptr);
+  free(n2e_idx);
+
+  idx_t **local_elements = (idx_t **)malloc(nnodesxelem * sizeof(idx_t *));
+  for (int d = 0; d < nnodesxelem; ++d) {
+    local_elements[d] = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
   }
+
+  localize_element_indices(comm_size, comm_rank, n_global_elements,
+                           n_local_elements, nnodesxelem, elems,
+                           local2global_size, local_n2e_ptr, local_n2e_idx,
+                           local2global, local_elements);
+
+  ptrdiff_t n_owned = 0;
+  ptrdiff_t n_shared = 0;
+  ptrdiff_t n_ghosts = 0;
+  rearrange_local_nodes(comm_size, comm_rank, n_global_elements,
+                        n_local_elements, nnodesxelem, local2global_size,
+                        local_n2e_ptr, local_n2e_idx, local2global,
+                        local_elements, &n_owned, &n_shared, &n_ghosts);
+
+  large_idx_t *element_mapping =
+      (large_idx_t *)malloc(n_local_elements * sizeof(large_idx_t));
+  ptrdiff_t n_owned_not_shared = 0;
+  rearrange_local_elements(comm_size, comm_rank, n_global_elements,
+                           n_local_elements, nnodesxelem, local2global_size,
+                           local_n2e_ptr, local_n2e_idx, local_elements,
+                           n_owned, &n_owned_not_shared, element_mapping);
+
+  idx_t *aura_elements = nullptr;
+  idx_t **aura_element_nodes = (idx_t **)malloc(nnodesxelem * sizeof(idx_t *));
+  for (int d = 0; d < nnodesxelem; ++d) {
+    aura_element_nodes[d] = nullptr;
+  }
+  ptrdiff_t n_aura_elements = 0;
+  expand_aura_elements_inconsistent(
+      comm, n_global_elements, n_local_elements, nnodesxelem, local_n2e_ptr,
+      local_n2e_idx, local2global, local_elements, element_mapping, n_owned,
+      n_ghosts, &aura_elements, aura_element_nodes, &n_aura_elements);
+
+  long long owned_nodes_start_ll = 0;
+  long long n_owned_ll = (long long)n_owned;
+  SMESH_MPI_CATCH(MPI_Exscan(&n_owned_ll, &owned_nodes_start_ll, 1,
+                             MPI_LONG_LONG, MPI_SUM, comm));
+  if (!comm_rank) {
+    owned_nodes_start_ll = 0;
+  }
+  const ptrdiff_t owned_nodes_start =
+      static_cast<ptrdiff_t>(owned_nodes_start_ll);
+
+  idx_t *global2owned = (idx_t *)calloc(
+      rank_split(n_global_nodes, comm_size, comm_rank), sizeof(idx_t));
+  prepare_node_renumbering(comm, n_global_nodes, owned_nodes_start, n_owned,
+                           local2global, global2owned);
+
+  ptrdiff_t *owned_node_ranges =
+      (ptrdiff_t *)malloc((comm_size + 1) * sizeof(ptrdiff_t));
+  node_ownership_ranges(comm, n_owned, owned_node_ranges);
+
+  large_idx_t *local2global_with_aura = nullptr;
+  ptrdiff_t n_aura_nodes = 0;
+  stitch_aura_elements(comm, n_owned, n_shared, n_ghosts, local2global,
+                       nnodesxelem, n_aura_elements, aura_element_nodes,
+                       n_local_elements, local_elements,
+                       &local2global_with_aura, &n_aura_nodes);
+  free(local2global);
+  local2global = local2global_with_aura;
+  local2global_size = n_owned + n_ghosts + n_aura_nodes;
+
+  SMESH_ASSERT(n_ghosts + n_aura_nodes > 0 || comm_size == 1);
+  idx_t *ghost_and_aura_to_owned =
+      (idx_t *)malloc((n_ghosts + n_aura_nodes) * sizeof(idx_t));
+  collect_ghost_and_aura_import_indices(
+      comm, n_owned, n_ghosts, n_aura_nodes, n_global_nodes, local2global,
+      global2owned, owned_node_ranges, ghost_and_aura_to_owned);
+
+  node_ownership_ranges(comm, n_owned, owned_node_ranges);
+  int *owner = (int *)malloc((n_owned + n_ghosts + n_aura_nodes) * sizeof(int));
+  determine_ownership(comm_size, comm_rank, n_owned, n_ghosts, n_aura_nodes,
+                      ghost_and_aura_to_owned, owned_node_ranges, owner);
+
+  group_ghost_and_aura_by_rank(comm_size, n_owned, n_ghosts, n_aura_nodes,
+                               local2global, ghost_and_aura_to_owned, owner,
+                               nnodesxelem, n_local_elements, n_aura_elements,
+                               local_elements);
+
+  const ptrdiff_t n_local_nodes = n_owned + n_ghosts + n_aura_nodes;
+  geom_t **local_points = (geom_t **)malloc(spatial_dim * sizeof(geom_t *));
+  for (int d = 0; d < spatial_dim; ++d) {
+    local_points[d] = (geom_t *)malloc(n_local_nodes * sizeof(geom_t));
+    gather_mapped_field(comm, n_local_nodes, n_global_nodes, local2global,
+                        smesh::mpi_type<geom_t>(), points[d], local_points[d]);
+  }
+
+  // Elements
+  *nnodesxelem_out = nnodesxelem;
+  *n_global_elements_out = n_global_elements;
+  *n_owned_elements_out = n_local_elements;
+  *n_ghost_elements_out = n_aura_elements;
+  *element_mapping_out = element_mapping;
+  *elements_out = local_elements;
+
+  // Nodes
+  *spatial_dim_out = spatial_dim;
+  *n_global_nodes_out = n_global_nodes;
+  *n_owned_nodes_out = n_owned;
+  *n_ghost_nodes_out = n_ghosts;
+  *node_mapping_out = local2global;
+  *points_out = local_points;
+
+  // Distributed connectivities
+  *node_owner_out = owner;
+  *node_offsets_out = owned_node_ranges;
+  *ghosts_out = ghost_and_aura_to_owned;
+
+  // Free memory that is not passed out
+  free(global2owned);
+  free(local_elements);
+  return SMESH_SUCCESS;
 }
 
 } // namespace smesh

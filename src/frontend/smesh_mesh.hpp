@@ -25,14 +25,21 @@ public:
   ptrdiff_t n_nodes_owned() const;
   ptrdiff_t n_nodes_shared() const;
   ptrdiff_t n_nodes_ghosts() const;
-  ptrdiff_t n_nodes_aura() const;
 
   ptrdiff_t n_elements_local() const;
   ptrdiff_t n_elements_owned_not_shared() const;
   ptrdiff_t n_elements_owned() const;
   ptrdiff_t n_elements_shared() const;
-  ptrdiff_t n_elements_aura() const;
+  ptrdiff_t n_elements_ghosts() const;
 
+  SharedBuffer<large_idx_t> node_mapping() const;
+  SharedBuffer<large_idx_t> element_mapping() const;
+
+  SharedBuffer<int> node_owner() const;
+  SharedBuffer<ptrdiff_t> node_offsets() const;
+  SharedBuffer<idx_t> ghosts() const;
+
+  friend class Mesh;
   private:
     class Impl;
     std::unique_ptr<Impl> impl_;
@@ -96,16 +103,13 @@ public:
                  SharedBuffer<idx_t *> elements);
   void remove_block(size_t index);
 
+  std::shared_ptr<Distributed> distributed() const;
+
   int spatial_dimension() const;
   int n_nodes_per_element() const;
   ptrdiff_t n_nodes() const;
   ptrdiff_t n_elements() const;
   enum ElemType element_type() const;
-  ptrdiff_t n_owned_nodes() const;
-  ptrdiff_t n_owned_nodes_with_ghosts() const;
-  ptrdiff_t n_owned_elements() const;
-  ptrdiff_t n_owned_elements_with_ghosts() const;
-  ptrdiff_t n_shared_elements() const;
 
   std::shared_ptr<NodeToNodeGraph> node_to_node_graph();
   std::shared_ptr<NodeToNodeGraph> node_to_node_graph_upper_triangular();
@@ -119,13 +123,14 @@ public:
   SharedBuffer<ptrdiff_t> node_offsets() const;
   SharedBuffer<idx_t> ghosts() const;
   SharedBuffer<int> node_owner() const;
-  SharedBuffer<large_idx_t> node_mapping() const;
-  SharedBuffer<large_idx_t> element_mapping() const;
+  SharedBuffer<idx_t> node_mapping() const;
+  // SharedBuffer<idx_t> element_mapping() const;
 
   const geom_t *points(const int coord) const;
   const idx_t *idx(const int node_num) const;
 
   SharedBuffer<geom_t *> points();
+  SharedBuffer<geom_t *> points() const;
   SharedBuffer<idx_t *> elements();
   SharedBuffer<idx_t *> default_elements(); // For backward compatibility
 
@@ -208,7 +213,7 @@ public:
   int split_boundary_layer();
   int renumber_nodes();
   int renumber_nodes(const SharedBuffer<idx_t> &node_mapping);
-  void set_node_mapping(const SharedBuffer<large_idx_t> &node_mapping);
+  void set_node_mapping(const SharedBuffer<idx_t> &node_mapping);
   void set_comm(const std::shared_ptr<Communicator> &comm);
   void set_element_type(const enum ElemType element_type);
   std::pair<SharedBuffer<geom_t>, SharedBuffer<geom_t>> compute_bounding_box();
