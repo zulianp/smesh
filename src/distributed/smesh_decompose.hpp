@@ -5,6 +5,9 @@
 
 #include <mpi.h>
 
+#include <stddef.h>
+#include <algorithm>
+
 namespace smesh {
 
 inline ptrdiff_t rank_split(const ptrdiff_t n, const int comm_size,

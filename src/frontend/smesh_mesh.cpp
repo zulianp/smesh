@@ -26,6 +26,7 @@
 #include <list>
 #include <map>
 #include <vector>
+#include <math.h>
 
 namespace smesh {
 

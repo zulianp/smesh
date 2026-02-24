@@ -33,6 +33,12 @@ int sideset_to_e2s_fill(const ptrdiff_t n_sides, const ptrdiff_t n_elements,
                             parent_element,
                         const element_idx_t *const SMESH_RESTRICT e2s_ptr,
                         element_idx_t *const SMESH_RESTRICT e2s_idx) {
+
+                          if(n_elements < 0) {
+                            SMESH_ERROR("n_elements is negative");
+                            return SMESH_FAILURE;
+                          }
+
   element_idx_t *bk =
       (element_idx_t *)calloc(n_elements, sizeof(element_idx_t));
 

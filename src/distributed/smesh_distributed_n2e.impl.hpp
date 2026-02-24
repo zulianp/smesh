@@ -109,7 +109,13 @@ int create_n2e(
 
   element_idx_t *n2e_idx =
       (element_idx_t *)malloc(n2e_ptr[n_local_nodes] * sizeof(element_idx_t));
-  count_t *book_keeping = (count_t *)calloc(n_local_nodes, sizeof(count_t));
+
+      if (n_local_nodes < 0) {
+ SMESH_ERROR("n_local_nodes is negative");
+ return SMESH_FAILURE;
+      }
+
+  i64 *book_keeping = (i64 *)calloc(n_local_nodes, sizeof(i64));
 
   for (ptrdiff_t r = 0; r < size; r++) {
     int begin = recv_displs[r];

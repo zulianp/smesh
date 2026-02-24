@@ -7,6 +7,8 @@
 
 #include "smesh_base.hpp"
 
+#include <stddef.h>
+
 namespace smesh {
 
     template <typename idx_t, typename geom_t>

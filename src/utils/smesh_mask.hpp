@@ -4,6 +4,8 @@
 #include "smesh_base.hpp"
 #include "smesh_types.hpp"
 
+#include <stddef.h>
+
 namespace smesh {
 
 mask_t *mask_create(ptrdiff_t n);

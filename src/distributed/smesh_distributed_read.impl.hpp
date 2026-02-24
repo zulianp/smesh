@@ -1,3 +1,6 @@
+#ifndef SMESH_DISTRIBUTED_READ_IMPL_HPP
+#define SMESH_DISTRIBUTED_READ_IMPL_HPP
+
 #include "smesh_decompose.hpp"
 #include "smesh_distributed_aura.hpp"
 #include "smesh_distributed_read.hpp"
@@ -170,7 +173,7 @@ int read_mapped_field(MPI_Comm comm, const char *input_path,
   if (!local_chunk)
     return SMESH_FAILURE;
 
-  int err = array_read(comm, input_path, data_type, (void *)local_chunk,
+  int err = ::array_read(comm, input_path, data_type, (void *)local_chunk,
                        local_size, n_global);
   if (err) {
     free(local_chunk);
@@ -728,3 +731,5 @@ int mesh_from_folder(const MPI_Comm comm, const Path &folder,
 }
 
 } // namespace smesh
+
+#endif // SMESH_DISTRIBUTED_READ_IMPL_HPP

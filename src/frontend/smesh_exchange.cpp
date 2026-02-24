@@ -103,7 +103,11 @@ template int Exchange::exchange_add<u8>(u8 *const inout);
 template int Exchange::exchange_add<u16>(u16 *const inout);
 template int Exchange::exchange_add<u32>(u32 *const inout);
 template int Exchange::exchange_add<u64>(u64 *const inout);
-template int Exchange::exchange_add<mask_t>(mask_t *const inout);
-template int Exchange::exchange_add<ptrdiff_t>(ptrdiff_t *const inout);
+template int Exchange::exchange_add<char>(mask_t *const inout);
+
+
+#if defined(__clang__)
+template int Exchange::exchange_add<long>(long *const inout);
+#endif
 
 } // namespace smesh

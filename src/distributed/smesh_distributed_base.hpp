@@ -5,6 +5,8 @@
 #include "smesh_types.hpp"
 
 #include <mpi.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #define SMESH_MPI_CATCH(err)                                                   \
   {                                                                            \
@@ -20,21 +22,50 @@
   }
 
 namespace smesh {
-template <typename T> MPI_Datatype mpi_type();
+template <typename T> inline MPI_Datatype mpi_type() {
+  using U = std::remove_cv_t<T>;
 
-template <> inline MPI_Datatype mpi_type<char>() { return MPI_CHAR; }
-template <> inline MPI_Datatype mpi_type<f64>() { return MPI_DOUBLE; }
-template <> inline MPI_Datatype mpi_type<f32>() { return MPI_FLOAT; }
-template <> inline MPI_Datatype mpi_type<i16>() { return MPI_SHORT; }
-template <> inline MPI_Datatype mpi_type<i32>() { return MPI_INT32_T; }
-template <> inline MPI_Datatype mpi_type<i8>() { return MPI_CHAR; }
-template <> inline MPI_Datatype mpi_type<i64>() { return MPI_INT64_T; }
-template <> inline MPI_Datatype mpi_type<long>() { return MPI_LONG_LONG; }
-template <> inline MPI_Datatype mpi_type<u16>() { return MPI_UNSIGNED_SHORT; }
-template <> inline MPI_Datatype mpi_type<u64>() { return MPI_UNSIGNED_LONG_LONG; }
-template <> inline MPI_Datatype mpi_type<u8>() { return MPI_UNSIGNED_CHAR; }
-template <> inline MPI_Datatype mpi_type<u32>() { return MPI_UINT32_T; }
-
+  if constexpr (std::is_same_v<U, char>)
+    return MPI_CHAR;
+  else if constexpr (std::is_same_v<U, std::int8_t>)
+    return MPI_INT8_T;
+  else if constexpr (std::is_same_v<U, std::uint8_t>)
+    return MPI_UINT8_T;
+  else if constexpr (std::is_same_v<U, std::int16_t>)
+    return MPI_INT16_T;
+  else if constexpr (std::is_same_v<U, std::uint16_t>)
+    return MPI_UINT16_T;
+  else if constexpr (std::is_same_v<U, std::int32_t>)
+    return MPI_INT32_T;
+  else if constexpr (std::is_same_v<U, std::uint32_t>)
+    return MPI_UINT32_T;
+  else if constexpr (std::is_same_v<U, std::int64_t>)
+    return MPI_INT64_T;
+  else if constexpr (std::is_same_v<U, std::uint64_t>)
+    return MPI_UINT64_T;
+  else if constexpr (std::is_same_v<U, float>)
+    return MPI_FLOAT;
+  else if constexpr (std::is_same_v<U, double>)
+    return MPI_DOUBLE;
+  else if constexpr (std::is_same_v<U, long double>)
+    return MPI_LONG_DOUBLE;
+    else if constexpr (std::is_same_v<U, ptrdiff_t>){
+      if constexpr (sizeof(ptrdiff_t) == 8)
+        return MPI_INT64_T;
+      else if constexpr (sizeof(ptrdiff_t) == 4)
+        return MPI_INT32_T;
+      else if constexpr (sizeof(ptrdiff_t) == 2)
+        return MPI_INT16_T;
+      else if constexpr (sizeof(ptrdiff_t) == 1)
+        return MPI_INT8_T;
+      else {
+        static_assert(!sizeof(ptrdiff_t), "Unsupported type in smesh::mpi_type<ptrdiff_t>()");
+      }
+    }
+  else {
+    static_assert(!sizeof(T), "Unsupported type in smesh::mpi_type<T>()");
+  }
+}
 
 extern MPI_Datatype SMESH_MPI_F16;
 

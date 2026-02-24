@@ -7,6 +7,13 @@
 #include "smesh_tracer.hpp"
 #include "smesh_types.hpp"
 
+#include <string>
+#include <limits>
+#include <mpi.h>
+#include <stddef.h>
+#include <algorithm>
+#include <cstring>
+
 namespace smesh {
 
 inline int

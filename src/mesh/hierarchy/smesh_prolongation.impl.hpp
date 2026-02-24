@@ -1,6 +1,8 @@
 #ifndef SMESH_PROLONGATION_IMPL_HPP
 #define SMESH_PROLONGATION_IMPL_HPP
 
+#include "smesh_prolongation.hpp"
+
 #include "smesh_base.hpp"
 #include "smesh_elem_type.hpp"
 

@@ -58,7 +58,7 @@ endif(NOT CMAKE_BUILD_TYPE)
 
 if(SMESH_ENABLE_DEV_MODE)
     set(SMESH_DEV_FLAGS
-        "-Wall -Wextra -pedantic -Werror -Werror=enum-compare -Werror=delete-non-virtual-dtor -Werror=reorder -Werror=return-type" # -Werror=uninitialized
+        "-Wall -Wextra -pedantic -Werror -Werror=enum-compare -Werror=delete-non-virtual-dtor -Werror=reorder -Werror=return-type -Wno-error=unknown-pragmas" # -Werror=uninitialized
     )
 endif()
 

@@ -1,7 +1,11 @@
 #ifndef SMESH_BUILD_IMPL_HPP
 #define SMESH_BUILD_IMPL_HPP
 
+#include "smesh_build.hpp"
+
 #include "smesh_base.hpp"
+
+#include <math.h>
 
 namespace smesh {
 template <typename idx_t, typename geom_t>
