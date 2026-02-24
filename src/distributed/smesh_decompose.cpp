@@ -79,6 +79,7 @@ SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE(i64, i64, i64, large_idx_t);
 SMESH_EXPLICIT_INSTANTIATE_REDISTRIBUTE(i32, i32, i32);
 SMESH_EXPLICIT_INSTANTIATE_REDISTRIBUTE(i32, i32, i64);
 SMESH_EXPLICIT_INSTANTIATE_REDISTRIBUTE(i32, i64, i64);
+SMESH_EXPLICIT_INSTANTIATE_REDISTRIBUTE(i64, i64, i32);
 SMESH_EXPLICIT_INSTANTIATE_REDISTRIBUTE(i64, i32, i64);
 SMESH_EXPLICIT_INSTANTIATE_REDISTRIBUTE(i64, i64, i64);
 
@@ -107,6 +108,22 @@ template int rearrange_local_nodes<i32, i32, i32, i32>(
     i32 *const SMESH_RESTRICT, i32 **const SMESH_RESTRICT,
     ptrdiff_t *const SMESH_RESTRICT, ptrdiff_t *const SMESH_RESTRICT,
     ptrdiff_t *const SMESH_RESTRICT);
+template int localize_element_indices<i32, i64, i64, i32>(
+    const int, const int, const ptrdiff_t, const ptrdiff_t, const int,
+    i32 *const *const SMESH_RESTRICT, const ptrdiff_t,
+    const i64 *const SMESH_RESTRICT, const i64 *const SMESH_RESTRICT,
+    const i32 *const SMESH_RESTRICT, i32 **const SMESH_RESTRICT);
+template int rearrange_local_nodes<i32, i64, i64, i32>(
+    const int, const int, const ptrdiff_t, const ptrdiff_t, const int,
+    const ptrdiff_t, i64 *const SMESH_RESTRICT, i64 *const SMESH_RESTRICT,
+    i32 *const SMESH_RESTRICT, i32 **const SMESH_RESTRICT,
+    ptrdiff_t *const SMESH_RESTRICT, ptrdiff_t *const SMESH_RESTRICT,
+    ptrdiff_t *const SMESH_RESTRICT);
+template int rearrange_local_elements<i32, i64, i64, i32>(
+    const int, const int, const ptrdiff_t, const ptrdiff_t, const int,
+    const ptrdiff_t, i64 *const SMESH_RESTRICT, i64 *const SMESH_RESTRICT,
+    i32 **const SMESH_RESTRICT, const ptrdiff_t, ptrdiff_t *const SMESH_RESTRICT,
+    i32 *const SMESH_RESTRICT);
 
 SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE_IDX(i32, i32);
 SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE_IDX(i32, i64);
@@ -118,6 +135,22 @@ SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE_AURA(i32, i32, i64);
 SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE_AURA(i32, i64, i64);
 SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE_AURA(i64, i32, i64);
 SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE_AURA(i64, i64, i64);
+template int expand_aura_elements_inconsistent<i32, i64, i64, i32>(
+    MPI_Comm, const ptrdiff_t, const ptrdiff_t, const int,
+    i64 *const SMESH_RESTRICT, i64 *const SMESH_RESTRICT,
+    const i32 *const SMESH_RESTRICT,
+    const i32 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+    const i32 *const SMESH_RESTRICT, const ptrdiff_t, const ptrdiff_t,
+    i32 **const SMESH_RESTRICT, i32 **const SMESH_RESTRICT,
+    ptrdiff_t *const SMESH_RESTRICT);
+template int expand_aura_elements_inconsistent<i32, i64, i64, i64>(
+    MPI_Comm, const ptrdiff_t, const ptrdiff_t, const int,
+    i64 *const SMESH_RESTRICT, i64 *const SMESH_RESTRICT,
+    const i64 *const SMESH_RESTRICT,
+    const i32 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+    const i64 *const SMESH_RESTRICT, const ptrdiff_t, const ptrdiff_t,
+    i32 **const SMESH_RESTRICT, i32 **const SMESH_RESTRICT,
+    ptrdiff_t *const SMESH_RESTRICT);
 
 } // namespace smesh
 

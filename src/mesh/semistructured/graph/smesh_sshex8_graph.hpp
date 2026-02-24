@@ -35,7 +35,7 @@ int sshex8_generate_elements(
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     ptrdiff_t *n_unique_nodes_out, ptrdiff_t *interior_start_out);
 
-template <typename idx_t>
+template <typename idx_t, typename element_idx_t, typename count_t>
 int sshex8_build_n2e(const int L, const ptrdiff_t nelements,
                      const ptrdiff_t nnodes,
                      const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,

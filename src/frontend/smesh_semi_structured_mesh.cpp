@@ -260,7 +260,7 @@ SemiStructuredMesh::node_to_node_graph() {
   count_t *rowptr{nullptr};
   idx_t *colidx{nullptr};
 
-  sshex8_crs_graph<element_idx_t>(impl_->level, this->n_elements(),
+  sshex8_crs_graph<element_idx_t, count_t, idx_t>(impl_->level, this->n_elements(),
                                   this->n_nodes(), this->element_data(),
                                   &rowptr, &colidx);
 

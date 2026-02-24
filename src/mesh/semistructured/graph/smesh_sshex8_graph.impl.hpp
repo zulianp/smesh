@@ -612,7 +612,7 @@ int sshex8_generate_elements(const int L, const ptrdiff_t m_nelements,
 }
 
 
-template<typename idx_t>
+template<typename idx_t, typename element_idx_t, typename count_t>
 int sshex8_build_n2e(const int L, const ptrdiff_t nelements,
                      const ptrdiff_t nnodes,
                      const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
@@ -822,7 +822,7 @@ int sshex8_crs_graph(
 
   count_t *n2eptr;
   element_idx_t *elindex;
-  sshex8_build_n2e(L, nelements, nnodes, elements, &n2eptr, &elindex);
+  sshex8_build_n2e<idx_t, element_idx_t, count_t>(L, nelements, nnodes, elements, &n2eptr, &elindex);
 
   int err = sshex8_build_crs_graph_from_n2e(
       L, nelements, nnodes, elements, n2eptr, elindex, out_rowptr, out_colidx);

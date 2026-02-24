@@ -6,5 +6,9 @@ template int ssquad4_to_standard_quad4_mesh<i32>(
     int, ptrdiff_t,
     const i32 *const SMESH_RESTRICT *const SMESH_RESTRICT,
     i32 *SMESH_RESTRICT *const SMESH_RESTRICT);
+template int ssquad4_to_standard_quad4_mesh<i64>(
+    int, ptrdiff_t,
+    const i64 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+    i64 *SMESH_RESTRICT *const SMESH_RESTRICT);
 } // namespace smesh
 

@@ -36,6 +36,15 @@ namespace smesh {
 // SMESH_EXPLICIT_INSTANTIATE_ADJACENCY(i16);
 SMESH_EXPLICIT_INSTANTIATE_ADJACENCY(i32);
 SMESH_EXPLICIT_INSTANTIATE_ADJACENCY(i64);
+
+template void create_element_adj_table<i32, i64, i32>(
+    const ptrdiff_t, const ptrdiff_t, enum ElemType,
+    const i32 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+    i32 **SMESH_RESTRICT);
+template void create_element_adj_table<i32, i32, i64>(
+    const ptrdiff_t, const ptrdiff_t, enum ElemType,
+    const i32 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+    i64 **SMESH_RESTRICT);
 } // namespace smesh
 
 #undef SMESH_EXPLICIT_INSTANTIATE_ADJACENCY

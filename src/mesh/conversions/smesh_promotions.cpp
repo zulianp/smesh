@@ -45,6 +45,27 @@ namespace smesh {
 SMESH_EXPLICIT_INSTANTIATE_PROMOTIONS(i16, i32, i32, f32);
 SMESH_EXPLICIT_INSTANTIATE_PROMOTIONS(i32, i32, i32, f32);
 SMESH_EXPLICIT_INSTANTIATE_PROMOTIONS(i64, i32, i32, f32);
+template void mesh_tet4_to_tet15<i64, i64, i64>(
+    const ptrdiff_t, const ptrdiff_t,
+    const i64 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+    const i64 *const SMESH_RESTRICT, const i64 *const SMESH_RESTRICT,
+    const i64 *const SMESH_RESTRICT,
+    i64 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+    ptrdiff_t *const SMESH_RESTRICT);
+template void mesh_tet4_to_tet15_points<i64, i64, f32>(
+    const ptrdiff_t, const ptrdiff_t,
+    const f32 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+    const i64 *const SMESH_RESTRICT, const i64 *const SMESH_RESTRICT,
+    i64 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+    f32 *const SMESH_RESTRICT *const SMESH_RESTRICT);
+template int p1_to_p2<i64, i64, f32>(
+    const enum ElemType, const ptrdiff_t,
+    const i64 *const SMESH_RESTRICT *const SMESH_RESTRICT, const int,
+    const ptrdiff_t,
+    const f32 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+    const i64 *const SMESH_RESTRICT, const i64 *const SMESH_RESTRICT,
+    i64 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+    f32 *const SMESH_RESTRICT *const SMESH_RESTRICT);
 } // namespace smesh
 
 #undef SMESH_EXPLICIT_INSTANTIATE_PROMOTIONS

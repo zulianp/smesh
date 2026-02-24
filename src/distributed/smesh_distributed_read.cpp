@@ -37,9 +37,14 @@ template int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
                                     int *nnodesxelem_out, i32 ***const elems,
                                     ptrdiff_t *const n_local_elements_out,
                                     ptrdiff_t *const n_global_elements_out);
+template int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
+                                    int *nnodesxelem_out, i64 ***const elems,
+                                    ptrdiff_t *const n_local_elements_out,
+                                    ptrdiff_t *const n_global_elements_out);
 
 SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i32, f32, i32);
 SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i32, f32, i64);
+SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i64, f32, i64);
 } // namespace smesh
 
 #undef SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER
