@@ -693,7 +693,6 @@ int mesh_from_folder(const MPI_Comm comm, const Path &folder,
 
   // Free memory that is not passed out
   free(global2owned);
-  free(local_elements);
   return SMESH_SUCCESS;
 }
 

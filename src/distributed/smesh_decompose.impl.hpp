@@ -506,7 +506,7 @@ int expand_aura_elements_inconsistent(
     element_idx_t *const SMESH_RESTRICT local_n2e_idx,
     const large_idx_t *const SMESH_RESTRICT local2global,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT local_elements,
-    const element_idx_t *const SMESH_RESTRICT element_local_to_global,
+    const large_idx_t *const SMESH_RESTRICT element_local_to_global,
     const ptrdiff_t node_n_owned, const ptrdiff_t nodes_n_ghosts,
     idx_t **const SMESH_RESTRICT out_aura_elements,
     idx_t **const SMESH_RESTRICT out_aura_element_nodes,
@@ -589,7 +589,7 @@ int expand_aura_elements_inconsistent(
   element_idx_t *old_to_new = (element_idx_t *)malloc(
       static_cast<size_t>(n_local_elements) * sizeof(element_idx_t));
   for (ptrdiff_t new_idx = 0; new_idx < n_local_elements; ++new_idx) {
-    const element_idx_t old_global = element_local_to_global[new_idx];
+    const large_idx_t old_global = element_local_to_global[new_idx];
     const ptrdiff_t old_off =
         static_cast<ptrdiff_t>(old_global - elements_start);
     old_to_new[old_off] = static_cast<element_idx_t>(new_idx);

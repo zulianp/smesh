@@ -50,8 +50,10 @@ public:
 };
 
 SharedBuffer<large_idx_t> Distributed::node_mapping() const {
+  SMESH_ASSERT(impl_->node_mapping);
   return impl_->node_mapping;
 }
+
 SharedBuffer<large_idx_t> Distributed::element_mapping() const {
   return impl_->element_mapping;
 }
@@ -121,6 +123,9 @@ public:
 Mesh::Block::Block() : impl_(std::make_unique<Impl>()) {}
 
 Mesh::Block::~Block() = default;
+
+
+
 
 const std::string &Mesh::Block::name() const { return impl_->name; }
 enum ElemType Mesh::Block::element_type() const { return impl_->element_type; }
@@ -217,6 +222,11 @@ public:
 };
 
 std::shared_ptr<Communicator> Mesh::comm() const { return impl_->comm; }
+
+std::shared_ptr<Distributed> Mesh::distributed() const {
+  SMESH_ASSERT(impl_->distributed);
+  return impl_->distributed;
+}
 
 Mesh::Mesh(const std::shared_ptr<Communicator> &comm,
            enum ElemType element_type, SharedBuffer<idx_t *> elements,
@@ -347,6 +357,7 @@ int Mesh::read(const Path &path) {
       &node_mapping, &points,
       // Distributed connectivities
       &node_owner, &node_offsets, &ghosts) != SMESH_SUCCESS) {
+        SMESH_ERROR("Failed to read mesh from folder %s\n", path.c_str());
       return SMESH_FAILURE;
     }
 
@@ -371,6 +382,8 @@ int Mesh::read(const Path &path) {
     default_block->set_element_type((enum ElemType)nnodesxelem);
     default_block->set_elements(elements_buffer);
     impl_->blocks.push_back(default_block);
+
+    impl_->distributed = dist;
   }
 #endif // SMESH_ENABLE_MPI
 
@@ -433,14 +446,14 @@ int Mesh::write(const Path &path) const {
 }
 
 const geom_t *Mesh::points(const int coord) const {
-  assert(coord < spatial_dimension());
-  assert(coord >= 0);
+  SMESH_ASSERT(coord < spatial_dimension());
+  SMESH_ASSERT(coord >= 0);
   return impl_->points->data()[coord];
 }
 
 const idx_t *Mesh::idx(const int node_num) const {
-  assert(node_num < n_nodes_per_element());
-  assert(node_num >= 0);
+  SMESH_ASSERT(node_num < n_nodes_per_element());
+  SMESH_ASSERT(node_num >= 0);
   return impl_->default_elements()->data()[node_num];
 }
 
@@ -981,7 +994,7 @@ int Mesh::split_block(const SharedBuffer<element_idx_t> &elements,
     for (ptrdiff_t i = 0; i < n_elements; i++) {
       if (mask_get(i, d_bdry_mask) == 0) {
         for (int v = 0; v < nxe; v++) {
-          assert(n_interior_elements_count <
+          SMESH_ASSERT(n_interior_elements_count <
                  static_cast<ptrdiff_t>(interior_elements->extent(1)));
           d_interior_elements[v][n_interior_elements_count] = d_elements[v][i];
         }
@@ -1108,8 +1121,8 @@ int Mesh::renumber_nodes(const SharedBuffer<idx_t> &node_mapping) {
 
   for (int d = 0; d < dim; d++) {
     for (ptrdiff_t i = 0; i < n_nodes; i++) {
-      assert(d_node_mapping[i] < n_nodes);
-      assert(d_node_mapping[i] >= 0);
+      SMESH_ASSERT(d_node_mapping[i] < n_nodes);
+      SMESH_ASSERT(d_node_mapping[i] >= 0);
       new_points[d][d_node_mapping[i]] = points[d][i];
     }
   }

@@ -6,12 +6,12 @@
   template int mesh_from_folder<IDX_T, GEOM_T, LARGE_IDX_T>(                   \
       const MPI_Comm comm, const Path &folder, int *nnodesxelem_out,           \
       ptrdiff_t *n_global_elements_out, ptrdiff_t *n_owned_elements_out,       \
-      ptrdiff_t *n_ghost_elements_out, large_idx_t **element_mapping_out,      \
-      idx_t ***elements_out, int *spatial_dim_out,                             \
+      ptrdiff_t *n_ghost_elements_out, LARGE_IDX_T **element_mapping_out,      \
+      IDX_T ***elements_out, int *spatial_dim_out,                             \
       ptrdiff_t *n_global_nodes_out, ptrdiff_t *n_owned_nodes_out,             \
-      ptrdiff_t *n_ghost_nodes_out, large_idx_t **node_mapping_out,            \
-      geom_t ***points_out, int **node_owner_out,                              \
-      ptrdiff_t **node_offsets_out, idx_t **ghosts_out)
+      ptrdiff_t *n_ghost_nodes_out, LARGE_IDX_T **node_mapping_out,            \
+      GEOM_T ***points_out, int **node_owner_out,                              \
+      ptrdiff_t **node_offsets_out, IDX_T **ghosts_out)
 
 namespace smesh {
 // Explicit instantiation
