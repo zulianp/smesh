@@ -174,7 +174,7 @@ int read_mapped_field(MPI_Comm comm, const char *input_path,
     return SMESH_FAILURE;
 
   int err = ::array_read(comm, input_path, data_type, (void *)local_chunk,
-                       local_size, n_global);
+                         local_size, n_global);
   if (err) {
     free(local_chunk);
     return err;
@@ -529,7 +529,7 @@ int mesh_coordinates_from_folder(MPI_Comm comm, const Path &folder,
 }
 
 template <typename idx_t, typename geom_t, typename large_idx_t>
-int mesh_from_folder(const MPI_Comm comm, const Path &folder,
+int mesh_from_folder_basic(const MPI_Comm comm, const Path &folder,
                      // Elements
                      int *nnodesxelem_out, ptrdiff_t *n_global_elements_out,
                      ptrdiff_t *n_owned_elements_out,
@@ -538,7 +538,7 @@ int mesh_from_folder(const MPI_Comm comm, const Path &folder,
                      large_idx_t **element_mapping_out, idx_t ***elements_out,
                      // Nodes
                      int *spatial_dim_out, ptrdiff_t *n_global_nodes_out,
-                     ptrdiff_t *n_owned_nodes_out, 
+                     ptrdiff_t *n_owned_nodes_out,
                      ptrdiff_t *n_shared_nodes_out,
                      ptrdiff_t *n_ghost_nodes_out,
                      large_idx_t **node_mapping_out, geom_t ***points_out,
@@ -692,15 +692,15 @@ int mesh_from_folder(const MPI_Comm comm, const Path &folder,
   free(points);
 
   ptrdiff_t n_shared_elements = 0;
-  for(ptrdiff_t i = 0; i < n_local_elements; ++i) {
-    for(int d = 0; d < nnodesxelem; ++d) {
-         idx_t node = local_elements[d][i];
-         if(owner[node] != comm_rank) {
-          n_shared_elements++;
-            break;
+  for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
+    for (int d = 0; d < nnodesxelem; ++d) {
+      idx_t node = local_elements[d][i];
+      if (owner[node] != comm_rank) {
+        n_shared_elements++;
+        break;
       }
     }
-  } 
+  }
 
   // Elements
   *nnodesxelem_out = nnodesxelem;
@@ -728,6 +728,104 @@ int mesh_from_folder(const MPI_Comm comm, const Path &folder,
   // Free memory that is not passed out
   free(global2owned);
   return SMESH_SUCCESS;
+}
+
+template <typename idx_t, typename geom_t, typename large_idx_t>
+int mesh_from_folder(
+    const MPI_Comm comm, const Path &folder,
+    // Elements
+    int *nnodesxelem_out, ptrdiff_t *n_global_elements_out,
+    ptrdiff_t *n_owned_elements_out, ptrdiff_t *n_shared_elements_out,
+    ptrdiff_t *n_ghost_elements_out, large_idx_t **element_mapping_out,
+    idx_t ***elements_out,
+    // Nodes
+    int *spatial_dim_out, ptrdiff_t *n_global_nodes_out,
+    ptrdiff_t *n_owned_nodes_out, ptrdiff_t *n_shared_nodes_out,
+    ptrdiff_t *n_ghost_nodes_out, large_idx_t **node_mapping_out,
+    geom_t ***points_out,
+    // Distributed connectivities
+    int **node_owner_out, ptrdiff_t **node_offsets_out, idx_t **ghosts_out) {
+  if constexpr (std::is_same_v<large_idx_t, idx_t>) {
+    return mesh_from_folder_basic<idx_t, geom_t, large_idx_t>(
+        comm, folder, nnodesxelem_out, n_global_elements_out,
+        n_owned_elements_out, n_shared_elements_out, n_ghost_elements_out,
+        element_mapping_out, elements_out, spatial_dim_out, n_global_nodes_out,
+        n_owned_nodes_out, n_shared_nodes_out, n_ghost_nodes_out,
+        node_mapping_out, points_out, node_owner_out, node_offsets_out,
+        ghosts_out);
+  } else {
+
+    std::vector<Path> i_files = detect_files(folder / "i0.*", {"raw", "int16", "int32", "int64"});
+    std::vector<Path> x_files = detect_files(folder / "x*.*", {"raw", "float16", "float32", "float64"});
+
+    if(i_files.empty() || x_files.empty()) {
+      SMESH_ERROR("No mesh files found in folder %s\n", folder.c_str());
+      return SMESH_FAILURE;
+    }
+
+    size_t size_bytes = std::max(file_size(i_files[0]), file_size(x_files[0]));
+    size_t max_idx = size_bytes / sizeof(idx_t);
+
+    printf("max_idx: %ld\n", max_idx);
+
+    if(max_idx < std::numeric_limits<idx_t>::max()) {
+      // It should not overflow so we can use the smaller type
+      return mesh_from_folder_basic<idx_t, geom_t, large_idx_t>(
+        comm, folder, nnodesxelem_out, n_global_elements_out,
+        n_owned_elements_out, n_shared_elements_out, n_ghost_elements_out,
+        element_mapping_out, elements_out, spatial_dim_out, n_global_nodes_out,
+        n_owned_nodes_out, n_shared_nodes_out, n_ghost_nodes_out,
+        node_mapping_out, points_out, node_owner_out, node_offsets_out,
+        ghosts_out);
+    }
+
+    int rank;
+    MPI_Comm_rank(comm, &rank);
+    if(!rank) {
+      printf("Using large index type\n");
+    }
+
+    static_assert(sizeof(large_idx_t) > sizeof(idx_t),
+                  "large_idx_t must be larger than idx_t!");
+
+    large_idx_t **elements;
+    large_idx_t *ghosts;
+    int *node_owner;
+    ptrdiff_t *node_offsets;
+
+    if (mesh_from_folder_basic<large_idx_t, geom_t, large_idx_t>(
+            comm, folder, nnodesxelem_out, n_global_elements_out,
+            n_owned_elements_out, n_shared_elements_out, n_ghost_elements_out,
+            element_mapping_out, &elements, spatial_dim_out, n_global_nodes_out,
+            n_owned_nodes_out, n_shared_nodes_out, n_ghost_nodes_out,
+            node_mapping_out, points_out, &node_owner, &node_offsets,
+            &ghosts) != SMESH_SUCCESS) {
+      return SMESH_FAILURE;
+    }
+
+    const ptrdiff_t nnodesxelem = *nnodesxelem_out;
+    const ptrdiff_t n_local_elements = *n_owned_elements_out;
+
+    elements_out = (idx_t ***)malloc(nnodesxelem * sizeof(idx_t **));
+
+    for (int d = 0; d < nnodesxelem; ++d) {
+      (*elements_out)[d] = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
+
+      for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
+        (*elements_out)[d][i] = (idx_t)elements[d][i];
+      }
+
+      free(elements[d]);
+    }
+    free(elements);
+
+    *ghosts_out = (idx_t *)malloc((*n_ghost_elements_out) * sizeof(idx_t));
+    for (ptrdiff_t i = 0; i < *n_ghost_elements_out; ++i) {
+      (*ghosts_out)[i] = (idx_t)ghosts[i];
+    }
+    free(ghosts);
+    return SMESH_FAILURE;
+  }
 }
 
 } // namespace smesh

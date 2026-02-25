@@ -60,12 +60,18 @@ template int crs_graph_block_to_scalar<i32, i64>(
 template int create_n2e<i32, i64, i32>(
     ptrdiff_t, ptrdiff_t, int,
     const i32 *const SMESH_RESTRICT *const SMESH_RESTRICT, i64 **, i32 **);
+template int create_n2e<i64, i32, i64>(
+    ptrdiff_t, ptrdiff_t, int,
+    const i64 *const SMESH_RESTRICT *const SMESH_RESTRICT, i32 **, i64 **);
 template int create_dual_graph<i32, i64, i32>(
     ptrdiff_t, ptrdiff_t, enum ElemType,
     const i32 *const SMESH_RESTRICT *const SMESH_RESTRICT, i64 **, i32 **);
 template int create_dual_graph<i32, i32, i64>(
     ptrdiff_t, ptrdiff_t, enum ElemType,
     const i32 *const SMESH_RESTRICT *const SMESH_RESTRICT, i32 **, i64 **);
+template int create_dual_graph<i64, i64, i32>(
+    ptrdiff_t, ptrdiff_t, enum ElemType,
+    const i64 *const SMESH_RESTRICT *const SMESH_RESTRICT, i64 **, i32 **);
 } // namespace smesh
 
 #undef SMESH_EXPLICIT_INSTANTIATE_CRS_GRAPH
