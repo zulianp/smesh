@@ -12,6 +12,8 @@ namespace smesh {
 	size_t count_files(const std::string_view &pattern);
 	int create_directory(const std::string_view &path);
 	int create_directory(const Path &path);
+
+	size_t file_size(const Path &path);
 }
 
 #endif //SMESH_GLOB_HPP

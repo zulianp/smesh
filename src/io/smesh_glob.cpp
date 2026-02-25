@@ -63,4 +63,17 @@ int create_directory(const std::string_view &path) {
 #endif
 }
 
+size_t file_size(const Path &path) {
+#ifdef _WIN32
+  namespace fs = std::filesystem;
+  return fs::file_size(path);
+#else
+  struct stat st = {};
+  if (stat(path.c_str(), &st) == -1) {
+    return 0;
+  }
+  return st.st_size;
+#endif
+}
+
 } // namespace smesh
