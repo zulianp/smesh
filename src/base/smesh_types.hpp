@@ -35,9 +35,13 @@ using f64 = double;
 
 using real_t = f64;
 using geom_t = f32;
-using idx_t = i32;
-using element_idx_t = i32;
-using count_t = i32;
+// using idx_t = i32;
+// using element_idx_t = i32;
+// using count_t = i32;
+
+using idx_t = i64;
+using element_idx_t = i64;
+using count_t = i64;
 
 static const f16 F16_MAX = (f16)65504.0f;
 static const size_t SIZE_LARGEST_TYPE = sizeof(i64);

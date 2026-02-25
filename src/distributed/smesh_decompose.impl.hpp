@@ -227,6 +227,7 @@ int localize_element_indices(
     }
   }
 
+  #pragma omp parallel for
   for (ptrdiff_t i = 0; i < local2global_size; ++i) {
     const count_t e_begin = local_n2e_ptr[i];
     const count_t e_end = local_n2e_ptr[i + 1];
@@ -275,6 +276,7 @@ int rearrange_local_nodes(const int comm_size, const int comm_rank,
   ptrdiff_t n_owned = 0;
   ptrdiff_t n_shared = 0;
 
+  #pragma omp parallel for reduction(+:n_owned,n_shared)
   for (ptrdiff_t i = 0; i < local2global_size; i++) {
     int owner = comm_size;
     int other = -1;
@@ -307,6 +309,7 @@ int rearrange_local_nodes(const int comm_size, const int comm_rank,
   ptrdiff_t count_owned_not_shared = 0;
   ptrdiff_t count_shared = 0;
 
+  // #pragma omp parallel for reduction(+:count_ghosts,count_owned_not_shared,count_shared)
   for (ptrdiff_t i = 0; i < local2global_size; i++) {
     int owner = comm_size;
     int other = -1;
