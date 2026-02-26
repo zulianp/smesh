@@ -143,6 +143,14 @@ template int expand_aura_elements_inconsistent<i64, i32, i32, i64>(
     const i64 *const SMESH_RESTRICT, const ptrdiff_t, const ptrdiff_t,
     i64 **const SMESH_RESTRICT, i64 **const SMESH_RESTRICT,
     ptrdiff_t *const SMESH_RESTRICT);
+template int expand_aura_elements_inconsistent<i64, i64, i32, i64>(
+    MPI_Comm, const ptrdiff_t, const ptrdiff_t, const int,
+    i64 *const SMESH_RESTRICT, i32 *const SMESH_RESTRICT,
+    const i64 *const SMESH_RESTRICT,
+    const i64 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+    const i64 *const SMESH_RESTRICT, const ptrdiff_t, const ptrdiff_t,
+    i64 **const SMESH_RESTRICT, i64 **const SMESH_RESTRICT,
+    ptrdiff_t *const SMESH_RESTRICT);
 template int expand_aura_elements_inconsistent<i32, i64, i64, i32>(
     MPI_Comm, const ptrdiff_t, const ptrdiff_t, const int,
     i64 *const SMESH_RESTRICT, i64 *const SMESH_RESTRICT,

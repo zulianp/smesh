@@ -84,7 +84,7 @@ int array_create_from_file_convert(MPI_Comm comm, const Path &path,
                                    TargetType **data,
                                    ptrdiff_t *n_local_elements,
                                    ptrdiff_t *n_global_elements) {
-  // SMESH_TRACE_SCOPE("array_create_from_file_convert");
+  SMESH_TRACE_SCOPE("array_create_from_file_convert");
 
   FileType *temp = nullptr;
   if (array_create_from_file(comm, path.c_str(), smesh::mpi_type<FileType>(),
@@ -150,6 +150,8 @@ int read_mapped_field(MPI_Comm comm, const char *input_path,
                       const idx_t *SMESH_RESTRICT const mapping,
                       MPI_Datatype data_type,
                       void *SMESH_RESTRICT const data_out) {
+  SMESH_TRACE_SCOPE("read_mapped_field");
+
   int rank, size;
   MPI_Comm_rank(comm, &rank);
   MPI_Comm_size(comm, &size);
@@ -360,7 +362,7 @@ int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
                            int *nnodesxelem_out, idx_t ***const elems,
                            ptrdiff_t *const n_local_elements_out,
                            ptrdiff_t *const n_global_elements_out) {
-  // SMESH_TRACE_SCOPE("mesh_block_from_folder");
+  SMESH_TRACE_SCOPE("mesh_block_from_folder");
 
   std::vector<Path> i_files =
       detect_files(folder / "i*.*", {"raw", "int16", "int32", "int64"});
@@ -442,6 +444,8 @@ int mesh_coordinates_from_folder(MPI_Comm comm, const Path &folder,
                                  int *spatial_dim_out, geom_t ***points_out,
                                  ptrdiff_t *n_local_nodes_out,
                                  ptrdiff_t *n_global_nodes_out) {
+  SMESH_TRACE_SCOPE("mesh_coordinates_from_folder");
+
   std::vector<Path> x_file =
       detect_files(folder / "x.*", {"raw", "float16", "float32", "float64"});
   std::vector<Path> y_file =
@@ -563,20 +567,20 @@ int mesh_from_folder_basic(const MPI_Comm comm, const Path &folder,
   mesh_coordinates_from_folder(comm, folder, &spatial_dim, &points,
                                &n_local2global, &n_global_nodes);
 
-  count_t *n2eptr;
-  element_idx_t *n2e_idx;
-  create_n2e<idx_t, count_t, element_idx_t>(
+  large_idx_t *n2eptr;
+  idx_t *n2e_idx;
+  create_n2e<idx_t, large_idx_t, idx_t>(
       comm, n_local_elements, n_global_elements, n_local2global, n_global_nodes,
       nnodesxelem, elems, &n2eptr, &n2e_idx);
 
   // Ensure it is always the same
-  sort_n2e<count_t, element_idx_t>(n_local2global, n2eptr, n2e_idx);
+  sort_n2e<large_idx_t, idx_t>(n_local2global, n2eptr, n2e_idx);
 
   ptrdiff_t local2global_size = 0;
   // idx_t *local2global = nullptr;
   large_idx_t *local2global = nullptr;
-  count_t *local_n2e_ptr = nullptr;
-  element_idx_t *local_n2e_idx = nullptr;
+  large_idx_t *local_n2e_ptr = nullptr;
+  idx_t *local_n2e_idx = nullptr;
   redistribute_n2e(comm, comm_size, comm_rank, n_local2global, n_global_nodes,
                    n_global_elements, n2eptr, n2e_idx, &local2global_size,
                    &local2global, &local_n2e_ptr, &local_n2e_idx);
@@ -763,8 +767,9 @@ int mesh_from_folder(
       return SMESH_FAILURE;
     }
 
-    size_t size_bytes = std::max(file_size(i_files[0]), file_size(x_files[0]));
-    size_t max_idx = size_bytes / sizeof(idx_t);
+    const size_t num_e_idx = file_size(i_files[0]) / num_bytes(to_integer_type(i_files[0].extension()));
+    const size_t num_nodes = file_size(x_files[0]) / num_bytes(to_real_type(x_files[0].extension()));
+    const size_t max_idx = std::max(num_e_idx, num_nodes);
 
     printf("max_idx: %ld\n", max_idx);
 
@@ -783,6 +788,7 @@ int mesh_from_folder(
     MPI_Comm_rank(comm, &rank);
     if(!rank) {
       printf("Using large index type\n");
+      fflush(stdout);
     }
 
     static_assert(sizeof(large_idx_t) > sizeof(idx_t),
@@ -790,15 +796,14 @@ int mesh_from_folder(
 
     large_idx_t **elements;
     large_idx_t *ghosts;
-    int *node_owner;
-    ptrdiff_t *node_offsets;
+
 
     if (mesh_from_folder_basic<large_idx_t, geom_t, large_idx_t>(
             comm, folder, nnodesxelem_out, n_global_elements_out,
             n_owned_elements_out, n_shared_elements_out, n_ghost_elements_out,
             element_mapping_out, &elements, spatial_dim_out, n_global_nodes_out,
             n_owned_nodes_out, n_shared_nodes_out, n_ghost_nodes_out,
-            node_mapping_out, points_out, &node_owner, &node_offsets,
+            node_mapping_out, points_out, node_owner_out, node_offsets_out,
             &ghosts) != SMESH_SUCCESS) {
       return SMESH_FAILURE;
     }
@@ -806,25 +811,29 @@ int mesh_from_folder(
     const ptrdiff_t nnodesxelem = *nnodesxelem_out;
     const ptrdiff_t n_local_elements = *n_owned_elements_out;
 
-    elements_out = (idx_t ***)malloc(nnodesxelem * sizeof(idx_t **));
+
+    idx_t **small_elements  = (idx_t **)malloc(nnodesxelem * sizeof(idx_t *));
 
     for (int d = 0; d < nnodesxelem; ++d) {
-      (*elements_out)[d] = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
+      small_elements[d] = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
 
       for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
-        (*elements_out)[d][i] = (idx_t)elements[d][i];
+        small_elements[d][i] = (idx_t)elements[d][i];
       }
 
       free(elements[d]);
     }
     free(elements);
 
-    *ghosts_out = (idx_t *)malloc((*n_ghost_elements_out) * sizeof(idx_t));
-    for (ptrdiff_t i = 0; i < *n_ghost_elements_out; ++i) {
+    *elements_out = small_elements;
+
+
+    *ghosts_out = (idx_t *)malloc((*n_ghost_nodes_out) * sizeof(idx_t));
+    for (ptrdiff_t i = 0; i < *n_ghost_nodes_out; ++i) {
       (*ghosts_out)[i] = (idx_t)ghosts[i];
     }
     free(ghosts);
-    return SMESH_FAILURE;
+    return SMESH_SUCCESS;
   }
 }
 

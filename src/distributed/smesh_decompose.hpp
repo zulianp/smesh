@@ -5,13 +5,14 @@
 
 #include <mpi.h>
 
-#include <stddef.h>
 #include <algorithm>
+#include <stddef.h>
 
 namespace smesh {
 
 inline ptrdiff_t rank_split(const ptrdiff_t n, const int comm_size,
                             const int comm_rank) {
+  SMESH_ASSERT(n >= comm_size);
   ptrdiff_t uniform_split = n / comm_size;
   ptrdiff_t nlocal = uniform_split;
   ptrdiff_t remainder = n - nlocal * comm_size;
@@ -25,6 +26,7 @@ inline ptrdiff_t rank_split(const ptrdiff_t n, const int comm_size,
 
 inline ptrdiff_t rank_start(const ptrdiff_t n, const int comm_size,
                             const int comm_rank) {
+  SMESH_ASSERT(n >= comm_size);
   ptrdiff_t uniform_split = n / comm_size;
   ptrdiff_t remainder = n - uniform_split * comm_size;
 
@@ -35,6 +37,8 @@ inline ptrdiff_t rank_start(const ptrdiff_t n, const int comm_size,
 
 inline int rank_owner(const ptrdiff_t n, const ptrdiff_t gidx,
                       const int comm_size) {
+  SMESH_ASSERT(gidx < n);
+  SMESH_ASSERT(n >= comm_size);
   ptrdiff_t uniform_split = n / comm_size;
   ptrdiff_t remainder = n - uniform_split * comm_size;
 
@@ -45,7 +49,8 @@ inline int rank_owner(const ptrdiff_t n, const ptrdiff_t gidx,
 #ifndef NDEBUG
     ptrdiff_t rank_end =
         rank_start + uniform_split + (ptrdiff_t)(rank < remainder);
-    assert(gidx < rank_end);
+    SMESH_ASSERT(gidx < rank_end);
+    SMESH_ASSERT(rank < comm_size);
 #endif
     return rank;
   } else {
@@ -55,8 +60,9 @@ inline int rank_owner(const ptrdiff_t n, const ptrdiff_t gidx,
     ptrdiff_t rank_end =
         rank_start + uniform_split + (ptrdiff_t)(rank < remainder);
 
-    assert(gidx >= rank_start);
-    assert(gidx < rank_end);
+    SMESH_ASSERT(gidx >= rank_start);
+    SMESH_ASSERT(gidx < rank_end);
+    SMESH_ASSERT(rank < comm_size);
 #endif
     return rank;
   }
@@ -127,7 +133,8 @@ int rearrange_local_nodes(const int comm_size, const int comm_rank,
                           ptrdiff_t *const SMESH_RESTRICT out_n_shared,
                           ptrdiff_t *const SMESH_RESTRICT out_n_ghosts);
 
-template <typename idx_t, typename count_t, typename element_idx_t, typename large_idx_t>
+template <typename idx_t, typename count_t, typename element_idx_t,
+          typename large_idx_t>
 int rearrange_local_elements(
     const int comm_size, const int comm_rank, const ptrdiff_t n_global_elements,
     const ptrdiff_t n_local_elements, const int nnodesxelem,
@@ -138,7 +145,8 @@ int rearrange_local_elements(
     ptrdiff_t *const SMESH_RESTRICT n_owned_not_shared,
     large_idx_t *const SMESH_RESTRICT element_local_to_global);
 
-template <typename idx_t, typename count_t, typename element_idx_t, typename large_idx_t>
+template <typename idx_t, typename count_t, typename element_idx_t,
+          typename large_idx_t>
 int expand_aura_elements_inconsistent(
     MPI_Comm comm, const ptrdiff_t n_global_elements,
     const ptrdiff_t n_local_elements, const int nnodesxelem,
@@ -153,11 +161,11 @@ int expand_aura_elements_inconsistent(
     ptrdiff_t *const SMESH_RESTRICT out_n_aura);
 
 template <typename idx_t, typename local2global_t = idx_t>
-int prepare_node_renumbering(MPI_Comm comm, const ptrdiff_t n_global_nodes,
-                             const ptrdiff_t owned_nodes_start,
-                             const ptrdiff_t n_owned_nodes,
-                             const local2global_t *const SMESH_RESTRICT local2global,
-                             idx_t *const SMESH_RESTRICT global2owned);
+int prepare_node_renumbering(
+    MPI_Comm comm, const ptrdiff_t n_global_nodes,
+    const ptrdiff_t owned_nodes_start, const ptrdiff_t n_owned_nodes,
+    const local2global_t *const SMESH_RESTRICT local2global,
+    idx_t *const SMESH_RESTRICT global2owned);
 
 int node_ownership_ranges(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                           ptrdiff_t *const SMESH_RESTRICT owned_nodes_ranges);
@@ -166,8 +174,8 @@ template <typename idx_t, typename local2global_t = idx_t>
 int stitch_aura_elements(
     MPI_Comm comm, const ptrdiff_t n_owned_nodes,
     const ptrdiff_t n_shared_nodes, const ptrdiff_t n_ghost_nodes,
-    const local2global_t *const SMESH_RESTRICT local2global, const int nnodesxelem,
-    const ptrdiff_t n_aura_elements,
+    const local2global_t *const SMESH_RESTRICT local2global,
+    const int nnodesxelem, const ptrdiff_t n_aura_elements,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT e2n_aura,
     const ptrdiff_t n_local_elements, idx_t **const SMESH_RESTRICT e2n_local,
     local2global_t **const SMESH_RESTRICT n2n_local2global_out,
@@ -192,16 +200,13 @@ int determine_ownership(const int comm_size, const int comm_rank,
 
 template <typename idx_t, typename local2global_t = idx_t>
 int group_ghost_and_aura_by_rank(
-    const int comm_size,  const ptrdiff_t n_owned,
-    const ptrdiff_t n_ghosts, const ptrdiff_t n_aura_nodes,
+    const int comm_size, const ptrdiff_t n_owned, const ptrdiff_t n_ghosts,
+    const ptrdiff_t n_aura_nodes,
     local2global_t *const SMESH_RESTRICT local2global,
     idx_t *const SMESH_RESTRICT ghost_and_aura_to_owned,
-    int *const SMESH_RESTRICT owner,
-    const int nnodesxelem,
-    const ptrdiff_t n_local_elements,
-    const ptrdiff_t n_aura_elements,
+    int *const SMESH_RESTRICT owner, const int nnodesxelem,
+    const ptrdiff_t n_local_elements, const ptrdiff_t n_aura_elements,
     idx_t **const SMESH_RESTRICT local_elements);
-
 
 } // namespace smesh
 

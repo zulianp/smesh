@@ -63,6 +63,8 @@ template int create_n2e<i32, i64, i32>(
 template int create_n2e<i64, i32, i64>(
     ptrdiff_t, ptrdiff_t, int,
     const i64 *const SMESH_RESTRICT *const SMESH_RESTRICT, i32 **, i64 **);
+template int sort_n2e<i64, i32>(ptrdiff_t, const i64 *const SMESH_RESTRICT,
+                                i32 *);
 template int create_dual_graph<i32, i64, i32>(
     ptrdiff_t, ptrdiff_t, enum ElemType,
     const i32 *const SMESH_RESTRICT *const SMESH_RESTRICT, i64 **, i32 **);

@@ -118,9 +118,10 @@ int create_n2e(
   i64 *book_keeping = (i64 *)calloc(n_local_nodes, sizeof(i64));
 
   for (ptrdiff_t r = 0; r < size; r++) {
-    int begin = recv_displs[r];
-    int end = recv_displs[r + 1];
-    for (int i = begin; i < end; i++) {
+    i64 begin = recv_displs[r];
+    i64 end = recv_displs[r + 1];
+    for (i64 i = begin; i < end; i++) {
+      assert(recv_nodes[i] < n_local_nodes);
       n2e_idx[n2e_ptr[recv_nodes[i]] + book_keeping[recv_nodes[i]]++] =
           recv_elements[i];
     }
