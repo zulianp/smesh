@@ -655,7 +655,7 @@ Mesh::create_hex8_cube(const std::shared_ptr<Communicator> &comm,
   return ret;
 }
 
-std::shared_ptr<Mesh> Mesh::create_proteus_hex_cube(
+std::shared_ptr<Mesh> Mesh::create_semistructured_hex_cube(
     const std::shared_ptr<Communicator> &comm, const int micro_elements_per_dim,
     const ptrdiff_t nx, const ptrdiff_t ny, const ptrdiff_t nz,
     const geom_t xmin, const geom_t ymin, const geom_t zmin, const geom_t xmax,
@@ -963,28 +963,28 @@ Mesh::create_cube(const std::shared_ptr<Communicator> &comm,
     return create_tet4_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax,
                             zmax);
   case PROTEUS_HEX8:
-    return create_proteus_hex_cube(comm, 1, nx, ny, nz, xmin, ymin, zmin, xmax,
+    return create_semistructured_hex_cube(comm, 1, nx, ny, nz, xmin, ymin, zmin, xmax,
                                    ymax, zmax);
   case PROTEUS_HEX27:
-    return create_proteus_hex_cube(comm, 2, nx, ny, nz, xmin, ymin, zmin, xmax,
+    return create_semistructured_hex_cube(comm, 2, nx, ny, nz, xmin, ymin, zmin, xmax,
                                    ymax, zmax);
   case PROTEUS_HEX64:
-    return create_proteus_hex_cube(comm, 3, nx, ny, nz, xmin, ymin, zmin, xmax,
+    return create_semistructured_hex_cube(comm, 3, nx, ny, nz, xmin, ymin, zmin, xmax,
                                    ymax, zmax);
   case PROTEUS_HEX125:
-    return create_proteus_hex_cube(comm, 4, nx, ny, nz, xmin, ymin, zmin, xmax,
+    return create_semistructured_hex_cube(comm, 4, nx, ny, nz, xmin, ymin, zmin, xmax,
                                    ymax, zmax);
   case PROTEUS_HEX216:
-    return create_proteus_hex_cube(comm, 5, nx, ny, nz, xmin, ymin, zmin, xmax,
+    return create_semistructured_hex_cube(comm, 5, nx, ny, nz, xmin, ymin, zmin, xmax,
                                    ymax, zmax);
   case PROTEUS_HEX343:
-    return create_proteus_hex_cube(comm, 6, nx, ny, nz, xmin, ymin, zmin, xmax,
+    return create_semistructured_hex_cube(comm, 6, nx, ny, nz, xmin, ymin, zmin, xmax,
                                    ymax, zmax);
   case PROTEUS_HEX512:
-    return create_proteus_hex_cube(comm, 7, nx, ny, nz, xmin, ymin, zmin, xmax,
+    return create_semistructured_hex_cube(comm, 7, nx, ny, nz, xmin, ymin, zmin, xmax,
                                    ymax, zmax);
   case PROTEUS_HEX729:
-    return create_proteus_hex_cube(comm, 8, nx, ny, nz, xmin, ymin, zmin, xmax,
+    return create_semistructured_hex_cube(comm, 8, nx, ny, nz, xmin, ymin, zmin, xmax,
                                    ymax, zmax);
   default:
     SMESH_ERROR("Invalid element type: %d\n", element_type);

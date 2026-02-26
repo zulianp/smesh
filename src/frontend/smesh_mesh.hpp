@@ -161,7 +161,7 @@ public:
       const geom_t ymin = 0, const geom_t zmin = 0, const geom_t xmax = 1,
       const geom_t ymax = 1, const geom_t zmax = 1);
 
-  static std::shared_ptr<Mesh> create_proteus_hex_cube(
+  static std::shared_ptr<Mesh> create_semistructured_hex_cube(
       const std::shared_ptr<Communicator> &comm,
       const int micro_elements_per_dim = 2, const ptrdiff_t nx = 1,
       const ptrdiff_t ny = 1, const ptrdiff_t nz = 1, const geom_t xmin = 0,
