@@ -1380,6 +1380,17 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
                            new_block.elements()->data());
   };
 
+  // PROTEUS_HEX27 to HEX8
+  // PROTEUS_HEX64 to HEX8
+  // PROTEUS_HEX125 to HEX8
+  // PROTEUS_HEX216 to HEX8
+  // PROTEUS_HEX343 to HEX8
+  // PROTEUS_HEX512 to HEX8
+  // PROTEUS_HEX729 to HEX8
+
+  
+
+
   std::vector<std::shared_ptr<Mesh::Block>> blocks;
   for (auto &block : mesh->blocks()) {
     auto new_block = std::make_shared<Mesh::Block>();

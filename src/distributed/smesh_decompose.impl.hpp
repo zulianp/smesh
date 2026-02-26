@@ -57,12 +57,16 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
       std::max<ptrdiff_t>(1, max_adj_count);
   int *connected_ranks = (int *)malloc(
       static_cast<size_t>(connected_ranks_capacity) * sizeof(int));
+  const ptrdiff_t node_start = rank_start(n_global_nodes, comm_size, comm_rank);
   for (ptrdiff_t i = 0; i < n_local2global; ++i) {
     const count_t e_begin = n2eptr[i];
     const count_t e_end = n2eptr[i + 1];
-    // if (e_end == e_begin) {
-    //   continue;
-    // }
+    if (e_end == e_begin) {
+      // Keep isolated nodes in the distributed node map.
+      const int owner = rank_owner(n_global_nodes, node_start + i, comm_size);
+      send_nodes_displs[owner + 1]++;
+      continue;
+    }
     for (ptrdiff_t e = e_begin; e < e_end; ++e) {
       const element_idx_t element_idx = n2e_idx[e];
       const int element_owner =
@@ -99,13 +103,18 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
   count_t *send_n2e_count =
       (count_t *)malloc((size_t)send_nodes_size * sizeof(count_t));
 
-  ptrdiff_t node_start = rank_start(n_global_nodes, comm_size, comm_rank);
   for (ptrdiff_t i = 0; i < n_local2global; ++i) {
     const count_t e_begin = n2eptr[i];
     const count_t e_end = n2eptr[i + 1];
-    // if (e_end == e_begin) {
-    //   continue;
-    // }
+    if (e_end == e_begin) {
+      // FIXME is there a better way to handle this instead of sending everything?
+      const int owner = rank_owner(n_global_nodes, node_start + i, comm_size);
+      const i64 node_pos = send_nodes_displs[owner] + send_nodes_count[owner];
+      send_nodes[node_pos] = node_start + i;
+      send_n2e_count[node_pos] = 0;
+      send_nodes_count[owner]++;
+      continue;
+    }
     for (ptrdiff_t e = e_begin; e < e_end; ++e) {
       const element_idx_t element_idx = n2e_idx[e];
       const int element_owner =
@@ -282,6 +291,11 @@ int rearrange_local_nodes(const int comm_size, const int comm_rank,
     int other = -1;
     const count_t e_begin = local_n2e_ptr[i];
     const count_t e_end = local_n2e_ptr[i + 1];
+    if (e_begin == e_end) {
+      // Isolated nodes are stored on a single rank after redistribute_n2e.
+      owner = comm_rank;
+      other = comm_rank;
+    }
     for (ptrdiff_t e = e_begin; e < e_end; ++e) {
       const element_idx_t element_idx = local_n2e_idx[e];
       const int element_owner =
@@ -315,6 +329,10 @@ int rearrange_local_nodes(const int comm_size, const int comm_rank,
     int other = -1;
     const count_t e_begin = local_n2e_ptr[i];
     const count_t e_end = local_n2e_ptr[i + 1];
+    if (e_begin == e_end) {
+      owner = comm_rank;
+      other = comm_rank;
+    }
     for (ptrdiff_t e = e_begin; e < e_end; ++e) {
       const element_idx_t element_idx = local_n2e_idx[e];
       const int element_owner =
