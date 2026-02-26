@@ -40,9 +40,10 @@ public:
   SharedBuffer<idx_t> ghosts() const;
 
   friend class Mesh;
-  private:
-    class Impl;
-    std::unique_ptr<Impl> impl_;
+
+private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
 };
 
 class Mesh final {
@@ -149,42 +150,48 @@ public:
   static std::shared_ptr<Mesh>
   create_cube(const std::shared_ptr<Communicator> &comm,
               const enum ElemType element_type, const ptrdiff_t nx = 1,
-              const ptrdiff_t ny = 1, const ptrdiff_t nz = 1, const geom_t xmin = 0,
-              const geom_t ymin = 0, const geom_t zmin = 0,
-              const geom_t xmax = 1, const geom_t ymax = 1,
-              const geom_t zmax = 1);
+              const ptrdiff_t ny = 1, const ptrdiff_t nz = 1,
+              const geom_t xmin = 0, const geom_t ymin = 0,
+              const geom_t zmin = 0, const geom_t xmax = 1,
+              const geom_t ymax = 1, const geom_t zmax = 1);
 
-  static std::shared_ptr<Mesh>
-  create_hex8_cube(const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx = 1,
-                   const ptrdiff_t ny = 1, const ptrdiff_t nz = 1, const geom_t xmin = 0,
-                   const geom_t ymin = 0, const geom_t zmin = 0,
-                   const geom_t xmax = 1, const geom_t ymax = 1,
-                   const geom_t zmax = 1);
+  static std::shared_ptr<Mesh> create_hex8_cube(
+      const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx = 1,
+      const ptrdiff_t ny = 1, const ptrdiff_t nz = 1, const geom_t xmin = 0,
+      const geom_t ymin = 0, const geom_t zmin = 0, const geom_t xmax = 1,
+      const geom_t ymax = 1, const geom_t zmax = 1);
 
-  static std::shared_ptr<Mesh>
-  create_tet4_cube(const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx = 1,
-                   const ptrdiff_t ny = 1, const ptrdiff_t nz = 1, const geom_t xmin = 0,
-                   const geom_t ymin = 0, const geom_t zmin = 0,
-                   const geom_t xmax = 1, const geom_t ymax = 1,
-                   const geom_t zmax = 1);
+  static std::shared_ptr<Mesh> create_proteus_hex_cube(
+      const std::shared_ptr<Communicator> &comm,
+      const int micro_elements_per_dim = 2, const ptrdiff_t nx = 1,
+      const ptrdiff_t ny = 1, const ptrdiff_t nz = 1, const geom_t xmin = 0,
+      const geom_t ymin = 0, const geom_t zmin = 0, const geom_t xmax = 1,
+      const geom_t ymax = 1, const geom_t zmax = 1);
+
+  static std::shared_ptr<Mesh> create_tet4_cube(
+      const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx = 1,
+      const ptrdiff_t ny = 1, const ptrdiff_t nz = 1, const geom_t xmin = 0,
+      const geom_t ymin = 0, const geom_t zmin = 0, const geom_t xmax = 1,
+      const geom_t ymax = 1, const geom_t zmax = 1);
 
   static std::shared_ptr<Mesh>
   create_square(const std::shared_ptr<Communicator> &comm,
                 const enum ElemType element_type, const ptrdiff_t nx = 1,
-                const ptrdiff_t ny = 1, const geom_t xmin = 0, const geom_t ymin = 0,
-                const geom_t xmax = 1, const geom_t ymax = 1);
+                const ptrdiff_t ny = 1, const geom_t xmin = 0,
+                const geom_t ymin = 0, const geom_t xmax = 1,
+                const geom_t ymax = 1);
 
   static std::shared_ptr<Mesh>
   create_tri3_square(const std::shared_ptr<Communicator> &comm,
-                     const ptrdiff_t nx = 1, const ptrdiff_t ny = 1, const geom_t xmin = 0,
-                     const geom_t ymin = 0, const geom_t xmax = 1,
-                     const geom_t ymax = 1);
+                     const ptrdiff_t nx = 1, const ptrdiff_t ny = 1,
+                     const geom_t xmin = 0, const geom_t ymin = 0,
+                     const geom_t xmax = 1, const geom_t ymax = 1);
 
   static std::shared_ptr<Mesh>
   create_quad4_square(const std::shared_ptr<Communicator> &comm,
-                      const ptrdiff_t nx = 1, const ptrdiff_t ny = 1, const geom_t xmin = 0,
-                      const geom_t ymin = 0, const geom_t xmax = 1,
-                      const geom_t ymax = 1);
+                      const ptrdiff_t nx = 1, const ptrdiff_t ny = 1,
+                      const geom_t xmin = 0, const geom_t ymin = 0,
+                      const geom_t xmax = 1, const geom_t ymax = 1);
 
   static std::shared_ptr<Mesh>
   create_quad4_ring(const std::shared_ptr<Communicator> &comm,

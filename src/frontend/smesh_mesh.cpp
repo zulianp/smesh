@@ -25,8 +25,8 @@
 #include <algorithm>
 #include <list>
 #include <map>
-#include <vector>
 #include <math.h>
+#include <vector>
 
 namespace smesh {
 
@@ -58,15 +58,11 @@ SharedBuffer<large_idx_t> Distributed::node_mapping() const {
 SharedBuffer<large_idx_t> Distributed::element_mapping() const {
   return impl_->element_mapping;
 }
-SharedBuffer<int> Distributed::node_owner() const {
-  return impl_->node_owner;
-}
+SharedBuffer<int> Distributed::node_owner() const { return impl_->node_owner; }
 SharedBuffer<ptrdiff_t> Distributed::node_offsets() const {
   return impl_->node_offsets;
 }
-SharedBuffer<idx_t> Distributed::ghosts() const {
-  return impl_->ghosts;
-}
+SharedBuffer<idx_t> Distributed::ghosts() const { return impl_->ghosts; }
 
 Distributed::Distributed() : impl_(std::make_unique<Impl>()) {}
 Distributed::~Distributed() = default;
@@ -125,9 +121,6 @@ Mesh::Block::Block() : impl_(std::make_unique<Impl>()) {}
 
 Mesh::Block::~Block() = default;
 
-
-
-
 const std::string &Mesh::Block::name() const { return impl_->name; }
 enum ElemType Mesh::Block::element_type() const { return impl_->element_type; }
 int Mesh::Block::n_nodes_per_element() const {
@@ -172,7 +165,6 @@ public:
     node_to_element_graph = nullptr;
   }
 
-
   // Helper methods for backward compatibility
   ptrdiff_t total_elements() const {
     ptrdiff_t total = 0;
@@ -212,8 +204,6 @@ public:
     create_n2e(default_elements()->extent(1), nnodes,
                default_elements()->extent(0), default_elements()->data(),
                &rowptr, &colidx);
-
-               
 
     node_to_element_graph = std::make_shared<Mesh::NodeToElementGraph>(
         Buffer<count_t>::own(nnodes + 1, rowptr, free, MEMORY_SPACE_HOST),
@@ -312,15 +302,13 @@ int Mesh::read(const Path &path) {
     ptrdiff_t nelements;
 
     if (mesh_from_folder(path, &nnodesxelem, &nelements, &elements,
-                         &spatial_dim, &nnodes,
-                         &points) != SMESH_SUCCESS) {
+                         &spatial_dim, &nnodes, &points) != SMESH_SUCCESS) {
       return SMESH_FAILURE;
     }
 
     auto elements_buffer =
         manage_host_buffer<idx_t>(nnodesxelem, nelements, elements);
-    impl_->points =
-        manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
+    impl_->points = manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
 
     // Create default block
     auto default_block = std::make_shared<Block>();
@@ -343,42 +331,40 @@ int Mesh::read(const Path &path) {
     idx_t *ghosts = nullptr;
 
     int spatial_dim;
-    if(mesh_from_folder(
-      impl_->comm->get(), path,
-      // Elements
-      &nnodesxelem,
-      &dist->impl_->n_elements_global,
-      &dist->impl_->n_elements_owned,
-      &dist->impl_->n_elements_shared,
-      &dist->impl_->n_elements_ghosts,
-      &element_mapping,
-      &elements,
-      // Nodes
-      &spatial_dim, &dist->impl_->n_nodes_global,
-      &dist->impl_->n_nodes_owned,
-      &dist->impl_->n_nodes_shared,
-      &dist->impl_->n_nodes_ghosts,
-      &node_mapping, &points,
-      // Distributed connectivities
-      &node_owner, &node_offsets, &ghosts) != SMESH_SUCCESS) {
-        SMESH_ERROR("Failed to read mesh from folder %s\n", path.c_str());
+    if (mesh_from_folder(
+            impl_->comm->get(), path,
+            // Elements
+            &nnodesxelem, &dist->impl_->n_elements_global,
+            &dist->impl_->n_elements_owned, &dist->impl_->n_elements_shared,
+            &dist->impl_->n_elements_ghosts, &element_mapping, &elements,
+            // Nodes
+            &spatial_dim, &dist->impl_->n_nodes_global,
+            &dist->impl_->n_nodes_owned, &dist->impl_->n_nodes_shared,
+            &dist->impl_->n_nodes_ghosts, &node_mapping, &points,
+            // Distributed connectivities
+            &node_owner, &node_offsets, &ghosts) != SMESH_SUCCESS) {
+      SMESH_ERROR("Failed to read mesh from folder %s\n", path.c_str());
       return SMESH_FAILURE;
     }
 
-    auto elements_buffer =
-        manage_host_buffer<idx_t>(nnodesxelem, dist->n_elements_local(), elements);
-    impl_->points = manage_host_buffer<geom_t>(spatial_dim, dist->n_nodes_local(), points);
-    dist->impl_->node_mapping = manage_host_buffer<large_idx_t>(dist->n_nodes_local(), node_mapping);
-    dist->impl_->node_owner = manage_host_buffer<int>(dist->n_nodes_local(), node_owner);
-    dist->impl_->element_mapping =
-        manage_host_buffer<large_idx_t>(dist->n_elements_owned(), element_mapping);
+    auto elements_buffer = manage_host_buffer<idx_t>(
+        nnodesxelem, dist->n_elements_local(), elements);
+    impl_->points =
+        manage_host_buffer<geom_t>(spatial_dim, dist->n_nodes_local(), points);
+    dist->impl_->node_mapping =
+        manage_host_buffer<large_idx_t>(dist->n_nodes_local(), node_mapping);
+    dist->impl_->node_owner =
+        manage_host_buffer<int>(dist->n_nodes_local(), node_owner);
+    dist->impl_->element_mapping = manage_host_buffer<large_idx_t>(
+        dist->n_elements_owned(), element_mapping);
 
     int comm_size;
     MPI_Comm_size(impl_->comm->get(), &comm_size);
     dist->impl_->node_offsets =
         manage_host_buffer<ptrdiff_t>(comm_size + 1, node_offsets);
 
-    dist->impl_->ghosts = manage_host_buffer<idx_t>(dist->impl_->n_nodes_ghosts, ghosts);
+    dist->impl_->ghosts =
+        manage_host_buffer<idx_t>(dist->impl_->n_nodes_ghosts, ghosts);
 
     // Create default block
     auto default_block = std::make_shared<Block>();
@@ -538,7 +524,8 @@ int Mesh::initialize_node_to_node_graph() {
   }
 
   impl_->crs_graph = std::make_shared<Mesh::NodeToNodeGraph>(
-      Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free, MEMORY_SPACE_HOST),
+      Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free,
+                           MEMORY_SPACE_HOST),
       Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free,
                          MEMORY_SPACE_HOST));
 
@@ -577,7 +564,8 @@ Mesh::node_to_node_graph_upper_triangular() {
   }
 
   impl_->crs_graph_upper_triangular = std::make_shared<Mesh::NodeToNodeGraph>(
-      Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free, MEMORY_SPACE_HOST),
+      Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free,
+                           MEMORY_SPACE_HOST),
       Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free,
                          MEMORY_SPACE_HOST));
 
@@ -600,10 +588,11 @@ SharedBuffer<idx_t> Mesh::node_to_node_colidx() const {
 }
 
 std::shared_ptr<Mesh>
-Mesh::create_hex8_cube(const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx,
-                       const ptrdiff_t ny, const ptrdiff_t nz, const geom_t xmin,
-                       const geom_t ymin, const geom_t zmin, const geom_t xmax,
-                       const geom_t ymax, const geom_t zmax) {
+Mesh::create_hex8_cube(const std::shared_ptr<Communicator> &comm,
+                       const ptrdiff_t nx, const ptrdiff_t ny,
+                       const ptrdiff_t nz, const geom_t xmin, const geom_t ymin,
+                       const geom_t zmin, const geom_t xmax, const geom_t ymax,
+                       const geom_t zmax) {
   auto ret = std::make_shared<Mesh>(comm);
   const ptrdiff_t nelements = nx * ny * nz;
   const ptrdiff_t nnodes = (nx + 1) * (ny + 1) * (nz + 1);
@@ -627,11 +616,43 @@ Mesh::create_hex8_cube(const std::shared_ptr<Communicator> &comm, const ptrdiff_
   return ret;
 }
 
+std::shared_ptr<Mesh> Mesh::create_proteus_hex_cube(
+    const std::shared_ptr<Communicator> &comm, const int micro_elements_per_dim,
+    const ptrdiff_t nx, const ptrdiff_t ny, const ptrdiff_t nz,
+    const geom_t xmin, const geom_t ymin, const geom_t zmin, const geom_t xmax,
+    const geom_t ymax, const geom_t zmax) {
+  auto ret = std::make_shared<Mesh>(comm);
+  const ptrdiff_t nelements = (nx) * (ny) * (nz);
+
+  const int micro_nodes_per_dim = (micro_elements_per_dim + 1);
+  const ptrdiff_t nnodes = (nx * micro_nodes_per_dim) *
+                           (ny * micro_nodes_per_dim) *
+                           (nz * micro_nodes_per_dim);
+
+  const int nxme =
+      micro_nodes_per_dim * micro_nodes_per_dim * micro_nodes_per_dim;
+  ret->impl_->points = create_host_buffer<geom_t>(3, nnodes);
+  auto elements = create_host_buffer<idx_t>(nxme, nelements);
+
+  mesh_fill_proteus_hex_cube<idx_t, geom_t>(
+      micro_elements_per_dim, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax,
+      elements->data(), ret->impl_->points->data());
+
+  // Create default block
+  auto default_block = std::make_shared<Block>();
+  default_block->set_name("default");
+  default_block->set_element_type(proteus_hex_type(micro_elements_per_dim));
+  default_block->set_elements(elements);
+  ret->impl_->blocks.push_back(default_block);
+
+  return ret;
+}
+
 std::shared_ptr<Mesh>
 Mesh::create_tri3_square(const std::shared_ptr<Communicator> &comm,
-                         const ptrdiff_t nx, const ptrdiff_t ny, const geom_t xmin,
-                         const geom_t ymin, const geom_t xmax,
-                         const geom_t ymax) {
+                         const ptrdiff_t nx, const ptrdiff_t ny,
+                         const geom_t xmin, const geom_t ymin,
+                         const geom_t xmax, const geom_t ymax) {
   auto ret = std::make_shared<Mesh>(comm);
   const ptrdiff_t nelements = 2 * nx * ny;
   const ptrdiff_t nnodes = (nx + 1) * (ny + 1);
@@ -657,9 +678,9 @@ Mesh::create_tri3_square(const std::shared_ptr<Communicator> &comm,
 
 std::shared_ptr<Mesh>
 Mesh::create_quad4_square(const std::shared_ptr<Communicator> &comm,
-                          const ptrdiff_t nx, const ptrdiff_t ny, const geom_t xmin,
-                          const geom_t ymin, const geom_t xmax,
-                          const geom_t ymax) {
+                          const ptrdiff_t nx, const ptrdiff_t ny,
+                          const geom_t xmin, const geom_t ymin,
+                          const geom_t xmax, const geom_t ymax) {
   auto ret = std::make_shared<Mesh>(comm);
   const ptrdiff_t nelements = nx * ny;
   const ptrdiff_t nnodes = (nx + 1) * (ny + 1);
@@ -714,9 +735,10 @@ Mesh::create_quad4_ring(const std::shared_ptr<Communicator> &comm,
 }
 
 std::shared_ptr<Mesh> Mesh::create_hex8_checkerboard_cube(
-    const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx, const ptrdiff_t ny,
-    const ptrdiff_t nz, const geom_t xmin, const geom_t ymin, const geom_t zmin,
-    const geom_t xmax, const geom_t ymax, const geom_t zmax) {
+    const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx,
+    const ptrdiff_t ny, const ptrdiff_t nz, const geom_t xmin,
+    const geom_t ymin, const geom_t zmin, const geom_t xmax, const geom_t ymax,
+    const geom_t zmax) {
   auto ret = std::make_shared<Mesh>(comm);
   const ptrdiff_t nelements = nx * ny * nz;
   const ptrdiff_t nnodes = (nx + 1) * (ny + 1) * (nz + 1);
@@ -752,9 +774,10 @@ std::shared_ptr<Mesh> Mesh::create_hex8_checkerboard_cube(
 }
 
 std::shared_ptr<Mesh> Mesh::create_hex8_bidomain_cube(
-    const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx, const ptrdiff_t ny,
-    const ptrdiff_t nz, const geom_t xmin, const geom_t ymin, const geom_t zmin,
-    const geom_t xmax, const geom_t ymax, const geom_t zmax) {
+    const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx,
+    const ptrdiff_t ny, const ptrdiff_t nz, const geom_t xmin,
+    const geom_t ymin, const geom_t zmin, const geom_t xmax, const geom_t ymax,
+    const geom_t zmax) {
   auto ret = std::make_shared<Mesh>(comm);
   const ptrdiff_t nelements = nx * ny * nz;
   const ptrdiff_t nnodes = (nx + 1) * (ny + 1) * (nz + 1);
@@ -859,10 +882,11 @@ std::shared_ptr<Mesh> Mesh::create_hex8_reference_cube() {
 }
 
 std::shared_ptr<Mesh>
-Mesh::create_tet4_cube(const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx,
-                       const ptrdiff_t ny, const ptrdiff_t nz, const geom_t xmin,
-                       const geom_t ymin, const geom_t zmin, const geom_t xmax,
-                       const geom_t ymax, const geom_t zmax) {
+Mesh::create_tet4_cube(const std::shared_ptr<Communicator> &comm,
+                       const ptrdiff_t nx, const ptrdiff_t ny,
+                       const ptrdiff_t nz, const geom_t xmin, const geom_t ymin,
+                       const geom_t zmin, const geom_t xmax, const geom_t ymax,
+                       const geom_t zmax) {
   auto ret = std::make_shared<Mesh>(comm);
   const ptrdiff_t nelements = nx * ny * nz;
   const ptrdiff_t nnodes_vertices = (nx + 1) * (ny + 1) * (nz + 1);
@@ -888,10 +912,10 @@ Mesh::create_tet4_cube(const std::shared_ptr<Communicator> &comm, const ptrdiff_
 
 std::shared_ptr<Mesh>
 Mesh::create_cube(const std::shared_ptr<Communicator> &comm,
-                  const enum ElemType element_type, const ptrdiff_t nx, const ptrdiff_t ny,
-                  const ptrdiff_t nz, const geom_t xmin, const geom_t ymin,
-                  const geom_t zmin, const geom_t xmax, const geom_t ymax,
-                  const geom_t zmax) {
+                  const enum ElemType element_type, const ptrdiff_t nx,
+                  const ptrdiff_t ny, const ptrdiff_t nz, const geom_t xmin,
+                  const geom_t ymin, const geom_t zmin, const geom_t xmax,
+                  const geom_t ymax, const geom_t zmax) {
   switch (element_type) {
   case HEX8:
     return create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax,
@@ -899,6 +923,30 @@ Mesh::create_cube(const std::shared_ptr<Communicator> &comm,
   case TET4:
     return create_tet4_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax,
                             zmax);
+  case PROTEUS_HEX8:
+    return create_proteus_hex_cube(comm, 1, nx, ny, nz, xmin, ymin, zmin, xmax,
+                                   ymax, zmax);
+  case PROTEUS_HEX27:
+    return create_proteus_hex_cube(comm, 2, nx, ny, nz, xmin, ymin, zmin, xmax,
+                                   ymax, zmax);
+  case PROTEUS_HEX64:
+    return create_proteus_hex_cube(comm, 3, nx, ny, nz, xmin, ymin, zmin, xmax,
+                                   ymax, zmax);
+  case PROTEUS_HEX125:
+    return create_proteus_hex_cube(comm, 4, nx, ny, nz, xmin, ymin, zmin, xmax,
+                                   ymax, zmax);
+  case PROTEUS_HEX216:
+    return create_proteus_hex_cube(comm, 5, nx, ny, nz, xmin, ymin, zmin, xmax,
+                                   ymax, zmax);
+  case PROTEUS_HEX343:
+    return create_proteus_hex_cube(comm, 6, nx, ny, nz, xmin, ymin, zmin, xmax,
+                                   ymax, zmax);
+  case PROTEUS_HEX512:
+    return create_proteus_hex_cube(comm, 7, nx, ny, nz, xmin, ymin, zmin, xmax,
+                                   ymax, zmax);
+  case PROTEUS_HEX729:
+    return create_proteus_hex_cube(comm, 8, nx, ny, nz, xmin, ymin, zmin, xmax,
+                                   ymax, zmax);
   default:
     SMESH_ERROR("Invalid element type: %d\n", element_type);
     return nullptr;
@@ -999,7 +1047,7 @@ int Mesh::split_block(const SharedBuffer<element_idx_t> &elements,
       if (mask_get(i, d_bdry_mask) == 0) {
         for (int v = 0; v < nxe; v++) {
           SMESH_ASSERT(n_interior_elements_count <
-                 static_cast<ptrdiff_t>(interior_elements->extent(1)));
+                       static_cast<ptrdiff_t>(interior_elements->extent(1)));
           d_interior_elements[v][n_interior_elements_count] = d_elements[v][i];
         }
         n_interior_elements_count++;
@@ -1467,7 +1515,6 @@ std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
                             out->n_nodes(), out->points()->data(),
                             n2n_upper_triangular_ptr, n2n_upper_triangular_idx,
                             refined_elements->data(), refined_points->data());
-                            
 
       if (err != SMESH_SUCCESS) {
         SMESH_ERROR("Refinement failed\n");

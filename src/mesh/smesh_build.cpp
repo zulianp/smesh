@@ -6,30 +6,37 @@
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT elements,              \
       GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT points);              \
   template void mesh_fill_hex8_cube<IDX_T, GEOM_T>(                            \
-      ptrdiff_t, ptrdiff_t, ptrdiff_t, GEOM_T, GEOM_T, GEOM_T, GEOM_T, GEOM_T, GEOM_T,           \
-      IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                       \
+      ptrdiff_t, ptrdiff_t, ptrdiff_t, GEOM_T, GEOM_T, GEOM_T, GEOM_T, GEOM_T, \
+      GEOM_T, IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,               \
       GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT);                     \
   template void mesh_fill_tet4_cube<IDX_T, GEOM_T>(                            \
-      ptrdiff_t, ptrdiff_t, ptrdiff_t, GEOM_T, GEOM_T, GEOM_T, GEOM_T, GEOM_T, GEOM_T,           \
-      IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                       \
+      ptrdiff_t, ptrdiff_t, ptrdiff_t, GEOM_T, GEOM_T, GEOM_T, GEOM_T, GEOM_T, \
+      GEOM_T, IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,               \
       GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT);                     \
+  template void mesh_fill_proteus_hex_cube<IDX_T, GEOM_T>(                     \
+      const int micro_elements_per_dim, const ptrdiff_t nx,                    \
+      const ptrdiff_t ny, const ptrdiff_t nz, const GEOM_T xmin,               \
+      const GEOM_T ymin, const GEOM_T zmin, const GEOM_T xmax,                 \
+      const GEOM_T ymax, const GEOM_T zmax,                                    \
+      IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT elements,              \
+      GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT points);              \
   template void mesh_fill_tri3_square<IDX_T, GEOM_T>(                          \
-      ptrdiff_t, ptrdiff_t, GEOM_T, GEOM_T, GEOM_T, GEOM_T,                                \
+      ptrdiff_t, ptrdiff_t, GEOM_T, GEOM_T, GEOM_T, GEOM_T,                    \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                       \
       GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT);                     \
   template void mesh_fill_quad4_square<IDX_T, GEOM_T>(                         \
-      ptrdiff_t, ptrdiff_t, GEOM_T, GEOM_T, GEOM_T, GEOM_T,                                \
+      ptrdiff_t, ptrdiff_t, GEOM_T, GEOM_T, GEOM_T, GEOM_T,                    \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                       \
       GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT);                     \
   template void mesh_fill_hex8_bidomain_cube<IDX_T, GEOM_T>(                   \
-      ptrdiff_t, ptrdiff_t, ptrdiff_t, GEOM_T, GEOM_T, GEOM_T, GEOM_T, GEOM_T, GEOM_T, int,      \
-      IDX_T, IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                \
+      ptrdiff_t, ptrdiff_t, ptrdiff_t, GEOM_T, GEOM_T, GEOM_T, GEOM_T, GEOM_T, \
+      GEOM_T, int, IDX_T, IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,   \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                       \
       GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT);                     \
   template void mesh_fill_hex8_checkerboard_cube<IDX_T, GEOM_T>(               \
-      const ptrdiff_t nx, const ptrdiff_t ny, const ptrdiff_t nz, const GEOM_T xmin,             \
-      const GEOM_T ymin, const GEOM_T zmin, const GEOM_T xmax,                 \
-      const GEOM_T ymax, const GEOM_T zmax,                                    \
+      const ptrdiff_t nx, const ptrdiff_t ny, const ptrdiff_t nz,              \
+      const GEOM_T xmin, const GEOM_T ymin, const GEOM_T zmin,                 \
+      const GEOM_T xmax, const GEOM_T ymax, const GEOM_T zmax,                 \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT white_elements,        \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT black_elements,        \
       GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT points);              \

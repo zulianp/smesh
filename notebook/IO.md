@@ -61,7 +61,7 @@ echo "#---------------#"
 
 ## Breakdown
 
-The executable takes `296.793 [s]` on the Alps supercomputer (32 MPI ranks).
+The executable takes `296.793 [s]` on the Alps supercomputer (8 nodes, 32 MPI ranks).
 MPI initialization/finalization takes `5.57 [s]` which is `1.8` percent of runtime.
 
 MPI API (reads) 55.6 percent of time:
