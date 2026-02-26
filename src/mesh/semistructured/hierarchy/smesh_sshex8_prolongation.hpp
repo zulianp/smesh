@@ -4,6 +4,8 @@
 #include "smesh_base.hpp"
 #include "smesh_types.hpp"
 
+#include <stddef.h>
+
 namespace smesh {
 
 template <typename idx_t, typename real_t>

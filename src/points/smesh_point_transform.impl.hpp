@@ -3,6 +3,8 @@
 
 #include "smesh_point_transform.hpp"
 
+#include <math.h>
+
 namespace smesh {
 
 template <typename T>

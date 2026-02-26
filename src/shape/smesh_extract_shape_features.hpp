@@ -4,6 +4,8 @@
 #include "smesh_base.hpp"
 #include "smesh_elem_type.hpp"
 
+#include <stddef.h>
+
 namespace smesh {
     // TODO: add declarations from the impl.hpp file
     template <typename idx_t, typename geom_t, typename count_t>

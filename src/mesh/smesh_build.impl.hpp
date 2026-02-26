@@ -1,7 +1,11 @@
 #ifndef SMESH_BUILD_IMPL_HPP
 #define SMESH_BUILD_IMPL_HPP
 
+#include "smesh_build.hpp"
+
 #include "smesh_base.hpp"
+
+#include <math.h>
 
 namespace smesh {
 template <typename idx_t, typename geom_t>
@@ -47,14 +51,14 @@ void mesh_fill_hex8_reference_cube(
 
 template <typename idx_t, typename geom_t>
 void mesh_fill_hex8_cube(
-    const int nx, const int ny, const int nz, const geom_t xmin,
-    const geom_t ymin, const geom_t zmin, const geom_t xmax, const geom_t ymax,
-    const geom_t zmax,
+    const ptrdiff_t nx, const ptrdiff_t ny, const ptrdiff_t nz,
+    const geom_t xmin, const geom_t ymin, const geom_t zmin, const geom_t xmax,
+    const geom_t ymax, const geom_t zmax,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
 
   const ptrdiff_t ldz = (ny + 1) * (nx + 1);
-  const ptrdiff_t ldy = nx + 1;
+  const ptrdiff_t ldy = (nx + 1);
   const ptrdiff_t ldx = 1;
 
   const double hx = (xmax - xmin) * 1. / nx;
@@ -69,7 +73,7 @@ void mesh_fill_hex8_cube(
   for (ptrdiff_t zi = 0; zi < nz; zi++) {
     for (ptrdiff_t yi = 0; yi < ny; yi++) {
       for (ptrdiff_t xi = 0; xi < nx; xi++) {
-        const ptrdiff_t e = zi * ny * nx + yi * nx + xi;
+        const ptrdiff_t e = zi * (ny * nx) + yi * (nx) + xi;
 
         const idx_t i0 = (xi + 0) * ldx + (yi + 0) * ldy + (zi + 0) * ldz;
         const idx_t i1 = (xi + 1) * ldx + (yi + 0) * ldy + (zi + 0) * ldz;
@@ -108,14 +112,82 @@ void mesh_fill_hex8_cube(
 }
 
 template <typename idx_t, typename geom_t>
+void mesh_fill_proteus_hex_cube(
+    const int micro_elements_per_dim, const ptrdiff_t nx, const ptrdiff_t ny,
+    const ptrdiff_t nz, const geom_t xmin, const geom_t ymin, const geom_t zmin,
+    const geom_t xmax, const geom_t ymax, const geom_t zmax,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
+  const ptrdiff_t ldz =
+      (ny * micro_elements_per_dim + 1) * (nx * micro_elements_per_dim + 1);
+  const ptrdiff_t ldy = (nx * micro_elements_per_dim + 1);
+  const ptrdiff_t ldx = 1;
+
+
+  const int micro_nodes_per_dim = (micro_elements_per_dim + 1);
+
+  const double hx = (xmax - xmin) * 1. / (nx * micro_elements_per_dim);
+  const double hy = (ymax - ymin) * 1. / (ny * micro_elements_per_dim);
+  const double hz = (zmax - zmin) * 1. / (nz * micro_elements_per_dim);
+
+  SMESH_ASSERT(hx > 0);
+  SMESH_ASSERT(hy > 0);
+  SMESH_ASSERT(hz > 0);
+
+  for (int lnz = 0; lnz < micro_nodes_per_dim; lnz++) {
+    for (int lny = 0; lny < micro_nodes_per_dim; lny++) {
+      for (int lnx = 0; lnx < micro_nodes_per_dim; lnx++) {
+        const ptrdiff_t lidx = lnx + lny * micro_nodes_per_dim +
+                               lnz * micro_nodes_per_dim * micro_nodes_per_dim;
+
+        for (ptrdiff_t zi = 0; zi < nz; zi++) {
+          for (ptrdiff_t yi = 0; yi < ny; yi++) {
+            for (ptrdiff_t xi = 0; xi < nx; xi++) {
+              const ptrdiff_t me = zi * (ny * nx) + yi * (nx) + xi;
+
+              const ptrdiff_t zoffset = zi * micro_elements_per_dim;
+              const ptrdiff_t yoffset = yi * micro_elements_per_dim;
+              const ptrdiff_t xoffset = xi * micro_elements_per_dim;
+
+              const ptrdiff_t gnz = zoffset + lnz;
+              const ptrdiff_t gny = yoffset + lny;
+              const ptrdiff_t gnx = xoffset + lnx;
+              const idx_t i0 = gnx * ldx + gny * ldy + gnz * ldz;
+
+              elements[lidx][me] = i0;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const ptrdiff_t nmicroz = nz * micro_elements_per_dim + 1;
+  const ptrdiff_t nmicroy = ny * micro_elements_per_dim + 1;
+  const ptrdiff_t nmicrox = nx * micro_elements_per_dim + 1;
+
+  for (ptrdiff_t zi = 0; zi < nmicroz; zi++) {
+    for (ptrdiff_t yi = 0; yi < nmicroy; yi++) {
+      for (ptrdiff_t xi = 0; xi < nmicrox; xi++) {
+        const ptrdiff_t lidx = xi + yi * nmicrox + zi * nmicrox * nmicroy;
+
+        points[0][lidx] = (geom_t)(xmin + xi * hx);
+        points[1][lidx] = (geom_t)(ymin + yi * hy);
+        points[2][lidx] = (geom_t)(zmin + zi * hz);
+      }
+    }
+  }
+}
+
+template <typename idx_t, typename geom_t>
 void mesh_fill_tri3_square(
-    const int nx, const int ny, const geom_t xmin, const geom_t ymin,
-    const geom_t xmax, const geom_t ymax,
+    const ptrdiff_t nx, const ptrdiff_t ny, const geom_t xmin,
+    const geom_t ymin, const geom_t xmax, const geom_t ymax,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
   //   const ptrdiff_t nelements = 2 * nx * ny;
   //   const ptrdiff_t nnodes = (nx + 1) * (ny + 1);
-  const ptrdiff_t ldy = nx + 1;
+  const ptrdiff_t ldy = (nx + 1);
   const ptrdiff_t ldx = 1;
 
   const double hx = (xmax - xmin) * 1. / nx;
@@ -156,13 +228,13 @@ void mesh_fill_tri3_square(
 
 template <typename idx_t, typename geom_t>
 void mesh_fill_quad4_square(
-    const int nx, const int ny, const geom_t xmin, const geom_t ymin,
-    const geom_t xmax, const geom_t ymax,
+    const ptrdiff_t nx, const ptrdiff_t ny, const geom_t xmin,
+    const geom_t ymin, const geom_t xmax, const geom_t ymax,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
   //   const ptrdiff_t nelements = nx * ny;
   //   const ptrdiff_t nnodes = (nx + 1) * (ny + 1);
-  const ptrdiff_t ldy = nx + 1;
+  const ptrdiff_t ldy = (nx + 1);
   const ptrdiff_t ldx = 1;
 
   const double hx = (xmax - xmin) * 1. / nx;
@@ -174,7 +246,7 @@ void mesh_fill_quad4_square(
   // #pragma omp parallel for collapse(2)
   for (ptrdiff_t yi = 0; yi < ny; yi++) {
     for (ptrdiff_t xi = 0; xi < nx; xi++) {
-      const ptrdiff_t e = yi * nx + xi;
+      const ptrdiff_t e = yi * ldy + xi * ldx;
 
       const idx_t i0 = (xi + 0) * ldx + (yi + 0) * ldy;
       const idx_t i1 = (xi + 1) * ldx + (yi + 0) * ldy;
@@ -200,17 +272,16 @@ void mesh_fill_quad4_square(
 
 template <typename idx_t, typename geom_t>
 void mesh_fill_tet4_cube(
-    const int nx, const int ny, const int nz, const geom_t xmin,
-    const geom_t ymin, const geom_t zmin, const geom_t xmax, const geom_t ymax,
-    const geom_t zmax,
+    const ptrdiff_t nx, const ptrdiff_t ny, const ptrdiff_t nz,
+    const geom_t xmin, const geom_t ymin, const geom_t zmin, const geom_t xmax,
+    const geom_t ymax, const geom_t zmax,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
   // const ptrdiff_t nelements = ptrdiff_t(nx) * ptrdiff_t(ny) * ptrdiff_t(nz);
   // const ptrdiff_t nnodes_total = nnodes_vertices + nelements;
-  const ptrdiff_t nnodes_vertices =
-      ptrdiff_t(nx + 1) * ptrdiff_t(ny + 1) * ptrdiff_t(nz + 1);
+  const ptrdiff_t nnodes_vertices = (nx + 1) * (ny + 1) * (nz + 1);
   const ptrdiff_t ldz = (ny + 1) * (nx + 1);
-  const ptrdiff_t ldy = nx + 1;
+  const ptrdiff_t ldy = (nx + 1);
   const ptrdiff_t ldx = 1;
 
   const double hx = (xmax - xmin) * 1. / nx;
@@ -289,9 +360,10 @@ void mesh_fill_tet4_cube(
 
 template <typename idx_t, typename geom_t>
 void mesh_fill_hex8_bidomain_cube(
-    const int nx, const int ny, const int nz, const geom_t xmin,
-    const geom_t ymin, const geom_t zmin, const geom_t xmax, const geom_t ymax,
-    const geom_t zmax, const int dim_split, const idx_t split_index,
+    const ptrdiff_t nx, const ptrdiff_t ny, const ptrdiff_t nz,
+    const geom_t xmin, const geom_t ymin, const geom_t zmin, const geom_t xmax,
+    const geom_t ymax, const geom_t zmax, const int dim_split,
+    const idx_t split_index,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT left_elements,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT right_elements,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
@@ -309,7 +381,7 @@ void mesh_fill_hex8_bidomain_cube(
   SMESH_UNUSED(nelements);
 
   const ptrdiff_t ldz = (ny + 1) * (nx + 1);
-  const ptrdiff_t ldy = nx + 1;
+  const ptrdiff_t ldy = (nx + 1);
   const ptrdiff_t ldx = 1;
 
   const geom_t hx = (xmax - xmin) * 1. / nx;
@@ -397,9 +469,9 @@ void mesh_fill_hex8_bidomain_cube(
 
 template <typename idx_t, typename geom_t>
 void mesh_fill_hex8_checkerboard_cube(
-    const int nx, const int ny, const int nz, const geom_t xmin,
-    const geom_t ymin, const geom_t zmin, const geom_t xmax, const geom_t ymax,
-    const geom_t zmax,
+    const ptrdiff_t nx, const ptrdiff_t ny, const ptrdiff_t nz,
+    const geom_t xmin, const geom_t ymin, const geom_t zmin, const geom_t xmax,
+    const geom_t ymax, const geom_t zmax,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT white_elements,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT black_elements,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
@@ -411,7 +483,7 @@ void mesh_fill_hex8_checkerboard_cube(
   }
 
   const ptrdiff_t ldz = (ny + 1) * (nx + 1);
-  const ptrdiff_t ldy = nx + 1;
+  const ptrdiff_t ldy = (nx + 1);
   const ptrdiff_t ldx = 1;
 
   const geom_t hx = (xmax - xmin) * geom_t(1) / geom_t(nx);

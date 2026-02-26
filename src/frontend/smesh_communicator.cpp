@@ -1,5 +1,9 @@
 #include "smesh_communicator.hpp"
 
+#ifdef SMESH_ENABLE_MPI
+#include "smesh_distributed_base.hpp"
+#endif
+
 #include <sstream>
 
 namespace smesh {
@@ -101,4 +105,10 @@ void Communicator::print_callback(
   }
 }
 
+void Communicator::broadcast(void *buffer, int count, enum PrimitiveType type,
+                             int root) const {
+#ifdef SMESH_ENABLE_MPI
+  MPI_Bcast(buffer, count, mpi_type_from_primitive_type(type), root, impl_->comm);
+#endif
+}
 } // namespace smesh

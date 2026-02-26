@@ -30,8 +30,8 @@ template class Buffer<u16>;
 template class Buffer<u32>;
 template class Buffer<u64>;
 
-template class Buffer<mask_t>;
-template class Buffer<ptrdiff_t>;
+template class Buffer<char>;
+
 
 #define SMESH_EXPLICIT_INSTANTIATE_BUFFER_1D(T)                                \
   template std::shared_ptr<Buffer<T>> create_host_buffer<T>(const size_t);     \
@@ -54,8 +54,16 @@ SMESH_EXPLICIT_INSTANTIATE_BUFFER_1D(u16);
 SMESH_EXPLICIT_INSTANTIATE_BUFFER_1D(u32);
 SMESH_EXPLICIT_INSTANTIATE_BUFFER_1D(u64);
 
-SMESH_EXPLICIT_INSTANTIATE_BUFFER_1D(mask_t);
-SMESH_EXPLICIT_INSTANTIATE_BUFFER_1D(ptrdiff_t);
+SMESH_EXPLICIT_INSTANTIATE_BUFFER_1D(char);
+// SMESH_EXPLICIT_INSTANTIATE_BUFFER_1D(ptrdiff_t);
+
+
+#if defined(__clang__)
+    // not valid at namespace scope for template instantiations
+    template class Buffer<long>;
+    SMESH_EXPLICIT_INSTANTIATE_BUFFER_1D(long);
+#endif
+
 
 #undef SMESH_EXPLICIT_INSTANTIATE_BUFFER_1D
 
@@ -81,6 +89,7 @@ SMESH_EXPLICIT_INSTANTIATE_BUFFER_1D(ptrdiff_t);
 
 SMESH_EXPLICIT_INSTANTIATE_BUFFER_2D(f32);
 SMESH_EXPLICIT_INSTANTIATE_BUFFER_2D(i32);
+SMESH_EXPLICIT_INSTANTIATE_BUFFER_2D(i64);
 SMESH_EXPLICIT_INSTANTIATE_BUFFER_2D(i16);
 SMESH_EXPLICIT_INSTANTIATE_BUFFER_2D(u8);
 SMESH_EXPLICIT_INSTANTIATE_BUFFER_2D(u16);

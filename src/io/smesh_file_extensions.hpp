@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <algorithm>
 
 namespace smesh {
 
@@ -36,6 +37,12 @@ static inline PrimitiveType detect_real_type(std::string_view file) {
 static inline PrimitiveType detect_integer_type(std::string_view file) {
   std::string_view extension = file.substr(file.find_last_of('.') + 1);
   return to_integer_type(extension);
+}
+
+static inline std::string trim(std::string_view str) {
+  size_t start = str.find_first_not_of(" \t\n\r\f\v");
+  size_t end = str.find_last_not_of(" \t\n\r\f\v");
+  return std::string(str.substr(start, end - start + 1));
 }
 
 } // namespace smesh

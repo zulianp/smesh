@@ -37,11 +37,16 @@ void create_element_adj_table_from_dual_graph(
   const int nn = elem_num_nodes(st);
   const int ns = elem_num_sides(element_type_for_algo);
 
-#pragma omp parallel for
+#pragma omp parallel
+{
+
+  idx_t *nodes1 = (idx_t *) malloc(LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
+  idx_t *nodes2 = (idx_t *) malloc(LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
+  int *assigned = (int *) malloc(LocalSideTable::MAX_NUM_SIDES * sizeof(int));
+
+  #pragma omp for
   for (ptrdiff_t e = 0; e < n_elements; e++) {
-    idx_t nodes1[LocalSideTable::MAX_NUM_NODES_PER_SIDE];
-    idx_t nodes2[LocalSideTable::MAX_NUM_NODES_PER_SIDE];
-    int assigned[LocalSideTable::MAX_NUM_SIDES];
+    
 
     const count_t begin = adj_ptr[e];
     const count_t end = adj_ptr[e + 1];
@@ -85,6 +90,12 @@ void create_element_adj_table_from_dual_graph(
       }
     }
   }
+
+  free(nodes1);
+  free(nodes2);
+  free(assigned);
+
+}
 }
 
 template <typename idx_t, typename count_t, typename element_idx_t>
@@ -105,9 +116,9 @@ void create_element_adj_table_from_dual_graph_soa(
   LocalSideTable lst;
   lst.fill(element_type_for_algo);
 
-  idx_t nodes1[LocalSideTable::MAX_NUM_NODES_PER_SIDE];
-  idx_t nodes2[LocalSideTable::MAX_NUM_NODES_PER_SIDE];
-  int assigned[LocalSideTable::MAX_NUM_SIDES];
+  idx_t * nodes1 =(idx_t *) malloc(LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
+  idx_t * nodes2 =(idx_t *) malloc(LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
+  int * assigned =(int *) malloc(LocalSideTable::MAX_NUM_SIDES * sizeof(int));
 
   enum ElemType st = side_type(element_type_for_algo);
   const int nn = elem_num_nodes(st);
@@ -156,6 +167,10 @@ void create_element_adj_table_from_dual_graph_soa(
       }
     }
   }
+
+  free(nodes1);
+  free(nodes2);
+  free(assigned);
 }
 
 template <typename idx_t, typename count_t, typename element_idx_t>

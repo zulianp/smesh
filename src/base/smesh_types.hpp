@@ -2,7 +2,9 @@
 #define SMESH_TYPES_HPP
 
 #include "smesh_base.hpp"
+
 #include <string_view>
+
 
 namespace smesh {
 
@@ -37,6 +39,10 @@ using idx_t = i32;
 using element_idx_t = i32;
 using count_t = i32;
 
+// using idx_t = i64;
+// using element_idx_t = i64;
+// using count_t = i64;
+
 static const f16 F16_MAX = (f16)65504.0f;
 static const size_t SIZE_LARGEST_TYPE = sizeof(i64);
 
@@ -68,19 +74,19 @@ template <> struct TypeToString<f64> {
   static const std::string_view value() { return "float64"; }
 };
 
-template <> struct TypeToString<ptrdiff_t> {
-  static const std::string_view value() {
-    if constexpr (sizeof(ptrdiff_t) == 8) {
-      return "int64";
-    } else if constexpr (sizeof(ptrdiff_t) == 4) {
-      return "int32";
-    } else if constexpr (sizeof(ptrdiff_t) == 2) {
-      return "int16";
-    } else if constexpr (sizeof(ptrdiff_t) == 1) {
-      return "int8";
-    }
-    return "int64"; }
-};
+// template <> struct TypeToString<ptrdiff_t> {
+//   static const std::string_view value() {
+//     if constexpr (sizeof(ptrdiff_t) == 8) {
+//       return "int64";
+//     } else if constexpr (sizeof(ptrdiff_t) == 4) {
+//       return "int32";
+//     } else if constexpr (sizeof(ptrdiff_t) == 2) {
+//       return "int16";
+//     } else if constexpr (sizeof(ptrdiff_t) == 1) {
+//       return "int8";
+//     }
+//     return "int64"; }
+// };
 
 enum PrimitiveType {
   SMESH_DEFAULT = 0,
@@ -96,6 +102,7 @@ enum PrimitiveType {
   SMESH_UINT32 = 140,
   SMESH_UINT64 = 180,
   SMESH_CHAR = 1,
+  SMESH_LONG = 160,
   SMESH_TYPE_UNDEFINED = -1
 };
 
@@ -110,8 +117,8 @@ struct TypeToEnum {
       return SMESH_INT16;
     } else if constexpr (std::is_same_v<T, char> && sizeof(T) == 1) {
       return SMESH_CHAR;
-    } else if constexpr (std::is_same_v<T, ptrdiff_t> && sizeof(ptrdiff_t) == 8) {
-      return SMESH_INT64;
+    } else if constexpr (std::is_same_v<T, long> && sizeof(T) == 8) {
+      return SMESH_LONG;
     }
     SMESH_ERROR("Invalid type: %s", TypeToString<T>::value().data());
     return SMESH_TYPE_UNDEFINED; }
@@ -187,6 +194,8 @@ inline size_t num_bytes(enum PrimitiveType type) {
     return sizeof(u64);
   case SMESH_CHAR:
     return sizeof(char);
+  case SMESH_LONG:
+    return sizeof(long);
   default:
     SMESH_ERROR("Invalid primitive type: %d", type);
     return 0;
@@ -217,6 +226,8 @@ inline std::string_view to_string(enum PrimitiveType type) {
     return "uint64";
   case SMESH_CHAR:
     return "char";
+  case SMESH_LONG:
+    return "long";
   default:
     SMESH_ERROR("Invalid primitive type: %d", type);
     return "undefined";

@@ -27,15 +27,15 @@ public:
                       const int block_size = 1);
 
   template <typename T> int write_nodal(const std::string &field_name, const SharedBuffer<T> &data) {
-    ptrdiff_t n = data.size();
+    ptrdiff_t n = data->size();
     int block_size = n / mesh()->n_nodes();
-    return write_nodal(field_name, TypeToEnum<T>::value(), data.data(), block_size);
+    return write_nodal(field_name, TypeToEnum<T>::value(), data->data(), block_size);
   }
 
   template <typename T> int write_elemental(const std::string &field_name, const SharedBuffer<T> &data) {
-    ptrdiff_t n = data.size();
+    ptrdiff_t n = data->size();
     int block_size = n / mesh()->n_elements();
-    return write_elemental(field_name, TypeToEnum<T>::value(), data.data(), block_size);
+    return write_elemental(field_name, TypeToEnum<T>::value(), data->data(), block_size);
   }
 
   class Impl;

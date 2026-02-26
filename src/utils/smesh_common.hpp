@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stddef.h>
+#include <string>
 
 namespace smesh {
 template <typename T>

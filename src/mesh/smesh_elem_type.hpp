@@ -37,6 +37,14 @@ enum ElemType {
   SSQUAD4 = 40000,
   SSQUADSHELL4 = 140000,
   SSHEX8 = 8000,
+  PROTEUS_HEX8 = 80000,
+  PROTEUS_HEX27 = 270000,
+  PROTEUS_HEX64 = 640000,
+  PROTEUS_HEX125 = 1250000,
+  PROTEUS_HEX216 = 2160000,
+  PROTEUS_HEX343 = 3430000,
+  PROTEUS_HEX512 = 5120000,
+  PROTEUS_HEX729 = 7290000,
   INVALID = -1
 };
 
@@ -81,6 +89,22 @@ inline enum ElemType type_from_string(const char *str) {
     return HEX8;
   if (!strcmp(str, "SSHEX8"))
     return SSHEX8;
+  if (!strcmp(str, "PROTEUS_HEX8"))
+    return PROTEUS_HEX8;
+  if (!strcmp(str, "PROTEUS_HEX27"))
+    return PROTEUS_HEX27;
+  if (!strcmp(str, "PROTEUS_HEX64"))
+    return PROTEUS_HEX64;
+  if (!strcmp(str, "PROTEUS_HEX125"))
+    return PROTEUS_HEX125;
+  if (!strcmp(str, "PROTEUS_HEX216"))
+    return PROTEUS_HEX216;
+  if (!strcmp(str, "PROTEUS_HEX343"))
+    return PROTEUS_HEX343;
+  if (!strcmp(str, "PROTEUS_HEX512"))
+    return PROTEUS_HEX512;
+  if (!strcmp(str, "PROTEUS_HEX729"))
+    return PROTEUS_HEX729;
 
   assert(0);
   return INVALID;
@@ -134,6 +158,22 @@ inline const char *type_to_string(enum ElemType type) {
     return "TET15";
   case TET20:
     return "TET20";
+  case PROTEUS_HEX8:
+    return "PROTEUS_HEX8";
+  case PROTEUS_HEX27:
+    return "PROTEUS_HEX27";
+  case PROTEUS_HEX64:
+    return "PROTEUS_HEX64";
+  case PROTEUS_HEX125:
+    return "PROTEUS_HEX125";
+  case PROTEUS_HEX216:
+    return "PROTEUS_HEX216";
+  case PROTEUS_HEX343:
+    return "PROTEUS_HEX343";
+  case PROTEUS_HEX512:
+    return "PROTEUS_HEX512";
+  case PROTEUS_HEX729:
+    return "PROTEUS_HEX729";
   default: {
     assert(0);
     return "INVALID";
@@ -166,6 +206,14 @@ inline enum ElemType side_type(const enum ElemType type) {
     return QUAD4;
   case SSHEX8:
     return SSQUAD4;
+  case PROTEUS_HEX216:
+    return PROTEUS_HEX8;
+  case PROTEUS_HEX343:
+    return PROTEUS_HEX8;
+  case PROTEUS_HEX512:
+    return PROTEUS_HEX8;
+  case PROTEUS_HEX729:
+    return PROTEUS_HEX8;
   default: {
     assert(0);
     return INVALID;
@@ -201,6 +249,14 @@ inline enum ElemType shell_type(const enum ElemType type) {
     return SSQUADSHELL4;
   case SSQUADSHELL4:
     return SSQUADSHELL4;
+  case PROTEUS_HEX216:
+    return PROTEUS_HEX8;
+  case PROTEUS_HEX343:
+    return PROTEUS_HEX8;
+  case PROTEUS_HEX512:
+    return PROTEUS_HEX8;
+  case PROTEUS_HEX729:
+    return PROTEUS_HEX8;
   default: {
     // assert(0);
     return INVALID;
@@ -282,6 +338,22 @@ inline int elem_num_nodes(const enum ElemType type) {
     return 15;
   case TET20:
     return 20;
+  case PROTEUS_HEX8:
+    return 8;
+  case PROTEUS_HEX27:
+    return 27;
+  case PROTEUS_HEX64:
+    return 64;
+  case PROTEUS_HEX125:
+    return 125;
+  case PROTEUS_HEX216:
+    return 216;
+  case PROTEUS_HEX343:
+    return 343;
+  case PROTEUS_HEX512:
+    return 512;
+  case PROTEUS_HEX729:
+    return 729;
   default: {
     assert(0);
     return 0;
@@ -321,6 +393,14 @@ inline int elem_num_sides(const enum ElemType type) {
     return 4;
   case TET20:
     return 4;
+  case PROTEUS_HEX8:
+    return 8;
+  case PROTEUS_HEX27:
+    return 8;
+  case PROTEUS_HEX64:
+    return 8;
+  case PROTEUS_HEX125:
+    return 8;
   default: {
     assert(0);
     return 0;
@@ -358,6 +438,14 @@ inline int elem_manifold_dim(const enum ElemType type) {
     return 3;
   case TET20:
     return 3;
+  case PROTEUS_HEX8:
+    return 3;
+  case PROTEUS_HEX27:
+    return 3;
+  case PROTEUS_HEX64:
+    return 3;
+  case PROTEUS_HEX125:
+    return 3;
   default: {
     assert(0);
     return INVALID;
@@ -371,6 +459,7 @@ inline enum ElemType macro_type_variant(const enum ElemType type) {
     return MACRO_TET4;
   case TRI6:
     return MACRO_TRI3;
+
   default: {
     assert(0);
     return type;
@@ -390,6 +479,14 @@ inline enum ElemType macro_base_elem(const enum ElemType macro_type) {
     return TRI3;
   case SSHEX8:
     return HEX8;
+  case PROTEUS_HEX8:
+    return PROTEUS_HEX8;
+  case PROTEUS_HEX27:
+    return PROTEUS_HEX8;
+  case PROTEUS_HEX64:
+    return PROTEUS_HEX8;
+  case PROTEUS_HEX125:
+    return PROTEUS_HEX8;
   default: {
     assert(0);
     return macro_type;
@@ -406,6 +503,30 @@ inline int is_second_order_lagrange(const enum ElemType type) {
   default: {
     return 0;
   }
+  }
+}
+
+inline enum ElemType proteus_hex_type(const int micro_elements_per_dim) {
+  switch (micro_elements_per_dim) {
+  case 1:
+    return PROTEUS_HEX8;
+  case 2:
+    return PROTEUS_HEX27;
+  case 3:
+    return PROTEUS_HEX64;
+  case 4:
+    return PROTEUS_HEX125;
+    case 5:
+    return PROTEUS_HEX216;
+  case 6:
+    return PROTEUS_HEX343;
+  case 7:
+    return PROTEUS_HEX512;
+  case 8:
+    return PROTEUS_HEX729;
+  default:
+    assert(0);
+    return INVALID;
   }
 }
 

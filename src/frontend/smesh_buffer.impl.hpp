@@ -37,7 +37,12 @@ template <typename T> void Buffer<T>::print(std::ostream &os) const {
   os << "Buffer size " << this->n_ << "\n";
   const auto *d = data();
   for (size_t i = 0; i < this->n_; i++) {
-    os << d[i] << " ";
+    if constexpr (std::is_same_v<T, f16>) {
+      os << static_cast<float>(d[i]) << " ";
+    } else {
+      os << d[i] << " ";
+  
+    }
   }
   os << "\n";
 }

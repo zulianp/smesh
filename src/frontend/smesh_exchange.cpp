@@ -33,9 +33,10 @@ Exchange::~Exchange() = default;
 std::shared_ptr<Exchange>
 Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh) {
 #if defined(SMESH_ENABLE_MPI)
-  return create(mesh->comm(), mesh->n_nodes(), mesh->n_owned_nodes(),
-                mesh->node_owner()->data(), mesh->node_offsets()->data(),
-                mesh->ghosts()->data());
+  auto dist = mesh->distributed();
+  return create(mesh->comm(), dist->n_nodes_global(), dist->n_nodes_owned(),
+                dist->node_owner()->data(), dist->node_offsets()->data(),
+                dist->ghosts()->data());
 
 #else
   return std::make_shared<Exchange>(mesh->comm());
@@ -102,7 +103,11 @@ template int Exchange::exchange_add<u8>(u8 *const inout);
 template int Exchange::exchange_add<u16>(u16 *const inout);
 template int Exchange::exchange_add<u32>(u32 *const inout);
 template int Exchange::exchange_add<u64>(u64 *const inout);
-template int Exchange::exchange_add<mask_t>(mask_t *const inout);
-template int Exchange::exchange_add<ptrdiff_t>(ptrdiff_t *const inout);
+template int Exchange::exchange_add<char>(mask_t *const inout);
+
+
+#if defined(__clang__)
+template int Exchange::exchange_add<long>(long *const inout);
+#endif
 
 } // namespace smesh

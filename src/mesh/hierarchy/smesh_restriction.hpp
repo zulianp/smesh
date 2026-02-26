@@ -5,6 +5,8 @@
 #include "smesh_elem_type.hpp"
 #include "smesh_types.hpp"
 
+#include <stddef.h>
+
 namespace smesh {
 
 template <typename idx_t, typename T>
