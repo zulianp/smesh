@@ -2,7 +2,7 @@
 #include "smesh_packed_mesh.hpp"
 #include "smesh_path.hpp"
 #include "smesh_tracer.hpp"
-#include "smesh_semi_structured_mesh.hpp"
+#include "smesh_semistructured.hpp"
 #include <stdio.h>
 
 using namespace smesh;

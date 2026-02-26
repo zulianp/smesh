@@ -1,20 +1,4 @@
-#include "smesh_semi_structured_mesh.hpp"
-
-// // C Includes
-// #include "line_quadrature_gauss_lobatto.h"
-// #include "smesh_macros.h"
-
-// // Mesh
-// #include "adj_table.h"
-// #include "smesh_hex8_mesh_graph.h"
-// #include "sshex8.h"
-// #include "sshex8_mesh.h"
-
-// // C++ Includes
-// #include "smesh_CRSGraph.hpp"
-// #include "smesh_Mesh.hpp"
-// #include "smesh_Tracer.hpp"
-// #include "smesh_glob.hpp"
+#include "smesh_semistructured.hpp"
 
 // STL
 #include <fstream>
