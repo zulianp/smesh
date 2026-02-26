@@ -45,6 +45,22 @@ enum ElemType {
   PROTEUS_HEX343 = 3430000,
   PROTEUS_HEX512 = 5120000,
   PROTEUS_HEX729 = 7290000,
+  PROTEUS_QUAD4 = 400000,
+  PROTEUS_QUAD9 = 900000,
+  PROTEUS_QUAD16 = 1600000,
+  PROTEUS_QUAD25 = 2500000,
+  PROTEUS_QUAD36 = 3600000,
+  PROTEUS_QUAD49 = 4900000,
+  PROTEUS_QUAD64 = 6400000,
+  PROTEUS_QUAD81 = 8100000,
+  PROTEUS_QUADSHELL4 = 400001,
+  PROTEUS_QUADSHELL9 = 900001,
+  PROTEUS_QUADSHELL16 = 1600001,
+  PROTEUS_QUADSHELL25 = 2500001,
+  PROTEUS_QUADSHELL36 = 3600001,
+  PROTEUS_QUADSHELL49 = 4900001,
+  PROTEUS_QUADSHELL64 = 6400001,
+  PROTEUS_QUADSHELL81 = 8100001,
   INVALID = -1
 };
 
@@ -105,7 +121,22 @@ inline enum ElemType type_from_string(const char *str) {
     return PROTEUS_HEX512;
   if (!strcmp(str, "PROTEUS_HEX729"))
     return PROTEUS_HEX729;
-
+  if (!strcmp(str, "PROTEUS_QUAD4"))
+    return PROTEUS_QUAD4;
+  if (!strcmp(str, "PROTEUS_QUAD9"))
+    return PROTEUS_QUAD9;
+  if (!strcmp(str, "PROTEUS_QUAD16"))
+    return PROTEUS_QUAD16;
+  if (!strcmp(str, "PROTEUS_QUAD25"))
+    return PROTEUS_QUAD25;
+  if (!strcmp(str, "PROTEUS_QUAD36"))
+    return PROTEUS_QUAD36;
+  if (!strcmp(str, "PROTEUS_QUAD49"))
+    return PROTEUS_QUAD49;
+  if (!strcmp(str, "PROTEUS_QUAD64"))
+    return PROTEUS_QUAD64;
+  if (!strcmp(str, "PROTEUS_QUAD81"))
+    return PROTEUS_QUAD81;
   assert(0);
   return INVALID;
 }
@@ -174,6 +205,14 @@ inline const char *type_to_string(enum ElemType type) {
     return "PROTEUS_HEX512";
   case PROTEUS_HEX729:
     return "PROTEUS_HEX729";
+  case PROTEUS_QUAD4:
+    return "PROTEUS_QUAD4";
+  case PROTEUS_QUAD9:
+    return "PROTEUS_QUAD9";
+  case PROTEUS_QUAD16:
+    return "PROTEUS_QUAD16";
+  case PROTEUS_QUAD25:
+    return "PROTEUS_QUAD25";
   default: {
     assert(0);
     return "INVALID";
@@ -206,14 +245,22 @@ inline enum ElemType side_type(const enum ElemType type) {
     return QUAD4;
   case SSHEX8:
     return SSQUAD4;
+  case PROTEUS_HEX8:
+    return PROTEUS_QUAD4;
+case PROTEUS_HEX27:
+    return PROTEUS_QUAD9;
+  case PROTEUS_HEX64:
+    return PROTEUS_QUAD16;
+  case PROTEUS_HEX125:
+    return PROTEUS_QUAD25;
   case PROTEUS_HEX216:
-    return PROTEUS_HEX8;
+    return PROTEUS_QUAD36;
   case PROTEUS_HEX343:
-    return PROTEUS_HEX8;
+    return PROTEUS_QUAD49;
   case PROTEUS_HEX512:
-    return PROTEUS_HEX8;
+    return PROTEUS_QUAD64;
   case PROTEUS_HEX729:
-    return PROTEUS_HEX8;
+    return PROTEUS_QUAD81;
   default: {
     assert(0);
     return INVALID;
@@ -249,14 +296,18 @@ inline enum ElemType shell_type(const enum ElemType type) {
     return SSQUADSHELL4;
   case SSQUADSHELL4:
     return SSQUADSHELL4;
+  case PROTEUS_HEX8:
+    return PROTEUS_QUADSHELL4;
+  case PROTEUS_HEX27:
+    return PROTEUS_QUADSHELL9;
+  case PROTEUS_HEX64:
+    return PROTEUS_QUADSHELL16;
+  case PROTEUS_HEX125:
+    return PROTEUS_QUADSHELL25;
   case PROTEUS_HEX216:
-    return PROTEUS_HEX8;
+    return PROTEUS_QUADSHELL36;
   case PROTEUS_HEX343:
-    return PROTEUS_HEX8;
-  case PROTEUS_HEX512:
-    return PROTEUS_HEX8;
-  case PROTEUS_HEX729:
-    return PROTEUS_HEX8;
+    return PROTEUS_QUADSHELL49;
   default: {
     // assert(0);
     return INVALID;

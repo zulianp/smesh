@@ -13,6 +13,9 @@
 #include <memory>
 #include <vector>
 
+// TODO this class needs to be removed, and the functionality refactored into Mesh 
+// (use PROTEUS types instead of level in the frontend, maintain level in backend)
+
 namespace smesh {
 
     class SemiStructuredMesh {
