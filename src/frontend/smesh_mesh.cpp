@@ -15,6 +15,7 @@
 #include "smesh_sshex8_graph.hpp"
 #include "smesh_sshex8_mesh.hpp"
 #include "smesh_tracer.hpp"
+#include "smesh_file_extensions.hpp"
 #include "smesh_write.hpp"
 
 #ifdef SMESH_ENABLE_MPI
@@ -27,6 +28,7 @@
 #include <map>
 #include <math.h>
 #include <vector>
+#include <fstream>
 
 namespace smesh {
 
@@ -290,6 +292,33 @@ void Mesh::remove_block(size_t index) {
   impl_->blocks.erase(impl_->blocks.begin() + index);
 }
 
+void read_meta(const std::shared_ptr<Communicator> &comm, const Path &path,
+               enum ElemType &element_type) {
+
+  if (!comm->rank()) {
+    auto meta_file = Path(path) / "meta.yaml";
+    if (meta_file.exists()) {
+      std::ifstream ifs(meta_file.c_str());
+      while (ifs.good()) {
+        std::string line;
+        std::getline(ifs, line);
+        if (line.find("element_type:") != std::string::npos) {
+          auto element_type_str = trim(line.substr(line.find(":") + 1));
+          std::cout << "element_type_str: " << element_type_str << std::endl;
+          element_type = type_from_string(element_type_str.c_str());
+          break;
+        }
+      }
+    }
+  }
+
+  if (comm->size() > 1) {
+    int element_type_int = (int)element_type;
+    comm->broadcast(&element_type_int, 1, 0);
+    element_type = (enum ElemType)element_type_int;
+  }
+}
+
 int Mesh::read(const Path &path) {
   SMESH_TRACE_SCOPE("Mesh::read");
 
@@ -301,19 +330,25 @@ int Mesh::read(const Path &path) {
     ptrdiff_t nnodes;
     ptrdiff_t nelements;
 
+    
+
     if (mesh_from_folder(path, &nnodesxelem, &nelements, &elements,
                          &spatial_dim, &nnodes, &points) != SMESH_SUCCESS) {
       return SMESH_FAILURE;
     }
 
+
     auto elements_buffer =
         manage_host_buffer<idx_t>(nnodesxelem, nelements, elements);
     impl_->points = manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
 
+    enum ElemType element_type = (enum ElemType)nnodesxelem;
+    read_meta(impl_->comm, path, element_type);
+
     // Create default block
     auto default_block = std::make_shared<Block>();
     default_block->set_name("default");
-    default_block->set_element_type((enum ElemType)nnodesxelem);
+    default_block->set_element_type(element_type);
     default_block->set_elements(elements_buffer);
     impl_->blocks.push_back(default_block);
   }
@@ -366,10 +401,14 @@ int Mesh::read(const Path &path) {
     dist->impl_->ghosts =
         manage_host_buffer<idx_t>(dist->impl_->n_nodes_ghosts, ghosts);
 
+    // Best effort for basic types
+    enum ElemType element_type = (enum ElemType)nnodesxelem;
+    read_meta(impl_->comm, path, element_type);
+
     // Create default block
     auto default_block = std::make_shared<Block>();
     default_block->set_name("default");
-    default_block->set_element_type((enum ElemType)nnodesxelem);
+    default_block->set_element_type(element_type);
     default_block->set_elements(elements_buffer);
     impl_->blocks.push_back(default_block);
 
