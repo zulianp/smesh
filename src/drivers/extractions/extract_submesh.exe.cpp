@@ -105,7 +105,7 @@ int main(int argc, char **argv) {
 //     auto mesh = sfem::Mesh::create_from_file(sfem::Communicator::wrap(comm), folder);
 
 //     if (max_nodes > mesh->n_nodes()) {
-//         SFEM_ERROR("max_nodes > mesh.nnodes");
+//         SMESH_ERROR("max_nodes > mesh.nnodes");
 //     }
 
 //     // double tack = MPI_Wtime();
@@ -138,7 +138,7 @@ int main(int argc, char **argv) {
 //     printf("found: %ld %g\n", closest_node, closest_sq_dist);
 
 //     if (closest_node < 0) {
-//         SFEM_ERROR("closest_node < 0");
+//         SMESH_ERROR("closest_node < 0");
 //     }
 
 //     auto selected_nodes   = sfem::create_host_buffer<idx_t>(mesh->n_nodes() + 1);
@@ -146,17 +146,17 @@ int main(int argc, char **argv) {
 //     auto additional_nodes = sfem::create_host_buffer<idx_t>(mesh->n_nodes() + 1);
 //     auto d_additional_nodes = additional_nodes->data();
 
-//     int SFEM_SELECT_EUCLIDEAN = 1;
-//     SFEM_READ_ENV(SFEM_SELECT_EUCLIDEAN, atoi);
+//     int SMESH_SELECT_EUCLIDEAN = 1;
+//     SMESH_READ_ENV(SMESH_SELECT_EUCLIDEAN, atoi);
 
-//     int SFEM_SELECT_GEODESIC = 0;
-//     SFEM_READ_ENV(SFEM_SELECT_GEODESIC, atoi);
+//     int SMESH_SELECT_GEODESIC = 0;
+//     SMESH_READ_ENV(SMESH_SELECT_GEODESIC, atoi);
 
-//     if (SFEM_SELECT_GEODESIC) {
-//         SFEM_SELECT_EUCLIDEAN = 0;
+//     if (SMESH_SELECT_GEODESIC) {
+//         SMESH_SELECT_EUCLIDEAN = 0;
 //     }
 
-//     if (SFEM_SELECT_EUCLIDEAN) {
+//     if (SMESH_SELECT_EUCLIDEAN) {
 //         auto args = sfem::create_host_buffer<idx_t>(mesh->n_nodes());
 //         argsort_f(mesh->n_nodes(), d_sq_dists, args->data());
 

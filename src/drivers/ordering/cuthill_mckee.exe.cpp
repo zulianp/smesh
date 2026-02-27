@@ -117,7 +117,7 @@ int main(int argc, char **argv) {
 
 //     // Initialize arrays
 //     for (ptrdiff_t i = 0; i < n_nodes; i++) {
-//         reordering_data[i]  = SFEM_IDX_INVALID;
+//         reordering_data[i]  = SMESH_IDX_INVALID;
 //     }
 
 //     // Compute eccentricity (maximum distance from diagonal)
@@ -175,7 +175,7 @@ int main(int argc, char **argv) {
 //             + 1]; j++) {
 //                 const ptrdiff_t neighbor = colidx_data[j];
 //                 if (neighbor != current && reordering_data[neighbor] ==
-//                 SFEM_IDX_INVALID) {
+//                 SMESH_IDX_INVALID) {
 //                     neighbors.push_back(neighbor);
 //                 }
 //             }
@@ -188,7 +188,7 @@ int main(int argc, char **argv) {
 
 //             // Add unvisited neighbors to next level
 //             for (ptrdiff_t neighbor : neighbors) {
-//                 if (reordering_data[neighbor] == SFEM_IDX_INVALID) {
+//                 if (reordering_data[neighbor] == SMESH_IDX_INVALID) {
 //                     reordering_data[neighbor] = reorder_idx++;
 //                     next_level.push_back(neighbor);
 //                 }
@@ -200,7 +200,7 @@ int main(int argc, char **argv) {
 
 //     // Handle any remaining unvisited nodes (disconnected components)
 //     for (ptrdiff_t i = 0; i < n_nodes; i++) {
-//         if (reordering_data[i] == SFEM_IDX_INVALID) {
+//         if (reordering_data[i] == SMESH_IDX_INVALID) {
 //             reordering_data[i] = reorder_idx++;
 //         }
 //     }

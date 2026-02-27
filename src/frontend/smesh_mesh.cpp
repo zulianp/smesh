@@ -11,13 +11,13 @@
 #include "smesh_promotions.hpp"
 #include "smesh_read.hpp"
 #include "smesh_refine.hpp"
+#include "smesh_semistructured.hpp"
 #include "smesh_sideset.hpp"
 #include "smesh_sshex8.hpp"
 #include "smesh_sshex8_graph.hpp"
 #include "smesh_sshex8_mesh.hpp"
 #include "smesh_tracer.hpp"
 #include "smesh_write.hpp"
-#include "smesh_semistructured.hpp"
 
 #ifdef SMESH_ENABLE_MPI
 #include "smesh_distributed_read.hpp"
@@ -1279,9 +1279,7 @@ Mesh::select_elements(const std::function<bool(const geom_t, const geom_t,
                       const std::vector<std::string> &block_names) {
   SMESH_TRACE_SCOPE("Sideset::create_from_selector");
 
-  // const ptrdiff_t nelements = mesh->n_elements();
   const int dim = spatial_dimension();
-
   auto points = this->points()->data();
   int nxe = n_nodes_per_element();
 
@@ -1419,6 +1417,41 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
                            new_block.elements()->data());
   };
 
+  cmap[std::make_pair(HEX8, PROTEUS_HEX8)] = [](const Mesh::Block &block,
+                                                Mesh::Block &new_block) {
+    new_block.set_element_type(PROTEUS_HEX8);
+    auto elements = block.elements();
+
+    auto view = std::make_shared<Buffer<idx_t *>>(
+        8, block.n_elements(), (idx_t **)malloc(8 * sizeof(idx_t *)),
+        [keep_alive = elements](int, void **v) {
+          (void)keep_alive;
+          free(v);
+        },
+        elements->mem_space());
+
+    const int pts[8] = {
+        // Bottom
+        sshex8_lidx(1, 0, 0, 0), sshex8_lidx(1, 1, 0, 0),
+        sshex8_lidx(1, 1, 1, 0), sshex8_lidx(1, 0, 1, 0),
+
+        // Top
+        sshex8_lidx(1, 0, 0, 1), sshex8_lidx(1, 1, 0, 1),
+        sshex8_lidx(1, 1, 1, 1),
+        sshex8_lidx(1, 0, 1, 1)};
+
+    view->data()[0] = elements->data()[pts[0]];
+    view->data()[1] = elements->data()[pts[1]];
+    view->data()[2] = elements->data()[pts[2]];
+    view->data()[3] = elements->data()[pts[3]];
+    view->data()[4] = elements->data()[pts[4]];
+    view->data()[5] = elements->data()[pts[5]];
+    view->data()[6] = elements->data()[pts[6]];
+    view->data()[7] = elements->data()[pts[7]];
+
+    new_block.set_elements(view);
+  };
+
   cmap[std::make_pair(PROTEUS_HEX8, HEX8)] = sshex_block_to_hex8_block;
   cmap[std::make_pair(PROTEUS_HEX27, HEX8)] = sshex_block_to_hex8_block;
   cmap[std::make_pair(PROTEUS_HEX64, HEX8)] = sshex_block_to_hex8_block;
@@ -1427,14 +1460,6 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
   cmap[std::make_pair(PROTEUS_HEX343, HEX8)] = sshex_block_to_hex8_block;
   cmap[std::make_pair(PROTEUS_HEX512, HEX8)] = sshex_block_to_hex8_block;
   cmap[std::make_pair(PROTEUS_HEX729, HEX8)] = sshex_block_to_hex8_block;
-
-  // PROTEUS_HEX27 to HEX8
-  // PROTEUS_HEX64 to HEX8
-  // PROTEUS_HEX125 to HEX8
-  // PROTEUS_HEX216 to HEX8
-  // PROTEUS_HEX343 to HEX8
-  // PROTEUS_HEX512 to HEX8
-  // PROTEUS_HEX729 to HEX8
 
   std::vector<std::shared_ptr<Mesh::Block>> blocks;
   for (auto &block : mesh->blocks()) {

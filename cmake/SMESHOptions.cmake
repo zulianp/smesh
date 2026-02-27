@@ -1,4 +1,4 @@
-# SFEMOptions
+# SMESHOptions
 
 # ##############################################################################
 option(BUILD_SHARED_LIBS "build shared libraries" OFF)
@@ -14,7 +14,7 @@ option(SMESH_ENABLE_LAPACK "Enable Lapck support" OFF)
 option(SMESH_ENABLE_METIS "Enable METIS graph-partitioning" OFF)
 option(SMESH_ENABLE_MPI "Enable MPI support" ON)
 option(SMESH_ENABLE_OPENMP "Enable OpenMP support" OFF)
-# option(SMESH_ENABLE_PYTHON "Enable python bindings for SFEM" OFF)
+# option(SMESH_ENABLE_PYTHON "Enable python bindings for SMESH" OFF)
 option(SMESH_ENABLE_RYAML "Enable YAML input files with RapidYAML" OFF)
 option(SMESH_ENABLE_INSTALL_DOCS "Install generated API docs (Doxygen)" OFF)
 # Compatibility alias (typo / legacy): prefer SMESH_ENABLE_INSTALL_DOCS.

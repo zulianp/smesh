@@ -1,3 +1,6 @@
+#include "smesh_cuda_base.cuh"
+
+#include "smesh_types.hpp"
 
 #define PROLONGATE_IN_KERNEL_BASIS_VERSION  // The other version needs debugging
 #ifdef PROLONGATE_IN_KERNEL_BASIS_VERSION
@@ -7,17 +10,17 @@ template <typename From, typename To>
 __global__ void cu_sshex8_prolongate_kernel(const ptrdiff_t                 nelements,
                                             const int                       from_level,
                                             const int                       from_level_stride,
-                                            idx_t **const SFEM_RESTRICT     from_elements,
+                                            idx_t **const SMESH_RESTRICT     from_elements,
                                             const int                       to_level,
                                             const int                       to_level_stride,
-                                            idx_t **const SFEM_RESTRICT     to_elements,
+                                            idx_t **const SMESH_RESTRICT     to_elements,
                                             const int                       vec_size,
                                             const enum RealType             from_type,
                                             const ptrdiff_t                 from_stride,
-                                            const From *const SFEM_RESTRICT from,
+                                            const From *const SMESH_RESTRICT from,
                                             const enum RealType             to_type,
                                             const ptrdiff_t                 to_stride,
-                                            To *const SFEM_RESTRICT         to) {
+                                            To *const SMESH_RESTRICT         to) {
     static_assert(TILE_SIZE == 8, "This only works with tile size 8!");
 
     // Uunsigned char necessary for multiple instantiations
@@ -171,18 +174,18 @@ template <typename From, typename To>
 __global__ void cu_sshex8_prolongate_kernel(const ptrdiff_t                 nelements,
                                             const int                       from_level,
                                             const int                       from_level_stride,
-                                            idx_t **const SFEM_RESTRICT     from_elements,
+                                            idx_t **const SMESH_RESTRICT     from_elements,
                                             const int                       to_level,
                                             const int                       to_level_stride,
-                                            idx_t **const SFEM_RESTRICT     to_elements,
-                                            const To *const SFEM_RESTRICT   S,
+                                            idx_t **const SMESH_RESTRICT     to_elements,
+                                            const To *const SMESH_RESTRICT   S,
                                             const int                       vec_size,
                                             const enum RealType             from_type,
                                             const ptrdiff_t                 from_stride,
-                                            const From *const SFEM_RESTRICT from,
+                                            const From *const SMESH_RESTRICT from,
                                             const enum RealType             to_type,
                                             const ptrdiff_t                 to_stride,
-                                            To *const SFEM_RESTRICT         to) {
+                                            To *const SMESH_RESTRICT         to) {
     static_assert(TILE_SIZE == 8, "This only works with tile size 8!");
 
     // Uunsigned char necessary for multiple instantiations
@@ -322,19 +325,19 @@ template <typename From, typename To>
 int cu_sshex8_prolongate_tpl(const ptrdiff_t                 nelements,
                              const int                       from_level,
                              const int                       from_level_stride,
-                             idx_t **const SFEM_RESTRICT     from_elements,
+                             idx_t **const SMESH_RESTRICT     from_elements,
                              const int                       to_level,
                              const int                       to_level_stride,
-                             idx_t **const SFEM_RESTRICT     to_elements,
+                             idx_t **const SMESH_RESTRICT     to_elements,
                              const int                       vec_size,
                              const enum RealType             from_type,
                              const ptrdiff_t                 from_stride,
-                             const From *const SFEM_RESTRICT from,
+                             const From *const SMESH_RESTRICT from,
                              const enum RealType             to_type,
                              const ptrdiff_t                 to_stride,
-                             To *const SFEM_RESTRICT         to,
+                             To *const SMESH_RESTRICT         to,
                              void                           *stream) {
-    SFEM_DEBUG_SYNCHRONIZE();
+    SMESH_DEBUG_SYNCHRONIZE();
 
     const int block_size      = 128;
     ptrdiff_t n_blocks        = MAX(ptrdiff_t(1), (nelements + block_size / TILE_SIZE - 1) / (block_size / TILE_SIZE));
@@ -384,32 +387,32 @@ int cu_sshex8_prolongate_tpl(const ptrdiff_t                 nelements,
                                                                                          to);
     }
 
-    SFEM_DEBUG_SYNCHRONIZE();
-    return SFEM_SUCCESS;
+    SMESH_DEBUG_SYNCHRONIZE();
+    return SMESH_SUCCESS;
 }
 
 extern int cu_sshex8_prolongate(const ptrdiff_t                 nelements,
                                 const int                       from_level,
                                 const int                       from_level_stride,
-                                idx_t **const SFEM_RESTRICT     from_elements,
+                                idx_t **const SMESH_RESTRICT     from_elements,
                                 const int                       to_level,
                                 const int                       to_level_stride,
-                                idx_t **const SFEM_RESTRICT     to_elements,
+                                idx_t **const SMESH_RESTRICT     to_elements,
                                 const int                       vec_size,
                                 const enum RealType             from_type,
                                 const ptrdiff_t                 from_stride,
-                                const void *const SFEM_RESTRICT from,
+                                const void *const SMESH_RESTRICT from,
                                 const enum RealType             to_type,
                                 const ptrdiff_t                 to_stride,
-                                void *const SFEM_RESTRICT       to,
+                                void *const SMESH_RESTRICT       to,
                                 void                           *stream) {
     assert(from_type == to_type && "TODO mixed types!");
     if (from_type != to_type) {
-        return SFEM_FAILURE;
+        return SMESH_FAILURE;
     }
 
     switch (from_type) {
-        case SFEM_REAL_DEFAULT: {
+        case SMESH_REAL_DEFAULT: {
             return cu_sshex8_prolongate_tpl<real_t, real_t>(nelements,
                                                             from_level,
                                                             from_level_stride,
@@ -426,7 +429,7 @@ extern int cu_sshex8_prolongate(const ptrdiff_t                 nelements,
                                                             (real_t *)to,
                                                             stream);
         }
-        case SFEM_FLOAT32: {
+        case SMESH_FLOAT32: {
             return cu_sshex8_prolongate_tpl<float, float>(nelements,
                                                           from_level,
                                                           from_level_stride,
@@ -443,7 +446,7 @@ extern int cu_sshex8_prolongate(const ptrdiff_t                 nelements,
                                                           (float *)to,
                                                           stream);
         }
-        case SFEM_FLOAT64: {
+        case SMESH_FLOAT64: {
             return cu_sshex8_prolongate_tpl<double, double>(nelements,
                                                             from_level,
                                                             from_level_stride,
@@ -462,13 +465,13 @@ extern int cu_sshex8_prolongate(const ptrdiff_t                 nelements,
         }
 
         default: {
-            SFEM_ERROR(
+            SMESH_ERROR(
                     "[Error]  cu_sshex8_prolongate: not implemented for type "
                     "%s "
                     "(code %d)\n",
                     real_type_to_string(from_type),
                     from_type);
-            return SFEM_FAILURE;
+            return SMESH_FAILURE;
         }
     }
 }

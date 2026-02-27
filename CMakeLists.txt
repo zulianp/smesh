@@ -55,14 +55,28 @@ foreach(_dir IN LISTS SMESH_LIBRARY_SCAN_DIRS)
         "${_dir}/*.inl"
     )
 
+    if(SMESH_ENABLE_CUDA)
+    # Add CUDA files to the library
+        file(GLOB_RECURSE _dir_cuda_files
+            LIST_DIRECTORIES false
+            CONFIGURE_DEPENDS
+            "${_dir}/*.cu"
+            "${_dir}/*.cuh"
+        )
+        message(STATUS "CUDA files: ${_dir_cuda_files}")
+        list(APPEND _dir_files ${_dir_cuda_files})
+    endif()
+
     list(APPEND _smesh_library_include_dirs "${_dir}")
     foreach(_file IN LISTS _dir_files)
-        if(_file MATCHES "\\.(h|hh|hpp|hxx|inl)$")
+        if(_file MATCHES "\\.(h|hh|hpp|hxx|inl|cuh)$")
             get_filename_component(_file_dir "${_file}" DIRECTORY)
             list(APPEND _smesh_library_include_dirs "${_file_dir}")
         endif()
     endforeach()
     list(APPEND _smesh_library_files ${_dir_files})
+
+    
 endforeach()
 
 list(REMOVE_DUPLICATES _smesh_library_include_dirs)
@@ -70,6 +84,8 @@ set(_smesh_library_build_include_dirs "")
 foreach(_inc_dir IN LISTS _smesh_library_include_dirs)
     list(APPEND _smesh_library_build_include_dirs "$<BUILD_INTERFACE:${_inc_dir}>")
 endforeach()
+
+message(STATUS "SMESH library files: ${_smesh_library_build_include_dirs}")
 
 
 list(FILTER _smesh_library_files EXCLUDE REGEX "\\.exe\\.(c|cc|cpp|cxx)$")

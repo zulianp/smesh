@@ -6,7 +6,6 @@
 namespace smesh {
     class Communicator;
     class Mesh;
-    // class SemiStructuredMesh;
     class Sideset;
     template <typename T> class Buffer;
 } // namespace smesh

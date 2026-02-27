@@ -1,4 +1,7 @@
-#include "smesh_base.hpp"
+
+#include "smesh_cuda_base.cuh"
+
+#include "smesh_types.hpp"
 
 namespace smesh {
 
