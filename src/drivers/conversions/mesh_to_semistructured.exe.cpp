@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
   int ret = SMESH_SUCCESS;
   {
     auto mesh = Mesh::create_from_file(ctx->communicator(), Path(argv[2]));
-    auto ssmesh = SemiStructuredMesh::create(mesh, std::atoi(argv[1]));
+    auto ssmesh = to_semistructured(std::atoi(argv[1]), mesh);
     ret = ssmesh->write(Path(argv[3]));
   }
 

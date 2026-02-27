@@ -6,62 +6,76 @@
 
 // C++ Includes
 #include "smesh_buffer.hpp"
+#include "smesh_crs_graph.hpp"
 #include "smesh_forward_declarations.hpp"
 #include "smesh_mesh.hpp"
-#include "smesh_crs_graph.hpp"
 
 #include <memory>
 #include <vector>
 
-// TODO this class needs to be removed, and the functionality refactored into Mesh 
-// (use PROTEUS types instead of level in the frontend, maintain level in backend)
+// TODO this class needs to be removed, and the functionality refactored into
+// Mesh (use PROTEUS types instead of level in the frontend, maintain level in
+// backend)
 
 namespace smesh {
+void sshex_block_to_hex8_block(const Mesh::Block &block, Mesh::Block &new_block);
+int semistructured_hierarchical_renumbering(
+    const enum ElemType element_type, const int level, const ptrdiff_t n_nodes,
+    const SharedBuffer<idx_t *> &elements);
+std::shared_ptr<Mesh> to_semistructured(const int level,
+                                        const std::shared_ptr<Mesh> &mesh,
+                                        const bool hiearchical_ordering = false,
+                                        const bool use_GLL = false);
+std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex);
+std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh,
+                               const int to_level);
 
-    class SemiStructuredMesh {
-    public:
-        using Block = Mesh::Block;
+// class SemiStructuredMesh {
+// public:
+//     using Block = Mesh::Block;
 
-        idx_t   **element_data();
-        geom_t  **point_data();
-        ptrdiff_t interior_start() const;
+//     idx_t   **element_data();
+//     geom_t  **point_data();
+//     ptrdiff_t interior_start() const;
 
-        SemiStructuredMesh();
-        SemiStructuredMesh(const std::shared_ptr<Mesh> macro_mesh, const int level);
-        ~SemiStructuredMesh();
+//     SemiStructuredMesh();
+//     SemiStructuredMesh(const std::shared_ptr<Mesh> macro_mesh, const int
+//     level); ~SemiStructuredMesh();
 
-        std::shared_ptr<CRSGraph<count_t, idx_t>> node_to_node_graph();
+//     std::shared_ptr<CRSGraph<count_t, idx_t>> node_to_node_graph();
 
-        static std::shared_ptr<SemiStructuredMesh> create(const std::shared_ptr<Mesh> macro_mesh, const int level) {
-            return std::make_shared<SemiStructuredMesh>(macro_mesh, level);
-        }
+//     static std::shared_ptr<SemiStructuredMesh> create(const
+//     std::shared_ptr<Mesh> macro_mesh, const int level) {
+//         return std::make_shared<SemiStructuredMesh>(macro_mesh, level);
+//     }
 
-        std::vector<int> derefinement_levels();
-        int              apply_hierarchical_renumbering();
+//     std::vector<int> derefinement_levels();
+//     int              apply_hierarchical_renumbering();
 
-        int       n_nodes_per_element() const;
-        ptrdiff_t n_nodes() const;
-        int       level() const;
-        ptrdiff_t n_elements() const;
+//     int       n_nodes_per_element() const;
+//     ptrdiff_t n_nodes() const;
+//     int       level() const;
+//     ptrdiff_t n_elements() const;
 
-        std::shared_ptr<SemiStructuredMesh> derefine(const int to_level);
+//     std::shared_ptr<SemiStructuredMesh> derefine(const int to_level);
 
-        SharedBuffer<geom_t *> points();
-        SharedBuffer<idx_t *>  elements();
+//     SharedBuffer<geom_t *> points();
+//     SharedBuffer<idx_t *>  elements();
 
-        int export_as_standard(const Path &path);
-        int write(const Path &path);
+//     int export_as_standard(const Path &path);
+//     int write(const Path &path);
 
-        std::shared_ptr<Mesh> macro_mesh();
+//     std::shared_ptr<Mesh> macro_mesh();
 
-        size_t n_blocks() const;
-        std::vector<std::shared_ptr<Block>> &blocks();
-        std::shared_ptr<Block>               block(const block_idx_t block_id);
+//     size_t n_blocks() const;
+//     std::vector<std::shared_ptr<Block>> &blocks();
+//     std::shared_ptr<Block>               block(const block_idx_t block_id);
 
-    private:
-        class Impl;
-        std::unique_ptr<Impl> impl_;
-    };
-}  // namespace smesh
+// private:
+//     class Impl;
+//     std::unique_ptr<Impl> impl_;
+// };
 
-#endif  // SMESH_SEMI_STRUCTURED_MESH_HPP
+} // namespace smesh
+
+#endif // SMESH_SEMI_STRUCTURED_MESH_HPP

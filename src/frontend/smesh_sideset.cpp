@@ -4,13 +4,12 @@
 #include "smesh_glob.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_read.hpp"
-#include "smesh_sidesets.hpp"
-#include "smesh_tracer.hpp"
-#include "smesh_write.hpp"
 #include "smesh_semistructured.hpp"
+#include "smesh_sidesets.hpp"
 #include "smesh_sshex8_graph.hpp"
 #include "smesh_ssquad4_mesh.hpp"
-
+#include "smesh_tracer.hpp"
+#include "smesh_write.hpp"
 
 #include <cstddef>
 #include <fstream>
@@ -294,33 +293,20 @@ create_surface_from_sideset(const std::shared_ptr<Mesh> &mesh,
   return {st, surface};
 }
 
-std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>>
-create_surface_from_sidesets(
-    const std::shared_ptr<Mesh> &mesh,
-    const std::vector<std::shared_ptr<Sideset>> &sidesets) {
-  if (sidesets.empty()) {
-    return {INVALID, nullptr};
+std::shared_ptr<Buffer<idx_t>> create_nodeset_from_sideset_semistructured(
+    const std::shared_ptr<Mesh> &ss, const std::shared_ptr<Sideset> &sideset) {
+  if (!is_semistructured_type(ss->element_type())) {
+    SMESH_ERROR("Mesh is not a semistructured mesh!\n");
+    return nullptr;
   }
 
-  if (sidesets.size() == 1) {
-    return create_surface_from_sideset(mesh, sidesets[0]);
-  }
-
-  SMESH_ERROR("IMPLEMENT ME\n");
-  return {INVALID, nullptr};
-}
-
-// SemiStructuredMesh version
-
-std::shared_ptr<Buffer<idx_t>>
-create_nodeset_from_sideset(const std::shared_ptr<SemiStructuredMesh> &ss,
-                            const std::shared_ptr<Sideset> &sideset) {
   ptrdiff_t n_nodes{0};
   idx_t *nodes{nullptr};
 
   SMESH_TRACE_SCOPE("sshex8_extract_nodeset_from_sideset");
   if (sshex8_extract_nodeset_from_sideset(
-          ss->level(), ss->element_data(), sideset->parent()->size(),
+          proteus_hex_micro_elements_per_dim(ss->element_type()),
+          ss->elements()->data(), sideset->parent()->size(),
           sideset->parent()->data(), sideset->lfi()->data(), &n_nodes,
           &nodes) != SMESH_SUCCESS) {
     SMESH_ERROR("Unable to extract nodeset from sideset!\n");
@@ -329,9 +315,51 @@ create_nodeset_from_sideset(const std::shared_ptr<SemiStructuredMesh> &ss,
   return smesh::manage_host_buffer(n_nodes, nodes);
 }
 
+std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>>
+create_surface_from_sideset_semistructured(
+    const std::shared_ptr<Mesh> &ssmesh,
+    const std::shared_ptr<Sideset> &sideset) {
+
+  if (!is_semistructured_type(ssmesh->element_type())) {
+    SMESH_ERROR("Mesh is not a semistructured mesh!\n");
+    return {INVALID, nullptr};
+  }
+
+  int level = proteus_hex_micro_elements_per_dim(ssmesh->element_type());
+  auto ss_sides = smesh::create_host_buffer<idx_t>((level + 1) * (level + 1),
+                                                   sideset->parent()->size());
+
+  if (sshex8_extract_surface_from_sideset(
+          level, ssmesh->elements()->data(), sideset->parent()->size(),
+          sideset->parent()->data(), sideset->lfi()->data(),
+          ss_sides->data()) != SMESH_SUCCESS) {
+    SMESH_ERROR("Unable to extract surface from sideset!\n");
+  }
+
+  //   idx_t *idx = nullptr;
+  //   ptrdiff_t n_contiguous = invalid_idx<ptrdiff_t>();
+  std::vector<int> levels(sshex8_hierarchical_n_levels(level));
+
+  // FiXME harcoded for sshex8
+  sshex8_hierarchical_mesh_levels(level, levels.size(), levels.data());
+
+  const int nnxs = 4;
+  const int nexs = level * level;
+  auto surface =
+      smesh::create_host_buffer<idx_t>(nnxs, sideset->parent()->size() * nexs);
+
+  ssquad4_to_standard_quad4_mesh(level, sideset->parent()->size(),
+                                 ss_sides->data(), surface->data());
+  return {QUADSHELL4, surface};
+}
+
 std::shared_ptr<Buffer<idx_t>>
 create_nodeset_from_sideset(const std::shared_ptr<Mesh> &mesh,
                             const std::shared_ptr<Sideset> &sideset) {
+
+  if (is_semistructured_type(mesh->element_type())) {
+    return create_nodeset_from_sideset_semistructured(mesh, sideset);
+  }
 
   ptrdiff_t n_nodes{0};
   idx_t *nodes{nullptr};
@@ -346,35 +374,25 @@ create_nodeset_from_sideset(const std::shared_ptr<Mesh> &mesh,
 }
 
 std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>>
-create_surface_from_sideset(const std::shared_ptr<SemiStructuredMesh> &ssmesh,
-                            const std::shared_ptr<Sideset> &sideset) {
+create_surface_from_sidesets(
+    const std::shared_ptr<Mesh> &mesh,
+    const std::vector<std::shared_ptr<Sideset>> &sidesets) {
 
-  auto ss_sides = smesh::create_host_buffer<idx_t>(
-      (ssmesh->level() + 1) * (ssmesh->level() + 1), sideset->parent()->size());
-
-  if (sshex8_extract_surface_from_sideset(
-          ssmesh->level(), ssmesh->element_data(), sideset->parent()->size(),
-          sideset->parent()->data(), sideset->lfi()->data(),
-          ss_sides->data()) != SMESH_SUCCESS) {
-    SMESH_ERROR("Unable to extract surface from sideset!\n");
+  if (sidesets.empty()) {
+    return {INVALID, nullptr};
   }
 
-  //   idx_t *idx = nullptr;
-  //   ptrdiff_t n_contiguous = invalid_idx<ptrdiff_t>();
-  std::vector<int> levels(sshex8_hierarchical_n_levels(ssmesh->level()));
+  if (sidesets.size() != 1) {
+    SMESH_ERROR("create_surface_from_sidesets is not supported for multiple "
+                "sidesets!\n");
+    return {INVALID, nullptr};
+  }
 
-  // FiXME harcoded for sshex8
-  sshex8_hierarchical_mesh_levels(ssmesh->level(), levels.size(),
-                                  levels.data());
-
-  const int nnxs = 4;
-  const int nexs = ssmesh->level() * ssmesh->level();
-  auto surface =
-      smesh::create_host_buffer<idx_t>(nnxs, sideset->parent()->size() * nexs);
-
-  ssquad4_to_standard_quad4_mesh(ssmesh->level(), sideset->parent()->size(),
-                                 ss_sides->data(), surface->data());
-  return {QUADSHELL4, surface};
+  if (is_semistructured_type(mesh->element_type())) {
+    return create_surface_from_sideset_semistructured(mesh, sidesets[0]);
+  } else {
+    return create_surface_from_sideset(mesh, sidesets[0]);
+  }
 }
 
 } // namespace smesh

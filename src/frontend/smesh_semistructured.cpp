@@ -14,178 +14,479 @@
 
 namespace smesh {
 
-class SemiStructuredMesh::Impl {
-public:
-  std::shared_ptr<Mesh> macro_mesh;
-  int level;
+// class SemiStructuredMesh::Impl {
+// public:
+//   std::shared_ptr<Mesh> macro_mesh;
+//   int level;
 
-  ptrdiff_t n_unique_nodes{-1}, interior_start{-1};
-  std::shared_ptr<CRSGraph<count_t, idx_t>> node_to_node_graph;
+//   ptrdiff_t n_unique_nodes{-1}, interior_start{-1};
+//   std::shared_ptr<CRSGraph<count_t, idx_t>> node_to_node_graph;
 
-  std::shared_ptr<Buffer<geom_t *>> points;
-  std::vector<std::shared_ptr<Block>> blocks;
+//   std::shared_ptr<Buffer<geom_t *>> points;
+//   std::vector<std::shared_ptr<Block>> blocks;
 
-  void init(const std::shared_ptr<Mesh> macro_mesh, const int level) {
-    SMESH_TRACE_SCOPE("SemiStructuredMesh::init");
+//   void init(const std::shared_ptr<Mesh> macro_mesh, const int level) {
+//     SMESH_TRACE_SCOPE("SemiStructuredMesh::init");
 
-    this->macro_mesh = macro_mesh;
-    this->level = level;
-    blocks.clear();
-    points.reset();
+//     this->macro_mesh = macro_mesh;
+//     this->level = level;
+//     blocks.clear();
+//     points.reset();
 
-    if (macro_mesh->n_blocks() == 1) {
-      auto block = macro_mesh->block(0);
+//     if (macro_mesh->n_blocks() == 1) {
+//       auto block = macro_mesh->block(0);
 
-      auto default_block = std::make_shared<Block>();
-      default_block->set_name(block->name());
+//       auto default_block = std::make_shared<Block>();
+//       default_block->set_name(block->name());
 
-      // FIXME hardcoded for sshex8
-      default_block->set_element_type(SSHEX8);
+//       // FIXME hardcoded for sshex8
+//       default_block->set_element_type(SSHEX8);
 
-      const int nxe = sshex8_nxe(level);
-      auto micro_elements =
-          create_host_buffer<idx_t>(nxe, macro_mesh->n_elements());
-      default_block->set_elements(micro_elements);
+//       const int nxe = sshex8_nxe(level);
+//       auto micro_elements =
+//           create_host_buffer<idx_t>(nxe, macro_mesh->n_elements());
+//       default_block->set_elements(micro_elements);
 
-      auto elements = micro_elements->data();
-      sshex8_generate_elements(level, macro_mesh->n_elements(),
-                               macro_mesh->n_nodes(),
-                               macro_mesh->elements()->data(), elements,
-                               &this->n_unique_nodes, &this->interior_start);
+//       auto elements = micro_elements->data();
+//       sshex8_generate_elements(level, macro_mesh->n_elements(),
+//                                macro_mesh->n_nodes(),
+//                                macro_mesh->elements()->data(), elements,
+//                                &this->n_unique_nodes, &this->interior_start);
 
-      blocks.push_back(default_block);
+//       blocks.push_back(default_block);
 
-    } else {
-      SMESH_ERROR("SemiStructuredMesh is not supported for multi-block meshes");
-    }
-  }
+//     } else {
+//       SMESH_ERROR("SemiStructuredMesh is not supported for multi-block
+//       meshes");
+//     }
+//   }
 
-  const SharedBuffer<idx_t *> &default_elements() const {
-    return blocks[0]->elements();
-  }
-};
+//   const SharedBuffer<idx_t *> &default_elements() const {
+//     return blocks[0]->elements();
+//   }
+// };
 
-std::shared_ptr<Mesh> SemiStructuredMesh::macro_mesh() {
-  return impl_->macro_mesh;
-}
+// std::shared_ptr<Mesh> SemiStructuredMesh::macro_mesh() {
+//   return impl_->macro_mesh;
+// }
 
-size_t SemiStructuredMesh::n_blocks() const { return impl_->blocks.size(); }
-std::vector<std::shared_ptr<SemiStructuredMesh ::Block>> &
-SemiStructuredMesh::blocks() {
-  return impl_->blocks;
-}
-std::shared_ptr<SemiStructuredMesh::Block>
-SemiStructuredMesh::block(const block_idx_t block_id) {
-  return impl_->blocks[block_id];
-}
+// size_t SemiStructuredMesh::n_blocks() const { return impl_->blocks.size(); }
+// std::vector<std::shared_ptr<SemiStructuredMesh ::Block>> &
+// SemiStructuredMesh::blocks() {
+//   return impl_->blocks;
+// }
+// std::shared_ptr<SemiStructuredMesh::Block>
+// SemiStructuredMesh::block(const block_idx_t block_id) {
+//   return impl_->blocks[block_id];
+// }
 
-std::vector<int> SemiStructuredMesh::derefinement_levels() {
-  const int L = level();
-  const int nlevels = sshex8_hierarchical_n_levels(L);
-  std::vector<int> levels(nlevels);
-  sshex8_hierarchical_mesh_levels(L, nlevels, levels.data());
-  return levels;
-}
+// std::vector<int> SemiStructuredMesh::derefinement_levels() {
+//   const int L = level();
+//   const int nlevels = sshex8_hierarchical_n_levels(L);
+//   std::vector<int> levels(nlevels);
+//   sshex8_hierarchical_mesh_levels(L, nlevels, levels.data());
+//   return levels;
+// }
 
-std::shared_ptr<SemiStructuredMesh>
-SemiStructuredMesh::derefine(const int to_level) {
-  const int from_level = this->level();
-  const int step_factor = from_level / to_level;
-  const int nxe = (to_level + 1) * (to_level + 1) * (to_level + 1);
+// std::shared_ptr<SemiStructuredMesh>
+// SemiStructuredMesh::derefine(const int to_level) {
+//   const int from_level = this->level();
+//   const int step_factor = from_level / to_level;
+//   const int nxe = (to_level + 1) * (to_level + 1) * (to_level + 1);
 
-  auto ret = std::make_shared<SemiStructuredMesh>();
-  ret->impl_->macro_mesh = this->impl_->macro_mesh;
-  ret->impl_->level = to_level;
+//   auto ret = std::make_shared<SemiStructuredMesh>();
+//   ret->impl_->macro_mesh = this->impl_->macro_mesh;
+//   ret->impl_->level = to_level;
 
-  ptrdiff_t n_unique_nodes{-1};
-  for (auto &block : this->blocks()) {
-    auto elements = block->elements();
-    auto view = std::make_shared<Buffer<idx_t *>>(
-        nxe, n_elements(), (idx_t **)malloc(nxe * sizeof(idx_t *)),
-        [keep_alive = elements](int, void **v) {
-          (void)keep_alive;
-          free(v);
-        },
-        elements->mem_space());
+//   ptrdiff_t n_unique_nodes{-1};
+//   for (auto &block : this->blocks()) {
+//     auto elements = block->elements();
+//     auto view = std::make_shared<Buffer<idx_t *>>(
+//         nxe, n_elements(), (idx_t **)malloc(nxe * sizeof(idx_t *)),
+//         [keep_alive = elements](int, void **v) {
+//           (void)keep_alive;
+//           free(v);
+//         },
+//         elements->mem_space());
 
-    for (int zi = 0; zi <= to_level; zi++) {
-      for (int yi = 0; yi <= to_level; yi++) {
-        for (int xi = 0; xi <= to_level; xi++) {
-          const int from_lidx = sshex8_lidx(from_level, xi * step_factor,
-                                            yi * step_factor, zi * step_factor);
-          const int to_lidx = sshex8_lidx(to_level, xi, yi, zi);
-          view->data()[to_lidx] = elements->data()[from_lidx];
-        }
-      }
-    }
+//     for (int zi = 0; zi <= to_level; zi++) {
+//       for (int yi = 0; yi <= to_level; yi++) {
+//         for (int xi = 0; xi <= to_level; xi++) {
+//           const int from_lidx = sshex8_lidx(from_level, xi * step_factor,
+//                                             yi * step_factor, zi *
+//                                             step_factor);
+//           const int to_lidx = sshex8_lidx(to_level, xi, yi, zi);
+//           view->data()[to_lidx] = elements->data()[from_lidx];
+//         }
+//       }
+//     }
 
-    auto derefined_block = std::make_shared<Block>();
-    derefined_block->set_name(block->name());
-    derefined_block->set_element_type(block->element_type());
-    derefined_block->set_elements(view);
-    ret->impl_->blocks.push_back(derefined_block);
+//     auto derefined_block = std::make_shared<Block>();
+//     derefined_block->set_name(block->name());
+//     derefined_block->set_element_type(block->element_type());
+//     derefined_block->set_elements(view);
+//     ret->impl_->blocks.push_back(derefined_block);
 
-    // Find max node id
-    {
-      auto vv = view->data();
-      const ptrdiff_t nelements = block->n_elements();
-      for (size_t v = 0; v < view->extent(0); v++) {
-        for (ptrdiff_t e = 0; e < nelements; e++) {
-          n_unique_nodes =
-              std::max(static_cast<ptrdiff_t>(vv[v][e]), n_unique_nodes);
-        }
-      }
-    }
-  }
+//     // Find max node id
+//     {
+//       auto vv = view->data();
+//       const ptrdiff_t nelements = block->n_elements();
+//       for (size_t v = 0; v < view->extent(0); v++) {
+//         for (ptrdiff_t e = 0; e < nelements; e++) {
+//           n_unique_nodes =
+//               std::max(static_cast<ptrdiff_t>(vv[v][e]), n_unique_nodes);
+//         }
+//       }
+//     }
+//   }
 
-  n_unique_nodes += 1;
+//   n_unique_nodes += 1;
 
-  ret->impl_->n_unique_nodes = n_unique_nodes;
-  ret->impl_->interior_start = this->impl_->interior_start;
+//   ret->impl_->n_unique_nodes = n_unique_nodes;
+//   ret->impl_->interior_start = this->impl_->interior_start;
 
-  if (this->impl_->points) {
-    int sdim = this->impl_->macro_mesh->spatial_dimension();
-    ret->impl_->points =
-        smesh::view(this->impl_->points, 0, sdim, 0, n_unique_nodes);
-  }
+//   if (this->impl_->points) {
+//     int sdim = this->impl_->macro_mesh->spatial_dimension();
+//     ret->impl_->points =
+//         smesh::view(this->impl_->points, 0, sdim, 0, n_unique_nodes);
+//   }
 
-  return ret;
-}
+//   return ret;
+// }
 
-int SemiStructuredMesh::apply_hierarchical_renumbering() {
-  if (n_blocks() > 1) {
-    SMESH_ERROR("Applying hierarchical renumbering is not supported for "
-                "multi-block meshes");
-  }
+// int SemiStructuredMesh::apply_hierarchical_renumbering() {
+//   if (n_blocks() > 1) {
+//     SMESH_ERROR("Applying hierarchical renumbering is not supported for "
+//                 "multi-block meshes");
+//   }
 
-  const int L = level();
+//   const int L = level();
 
-  const int nlevels = sshex8_hierarchical_n_levels(L);
+//   const int nlevels = sshex8_hierarchical_n_levels(L);
 
+//   std::vector<int> levels(nlevels);
+
+//   // FiXME harcoded for sshex8
+//   sshex8_hierarchical_mesh_levels(L, nlevels, levels.data());
+
+//   return sshex8_hierarchical_renumbering(
+//       L, nlevels, levels.data(), this->n_elements(),
+//       this->impl_->n_unique_nodes, this->impl_->default_elements()->data());
+// }
+
+// std::shared_ptr<Buffer<geom_t *>> SemiStructuredMesh::points() {
+//   if (!impl_->points) {
+//     auto p = smesh::create_host_buffer<geom_t>(
+//         impl_->macro_mesh->spatial_dimension(), impl_->n_unique_nodes);
+//     auto macro_p = impl_->macro_mesh->points()->data();
+
+//     SMESH_TRACE_SCOPE("sshex8_fill_points");
+
+//     int SMESH_USE_GLL = 0;
+//     SMESH_READ_ENV(SMESH_USE_GLL, atoi);
+
+//     if (SMESH_USE_GLL) {
+//       const double *qx{nullptr};
+//       switch (level()) {
+//       case 1: {
+//         qx = line_GL_q2_x;
+//         break;
+//       }
+//       case 2: {
+//         qx = line_GL_q3_x;
+//         break;
+//       }
+//       case 4: {
+//         qx = line_GL_q5_x;
+//         break;
+//       }
+//       case 8: {
+//         qx = line_GL_q9_x;
+//         break;
+//       }
+//       case 16: {
+//         qx = line_GL_q17_x;
+//         break;
+//       }
+//       default: {
+//         SMESH_ERROR("Unsupported order %d!", level());
+//       }
+//       }
+
+//       sshex8_fill_points_1D_map(level(), n_elements(), element_data(),
+//       macro_p,
+//                                 qx, p->data());
+//     } else {
+//       sshex8_fill_points(level(), n_elements(), element_data(), macro_p,
+//                          p->data());
+//     }
+
+//     impl_->points = p;
+//   }
+
+//   return impl_->points;
+// }
+
+// std::shared_ptr<Buffer<idx_t *>> SemiStructuredMesh::elements() {
+//   return impl_->default_elements();
+// }
+
+// std::shared_ptr<CRSGraph<count_t, idx_t>>
+// SemiStructuredMesh::node_to_node_graph() {
+//   // printf("SemiStructuredMesh::node_to_node_graph\n");
+//   if (impl_->node_to_node_graph) {
+//     return impl_->node_to_node_graph;
+//   }
+
+//   if (n_blocks() > 1) {
+//     SMESH_ERROR("Node-to-node graph is not supported for multi-block
+//     meshes");
+//   }
+
+//   SMESH_TRACE_SCOPE("SemiStructuredMesh::node_to_node_graph");
+
+//   count_t *rowptr{nullptr};
+//   idx_t *colidx{nullptr};
+
+//   sshex8_crs_graph<element_idx_t, count_t, idx_t>(
+//       impl_->level, this->n_elements(), this->n_nodes(),
+//       this->element_data(), &rowptr, &colidx);
+
+//   impl_->node_to_node_graph = std::make_shared<CRSGraph<count_t, idx_t>>(
+//       Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free,
+//                            MEMORY_SPACE_HOST),
+//       Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free,
+//                          MEMORY_SPACE_HOST));
+
+//   return impl_->node_to_node_graph;
+// }
+
+// int SemiStructuredMesh::n_nodes_per_element() const {
+//   return sshex8_nxe(impl_->level);
+// }
+
+// idx_t **SemiStructuredMesh::element_data() {
+//   return impl_->default_elements()->data();
+// }
+// geom_t **SemiStructuredMesh::point_data() {
+//   return impl_->macro_mesh->points()->data();
+// }
+// ptrdiff_t SemiStructuredMesh::interior_start() const {
+//   return impl_->interior_start;
+// }
+
+// SemiStructuredMesh::SemiStructuredMesh(const std::shared_ptr<Mesh>
+// macro_mesh,
+//                                        const int level)
+//     : impl_(std::make_unique<Impl>()) {
+//   impl_->init(macro_mesh, level);
+// }
+
+// SemiStructuredMesh::SemiStructuredMesh() : impl_(std::make_unique<Impl>()) {}
+
+// SemiStructuredMesh::~SemiStructuredMesh() {}
+
+// ptrdiff_t SemiStructuredMesh::n_nodes() const { return impl_->n_unique_nodes;
+// } int SemiStructuredMesh::level() const { return impl_->level; } ptrdiff_t
+// SemiStructuredMesh::n_elements() const {
+//   return impl_->macro_mesh->n_elements();
+// }
+
+// int SemiStructuredMesh::export_as_standard(const Path &folder) {
+//   SMESH_TRACE_SCOPE("SemiStructuredMesh::export_as_standard");
+
+//   if (n_blocks() > 1) {
+//     SMESH_ERROR("Exporting multi-block meshes is not supported");
+//   }
+
+//   smesh::create_directory(folder.to_string());
+
+//   auto elements = impl_->default_elements();
+//   auto points = this->points();
+
+//   const int txe = sshex8_txe(this->level());
+//   ptrdiff_t n_micro_elements = this->n_elements() * txe;
+//   auto hex8_elements = create_host_buffer<idx_t>(8, n_micro_elements);
+
+//   sshex8_to_standard_hex8_mesh(level(), n_elements(), elements->data(),
+//                                hex8_elements->data());
+
+//   // hex8_elements->print(std::cout);
+//   // points->print(std::cout);
+
+//   std::string coords_extension(TypeToString<geom_t>::value());
+//   std::string elements_extension(TypeToString<idx_t>::value());
+
+//   Path points_path = folder / ("x%d." + coords_extension);
+//   points->to_files(points_path);
+
+//   Path elements_path = folder / ("/i%d." + elements_extension);
+//   hex8_elements->to_files(elements_path);
+
+//   std::stringstream ss;
+//   ss << "# SMESH mesh meta file (generated by "
+//         "SemiStructuredMesh::export_as_standard)\n";
+//   ss << "n_elements: " << hex8_elements->extent(1) << "\n";
+//   ss << "n_nodes: " << points->extent(1) << "\n";
+//   ss << "spatial_dimension: 3\n";
+//   ss << "elem_num_nodes: 8\n";
+//   ss << "element_type: HEX8\n";
+//   ss << "points:\n";
+//   ss << "- x: x0." << coords_extension << "\n";
+//   ss << "- y: x1." << coords_extension << "\n";
+//   ss << "- z: x2." << coords_extension << "\n";
+//   ss << "elements:\n";
+//   for (int i = 0; i < 8; i++) {
+//     ss << "- i" << i << ": i" << i << "." << elements_extension << "\n";
+//   }
+//   ss << "rpath: true\n";
+
+//   const double mem_hex8_mesh = hex8_elements->extent(0) *
+//                                hex8_elements->extent(1) * sizeof(idx_t) *
+//                                1e-9;
+//   const double mem_sshex8_mesh =
+//       elements->extent(0) * elements->extent(1) * sizeof(idx_t) * 1e-9;
+//   const double mem_points =
+//       points->extent(0) * points->extent(1) * sizeof(geom_t) * 1e-9;
+//   const double mem_macro_points = impl_->macro_mesh->points()->extent(0) *
+//                                   impl_->macro_mesh->points()->extent(1) *
+//                                   sizeof(geom_t) * 1e-9;
+
+//   ss << "mem_hex8_mesh:    " << mem_hex8_mesh << " [GB]\n";
+//   ss << "mem_sshex8_mesh:  " << mem_sshex8_mesh << " [GB]\n";
+//   ss << "mem_points:       " << mem_points << " [GB]\n";
+//   ss << "mem_macro_points: " << mem_macro_points << " [GB]\n";
+//   ss << "mem_disc_ss:      " << (mem_points + mem_macro_points) << " [GB]\n";
+//   ss << "mem_disc_std:     " << (mem_hex8_mesh + mem_sshex8_mesh) << "
+//   [GB]\n"; ss << "n_macro_elements: " << elements->extent(1) << "\n";
+
+//   Path meta_path = folder / "meta.yaml";
+//   std::ofstream os(meta_path.c_str());
+
+//   if (!os.good()) {
+//     return SMESH_FAILURE;
+//   }
+
+//   os << ss.str();
+//   os.close();
+
+//   return SMESH_SUCCESS;
+// }
+
+// int SemiStructuredMesh::write(const Path &folder) {
+//   SMESH_TRACE_SCOPE("SemiStructuredMesh::write");
+
+//   if (n_blocks() > 1) {
+//     SMESH_ERROR("Writing multi-block meshes is not supported");
+//   }
+
+//   smesh::create_directory(folder);
+
+//   auto elements = impl_->default_elements();
+//   auto points = this->points();
+
+//   std::string coords_extension(TypeToString<geom_t>::value());
+//   std::string elements_extension(TypeToString<idx_t>::value());
+
+//   Path points_path = folder / ("x%d." + coords_extension);
+//   points->to_files(points_path);
+
+//   Path elements_path = folder / ("i%d." + elements_extension);
+//   elements->to_files(elements_path);
+
+//   std::stringstream ss;
+//   ss << "# SMESH mesh meta file (generated by SemiStructuredMesh::write)\n";
+//   ss << "level: " << this->level() << "\n";
+//   ss << "n_elements: " << elements->extent(1) << "\n";
+//   ss << "n_nodes: " << points->extent(1) << "\n";
+//   ss << "spatial_dimension: 3\n";
+//   ss << "elem_num_nodes: " << ((level() - 1) * (level() - 1) * (level() - 1))
+//      << "\n";
+//   ss << "element_type: SSHEX8\n";
+//   ss << "points:\n";
+//   ss << "- x: x0." << coords_extension << "\n";
+
+//   if (impl_->macro_mesh->spatial_dimension() >= 2) {
+//     ss << "- y: x1." << coords_extension << "\n";
+//   }
+//   if (impl_->macro_mesh->spatial_dimension() >= 3) {
+//     ss << "- z: x2." << coords_extension << "\n";
+//   }
+//   ss << "elements:\n";
+//   for (int i = 0; i < 8; i++) {
+//     ss << "- i" << i << ": i" << i << "." << elements_extension << "\n";
+//   }
+//   ss << "rpath: true\n";
+
+//   Path meta_path = folder / "meta.yaml";
+//   std::ofstream os(meta_path.c_str());
+
+//   if (!os.good()) {
+//     return SMESH_FAILURE;
+//   }
+
+//   os << ss.str();
+//   os.close();
+//   return SMESH_SUCCESS;
+// }
+
+int semistructured_hierarchical_renumbering(
+    const enum ElemType element_type, const int level, const ptrdiff_t n_nodes,
+    const SharedBuffer<idx_t *> &elements) {
+  SMESH_UNUSED(element_type); // FIXME: harcoded for sshex8
+  const int nlevels = sshex8_hierarchical_n_levels(level);
   std::vector<int> levels(nlevels);
 
   // FiXME harcoded for sshex8
-  sshex8_hierarchical_mesh_levels(L, nlevels, levels.data());
+  sshex8_hierarchical_mesh_levels(level, nlevels, levels.data());
 
-  return sshex8_hierarchical_renumbering(
-      L, nlevels, levels.data(), this->n_elements(),
-      this->impl_->n_unique_nodes, this->impl_->default_elements()->data());
+  return sshex8_hierarchical_renumbering(level, nlevels, levels.data(),
+                                         elements->extent(1), n_nodes,
+                                         elements->data());
 }
 
-std::shared_ptr<Buffer<geom_t *>> SemiStructuredMesh::points() {
-  if (!impl_->points) {
-    auto p = smesh::create_host_buffer<geom_t>(
-        impl_->macro_mesh->spatial_dimension(), impl_->n_unique_nodes);
-    auto macro_p = impl_->macro_mesh->points()->data();
+// FIXME hardcoded for sshex8
+std::shared_ptr<Mesh> to_semistructured(const int level,
+                                        const std::shared_ptr<Mesh> &mesh,
+                                        const bool hiearchical_ordering,
+                                        const bool use_GLL) {
+  SMESH_TRACE_SCOPE("to_semistructured");
 
-    SMESH_TRACE_SCOPE("sshex8_fill_points");
+  if (mesh->n_blocks() == 1) {
+    auto block = mesh->block(0);
 
-    int SMESH_USE_GLL = 0;
-    SMESH_READ_ENV(SMESH_USE_GLL, atoi);
+    auto default_block = std::make_shared<Mesh::Block>();
+    default_block->set_name(block->name());
 
-    if (SMESH_USE_GLL) {
+    enum ElemType element_type =
+        semistructured_type(block->element_type(), level);
+    default_block->set_element_type(element_type);
+
+    const int nxe = sshex8_nxe(level);
+    auto elements = create_host_buffer<idx_t>(nxe, mesh->n_elements());
+
+    ptrdiff_t n_unique_nodes{-1};
+    ptrdiff_t interior_start{-1};
+    sshex8_generate_elements(level, mesh->n_elements(), mesh->n_nodes(),
+                             mesh->elements()->data(), elements->data(),
+                             &n_unique_nodes, &interior_start);
+
+    default_block->set_elements(elements);
+    std::vector<std::shared_ptr<Mesh::Block>> blocks;
+    blocks.push_back(default_block);
+
+    if (hiearchical_ordering) {
+      semistructured_hierarchical_renumbering(element_type, level,
+                                              n_unique_nodes, elements);
+    }
+
+    auto p = smesh::create_host_buffer<geom_t>(mesh->spatial_dimension(),
+                                               n_unique_nodes);
+    auto macro_p = mesh->points()->data();
+
+    if (use_GLL) {
       const double *qx{nullptr};
-      switch (level()) {
+      switch (level) {
       case 1: {
         qx = line_GL_q2_x;
         break;
@@ -207,221 +508,106 @@ std::shared_ptr<Buffer<geom_t *>> SemiStructuredMesh::points() {
         break;
       }
       default: {
-        SMESH_ERROR("Unsupported order %d!", level());
+        SMESH_ERROR("Unsupported order %d!", level);
       }
       }
 
-      sshex8_fill_points_1D_map(level(), n_elements(), element_data(), macro_p,
-                                qx, p->data());
+      sshex8_fill_points_1D_map(level, mesh->n_elements(), elements->data(),
+                                macro_p, qx, p->data());
     } else {
-      sshex8_fill_points(level(), n_elements(), element_data(), macro_p,
+      sshex8_fill_points(level, mesh->n_elements(), elements->data(), macro_p,
                          p->data());
     }
 
-    impl_->points = p;
+    return std::make_shared<Mesh>(mesh->comm(), blocks, p);
+
+  } else {
+    SMESH_ERROR("hex8_to_sshex does not support multi-block meshes");
   }
-
-  return impl_->points;
 }
 
-std::shared_ptr<Buffer<idx_t *>> SemiStructuredMesh::elements() {
-  return impl_->default_elements();
-}
-
-std::shared_ptr<CRSGraph<count_t, idx_t>>
-SemiStructuredMesh::node_to_node_graph() {
-  // printf("SemiStructuredMesh::node_to_node_graph\n");
-  if (impl_->node_to_node_graph) {
-    return impl_->node_to_node_graph;
-  }
-
-  if (n_blocks() > 1) {
-    SMESH_ERROR("Node-to-node graph is not supported for multi-block meshes");
-  }
-
-  SMESH_TRACE_SCOPE("SemiStructuredMesh::node_to_node_graph");
-
-  count_t *rowptr{nullptr};
-  idx_t *colidx{nullptr};
-
-  sshex8_crs_graph<element_idx_t, count_t, idx_t>(impl_->level, this->n_elements(),
-                                  this->n_nodes(), this->element_data(),
-                                  &rowptr, &colidx);
-
-  impl_->node_to_node_graph = std::make_shared<CRSGraph<count_t, idx_t>>(
-      Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free,
-                           MEMORY_SPACE_HOST),
-      Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free,
-                         MEMORY_SPACE_HOST));
-
-  return impl_->node_to_node_graph;
-}
-
-int SemiStructuredMesh::n_nodes_per_element() const {
-  return sshex8_nxe(impl_->level);
-}
-
-idx_t **SemiStructuredMesh::element_data() {
-  return impl_->default_elements()->data();
-}
-geom_t **SemiStructuredMesh::point_data() {
-  return impl_->macro_mesh->points()->data();
-}
-ptrdiff_t SemiStructuredMesh::interior_start() const {
-  return impl_->interior_start;
-}
-
-SemiStructuredMesh::SemiStructuredMesh(const std::shared_ptr<Mesh> macro_mesh,
-                                       const int level)
-    : impl_(std::make_unique<Impl>()) {
-  impl_->init(macro_mesh, level);
-}
-
-SemiStructuredMesh::SemiStructuredMesh() : impl_(std::make_unique<Impl>()) {}
-
-SemiStructuredMesh::~SemiStructuredMesh() {}
-
-ptrdiff_t SemiStructuredMesh::n_nodes() const { return impl_->n_unique_nodes; }
-int SemiStructuredMesh::level() const { return impl_->level; }
-ptrdiff_t SemiStructuredMesh::n_elements() const {
-  return impl_->macro_mesh->n_elements();
-}
-
-int SemiStructuredMesh::export_as_standard(const Path &folder) {
-  SMESH_TRACE_SCOPE("SemiStructuredMesh::export_as_standard");
-
-  if (n_blocks() > 1) {
-    SMESH_ERROR("Exporting multi-block meshes is not supported");
-  }
-
-  smesh::create_directory(folder.to_string());
-
-  auto elements = impl_->default_elements();
-  auto points = this->points();
-
-  const int txe = sshex8_txe(this->level());
-  ptrdiff_t n_micro_elements = this->n_elements() * txe;
+void sshex_block_to_hex8_block(const Mesh::Block &block, Mesh::Block &new_block) {
+  auto elements = block.elements();
+  const int level = proteus_hex_micro_elements_per_dim(block.element_type());
+  ptrdiff_t n_micro_elements = block.n_elements() * level * level * level;
   auto hex8_elements = create_host_buffer<idx_t>(8, n_micro_elements);
-
-  sshex8_to_standard_hex8_mesh(level(), n_elements(), elements->data(),
+  sshex8_to_standard_hex8_mesh(level, block.n_elements(), elements->data(),
                                hex8_elements->data());
 
-  // hex8_elements->print(std::cout);
-  // points->print(std::cout);
-
-  std::string coords_extension(TypeToString<geom_t>::value());
-  std::string elements_extension(TypeToString<idx_t>::value());
-
-  Path points_path = folder / ("x%d." + coords_extension);
-  points->to_files(points_path);
-
-  Path elements_path = folder / ("/i%d." + elements_extension);
-  hex8_elements->to_files(elements_path);
-
-  std::stringstream ss;
-  ss << "# SMESH mesh meta file (generated by "
-        "SemiStructuredMesh::export_as_standard)\n";
-  ss << "n_elements: " << hex8_elements->extent(1) << "\n";
-  ss << "n_nodes: " << points->extent(1) << "\n";
-  ss << "spatial_dimension: 3\n";
-  ss << "elem_num_nodes: 8\n";
-  ss << "element_type: HEX8\n";
-  ss << "points:\n";
-  ss << "- x: x0." << coords_extension << "\n";
-  ss << "- y: x1." << coords_extension << "\n";
-  ss << "- z: x2." << coords_extension << "\n";
-  ss << "elements:\n";
-  for (int i = 0; i < 8; i++) {
-    ss << "- i" << i << ": i" << i << "." << elements_extension << "\n";
-  }
-  ss << "rpath: true\n";
-
-  const double mem_hex8_mesh = hex8_elements->extent(0) *
-                               hex8_elements->extent(1) * sizeof(idx_t) * 1e-9;
-  const double mem_sshex8_mesh =
-      elements->extent(0) * elements->extent(1) * sizeof(idx_t) * 1e-9;
-  const double mem_points =
-      points->extent(0) * points->extent(1) * sizeof(geom_t) * 1e-9;
-  const double mem_macro_points = impl_->macro_mesh->points()->extent(0) *
-                                  impl_->macro_mesh->points()->extent(1) *
-                                  sizeof(geom_t) * 1e-9;
-
-  ss << "mem_hex8_mesh:    " << mem_hex8_mesh << " [GB]\n";
-  ss << "mem_sshex8_mesh:  " << mem_sshex8_mesh << " [GB]\n";
-  ss << "mem_points:       " << mem_points << " [GB]\n";
-  ss << "mem_macro_points: " << mem_macro_points << " [GB]\n";
-  ss << "mem_disc_ss:      " << (mem_points + mem_macro_points) << " [GB]\n";
-  ss << "mem_disc_std:     " << (mem_hex8_mesh + mem_sshex8_mesh) << " [GB]\n";
-  ss << "n_macro_elements: " << elements->extent(1) << "\n";
-
-  Path meta_path = folder / "meta.yaml";
-  std::ofstream os(meta_path.c_str());
-
-  if (!os.good()) {
-    return SMESH_FAILURE;
-  }
-
-  os << ss.str();
-  os.close();
-
-  return SMESH_SUCCESS;
+  new_block.set_name(block.name());  
+  new_block.set_elements(hex8_elements);
+  new_block.set_element_type(HEX8);
 }
 
-int SemiStructuredMesh::write(const Path &folder) {
-  SMESH_TRACE_SCOPE("SemiStructuredMesh::write");
-
-  if (n_blocks() > 1) {
-    SMESH_ERROR("Writing multi-block meshes is not supported");
+std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex) {
+  std::vector<std::shared_ptr<Mesh::Block>> blocks;
+  for (auto &block : sshex->blocks()) {
+    auto new_block = std::make_shared<Mesh::Block>();
+    sshex_block_to_hex8_block(*block, *new_block);
+    blocks.push_back(new_block);
   }
 
-  smesh::create_directory(folder);
+  return std::make_shared<Mesh>(sshex->comm(), blocks, sshex->points());
+}
 
-  auto elements = impl_->default_elements();
-  auto points = this->points();
+std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh,
+                               const int to_level) {
+  const int from_level =
+      proteus_hex_micro_elements_per_dim(mesh->element_type());
+  const int step_factor = from_level / to_level;
+  const int nxe = (to_level + 1) * (to_level + 1) * (to_level + 1);
 
-  std::string coords_extension(TypeToString<geom_t>::value());
-  std::string elements_extension(TypeToString<idx_t>::value());
+  std::vector<std::shared_ptr<Mesh::Block>> blocks;
+  ptrdiff_t n_unique_nodes{-1};
+  for (auto &block : mesh->blocks()) {
+    auto elements = block->elements();
+    auto view = std::make_shared<Buffer<idx_t *>>(
+        nxe, block->n_elements(), (idx_t **)malloc(nxe * sizeof(idx_t *)),
+        [keep_alive = elements](int, void **v) {
+          (void)keep_alive;
+          free(v);
+        },
+        elements->mem_space());
 
-  Path points_path = folder / ("x%d." + coords_extension);
-  points->to_files(points_path);
+    for (int zi = 0; zi <= to_level; zi++) {
+      for (int yi = 0; yi <= to_level; yi++) {
+        for (int xi = 0; xi <= to_level; xi++) {
+          const int from_lidx = sshex8_lidx(from_level, xi * step_factor,
+                                            yi * step_factor, zi * step_factor);
+          const int to_lidx = sshex8_lidx(to_level, xi, yi, zi);
+          view->data()[to_lidx] = elements->data()[from_lidx];
+        }
+      }
+    }
 
-  Path elements_path = folder / ("i%d." + elements_extension);
-  elements->to_files(elements_path);
+    enum ElemType element_type =
+        semistructured_type(macro_base_elem(block->element_type()), to_level);
 
-  std::stringstream ss;
-  ss << "# SMESH mesh meta file (generated by SemiStructuredMesh::write)\n";
-  ss << "level: " << this->level() << "\n";
-  ss << "n_elements: " << elements->extent(1) << "\n";
-  ss << "n_nodes: " << points->extent(1) << "\n";
-  ss << "spatial_dimension: 3\n";
-  ss << "elem_num_nodes: " << ((level() - 1) * (level() - 1) * (level() - 1))
-     << "\n";
-  ss << "element_type: SSHEX8\n";
-  ss << "points:\n";
-  ss << "- x: x0." << coords_extension << "\n";
+    auto derefined_block = std::make_shared<Mesh::Block>();
+    derefined_block->set_name(block->name());
+    derefined_block->set_element_type(element_type);
+    derefined_block->set_elements(view);
+    blocks.push_back(derefined_block);
 
-  if (impl_->macro_mesh->spatial_dimension() >= 2) {
-    ss << "- y: x1." << coords_extension << "\n";
+    // Find max node id
+    {
+      auto vv = view->data();
+      const ptrdiff_t nelements = block->n_elements();
+      for (size_t v = 0; v < view->extent(0); v++) {
+        for (ptrdiff_t e = 0; e < nelements; e++) {
+          n_unique_nodes =
+              std::max(static_cast<ptrdiff_t>(vv[v][e]), n_unique_nodes);
+        }
+      }
+    }
   }
-  if (impl_->macro_mesh->spatial_dimension() >= 3) {
-    ss << "- z: x2." << coords_extension << "\n";
-  }
-  ss << "elements:\n";
-  for (int i = 0; i < 8; i++) {
-    ss << "- i" << i << ": i" << i << "." << elements_extension << "\n";
-  }
-  ss << "rpath: true\n";
 
-  Path meta_path = folder / "meta.yaml";
-  std::ofstream os(meta_path.c_str());
+  n_unique_nodes += 1;
 
-  if (!os.good()) {
-    return SMESH_FAILURE;
-  }
+  int sdim = mesh->spatial_dimension();
+  auto points = smesh::view(mesh->points(), 0, sdim, 0, n_unique_nodes);
 
-  os << ss.str();
-  os.close();
-  return SMESH_SUCCESS;
+  return std::make_shared<Mesh>(mesh->comm(), blocks, points);
 }
 
 } // namespace smesh

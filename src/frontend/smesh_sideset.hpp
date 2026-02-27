@@ -51,17 +51,16 @@ private:
 
 std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>>
 create_surface_from_sideset(
-    const std::shared_ptr<Mesh> &space,
+    const std::shared_ptr<Mesh> &mesh,
     const std::shared_ptr<Sideset> &sideset);
-
 
 std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>>
 create_surface_from_sidesets(
-    const std::shared_ptr<Mesh> &space,
+    const std::shared_ptr<Mesh> &mesh,
     const std::vector<std::shared_ptr<Sideset>> &sideset);
 
 SharedBuffer<idx_t> create_nodeset_from_sideset(
-    const std::shared_ptr<Mesh> &space,
+    const std::shared_ptr<Mesh> &mesh,
     const std::shared_ptr<Sideset> &sideset);
 
 } // namespace smesh

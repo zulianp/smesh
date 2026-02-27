@@ -55,6 +55,7 @@ public:
   public:
     Block();
     ~Block();
+    Block(const std::string &name, enum ElemType element_type, SharedBuffer<idx_t *> elements);
 
     const std::string &name() const;
     enum ElemType element_type() const;

@@ -2,6 +2,7 @@
 #include "smesh_adjacency.hpp"
 #include "smesh_build.hpp"
 #include "smesh_conversion.hpp"
+#include "smesh_file_extensions.hpp"
 #include "smesh_glob.hpp"
 #include "smesh_graph.hpp"
 #include "smesh_mask.hpp"
@@ -15,8 +16,8 @@
 #include "smesh_sshex8_graph.hpp"
 #include "smesh_sshex8_mesh.hpp"
 #include "smesh_tracer.hpp"
-#include "smesh_file_extensions.hpp"
 #include "smesh_write.hpp"
+#include "smesh_semistructured.hpp"
 
 #ifdef SMESH_ENABLE_MPI
 #include "smesh_distributed_read.hpp"
@@ -24,11 +25,11 @@
 #endif
 
 #include <algorithm>
+#include <fstream>
 #include <list>
 #include <map>
 #include <math.h>
 #include <vector>
-#include <fstream>
 
 namespace smesh {
 
@@ -119,8 +120,14 @@ public:
   SharedBuffer<idx_t *> elements;
 };
 
+Mesh::Block::Block(const std::string &name, enum ElemType element_type,
+                   SharedBuffer<idx_t *> elements)
+    : impl_(std::make_unique<Impl>()) {
+  impl_->name = name;
+  impl_->element_type = element_type;
+  impl_->elements = elements;
+}
 Mesh::Block::Block() : impl_(std::make_unique<Impl>()) {}
-
 Mesh::Block::~Block() = default;
 
 const std::string &Mesh::Block::name() const { return impl_->name; }
@@ -330,13 +337,10 @@ int Mesh::read(const Path &path) {
     ptrdiff_t nnodes;
     ptrdiff_t nelements;
 
-    
-
     if (mesh_from_folder(path, &nnodesxelem, &nelements, &elements,
                          &spatial_dim, &nnodes, &points) != SMESH_SUCCESS) {
       return SMESH_FAILURE;
     }
-
 
     auto elements_buffer =
         manage_host_buffer<idx_t>(nnodesxelem, nelements, elements);
@@ -512,15 +516,34 @@ Mesh::create_node_to_node_graph(const enum ElemType element_type) {
     return node_to_node_graph();
   }
 
+  if (n_blocks() != 1) {
+    SMESH_ERROR(
+        "create_node_to_node_graph is not supported for multi-block meshes!\n");
+    return nullptr;
+  }
+
   const ptrdiff_t n_nodes = max_node_id(element_type, impl_->total_elements(),
                                         impl_->default_elements()->data()) +
                             1;
 
   count_t *rowptr{nullptr};
   idx_t *colidx{nullptr};
-  create_crs_graph_for_elem_type(element_type, impl_->total_elements(), n_nodes,
-                                 impl_->default_elements()->data(), &rowptr,
-                                 &colidx);
+  if (is_semistructured_type(impl_->default_element_type())) {
+
+    // TODO: check of it works
+    SMESH_ERROR("Semistructured meshes by create_node_to_node_graph for "
+                "different element type!\n");
+    // for other semistructured elements
+    sshex8_crs_graph<element_idx_t, count_t, idx_t>(
+        proteus_hex_micro_elements_per_dim(element_type), this->n_elements(),
+        this->n_nodes(), this->elements()->data(), &rowptr, &colidx);
+
+  } else {
+
+    create_crs_graph_for_elem_type(element_type, impl_->total_elements(),
+                                   n_nodes, impl_->default_elements()->data(),
+                                   &rowptr, &colidx);
+  }
 
   auto crs_graph = std::make_shared<Mesh::NodeToNodeGraph>(
       Buffer<count_t>::own(n_nodes + 1, rowptr, free, MEMORY_SPACE_HOST),
@@ -542,10 +565,26 @@ int Mesh::initialize_node_to_node_graph() {
   idx_t *colidx{nullptr};
 
   if (impl_->blocks.size() == 1) {
-    create_crs_graph_for_elem_type(
-        impl_->default_element_type(), impl_->total_elements(), this->n_nodes(),
-        impl_->default_elements()->data(), &rowptr, &colidx);
+    if (is_semistructured_type(impl_->default_element_type())) {
+
+      sshex8_crs_graph<element_idx_t, count_t, idx_t>(
+          proteus_hex_micro_elements_per_dim(impl_->default_element_type()),
+          this->n_elements(), this->n_nodes(), this->elements()->data(),
+          &rowptr, &colidx);
+
+    } else {
+
+      create_crs_graph_for_elem_type(
+          impl_->default_element_type(), impl_->total_elements(),
+          this->n_nodes(), impl_->default_elements()->data(), &rowptr, &colidx);
+    }
   } else {
+
+    if (is_semistructured_type(impl_->default_element_type())) {
+      SMESH_ERROR(
+          "Semistructured meshes are not supported for multi-block meshes");
+      return SMESH_FAILURE;
+    }
     // AoS to SoA
     std::vector<enum ElemType> element_types;
     std::vector<ptrdiff_t> n_elements;
@@ -963,29 +1002,29 @@ Mesh::create_cube(const std::shared_ptr<Communicator> &comm,
     return create_tet4_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax,
                             zmax);
   case PROTEUS_HEX8:
-    return create_semistructured_hex_cube(comm, 1, nx, ny, nz, xmin, ymin, zmin, xmax,
-                                   ymax, zmax);
+    return create_semistructured_hex_cube(comm, 1, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
   case PROTEUS_HEX27:
-    return create_semistructured_hex_cube(comm, 2, nx, ny, nz, xmin, ymin, zmin, xmax,
-                                   ymax, zmax);
+    return create_semistructured_hex_cube(comm, 2, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
   case PROTEUS_HEX64:
-    return create_semistructured_hex_cube(comm, 3, nx, ny, nz, xmin, ymin, zmin, xmax,
-                                   ymax, zmax);
+    return create_semistructured_hex_cube(comm, 3, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
   case PROTEUS_HEX125:
-    return create_semistructured_hex_cube(comm, 4, nx, ny, nz, xmin, ymin, zmin, xmax,
-                                   ymax, zmax);
+    return create_semistructured_hex_cube(comm, 4, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
   case PROTEUS_HEX216:
-    return create_semistructured_hex_cube(comm, 5, nx, ny, nz, xmin, ymin, zmin, xmax,
-                                   ymax, zmax);
+    return create_semistructured_hex_cube(comm, 5, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
   case PROTEUS_HEX343:
-    return create_semistructured_hex_cube(comm, 6, nx, ny, nz, xmin, ymin, zmin, xmax,
-                                   ymax, zmax);
+    return create_semistructured_hex_cube(comm, 6, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
   case PROTEUS_HEX512:
-    return create_semistructured_hex_cube(comm, 7, nx, ny, nz, xmin, ymin, zmin, xmax,
-                                   ymax, zmax);
+    return create_semistructured_hex_cube(comm, 7, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
   case PROTEUS_HEX729:
-    return create_semistructured_hex_cube(comm, 8, nx, ny, nz, xmin, ymin, zmin, xmax,
-                                   ymax, zmax);
+    return create_semistructured_hex_cube(comm, 8, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
   default:
     SMESH_ERROR("Invalid element type: %d\n", element_type);
     return nullptr;
@@ -1350,10 +1389,10 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
   }
 
   std::map<std::pair<enum ElemType, enum ElemType>,
-           std::function<void(Mesh::Block &, Mesh::Block &)>>
+           std::function<void(const Mesh::Block &, Mesh::Block &)>>
       cmap;
 
-  cmap[std::make_pair(HEX8, TET4)] = [](Mesh::Block &block,
+  cmap[std::make_pair(HEX8, TET4)] = [](const Mesh::Block &block,
                                         Mesh::Block &new_block) {
     new_block.set_element_type(TET4);
     new_block.set_elements(
@@ -1362,7 +1401,7 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
                          new_block.elements()->data());
   };
 
-  cmap[std::make_pair(TET15, HEX8)] = [](Mesh::Block &block,
+  cmap[std::make_pair(TET15, HEX8)] = [](const Mesh::Block &block,
                                          Mesh::Block &new_block) {
     new_block.set_element_type(HEX8);
     new_block.set_elements(
@@ -1371,7 +1410,7 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
                           new_block.elements()->data());
   };
 
-  cmap[std::make_pair(WEDGE6, TET4)] = [](Mesh::Block &block,
+  cmap[std::make_pair(WEDGE6, TET4)] = [](const Mesh::Block &block,
                                           Mesh::Block &new_block) {
     new_block.set_element_type(TET4);
     new_block.set_elements(
@@ -1380,6 +1419,15 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
                            new_block.elements()->data());
   };
 
+  cmap[std::make_pair(PROTEUS_HEX8, HEX8)] = sshex_block_to_hex8_block;
+  cmap[std::make_pair(PROTEUS_HEX27, HEX8)] = sshex_block_to_hex8_block;
+  cmap[std::make_pair(PROTEUS_HEX64, HEX8)] = sshex_block_to_hex8_block;
+  cmap[std::make_pair(PROTEUS_HEX125, HEX8)] = sshex_block_to_hex8_block;
+  cmap[std::make_pair(PROTEUS_HEX216, HEX8)] = sshex_block_to_hex8_block;
+  cmap[std::make_pair(PROTEUS_HEX343, HEX8)] = sshex_block_to_hex8_block;
+  cmap[std::make_pair(PROTEUS_HEX512, HEX8)] = sshex_block_to_hex8_block;
+  cmap[std::make_pair(PROTEUS_HEX729, HEX8)] = sshex_block_to_hex8_block;
+
   // PROTEUS_HEX27 to HEX8
   // PROTEUS_HEX64 to HEX8
   // PROTEUS_HEX125 to HEX8
@@ -1387,9 +1435,6 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
   // PROTEUS_HEX343 to HEX8
   // PROTEUS_HEX512 to HEX8
   // PROTEUS_HEX729 to HEX8
-
-  
-
 
   std::vector<std::shared_ptr<Mesh::Block>> blocks;
   for (auto &block : mesh->blocks()) {
@@ -1662,7 +1707,6 @@ std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh) {
 
 std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
                               const geom_t height, const ptrdiff_t nlayers) {
-
   // This is a hack
   if (mesh->n_nodes_per_element() == 4) {
     auto hex8_elements =
