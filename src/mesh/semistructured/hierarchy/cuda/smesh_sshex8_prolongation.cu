@@ -1,4 +1,5 @@
 #include "smesh_cuda_base.cuh"
+#include "smesh_sshex8_prolongation.cuh"
 
 #include "smesh_types.hpp"
 

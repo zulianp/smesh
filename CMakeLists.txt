@@ -85,8 +85,6 @@ foreach(_inc_dir IN LISTS _smesh_library_include_dirs)
     list(APPEND _smesh_library_build_include_dirs "$<BUILD_INTERFACE:${_inc_dir}>")
 endforeach()
 
-message(STATUS "SMESH library files: ${_smesh_library_build_include_dirs}")
-
 
 list(FILTER _smesh_library_files EXCLUDE REGEX "\\.exe\\.(c|cc|cpp|cxx)$")
 list(REMOVE_DUPLICATES _smesh_library_files)
