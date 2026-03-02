@@ -30,6 +30,13 @@ std::shared_ptr<SFC> SFC::create_from_env() {
 }
 
 int SFC::reorder(Mesh &mesh) {
+if (mesh.n_blocks() > 1) {
+  SMESH_ERROR("SFC::reorder is not supported for multiblock meshes");
+  return SMESH_FAILURE;
+}
+
+const block_idx_t block_id = 0;
+
   std::map<std::string,
            std::function<int(
                const ptrdiff_t, const geom_t *const SMESH_RESTRICT,
@@ -57,12 +64,12 @@ int SFC::reorder(Mesh &mesh) {
   }
 
   int spatial_dim = mesh.spatial_dimension();
-  int nxe = mesh.n_nodes_per_element();
-  const ptrdiff_t n_elements = mesh.n_elements();
+  int nxe = mesh.n_nodes_per_element(block_id);
+  const ptrdiff_t n_elements = mesh.n_elements(block_id);
   const ptrdiff_t n_nodes = mesh.n_nodes();
 
   auto b = create_host_buffer<geom_t>(3, n_elements);
-  barycenters(nxe, n_elements, mesh.elements()->data(), spatial_dim,
+  barycenters(nxe, n_elements, mesh.elements(block_id)->data(), spatial_dim,
               mesh.points()->data(), b->data());
 
   auto encoding = create_host_buffer<u32>(n_elements);
@@ -81,8 +88,8 @@ int SFC::reorder(Mesh &mesh) {
               return key[l] < key[r];
             });
 
-  SMESH_CATCH(mesh_block_reorder(nxe, n_elements, mesh.elements()->data(), idx,
-                                 mesh.elements()->data()));
+  SMESH_CATCH(mesh_block_reorder(nxe, n_elements, mesh.elements(block_id)->data(), idx,
+                                 mesh.elements(block_id)->data()));
 
   auto n2n_scatter = create_host_buffer<idx_t>(n_nodes);
   for (ptrdiff_t i = 0; i < n_nodes; i++) {
@@ -91,7 +98,7 @@ int SFC::reorder(Mesh &mesh) {
 
   idx_t next_node_idx = 0;
   SMESH_CATCH(mesh_block_renumber_element_nodes<idx_t>(
-      nxe, n_elements, mesh.elements()->data(), &next_node_idx,
+      nxe, n_elements, mesh.elements(block_id)->data(), &next_node_idx,
       n2n_scatter->data()));
 
   auto coords = (geom_t *)buff;

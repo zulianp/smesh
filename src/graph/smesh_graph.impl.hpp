@@ -528,25 +528,16 @@ int crs_graph_block_to_scalar(const ptrdiff_t nnodes, const int block_size,
 }
 
 template <typename idx_t, typename count_t, typename element_idx_t>
-static int create_dual_graph_mem_conservative(
+static int create_dual_graph_from_n2e(
     const ptrdiff_t n_elements, const ptrdiff_t n_nodes,
     const enum ElemType element_type,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+    const count_t *const SMESH_RESTRICT n2eptr,
+    const element_idx_t *const SMESH_RESTRICT elindex,
     count_t **out_dual_eptr, element_idx_t **out_dual_eidx) {
-  count_t *n2eptr = 0;
-  element_idx_t *elindex = 0;
-
-  if (element_type == TET10) {
-    create_n2e<idx_t, count_t, element_idx_t>(
-        n_elements, n_nodes, elem_num_nodes(TET4), elems, &n2eptr, &elindex);
-  } else {
-    create_n2e<idx_t, count_t, element_idx_t>(n_elements, n_nodes,
-                                              elem_num_nodes(element_type),
-                                              elems, &n2eptr, &elindex);
-  }
-
+  SMESH_UNUSED(n_nodes);
 #ifdef SMESH_ENABLE_MEM_DIAGNOSTICS
-  printf("create_dual_graph_mem_conservative: allocating %g GB\n",
+  printf("create_dual_graph_from_n2e: allocating %g GB\n",
          n_elements * sizeof(int) * 1e-9);
 #endif
 
@@ -569,7 +560,7 @@ static int create_dual_graph_mem_conservative(
   }
 
 #ifdef SMESH_ENABLE_MEM_DIAGNOSTICS
-  printf("create_dual_graph_mem_conservative: allocating %g GB\n",
+  printf("create_dual_graph_from_n2e: allocating %g GB\n",
          (n_elements + 1) * sizeof(count_t) * 1e-9);
 #endif
   count_t *dual_e_ptr = (count_t *)calloc((n_elements + 1), sizeof(count_t));
@@ -579,7 +570,7 @@ static int create_dual_graph_mem_conservative(
   const ptrdiff_t extra_buffer_space = 1000;
 
 #ifdef SMESH_ENABLE_MEM_DIAGNOSTICS
-  printf("create_dual_graph_mem_conservative: allocating %g GB\n",
+  printf("create_dual_graph_from_n2e: allocating %g GB\n",
          (n_overestimated_connections + extra_buffer_space) *
              sizeof(element_idx_t) * 1e-9);
 #endif
@@ -631,8 +622,6 @@ static int create_dual_graph_mem_conservative(
     dual_e_ptr[e + 1] = actual_count + offset;
   }
 
-  free(n2eptr);
-  free(elindex);
   free(connection_counter);
 
   *out_dual_eptr = dual_e_ptr;
@@ -647,9 +636,24 @@ int create_dual_graph(const ptrdiff_t n_elements, const ptrdiff_t n_nodes,
                           elems,
                       count_t **out_rowptr, element_idx_t **out_colidx) {
   SMESH_TRACE_SCOPE("create_dual_graph");
-  const int ret =
-      create_dual_graph_mem_conservative<idx_t, count_t, element_idx_t>(
-          n_elements, n_nodes, element_type, elems, out_rowptr, out_colidx);
+  count_t *n2eptr = 0;
+  element_idx_t *elindex = 0;
+
+  if (element_type == TET10) {
+    create_n2e<idx_t, count_t, element_idx_t>(
+        n_elements, n_nodes, elem_num_nodes(TET4), elems, &n2eptr, &elindex);
+  } else {
+    create_n2e<idx_t, count_t, element_idx_t>(n_elements, n_nodes,
+                                              elem_num_nodes(element_type),
+                                              elems, &n2eptr, &elindex);
+  }
+
+  const int ret = create_dual_graph_from_n2e<idx_t, count_t, element_idx_t>(
+      n_elements, n_nodes, element_type, elems, n2eptr, elindex, out_rowptr,
+      out_colidx);
+
+  free(n2eptr);
+  free(elindex);
 
   return ret;
 }

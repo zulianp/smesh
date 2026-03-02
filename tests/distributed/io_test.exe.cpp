@@ -28,13 +28,11 @@ int main(int argc, char **argv) {
     auto output = Output::create(mesh, Path(argv[2]));
 
     if (comm->size() == 1) {
-      auto geom_type = TypeToEnum<geom_t>::value();
-      output->write_nodal("nodal_data", geom_type, mesh->points()->data()[0],
-                          1);
+      output->write_nodal("nodal_data", TypeToEnum<geom_t>::value(),
+                          mesh->points()->data()[0], 1);
 
-      auto idx_type = TypeToEnum<idx_t>::value();
-      output->write_elemental("elemental_data", idx_type,
-                              mesh->elements()->data()[0], 1);
+      output->write_elemental("elemental_data", TypeToEnum<idx_t>::value(),
+                              mesh->elements(0)->data()[0], 1);
     } else {
       auto dist = mesh->distributed();
       auto node_mapping = mesh->distributed()->node_mapping();
@@ -52,8 +50,8 @@ int main(int argc, char **argv) {
         os << "n_elements_ghosts: " << dist->n_elements_ghosts() << "\n";
         os << "n_elements_shared: " << dist->n_elements_shared() << "\n";
 
-        os << "element_type: " << type_to_string(mesh->element_type()) << "\n";
-        os << "elem_num_nodes: " << elem_num_nodes(mesh->element_type())
+        os << "element_type: " << type_to_string(mesh->element_type(0)) << "\n";
+        os << "elem_num_nodes: " << elem_num_nodes(mesh->element_type(0))
            << "\n";
       });
 

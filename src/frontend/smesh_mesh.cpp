@@ -24,6 +24,11 @@
 #include "smesh_distributed_write.hpp"
 #endif
 
+#ifdef SMESH_ENABLE_RYAML
+#include <ryml.hpp>
+#include <ryml_std.hpp>
+#endif
+
 #include <algorithm>
 #include <fstream>
 #include <list>
@@ -210,9 +215,30 @@ public:
     element_idx_t *colidx{nullptr};
 
     const ptrdiff_t nnodes = points->extent(1);
-    create_n2e(default_elements()->extent(1), nnodes,
-               default_elements()->extent(0), default_elements()->data(),
-               &rowptr, &colidx);
+    if (blocks.size() == 1) {
+      create_n2e(default_elements()->extent(1), nnodes,
+                 default_elements()->extent(0), default_elements()->data(),
+                 &rowptr, &colidx);
+    } else {
+      // Multiblock: build node-to-element graph over all blocks.
+      std::vector<enum ElemType> element_types;
+      std::vector<ptrdiff_t> n_elements;
+      std::vector<idx_t **> elements;
+
+      for (auto &block : blocks) {
+        if (!block || !block->elements()) {
+          continue;
+        }
+        element_types.push_back(block->element_type());
+        n_elements.push_back(block->elements()->extent(1));
+        elements.push_back(block->elements()->data());
+      }
+
+      create_multiblock_n2e<idx_t, count_t, element_idx_t>(
+          static_cast<block_idx_t>(element_types.size()), element_types.data(),
+          n_elements.data(), elements.data(), nnodes, nullptr, &rowptr,
+          &colidx);
+    }
 
     node_to_element_graph = std::make_shared<Mesh::NodeToElementGraph>(
         Buffer<count_t>::own(nnodes + 1, rowptr, free, MEMORY_SPACE_HOST),
@@ -305,17 +331,34 @@ void read_meta(const std::shared_ptr<Communicator> &comm, const Path &path,
   if (!comm->rank()) {
     auto meta_file = Path(path) / "meta.yaml";
     if (meta_file.exists()) {
+#if defined(SMESH_ENABLE_RYAML)
+      std::ifstream ifs(meta_file.c_str(), std::ios::binary);
+      if (ifs.good()) {
+        std::string yaml((std::istreambuf_iterator<char>(ifs)),
+                         std::istreambuf_iterator<char>());
+        if (!yaml.empty()) {
+          ryml::Tree tree =
+              ryml::parse_in_arena(ryml::to_csubstr(yaml)); // modifies input
+          auto root = tree.rootref();
+          if (root.has_child("element_type")) {
+            auto v = root["element_type"].val();
+            std::string s(v.str, v.len);
+            element_type = type_from_string(s.c_str());
+          }
+        }
+      }
+#else
       std::ifstream ifs(meta_file.c_str());
       while (ifs.good()) {
         std::string line;
         std::getline(ifs, line);
         if (line.find("element_type:") != std::string::npos) {
           auto element_type_str = trim(line.substr(line.find(":") + 1));
-          std::cout << "element_type_str: " << element_type_str << std::endl;
           element_type = type_from_string(element_type_str.c_str());
           break;
         }
       }
+#endif
     }
   }
 
@@ -326,35 +369,146 @@ void read_meta(const std::shared_ptr<Communicator> &comm, const Path &path,
   }
 }
 
+static bool read_blocks_meta(const Path &path,
+                             std::vector<std::string> &block_names,
+                             std::vector<enum ElemType> &element_types) {
+  block_names.clear();
+  element_types.clear();
+
+  auto meta_file = Path(path) / "meta.yaml";
+  if (!meta_file.exists()) {
+    return false;
+  }
+
+#if defined(SMESH_ENABLE_RYAML)
+  std::ifstream ifs(meta_file.c_str(), std::ios::binary);
+  if (!ifs.good()) {
+    return false;
+  }
+
+  std::string yaml((std::istreambuf_iterator<char>(ifs)),
+                   std::istreambuf_iterator<char>());
+  if (yaml.empty()) {
+    return false;
+  }
+
+  ryml::Tree tree = ryml::parse_in_arena(ryml::to_csubstr(yaml));
+  auto root = tree.rootref();
+  if (!root.has_child("blocks")) {
+    return false;
+  }
+
+  auto blocks = root["blocks"];
+  const size_t n = blocks.num_children();
+  block_names.reserve(n);
+  element_types.reserve(n);
+
+  for (size_t i = 0; i < n; ++i) {
+    auto blk = blocks[i];
+    if (!blk.has_child("name")) {
+      continue;
+    }
+
+    auto name_val = blk["name"].val();
+    std::string name(name_val.str, name_val.len);
+
+    enum ElemType et = INVALID;
+    if (blk.has_child("element_type")) {
+      auto et_val = blk["element_type"].val();
+      std::string et_str(et_val.str, et_val.len);
+      et = type_from_string(et_str.c_str());
+    }
+
+    block_names.push_back(name);
+    element_types.push_back(et);
+  }
+
+  return !block_names.empty();
+#else
+  (void)path;
+  (void)block_names;
+  (void)element_types;
+  return false;
+#endif
+}
+
 int Mesh::read(const Path &path) {
   SMESH_TRACE_SCOPE("Mesh::read");
 
   if (impl_->comm->size() == 1) {
-    idx_t **elements = nullptr;
-    geom_t **points = nullptr;
-    int nnodesxelem;
-    int spatial_dim;
-    ptrdiff_t nnodes;
-    ptrdiff_t nelements;
+    std::vector<std::string> block_names;
+    std::vector<enum ElemType> element_types;
+    const bool has_blocks = read_blocks_meta(path, block_names, element_types);
 
-    if (mesh_from_folder(path, &nnodesxelem, &nelements, &elements,
-                         &spatial_dim, &nnodes, &points) != SMESH_SUCCESS) {
-      return SMESH_FAILURE;
+    impl_->blocks.clear();
+
+    if (has_blocks) {
+      // Shared coordinates for all blocks
+      geom_t **points = nullptr;
+      int spatial_dim = 0;
+      ptrdiff_t nnodes = 0;
+      if (mesh_coordinates_from_folder(path, &spatial_dim, &points, &nnodes) !=
+          SMESH_SUCCESS) {
+        return SMESH_FAILURE;
+      }
+      impl_->points = manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
+
+      const size_t n_blocks = block_names.size();
+      for (size_t b = 0; b < n_blocks; ++b) {
+        int nnodesxelem = 0;
+        ptrdiff_t nelements = 0;
+        idx_t **elements = nullptr;
+
+        Path block_folder = Path(path) / "blocks" / block_names[b];
+        if (mesh_block_from_folder(block_folder, &nnodesxelem, &elements,
+                                   &nelements) != SMESH_SUCCESS) {
+          return SMESH_FAILURE;
+        }
+
+        auto elements_buffer =
+            manage_host_buffer<idx_t>(nnodesxelem, nelements, elements);
+
+        enum ElemType et = element_types[b];
+        if (et == INVALID) {
+          // Fallback: infer from number of nodes per element when metadata is
+          // missing.
+          et = (enum ElemType)nnodesxelem;
+        }
+
+        auto block = std::make_shared<Block>();
+        block->set_name(block_names[b]);
+        block->set_element_type(et);
+        block->set_elements(elements_buffer);
+        impl_->blocks.push_back(block);
+      }
+    } else {
+      // Legacy single-block layout: connectivity and points live directly
+      // under path.
+      idx_t **elements = nullptr;
+      geom_t **points = nullptr;
+      int nnodesxelem;
+      int spatial_dim;
+      ptrdiff_t nnodes;
+      ptrdiff_t nelements;
+
+      if (mesh_from_folder(path, &nnodesxelem, &nelements, &elements,
+                           &spatial_dim, &nnodes, &points) != SMESH_SUCCESS) {
+        return SMESH_FAILURE;
+      }
+
+      auto elements_buffer =
+          manage_host_buffer<idx_t>(nnodesxelem, nelements, elements);
+      impl_->points = manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
+
+      enum ElemType element_type = (enum ElemType)nnodesxelem;
+      read_meta(impl_->comm, path, element_type);
+
+      auto default_block = std::make_shared<Block>();
+      default_block->set_name("default");
+      default_block->set_element_type(element_type);
+      default_block->set_elements(elements_buffer);
+      impl_->blocks.push_back(default_block);
     }
-
-    auto elements_buffer =
-        manage_host_buffer<idx_t>(nnodesxelem, nelements, elements);
-    impl_->points = manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
-
-    enum ElemType element_type = (enum ElemType)nnodesxelem;
-    read_meta(impl_->comm, path, element_type);
-
-    // Create default block
-    auto default_block = std::make_shared<Block>();
-    default_block->set_name("default");
-    default_block->set_element_type(element_type);
-    default_block->set_elements(elements_buffer);
-    impl_->blocks.push_back(default_block);
   }
 #ifdef SMESH_ENABLE_MPI
   else {
@@ -443,51 +597,77 @@ int Mesh::write(const Path &path) const {
 
   create_directory(path);
 
-  if (impl_->node_mapping) {
-    Path path_node_mapping =
-        path / ("node_mapping." + std::string(TypeToString<idx_t>::value()));
-    impl_->node_mapping->to_file(path_node_mapping);
-  }
-
-  // Write the default block (block 0)
-  if (impl_->blocks.empty() || !impl_->blocks[0]) {
-    return SMESH_FAILURE;
-  }
-
-  if (impl_->blocks.size() == 1) {
-    return mesh_to_folder(path, impl_->blocks[0]->element_type(),
-                          impl_->blocks[0]->elements()->extent(1),
-                          impl_->blocks[0]->elements()->data(),
-                          this->spatial_dimension(), this->n_nodes(),
-                          this->points()->data());
-  } else {
-    std::vector<ptrdiff_t> n_elements;
-    std::vector<enum ElemType> element_types;
-    std::vector<idx_t **> elements;
-    std::vector<std::string> block_names;
-
-    for (auto &block : impl_->blocks) {
-      n_elements.push_back(block->elements()->extent(1));
-      element_types.push_back(block->element_type());
-      elements.push_back(block->elements()->data());
-      block_names.push_back(block->name());
+  if (impl_->comm->size() == 1) {
+    if (impl_->node_mapping) {
+      Path path_node_mapping =
+          path / ("node_mapping." + std::string(TypeToString<idx_t>::value()));
+      impl_->node_mapping->to_file(path_node_mapping);
     }
-    return mesh_multiblock_to_folder(
-        path, block_names, element_types, n_elements, elements.data(),
-        this->spatial_dimension(), this->n_nodes(), this->points()->data());
+
+    // Write the default block (block 0)
+    if (impl_->blocks.empty() || !impl_->blocks[0]) {
+      return SMESH_FAILURE;
+    }
+
+    if (impl_->blocks.size() == 1) {
+      return mesh_to_folder(path, impl_->blocks[0]->element_type(),
+                            impl_->blocks[0]->elements()->extent(1),
+                            impl_->blocks[0]->elements()->data(),
+                            this->spatial_dimension(), this->n_nodes(),
+                            this->points()->data());
+    } else {
+      std::vector<ptrdiff_t> n_elements;
+      std::vector<enum ElemType> element_types;
+      std::vector<idx_t **> elements;
+      std::vector<std::string> block_names;
+
+      for (auto &block : impl_->blocks) {
+        n_elements.push_back(block->elements()->extent(1));
+        element_types.push_back(block->element_type());
+        elements.push_back(block->elements()->data());
+        block_names.push_back(block->name());
+      }
+      return mesh_multiblock_to_folder(
+          path, block_names, element_types, n_elements, elements.data(),
+          this->spatial_dimension(), this->n_nodes(), this->points()->data());
+    }
   }
-}
+#ifdef SMESH_ENABLE_MPI
+  else {
+    // Parallel topology write for single-block meshes.
+    if (!impl_->distributed) {
+      SMESH_ERROR("Mesh::write (MPI) requires a Distributed object. "
+                  "Did you create the mesh via distributed read?\n");
+    }
 
-const geom_t *Mesh::points(const int coord) const {
-  SMESH_ASSERT(coord < spatial_dimension());
-  SMESH_ASSERT(coord >= 0);
-  return impl_->points->data()[coord];
-}
+    if (impl_->blocks.size() != 1 || !impl_->blocks[0]) {
+      SMESH_ERROR(
+          "Mesh::write (MPI) currently supports only single-block meshes.\n");
+    }
 
-const idx_t *Mesh::idx(const int node_num) const {
-  SMESH_ASSERT(node_num < n_nodes_per_element());
-  SMESH_ASSERT(node_num >= 0);
-  return impl_->default_elements()->data()[node_num];
+    auto dist = impl_->distributed;
+
+    const enum ElemType et = impl_->blocks[0]->element_type();
+    const int nxe = elem_num_nodes(et);
+
+    // Write coordinates and connectivity in parallel.
+    int err = write_distributed_mesh_topology(
+        impl_->comm->get(), path, et, this->spatial_dimension(),
+        dist->n_elements_global(), dist->n_elements_owned(),
+        dist->impl_->element_mapping->data(), nxe,
+        impl_->blocks[0]->elements()->data(), dist->n_nodes_global(),
+        dist->n_nodes_owned(), dist->impl_->node_mapping->data(),
+        impl_->points->data());
+
+    if (err != SMESH_SUCCESS) {
+      return err;
+    }
+
+    return SMESH_SUCCESS;
+  }
+#endif
+
+  return SMESH_FAILURE;
 }
 
 std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::node_to_node_graph() {
@@ -501,13 +681,20 @@ std::shared_ptr<Mesh::NodeToElementGraph> Mesh::node_to_element_graph() {
 }
 
 SharedBuffer<element_idx_t> Mesh::half_face_table() {
+  if (n_blocks() > 1) {
+    SMESH_ERROR("half_face_table is not supported for multiblock meshes");
+    return nullptr;
+  }
+
+  const block_idx_t block_id = 0;
   // FIXME it should be allocated outisde
   element_idx_t *table{nullptr};
-  create_element_adj_table(n_elements(), n_nodes(), element_type(),
-                           default_elements()->data(), &table);
+  create_element_adj_table(n_elements(block_id), n_nodes(),
+                           element_type(block_id), elements(block_id)->data(),
+                           &table);
 
-  int nsxe = elem_num_sides(element_type());
-  return manage_host_buffer<element_idx_t>(n_elements() * nsxe, table);
+  int nsxe = elem_num_sides(element_type(block_id));
+  return manage_host_buffer<element_idx_t>(n_elements(block_id) * nsxe, table);
 }
 
 std::shared_ptr<Mesh::NodeToNodeGraph>
@@ -535,14 +722,13 @@ Mesh::create_node_to_node_graph(const enum ElemType element_type) {
                 "different element type!\n");
     // for other semistructured elements
     sshex8_crs_graph<element_idx_t, count_t, idx_t>(
-        proteus_hex_micro_elements_per_dim(element_type), this->n_elements(),
-        this->n_nodes(), this->elements()->data(), &rowptr, &colidx);
+        proteus_hex_micro_elements_per_dim(element_type), this->n_elements(0),
+        this->n_nodes(), this->elements(0)->data(), &rowptr, &colidx);
 
   } else {
 
-    create_crs_graph_for_elem_type(element_type, impl_->total_elements(),
-                                   n_nodes, impl_->default_elements()->data(),
-                                   &rowptr, &colidx);
+    create_crs_graph_for_elem_type(element_type, n_elements(0), n_nodes,
+                                   elements(0)->data(), &rowptr, &colidx);
   }
 
   auto crs_graph = std::make_shared<Mesh::NodeToNodeGraph>(
@@ -568,15 +754,15 @@ int Mesh::initialize_node_to_node_graph() {
     if (is_semistructured_type(impl_->default_element_type())) {
 
       sshex8_crs_graph<element_idx_t, count_t, idx_t>(
-          proteus_hex_micro_elements_per_dim(impl_->default_element_type()),
-          this->n_elements(), this->n_nodes(), this->elements()->data(),
+          proteus_hex_micro_elements_per_dim(this->element_type(0)),
+          this->n_elements(0), this->n_nodes(), this->elements(0)->data(),
           &rowptr, &colidx);
 
     } else {
 
-      create_crs_graph_for_elem_type(
-          impl_->default_element_type(), impl_->total_elements(),
-          this->n_nodes(), impl_->default_elements()->data(), &rowptr, &colidx);
+      create_crs_graph_for_elem_type(this->element_type(0), this->n_elements(0),
+                                     this->n_nodes(), this->elements(0)->data(),
+                                     &rowptr, &colidx);
     }
   } else {
 
@@ -889,23 +1075,67 @@ std::shared_ptr<Mesh> Mesh::create_hex8_bidomain_cube(
 }
 
 int Mesh::spatial_dimension() const { return points()->extent(0); }
-int Mesh::n_nodes_per_element() const {
-  return elem_num_nodes(impl_->default_element_type());
-}
+// int Mesh::n_nodes_per_element() const {
+//   if (impl_->blocks.size() != 1) {
+//     SMESH_ERROR("Mesh::n_nodes_per_element() without block_id is only "
+//                 "supported for single-block meshes.\n");
+//   }
+//   return elem_num_nodes(impl_->default_element_type());
+// }
 
 ptrdiff_t Mesh::n_nodes() const { return points()->extent(1); }
 ptrdiff_t Mesh::n_elements() const { return impl_->total_elements(); }
 
-enum ElemType Mesh::element_type() const {
-  return impl_->default_element_type();
+// enum ElemType Mesh::element_type() const {
+//   if (impl_->blocks.size() != 1) {
+//     SMESH_ERROR("Mesh::element_type() without block_id is only supported for
+//     "
+//                 "single-block meshes.\n");
+//   }
+//   return impl_->default_element_type();
+// }
+
+int Mesh::n_nodes_per_element(block_idx_t block_id) const {
+  SMESH_ASSERT(block_id < impl_->blocks.size());
+  auto blk = impl_->blocks[block_id];
+  SMESH_ASSERT(blk);
+  return blk->n_nodes_per_element();
+}
+
+ptrdiff_t Mesh::n_elements(block_idx_t block_id) const {
+  SMESH_ASSERT(block_id < impl_->blocks.size());
+  auto blk = impl_->blocks[block_id];
+  SMESH_ASSERT(blk);
+  return blk->n_elements();
+}
+
+enum ElemType Mesh::element_type(block_idx_t block_id) const {
+  SMESH_ASSERT(block_id < impl_->blocks.size());
+  auto blk = impl_->blocks[block_id];
+  SMESH_ASSERT(blk);
+  return blk->element_type();
 }
 
 SharedBuffer<geom_t *> Mesh::points() { return impl_->points; }
 SharedBuffer<geom_t *> Mesh::points() const { return impl_->points; }
 
-SharedBuffer<idx_t *> Mesh::elements() { return impl_->default_elements(); }
-SharedBuffer<idx_t *> Mesh::default_elements() {
-  return impl_->default_elements();
+// SharedBuffer<idx_t *> Mesh::elements() { return impl_->default_elements(); }
+// SharedBuffer<idx_t *> Mesh::default_elements() {
+//   return impl_->default_elements();
+// }
+
+SharedBuffer<idx_t *> Mesh::elements(block_idx_t block_id) {
+  SMESH_ASSERT(block_id < impl_->blocks.size());
+  auto blk = impl_->blocks[block_id];
+  SMESH_ASSERT(blk);
+  return blk->elements();
+}
+
+SharedBuffer<idx_t *> Mesh::elements(block_idx_t block_id) const {
+  SMESH_ASSERT(block_id < impl_->blocks.size());
+  auto blk = impl_->blocks[block_id];
+  SMESH_ASSERT(blk);
+  return blk->elements();
 }
 
 void Mesh::set_node_mapping(const SharedBuffer<idx_t> &node_mapping) {
@@ -1077,8 +1307,8 @@ int Mesh::split_block(const SharedBuffer<element_idx_t> &elements,
   }
 
   {
-    const int nxe = n_nodes_per_element();
-    const ptrdiff_t n_elements = this->n_elements();
+    const int nxe = n_nodes_per_element(0);
+    const ptrdiff_t n_elements = this->n_elements(0);
 
     auto bdry_mask = create_host_buffer<mask_t>(mask_count(n_elements));
 
@@ -1168,8 +1398,8 @@ int Mesh::split_boundary_layer() {
     element_idx_t *parent = 0;
     int16_t *side_idx = 0;
 
-    if (extract_skin_sideset(this->n_elements(), this->n_nodes(),
-                             this->element_type(), this->elements()->data(),
+    if (extract_skin_sideset(this->n_elements(0), this->n_nodes(),
+                             this->element_type(0), this->elements(0)->data(),
                              &n_surf_elements, &parent,
                              &side_idx) != SMESH_SUCCESS) {
       SMESH_ERROR("Failed to extract skin!\n");
@@ -1184,7 +1414,13 @@ int Mesh::split_boundary_layer() {
 }
 
 int Mesh::renumber_nodes() {
-  const int nxe = n_nodes_per_element();
+  if (n_blocks() != 1) {
+    SMESH_ERROR("Mesh must have exactly one block to renumber nodes!\n");
+    return SMESH_FAILURE;
+  }
+
+  const block_idx_t block_id = 0;
+  const int nxe = n_nodes_per_element(block_id);
   auto n_nodes = this->n_nodes();
 
   auto new_idx_buff = create_host_buffer<idx_t>(n_nodes);
@@ -1239,8 +1475,14 @@ int Mesh::renumber_nodes() {
 }
 
 int Mesh::renumber_nodes(const SharedBuffer<idx_t> &node_mapping) {
+  if (n_blocks() != 1) {
+    SMESH_ERROR("Mesh must have exactly one block to renumber nodes!\n");
+    return SMESH_FAILURE;
+  }
+
+  const block_idx_t block_id = 0;
   const int dim = spatial_dimension();
-  const int nxe = n_nodes_per_element();
+  const int nxe = n_nodes_per_element(block_id);
   const ptrdiff_t n_nodes = this->n_nodes();
 
   auto points = this->points()->data();
@@ -1281,7 +1523,6 @@ Mesh::select_elements(const std::function<bool(const geom_t, const geom_t,
 
   const int dim = spatial_dimension();
   auto points = this->points()->data();
-  int nxe = n_nodes_per_element();
 
   size_t n_blocks = this->n_blocks();
   std::vector<std::pair<block_idx_t, SharedBuffer<element_idx_t>>>
@@ -1295,6 +1536,7 @@ Mesh::select_elements(const std::function<bool(const geom_t, const geom_t,
       continue;
     }
 
+    int nxe = block->n_nodes_per_element();
     const ptrdiff_t nelements = block->n_elements();
     auto elements = block->elements()->data();
 
@@ -1338,12 +1580,17 @@ Mesh::select_elements(const std::function<bool(const geom_t, const geom_t,
 }
 
 void Mesh::reorder_elements_from_tags(const SharedBuffer<idx_t> &tags) {
-  const ptrdiff_t nelems = n_elements();
+  if (n_blocks() != 1) {
+    SMESH_ERROR("Mesh must have exactly one block to reorder elements!\n");
+    return;
+  }
+
+  const ptrdiff_t nelems = n_elements(0);
   auto temp = create_host_buffer<idx_t>(nelems);
   auto d_temp = temp->data();
   auto d_tags = tags->data();
 
-  auto d_elements = elements()->data();
+  auto d_elements = elements(0)->data();
 
   idx_t ntags = 0;
   for (ptrdiff_t i = 0; i < nelems; i++) {
@@ -1358,7 +1605,7 @@ void Mesh::reorder_elements_from_tags(const SharedBuffer<idx_t> &tags) {
   auto bookkeeping = create_host_buffer<ptrdiff_t>(ntags);
   auto d_bk = bookkeeping->data();
 
-  int nxe = n_nodes_per_element();
+  int nxe = n_nodes_per_element(0);
   for (int d = 0; d < nxe; d++) {
     memcpy(d_temp, d_elements[d], nelems * sizeof(idx_t));
 
@@ -1380,9 +1627,8 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
 
   // FIXME the multiblock case is not really supported yet
   if (mesh->n_blocks() > 1) {
-    SMESH_ERROR(
-        "Conversion from %d to %d is not supported for multiblock meshes\n",
-        mesh->element_type(), element_type);
+    SMESH_ERROR("Conversion from %s is not supported for multiblock meshes\n",
+                type_to_string(element_type));
     return nullptr;
   }
 
@@ -1430,15 +1676,13 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
         },
         elements->mem_space());
 
-    const int pts[8] = {
-        // Bottom
-        sshex8_lidx(1, 0, 0, 0), sshex8_lidx(1, 1, 0, 0),
-        sshex8_lidx(1, 1, 1, 0), sshex8_lidx(1, 0, 1, 0),
+    const int pts[8] = {// Bottom
+                        sshex8_lidx(1, 0, 0, 0), sshex8_lidx(1, 1, 0, 0),
+                        sshex8_lidx(1, 1, 1, 0), sshex8_lidx(1, 0, 1, 0),
 
-        // Top
-        sshex8_lidx(1, 0, 0, 1), sshex8_lidx(1, 1, 0, 1),
-        sshex8_lidx(1, 1, 1, 1),
-        sshex8_lidx(1, 0, 1, 1)};
+                        // Top
+                        sshex8_lidx(1, 0, 0, 1), sshex8_lidx(1, 1, 0, 1),
+                        sshex8_lidx(1, 1, 1, 1), sshex8_lidx(1, 0, 1, 1)};
 
     view->data()[0] = elements->data()[pts[0]];
     view->data()[1] = elements->data()[pts[1]];
@@ -1490,9 +1734,8 @@ std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
                                  const std::shared_ptr<Mesh> &mesh) {
   // FIXME the multiblock case is not really supported yet
   if (mesh->n_blocks() > 1) {
-    SMESH_ERROR(
-        "Promotion from %d to %d is not supported for multiblock meshes\n",
-        mesh->element_type(), element_type);
+    SMESH_ERROR("Promotion to %s is not supported for multiblock meshes\n",
+                type_to_string(element_type));
     return nullptr;
   }
 
@@ -1501,7 +1744,7 @@ std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
       cmap;
 
   cmap[std::make_pair(TET4, TET15)] = [](Mesh &mesh) -> std::shared_ptr<Mesh> {
-    auto elements = create_host_buffer<idx_t>(15, mesh.n_elements());
+    auto elements = create_host_buffer<idx_t>(15, mesh.n_elements(0));
     auto n2n_upper_triangular = mesh.node_to_node_graph_upper_triangular();
     auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
     auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
@@ -1510,13 +1753,13 @@ std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
     auto e2e_table = hft->data();
 
     ptrdiff_t n_new_nodes = 0;
-    mesh_tet4_to_tet15(mesh.n_elements(), mesh.n_nodes(),
-                       mesh.elements()->data(), n2n_upper_triangular_ptr,
+    mesh_tet4_to_tet15(mesh.n_elements(0), mesh.n_nodes(),
+                       mesh.elements(0)->data(), n2n_upper_triangular_ptr,
                        n2n_upper_triangular_idx, e2e_table, elements->data(),
                        &n_new_nodes);
 
     auto points = create_host_buffer<geom_t>(3, n_new_nodes);
-    mesh_tet4_to_tet15_points(mesh.n_elements(), mesh.n_nodes(),
+    mesh_tet4_to_tet15_points(mesh.n_elements(0), mesh.n_nodes(),
                               mesh.points()->data(), n2n_upper_triangular_ptr,
                               n2n_upper_triangular_idx, elements->data(),
                               points->data());
@@ -1529,12 +1772,12 @@ std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
     auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
     auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
 
-    auto elements = create_host_buffer<idx_t>(10, mesh.n_elements());
+    auto elements = create_host_buffer<idx_t>(10, mesh.n_elements(0));
     auto points = create_host_buffer<geom_t>(
         mesh.spatial_dimension(),
         n2n_upper_triangular->colidx()->size() + mesh.n_nodes());
 
-    p1_to_p2(TET4, mesh.n_elements(), mesh.elements()->data(),
+    p1_to_p2(TET4, mesh.n_elements(0), mesh.elements(0)->data(),
              mesh.spatial_dimension(), mesh.n_nodes(), mesh.points()->data(),
              n2n_upper_triangular_ptr, n2n_upper_triangular_idx,
              elements->data(), points->data());
@@ -1546,29 +1789,35 @@ std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
     auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
     auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
 
-    auto elements = create_host_buffer<idx_t>(6, mesh.n_elements());
+    auto elements = create_host_buffer<idx_t>(6, mesh.n_elements(0));
     auto points = create_host_buffer<geom_t>(
         mesh.spatial_dimension(), n2n_upper_triangular->colidx()->size());
 
-    p1_to_p2(TRI3, mesh.n_elements(), mesh.elements()->data(),
+    p1_to_p2(TRI3, mesh.n_elements(0), mesh.elements(0)->data(),
              mesh.spatial_dimension(), mesh.n_nodes(), mesh.points()->data(),
              n2n_upper_triangular_ptr, n2n_upper_triangular_idx,
              elements->data(), points->data());
     return std::make_shared<Mesh>(mesh.comm(), TRI6, elements, points);
   };
 
-  auto it = cmap.find(std::make_pair(mesh->element_type(), element_type));
+  auto it = cmap.find(std::make_pair(mesh->element_type(0), element_type));
   if (it != cmap.end()) {
     return it->second(*mesh);
   } else {
-    SMESH_ERROR("Promotion from %d to %d is not supported\n",
-                mesh->element_type(), element_type);
+    SMESH_ERROR("Promotion from %s to %s is not supported\n",
+                type_to_string(mesh->element_type(0)),
+                type_to_string(element_type));
     return nullptr;
   }
 }
 
 std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
                              const int levels) {
+  if (mesh->n_blocks() != 1) {
+    SMESH_ERROR("Refinement is not supported for multiblock meshes\n");
+    return nullptr;
+  }
+
   const int refine_factor = [](const ElemType element_type) {
     switch (element_type) {
     case HEX8:
@@ -1582,24 +1831,24 @@ std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
                   element_type);
       return 0;
     }
-  }(mesh->element_type());
+  }(mesh->element_type(0));
 
   auto out = mesh;
-  if (mesh->element_type() == HEX8) {
-    const ptrdiff_t n_elements = mesh->n_elements();
+  if (mesh->element_type(0) == HEX8) {
+    const ptrdiff_t n_elements = mesh->n_elements(0);
 
     const int ss_levels = pow(2, levels);
     const int nxe = sshex8_nxe(ss_levels);
     const int txe = sshex8_txe(ss_levels);
 
-    auto sshex8_elements = create_host_buffer<idx_t>(nxe, mesh->n_elements());
+    auto sshex8_elements = create_host_buffer<idx_t>(nxe, mesh->n_elements(0));
     auto d_sshex8_elements = sshex8_elements->data();
 
     ptrdiff_t n_unique_nodes = 0;
     ptrdiff_t interior_start = 0;
 
     sshex8_generate_elements(ss_levels, n_elements, mesh->n_nodes(),
-                             mesh->elements()->data(), d_sshex8_elements,
+                             mesh->elements(0)->data(), d_sshex8_elements,
                              &n_unique_nodes, &interior_start);
 
     ptrdiff_t n_micro_elements = n_elements * txe;
@@ -1624,14 +1873,14 @@ std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
       auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
 
       auto refined_elements = create_host_buffer<idx_t>(
-          out->n_nodes_per_element(), out->n_elements() * refine_factor);
+          out->n_nodes_per_element(0), out->n_elements(0) * refine_factor);
 
       auto refined_points = create_host_buffer<geom_t>(
           out->spatial_dimension(),
           n2n_upper_triangular->colidx()->size() + out->n_nodes());
 
-      int err = mesh_refine(out->element_type(), out->n_elements(),
-                            out->elements()->data(), out->spatial_dimension(),
+      int err = mesh_refine(out->element_type(0), out->n_elements(0),
+                            out->elements(0)->data(), out->spatial_dimension(),
                             out->n_nodes(), out->points()->data(),
                             n2n_upper_triangular_ptr, n2n_upper_triangular_idx,
                             refined_elements->data(), refined_points->data());
@@ -1641,7 +1890,7 @@ std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
         return nullptr;
       }
 
-      out = std::make_shared<Mesh>(out->comm(), out->element_type(),
+      out = std::make_shared<Mesh>(out->comm(), out->element_type(0),
                                    refined_elements, refined_points);
     }
   }
@@ -1650,6 +1899,10 @@ std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
 }
 
 std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
+  if (mesh->n_blocks() != 1) {
+    SMESH_ERROR("Skin sideset is not supported for multiblock meshes\n");
+    return nullptr;
+  }
   auto hft = mesh->half_face_table();
   auto e2e_table = hft->data();
 
@@ -1658,7 +1911,7 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
   i16 *side_idx = 0;
 
   int err = extract_sideset_from_adj_table(
-      mesh->element_type(), mesh->n_elements(), e2e_table, &n_surf_elements,
+      mesh->element_type(0), mesh->n_elements(0), e2e_table, &n_surf_elements,
       &parent_element, &side_idx);
 
   if (err != SMESH_SUCCESS) {
@@ -1732,38 +1985,42 @@ std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh) {
 
 std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
                               const geom_t height, const ptrdiff_t nlayers) {
+  if (mesh->n_blocks() != 1) {
+    SMESH_ERROR("Extrusion is not supported for multiblock meshes\n");
+    return nullptr;
+  }
   // This is a hack
-  if (mesh->n_nodes_per_element() == 4) {
+  if (mesh->n_nodes_per_element(0) == 4) {
     auto hex8_elements =
-        create_host_buffer<idx_t>(8, mesh->n_elements() * nlayers);
+        create_host_buffer<idx_t>(8, mesh->n_elements(0) * nlayers);
 
     auto hex8_points =
         create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
 
-    quad4_to_hex8_extrude(mesh->n_elements(), mesh->n_nodes(),
-                          mesh->elements()->data(), mesh->points()->data(),
+    quad4_to_hex8_extrude(mesh->n_elements(0), mesh->n_nodes(),
+                          mesh->elements(0)->data(), mesh->points()->data(),
                           nlayers, height, hex8_elements->data(),
                           hex8_points->data());
 
     return std::make_shared<Mesh>(mesh->comm(), HEX8, hex8_elements,
                                   hex8_points);
-  } else if (mesh->element_type() == TRI3) {
+  } else if (mesh->element_type(0) == TRI3) {
     auto wedge6_elements =
-        create_host_buffer<idx_t>(6, mesh->n_elements() * nlayers);
+        create_host_buffer<idx_t>(6, mesh->n_elements(0) * nlayers);
 
     auto wedge6_points =
         create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
 
-    tri3_to_wedge6_extrude(mesh->n_elements(), mesh->n_nodes(),
-                           mesh->elements()->data(), mesh->points()->data(),
+    tri3_to_wedge6_extrude(mesh->n_elements(0), mesh->n_nodes(),
+                           mesh->elements(0)->data(), mesh->points()->data(),
                            nlayers, height, wedge6_elements->data(),
                            wedge6_points->data());
 
     return std::make_shared<Mesh>(mesh->comm(), WEDGE6, wedge6_elements,
                                   wedge6_points);
   } else {
-    SMESH_ERROR("Extrusion not supported for element type %d\n",
-                mesh->element_type());
+    SMESH_ERROR("Extrusion not supported for element type %s\n",
+                type_to_string(mesh->element_type(0)));
     return nullptr;
   }
 }

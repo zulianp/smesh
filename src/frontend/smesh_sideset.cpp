@@ -100,7 +100,7 @@ std::vector<std::shared_ptr<Sideset>> Sideset::create_from_selector(
 
   auto points = mesh->points()->data();
 
-  enum ElemType element_type = mesh->element_type();
+  enum ElemType element_type = mesh->element_type(0);
 
   const enum ElemType st = side_type(element_type);
   const int nnxs = elem_num_nodes(st);
@@ -278,14 +278,15 @@ std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>>
 create_surface_from_sideset(const std::shared_ptr<Mesh> &mesh,
                             const std::shared_ptr<Sideset> &sideset) {
 
-  auto st = shell_type(side_type(mesh->element_type()));
+  auto block = mesh->block(sideset->block_id());
+  auto st = shell_type(side_type(block->element_type()));
   int nnxs = elem_num_nodes(st);
 
   auto surface =
       smesh::create_host_buffer<idx_t>(nnxs, sideset->parent()->size());
 
   if (extract_surface_from_sideset(
-          mesh->element_type(), mesh->elements()->data(),
+          block->element_type(), block->elements()->data(),
           sideset->parent()->size(), sideset->parent()->data(),
           sideset->lfi()->data(), surface->data()) != SMESH_SUCCESS) {
     SMESH_ERROR("Unable to create surface from sideset!");
@@ -295,7 +296,12 @@ create_surface_from_sideset(const std::shared_ptr<Mesh> &mesh,
 
 std::shared_ptr<Buffer<idx_t>> create_nodeset_from_sideset_semistructured(
     const std::shared_ptr<Mesh> &ss, const std::shared_ptr<Sideset> &sideset) {
-  if (!is_semistructured_type(ss->element_type())) {
+  if (ss->n_blocks() != 1) {
+    SMESH_ERROR(
+        "Mesh must have exactly one block to extract nodeset from sideset!\n");
+    return nullptr;
+  }
+  if (!is_semistructured_type(ss->element_type(0))) {
     SMESH_ERROR("Mesh is not a semistructured mesh!\n");
     return nullptr;
   }
@@ -305,8 +311,8 @@ std::shared_ptr<Buffer<idx_t>> create_nodeset_from_sideset_semistructured(
 
   SMESH_TRACE_SCOPE("sshex8_extract_nodeset_from_sideset");
   if (sshex8_extract_nodeset_from_sideset(
-          proteus_hex_micro_elements_per_dim(ss->element_type()),
-          ss->elements()->data(), sideset->parent()->size(),
+          proteus_hex_micro_elements_per_dim(ss->element_type(0)),
+          ss->elements(0)->data(), sideset->parent()->size(),
           sideset->parent()->data(), sideset->lfi()->data(), &n_nodes,
           &nodes) != SMESH_SUCCESS) {
     SMESH_ERROR("Unable to extract nodeset from sideset!\n");
@@ -320,17 +326,23 @@ create_surface_from_sideset_semistructured(
     const std::shared_ptr<Mesh> &ssmesh,
     const std::shared_ptr<Sideset> &sideset) {
 
-  if (!is_semistructured_type(ssmesh->element_type())) {
+  if (ssmesh->n_blocks() != 1) {
+    SMESH_ERROR(
+        "Mesh must have exactly one block to extract surface from sideset!\n");
+    return {INVALID, nullptr};
+  }
+
+  if (!is_semistructured_type(ssmesh->element_type(0))) {
     SMESH_ERROR("Mesh is not a semistructured mesh!\n");
     return {INVALID, nullptr};
   }
 
-  int level = proteus_hex_micro_elements_per_dim(ssmesh->element_type());
+  int level = proteus_hex_micro_elements_per_dim(ssmesh->element_type(0));
   auto ss_sides = smesh::create_host_buffer<idx_t>((level + 1) * (level + 1),
                                                    sideset->parent()->size());
 
   if (sshex8_extract_surface_from_sideset(
-          level, ssmesh->elements()->data(), sideset->parent()->size(),
+          level, ssmesh->elements(0)->data(), sideset->parent()->size(),
           sideset->parent()->data(), sideset->lfi()->data(),
           ss_sides->data()) != SMESH_SUCCESS) {
     SMESH_ERROR("Unable to extract surface from sideset!\n");
@@ -357,14 +369,16 @@ std::shared_ptr<Buffer<idx_t>>
 create_nodeset_from_sideset(const std::shared_ptr<Mesh> &mesh,
                             const std::shared_ptr<Sideset> &sideset) {
 
-  if (is_semistructured_type(mesh->element_type())) {
+  if (is_semistructured_type(mesh->element_type(sideset->block_id()))) {
     return create_nodeset_from_sideset_semistructured(mesh, sideset);
   }
+
+  auto block = mesh->block(sideset->block_id());
 
   ptrdiff_t n_nodes{0};
   idx_t *nodes{nullptr};
   if (extract_nodeset_from_sideset(
-          mesh->element_type(), mesh->elements()->data(),
+          block->element_type(), block->elements()->data(),
           sideset->parent()->size(), sideset->parent()->data(),
           sideset->lfi()->data(), &n_nodes, &nodes) != SMESH_SUCCESS) {
     SMESH_ERROR("Unable to extract nodeset from sideset!\n");
@@ -388,7 +402,7 @@ create_surface_from_sidesets(
     return {INVALID, nullptr};
   }
 
-  if (is_semistructured_type(mesh->element_type())) {
+  if (is_semistructured_type(mesh->element_type(sidesets[0]->block_id()))) {
     return create_surface_from_sideset_semistructured(mesh, sidesets[0]);
   } else {
     return create_surface_from_sideset(mesh, sidesets[0]);

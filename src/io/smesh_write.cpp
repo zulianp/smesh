@@ -97,7 +97,8 @@ int mesh_multiblock_write_yaml(const Path &path, const uint16_t n_blocks,
     fprintf(meta_file, "  n_elements: %ld\n", n_elements[b]);
     fprintf(meta_file, "  elements:\n");
     for (int d = 0; d < nxe; ++d) {
-      fprintf(meta_file, "  - i%d: blocks/%d/i%d.%s\n", d, b, d,
+      fprintf(meta_file, "  - i%d: blocks/%s/i%d.%s\n", d,
+              block_names[b].data(), d,
               TypeToString<idx_t>::value().data());
     }
   }

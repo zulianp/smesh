@@ -137,8 +137,8 @@ int main(int argc, char **argv) {
     const ptrdiff_t n_surf = sideset->parent()->size();
     const int dim = mesh->spatial_dimension();
     auto points = mesh->points()->data();
-    auto elements = mesh->elements()->data();
-    const enum ElemType element_type = mesh->element_type();
+    auto elements = mesh->elements(sideset->block_id())->data();
+    const enum ElemType element_type = mesh->element_type(sideset->block_id());
 
     // TODO: Use node_to_element_graph instead of creating a new one
     // Build node-to-element CSR once (reference behavior).

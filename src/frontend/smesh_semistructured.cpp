@@ -52,7 +52,7 @@ std::shared_ptr<Mesh> to_semistructured(const int level,
     ptrdiff_t n_unique_nodes{-1};
     ptrdiff_t interior_start{-1};
     sshex8_generate_elements(level, mesh->n_elements(), mesh->n_nodes(),
-                             mesh->elements()->data(), elements->data(),
+                             mesh->elements(0)->data(), elements->data(),
                              &n_unique_nodes, &interior_start);
 
     default_block->set_elements(elements);
@@ -111,7 +111,8 @@ std::shared_ptr<Mesh> to_semistructured(const int level,
   }
 }
 
-void sshex_block_to_hex8_block(const Mesh::Block &block, Mesh::Block &new_block) {
+void sshex_block_to_hex8_block(const Mesh::Block &block,
+                               Mesh::Block &new_block) {
   auto elements = block.elements();
   const int level = proteus_hex_micro_elements_per_dim(block.element_type());
   ptrdiff_t n_micro_elements = block.n_elements() * level * level * level;
@@ -119,7 +120,7 @@ void sshex_block_to_hex8_block(const Mesh::Block &block, Mesh::Block &new_block)
   sshex8_to_standard_hex8_mesh(level, block.n_elements(), elements->data(),
                                hex8_elements->data());
 
-  new_block.set_name(block.name());  
+  new_block.set_name(block.name());
   new_block.set_elements(hex8_elements);
   new_block.set_element_type(HEX8);
 }
@@ -137,14 +138,20 @@ std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex) {
 
 std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh,
                                const int to_level) {
-  const int from_level =
-      proteus_hex_micro_elements_per_dim(mesh->element_type());
-  const int step_factor = from_level / to_level;
-  const int nxe = (to_level + 1) * (to_level + 1) * (to_level + 1);
+  if (mesh->n_blocks() > 1) {
+    SMESH_ERROR("derefine is not supported for multiblock meshes");
+    return nullptr;
+  }
 
   std::vector<std::shared_ptr<Mesh::Block>> blocks;
   ptrdiff_t n_unique_nodes{-1};
   for (auto &block : mesh->blocks()) {
+    
+    const int from_level =
+        proteus_hex_micro_elements_per_dim(block->element_type());
+    const int step_factor = from_level / to_level;
+    const int nxe = (to_level + 1) * (to_level + 1) * (to_level + 1);
+
     auto elements = block->elements();
     auto view = std::make_shared<Buffer<idx_t *>>(
         nxe, block->n_elements(), (idx_t **)malloc(nxe * sizeof(idx_t *)),
