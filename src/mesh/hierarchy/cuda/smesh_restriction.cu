@@ -112,9 +112,9 @@ int cu_macrotet4_to_tet4_restriction_elemental(
     const ptrdiff_t nelements,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const u16 *const SMESH_RESTRICT element_to_node_incidence_count,
-    const int vec_size, const enum RealType from_type,
+    const int vec_size, const enum PrimitiveType from_type,
     const ptrdiff_t from_stride, const void *const SMESH_RESTRICT from,
-    const enum RealType to_type, const ptrdiff_t to_stride,
+    const enum PrimitiveType to_type, const ptrdiff_t to_stride,
     void *const SMESH_RESTRICT to, void *stream) {
   SMESH_ASSERT(from_type == to_type && "TODO mixed types!");
   if (from_type != to_type) {

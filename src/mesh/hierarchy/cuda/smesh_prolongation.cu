@@ -97,8 +97,8 @@ int cu_tet4_to_macrotet4_prolongation(
     const count_t *const SMESH_RESTRICT coarse_rowptr,
     const idx_t *const SMESH_RESTRICT coarse_colidx,
     const idx_t *const SMESH_RESTRICT fine_node_map, const int vec_size,
-    const enum RealType from_type, const void *const SMESH_RESTRICT from,
-    const enum RealType to_type, void *const SMESH_RESTRICT to, void *stream) {
+    const enum PrimitiveType from_type, const void *const SMESH_RESTRICT from,
+    const enum PrimitiveType to_type, void *const SMESH_RESTRICT to, void *stream) {
   SMESH_ASSERT(from_type == to_type && "TODO mixed types!");
   if (from_type != to_type) {
     return SMESH_FAILURE;
@@ -228,9 +228,9 @@ template <typename idx_t>
 int cu_macrotet4_to_tet4_prolongation_elemental(
     const ptrdiff_t nelements,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
-    const int vec_size, const enum RealType from_type,
+    const int vec_size, const enum PrimitiveType from_type,
     const ptrdiff_t from_stride, const void *const SMESH_RESTRICT from,
-    const enum RealType to_type, const ptrdiff_t to_stride,
+    const enum PrimitiveType to_type, const ptrdiff_t to_stride,
     void *const SMESH_RESTRICT to, void *stream) {
   SMESH_ASSERT(from_type == to_type && "TODO mixed types!");
   if (from_type != to_type) {
