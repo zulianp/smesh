@@ -28,6 +28,7 @@ set(SMESH_LIBRARY_SCAN_DIRS
     "src/sorting"
     "src/ssmesh"
     "src/utils"
+    "src/outofcore"
 )
 
 if(SMESH_ENABLE_MPI)

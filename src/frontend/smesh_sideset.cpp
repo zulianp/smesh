@@ -213,6 +213,31 @@ int Sideset::read(const std::shared_ptr<Communicator> &comm, const Path &folder,
   return ret;
 }
 
+
+int Sideset::read_and_redistibute(const std::shared_ptr<Mesh> &mesh, const Path &path, block_idx_t block_id)
+{
+    if (read(mesh->comm(), path, block_id) != SMESH_SUCCESS) {
+        return SMESH_FAILURE;
+    }
+    return redistribute(mesh);
+}
+
+int Sideset::redistribute(const std::shared_ptr<Mesh> &mesh)
+{
+    if(mesh->comm()->size() == 1) {
+        return SMESH_SUCCESS;
+    }
+
+    SMESH_ERROR("Sideset::redistribute is not supported for distributed runs\n");
+    return SMESH_FAILURE;
+
+    // 1) Use rank_owner to redistribute the sideset to the owned elements
+    // 2) Distribute the sideset to the aura elements?
+
+
+    // return redistribute_sideset(mesh->comm(), mesh->n_elements(impl_->block_id), impl_->parent->data(), impl_->lfi->data(), impl_->block_id);
+}
+
 std::shared_ptr<Buffer<element_idx_t>> Sideset::parent() {
   return impl_->parent;
 }
