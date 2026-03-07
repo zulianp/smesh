@@ -1,10 +1,9 @@
 #include "smesh_context.hpp"
+#include "smesh_env.hpp"
+#include "smesh_gencube.hpp"
 #include "smesh_packed_mesh.hpp"
 #include "smesh_path.hpp"
 #include "smesh_tracer.hpp"
-#include "smesh_env.hpp"
-#include "smesh_gencube.hpp"
-
 
 #include <stdio.h>
 
@@ -37,15 +36,16 @@ int main(int argc, char **argv) {
   const f32 zmax = std::atof(argv[10]);
   const Path output_folder = Path(argv[11]);
 
-  i64 chunk_size = Env::read<i64>("SMESH_CHUNK_SIZE", (i64)(2000));
+  i64 z_chunk_size = Env::read<i64>("SMESH_Z_CHUNK_SIZE", (i64)(1000));
   const i64 n_elements = nx * ny * nz;
-  if(n_elements > chunk_size && element_type == HEX8) {
-    mesh_hex8_cube_to_folder<i64, f32>(
-      output_folder, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax, chunk_size);
-
+  if ((n_elements > z_chunk_size * nx * ny ||
+       n_elements > std::numeric_limits<int>::max()) &&
+      element_type == HEX8) {
+    mesh_hex8_cube_to_folder<i64, f32>(output_folder, nx, ny, nz, xmin, ymin,
+                                       zmin, xmax, ymax, zmax, z_chunk_size);
   } else {
-    auto mesh = Mesh::create_cube(
-        ctx->communicator(), element_type, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
+    auto mesh = Mesh::create_cube(ctx->communicator(), element_type, nx, ny, nz,
+                                  xmin, ymin, zmin, xmax, ymax, zmax);
     mesh->write(output_folder);
   }
 
