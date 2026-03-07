@@ -1434,7 +1434,7 @@ int ssquad4_hierarchical_remapping(const int L, const int nlevels,
                                    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
                                    idx_t **SMESH_RESTRICT node_mapping_out,
                                    ptrdiff_t *count_out) {
-  idx_t *node_mapping = malloc(nnodes * sizeof(idx_t));
+  idx_t *node_mapping = (idx_t *)malloc(nnodes * sizeof(idx_t));
 
 #pragma omp parallel for
   for (ptrdiff_t i = 0; i < nnodes; i++) {
