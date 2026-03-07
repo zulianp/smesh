@@ -1,8 +1,26 @@
 
+macro(SMESH_FETCHCONTENT_USE_LOCAL_OR_DOWNLOAD_if_AVAILABLE dep_name)
+    string(TOUPPER "${dep_name}" _dep_name_uc)
+    if(NOT DEFINED FETCHCONTENT_BASE_DIR)
+        set(FETCHCONTENT_BASE_DIR "${CMAKE_BINARY_DIR}/_deps")
+    endif()
+
+    set(_SMESH_FETCHCONTENT_SOURCE_DIR "${FETCHCONTENT_BASE_DIR}/${dep_name}-src")
+    if(EXISTS "${_SMESH_FETCHCONTENT_SOURCE_DIR}" AND NOT IS_DIRECTORY "${_SMESH_FETCHCONTENT_SOURCE_DIR}")
+        message(FATAL_ERROR "Expected ${dep_name} source directory path but found a file: ${_SMESH_FETCHCONTENT_SOURCE_DIR}")
+    endif()
+
+    if(EXISTS "${_SMESH_FETCHCONTENT_SOURCE_DIR}")
+        set("FETCHCONTENT_SOURCE_DIR_${_dep_name_uc}" "${_SMESH_FETCHCONTENT_SOURCE_DIR}")
+        set("FETCHCONTENT_UPDATES_DISCONNECTED_${_dep_name_uc}" TRUE)
+    endif()
+endmacro()
+
 if(SMESH_ENABLE_RYAML)
     set(RYML_REPO_URL https://github.com/biojppm/rapidyaml CACHE STRING "")
     set(RYML_BRANCH_NAME master CACHE STRING "")
     include(FetchContent)
+    SMESH_FETCHCONTENT_USE_LOCAL_OR_DOWNLOAD_if_AVAILABLE(ryml)
     FetchContent_Declare(ryml
         GIT_REPOSITORY ${RYML_REPO_URL}
         GIT_TAG ${RYML_BRANCH_NAME}
@@ -95,8 +113,6 @@ if(SMESH_ENABLE_METIS)
   endif()
 endif()
 
-# ##############################################################################
-
 if(SMESH_ENABLE_MPI)
     find_package(MPI REQUIRED COMPONENTS C CXX)
     list(APPEND SMESH_PUBLIC_SUBMODULES MPI::MPI_CXX MPI::MPI_C)
@@ -104,6 +120,7 @@ if(SMESH_ENABLE_MPI)
     set(MATRIXIO_REPO_URL https://github.com/zulianp/matrix.io.git CACHE STRING "")
     set(MATRIXIO_BRANCH_NAME main CACHE STRING "")
     include(FetchContent)
+    SMESH_FETCHCONTENT_USE_LOCAL_OR_DOWNLOAD_if_AVAILABLE(matrixio)
     
     FetchContent_Declare(matrixio
         GIT_REPOSITORY ${MATRIXIO_REPO_URL}

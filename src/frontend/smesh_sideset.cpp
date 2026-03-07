@@ -235,7 +235,6 @@ int Sideset::redistribute(const std::shared_ptr<Mesh> &mesh)
     }
 
 #ifdef SMESH_ENABLE_MPI
-
     auto dist = mesh->distributed();
     auto n_elements = dist->n_elements_global();
 
@@ -303,8 +302,6 @@ int Sideset::redistribute(const std::shared_ptr<Mesh> &mesh)
 
     // 1) Use rank_owner to redistribute the sideset to the owned elements
     // 2) Distribute the sideset to the aura elements?
-
-
     // return redistribute_sideset(mesh->comm(), mesh->n_elements(impl_->block_id), impl_->parent->data(), impl_->lfi->data(), impl_->block_id);
 }
 

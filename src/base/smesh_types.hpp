@@ -17,7 +17,7 @@ using u8 = uint8_t;
 using u16 = uint16_t;
 using u32 = uint32_t;
 using u64 = uint64_t;
-using mask_t = char;
+// using mask_t = char;
 using block_idx_t = u16;
 
 // Used for mappings and reading large meshes
@@ -33,11 +33,11 @@ using f16 = _Float16;
 using f32 = float;
 using f64 = double;
 
-using real_t = f64;
-using geom_t = f32;
-using idx_t = i32;
-using element_idx_t = i32;
-using count_t = i32;
+// using real_t = f64;
+// using geom_t = f32;
+// using idx_t = i32;
+// using element_idx_t = i32;
+// using count_t = i32;
 
 // using idx_t = i64;
 // using element_idx_t = i64;
