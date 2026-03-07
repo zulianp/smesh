@@ -2,7 +2,7 @@
 #include "smesh_packed_mesh.hpp"
 #include "smesh_path.hpp"
 #include "smesh_tracer.hpp"
-#include "smesh_semi_structured_mesh.hpp"
+#include "smesh_semistructured.hpp"
 #include <stdio.h>
 
 using namespace smesh;
@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
   int ret = SMESH_SUCCESS;
   {
     auto mesh = Mesh::create_from_file(ctx->communicator(), Path(argv[2]));
-    auto ssmesh = SemiStructuredMesh::create(mesh, std::atoi(argv[1]));
+    auto ssmesh = to_semistructured(std::atoi(argv[1]), mesh);
     ret = ssmesh->write(Path(argv[3]));
   }
 

@@ -8,6 +8,7 @@ set(SMESH_PUBLIC_SUBMODULES "")
 include(cmake/SMESHOptions.cmake)
 include(cmake/SMESHDependencies.cmake)
 include(cmake/SMESHSanitizer.cmake)
+include(cmake/SMESHNumbers.cmake)
 
 if(SMESH_ENABLE_PYTHON)
     include(cmake/SMESHPython.cmake)
@@ -28,6 +29,7 @@ set(SMESH_LIBRARY_SCAN_DIRS
     "src/sorting"
     "src/ssmesh"
     "src/utils"
+    "src/outofcore"
 )
 
 if(SMESH_ENABLE_MPI)
@@ -55,14 +57,28 @@ foreach(_dir IN LISTS SMESH_LIBRARY_SCAN_DIRS)
         "${_dir}/*.inl"
     )
 
+    if(SMESH_ENABLE_CUDA)
+    # Add CUDA files to the library
+        file(GLOB_RECURSE _dir_cuda_files
+            LIST_DIRECTORIES false
+            CONFIGURE_DEPENDS
+            "${_dir}/*.cu"
+            "${_dir}/*.cuh"
+        )
+        message(STATUS "CUDA files: ${_dir_cuda_files}")
+        list(APPEND _dir_files ${_dir_cuda_files})
+    endif()
+
     list(APPEND _smesh_library_include_dirs "${_dir}")
     foreach(_file IN LISTS _dir_files)
-        if(_file MATCHES "\\.(h|hh|hpp|hxx|inl)$")
+        if(_file MATCHES "\\.(h|hh|hpp|hxx|inl|cuh)$")
             get_filename_component(_file_dir "${_file}" DIRECTORY)
             list(APPEND _smesh_library_include_dirs "${_file_dir}")
         endif()
     endforeach()
     list(APPEND _smesh_library_files ${_dir_files})
+
+    
 endforeach()
 
 list(REMOVE_DUPLICATES _smesh_library_include_dirs)

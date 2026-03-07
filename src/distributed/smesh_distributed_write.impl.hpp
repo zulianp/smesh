@@ -76,7 +76,7 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
                        const ptrdiff_t n_local, const ptrdiff_t n_global,
                        const large_idx_t *const mapping, MPI_Datatype data_type,
                        const void *const data_in) {
-                        using byte_t = uint8_t;
+  using byte_t = uint8_t;
   int rank, size;
   MPI_Comm_rank(comm, &rank);
   MPI_Comm_size(comm, &size);
@@ -192,6 +192,61 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
   free(recv_data);
   free(send_data_and_final_storage);
   return 0;
+}
+
+int write_distributed_mesh_topology(
+    MPI_Comm comm, const Path &path, enum ElemType /*element_type*/,
+    int spatial_dim, ptrdiff_t n_global_elements, ptrdiff_t n_owned_elements,
+    const large_idx_t *element_mapping, int nnodesxelem, idx_t **local_elements,
+    ptrdiff_t n_global_nodes, ptrdiff_t n_owned_nodes,
+    const large_idx_t *node_mapping, geom_t **local_points) {
+  SMESH_TRACE_SCOPE("write_distributed_mesh_topology");
+
+  int err = SMESH_SUCCESS;
+
+  // Write coordinates (x/y/z.*) using ownership-based mapping.
+  static constexpr char xyz[3] = {'x', 'y', 'z'};
+  for (int d = 0; d < spatial_dim; ++d) {
+    std::string fname =
+        std::string(1, xyz[d]) + "." + std::string(TypeToString<geom_t>::value());
+    Path coord_path = path / fname;
+
+    // Only owned nodes participate in mapped write.
+    err |= write_mapped_field(comm, coord_path, n_owned_nodes, n_global_nodes,
+                              node_mapping, smesh::mpi_type<geom_t>(),
+                              local_points[d]);
+  }
+
+  if (err != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+
+  // Write connectivity i*.*
+  for (int v = 0; v < nnodesxelem; ++v) {
+    std::string fname =
+        "i" + std::to_string(v) + "." + std::string(TypeToString<idx_t>::value());
+    Path conn_path = path / fname;
+
+    idx_t *buffer =
+        (idx_t *)malloc((size_t)n_owned_elements * sizeof(idx_t));
+    if (!buffer) {
+      return SMESH_FAILURE;
+    }
+
+    idx_t *local_col = local_elements[v];
+    for (ptrdiff_t e = 0; e < n_owned_elements; ++e) {
+      const idx_t local_node = local_col[e];
+      buffer[e] = static_cast<idx_t>(node_mapping[local_node]);
+    }
+
+    err |= write_mapped_field(comm, conn_path, n_owned_elements,
+                              n_global_elements, element_mapping,
+                              smesh::mpi_type<idx_t>(), buffer);
+
+    free(buffer);
+  }
+
+  return err == SMESH_SUCCESS ? SMESH_SUCCESS : SMESH_FAILURE;
 }
 
 } // namespace smesh

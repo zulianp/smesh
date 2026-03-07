@@ -1,11 +1,11 @@
 #include "smesh_context.hpp"
+#include "smesh_cuthill_mckee.hpp"
 #include "smesh_env.hpp"
 #include "smesh_extractions.hpp"
 #include "smesh_glob.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_path.hpp"
 #include "smesh_tracer.hpp"
-#include "smesh_cuthill_mckee.hpp"
 
 #include <stdio.h>
 
@@ -26,7 +26,6 @@ int main(int argc, char **argv) {
     auto mesh = Mesh::create_from_file(ctx->communicator(), Path(argv[1]));
     auto n2n = mesh->node_to_node_graph();
     const ptrdiff_t n_nodes = mesh->n_nodes();
-    const ptrdiff_t n_elements = mesh->n_elements();
     auto reordering = create_host_buffer<idx_t>(n_nodes);
     cuthill_mckee(mesh->n_nodes(), n2n->rowptr()->data(), n2n->colidx()->data(),
                   reordering->data());
@@ -41,11 +40,14 @@ int main(int argc, char **argv) {
       }
     }
 
-    int nxe = mesh->n_nodes_per_element();
-    auto elements_data = mesh->elements()->data();
-    for (int d = 0; d < nxe; d++) {
-      for (ptrdiff_t i = 0; i < n_elements; i++) {
-        elements_data[d][i] = reordering_data[elements_data[d][i]];
+    for (auto &block : mesh->blocks()) {
+      const ptrdiff_t n_elements = block->n_elements();
+      int nxe = block->n_nodes_per_element();
+      auto elements_data = block->elements()->data();
+      for (int d = 0; d < nxe; d++) {
+        for (ptrdiff_t i = 0; i < n_elements; i++) {
+          elements_data[d][i] = reordering_data[elements_data[d][i]];
+        }
       }
     }
 
@@ -117,7 +119,7 @@ int main(int argc, char **argv) {
 
 //     // Initialize arrays
 //     for (ptrdiff_t i = 0; i < n_nodes; i++) {
-//         reordering_data[i]  = SFEM_IDX_INVALID;
+//         reordering_data[i]  = SMESH_IDX_INVALID;
 //     }
 
 //     // Compute eccentricity (maximum distance from diagonal)
@@ -175,7 +177,7 @@ int main(int argc, char **argv) {
 //             + 1]; j++) {
 //                 const ptrdiff_t neighbor = colidx_data[j];
 //                 if (neighbor != current && reordering_data[neighbor] ==
-//                 SFEM_IDX_INVALID) {
+//                 SMESH_IDX_INVALID) {
 //                     neighbors.push_back(neighbor);
 //                 }
 //             }
@@ -188,7 +190,7 @@ int main(int argc, char **argv) {
 
 //             // Add unvisited neighbors to next level
 //             for (ptrdiff_t neighbor : neighbors) {
-//                 if (reordering_data[neighbor] == SFEM_IDX_INVALID) {
+//                 if (reordering_data[neighbor] == SMESH_IDX_INVALID) {
 //                     reordering_data[neighbor] = reorder_idx++;
 //                     next_level.push_back(neighbor);
 //                 }
@@ -200,7 +202,7 @@ int main(int argc, char **argv) {
 
 //     // Handle any remaining unvisited nodes (disconnected components)
 //     for (ptrdiff_t i = 0; i < n_nodes; i++) {
-//         if (reordering_data[i] == SFEM_IDX_INVALID) {
+//         if (reordering_data[i] == SMESH_IDX_INVALID) {
 //             reordering_data[i] = reorder_idx++;
 //         }
 //     }

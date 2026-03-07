@@ -55,13 +55,14 @@ public:
   public:
     Block();
     ~Block();
+    Block(const std::string &name, enum ElemType element_type,
+          SharedBuffer<idx_t *> elements);
 
     const std::string &name() const;
     enum ElemType element_type() const;
     int n_nodes_per_element() const;
     const SharedBuffer<idx_t *> &elements() const;
 
-    // Setters for internal use
     void set_name(const std::string &name);
     void set_element_type(enum ElemType element_type);
     void set_elements(SharedBuffer<idx_t *> elements);
@@ -83,10 +84,6 @@ public:
        const std::vector<std::shared_ptr<Block>> &blocks,
        SharedBuffer<geom_t *> points);
 
-  friend class FunctionSpace;
-  friend class Op;
-  // friend class NeumannConditions;
-
   int read(const Path &path);
   int write(const Path &path) const;
   int initialize_node_to_node_graph();
@@ -102,15 +99,20 @@ public:
   std::shared_ptr<Block> find_block(const std::string &name) const;
   void add_block(const std::string &name, enum ElemType element_type,
                  SharedBuffer<idx_t *> elements);
+  void add_block(const std::shared_ptr<Block> &block);
   void remove_block(size_t index);
 
   std::shared_ptr<Distributed> distributed() const;
 
   int spatial_dimension() const;
-  int n_nodes_per_element() const;
   ptrdiff_t n_nodes() const;
   ptrdiff_t n_elements() const;
-  enum ElemType element_type() const;
+
+  int n_nodes_per_element(block_idx_t block_id) const;
+  ptrdiff_t n_elements(block_idx_t block_id) const;
+  enum ElemType element_type(block_idx_t block_id) const;
+  SharedBuffer<idx_t *> elements(block_idx_t block_id);
+  SharedBuffer<idx_t *> elements(block_idx_t block_id) const;
 
   std::shared_ptr<NodeToNodeGraph> node_to_node_graph();
   std::shared_ptr<NodeToNodeGraph> node_to_node_graph_upper_triangular();
@@ -125,15 +127,11 @@ public:
   SharedBuffer<idx_t> ghosts() const;
   SharedBuffer<int> node_owner() const;
   SharedBuffer<idx_t> node_mapping() const;
-  // SharedBuffer<idx_t> element_mapping() const;
-
-  const geom_t *points(const int coord) const;
-  const idx_t *idx(const int node_num) const;
 
   SharedBuffer<geom_t *> points();
   SharedBuffer<geom_t *> points() const;
-  SharedBuffer<idx_t *> elements();
-  SharedBuffer<idx_t *> default_elements(); // For backward compatibility
+
+  void set_points(const SharedBuffer<geom_t *> &points);
 
   std::shared_ptr<Communicator> comm() const;
 
@@ -222,12 +220,13 @@ public:
   int renumber_nodes(const SharedBuffer<idx_t> &node_mapping);
   void set_node_mapping(const SharedBuffer<idx_t> &node_mapping);
   void set_comm(const std::shared_ptr<Communicator> &comm);
-  void set_element_type(const enum ElemType element_type);
+  void set_element_type(const block_idx_t block_id, const enum ElemType element_type);
   std::pair<SharedBuffer<geom_t>, SharedBuffer<geom_t>> compute_bounding_box();
 
   std::shared_ptr<Mesh> clone() const;
 
-  void reorder_elements_from_tags(const SharedBuffer<idx_t> &tags);
+  void reorder_elements_from_tags(const block_idx_t block_id,
+                                  const SharedBuffer<idx_t> &tags);
 
 private:
   class Impl;

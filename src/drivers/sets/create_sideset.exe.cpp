@@ -137,8 +137,8 @@ int main(int argc, char **argv) {
     const ptrdiff_t n_surf = sideset->parent()->size();
     const int dim = mesh->spatial_dimension();
     auto points = mesh->points()->data();
-    auto elements = mesh->elements()->data();
-    const enum ElemType element_type = mesh->element_type();
+    auto elements = mesh->elements(sideset->block_id())->data();
+    const enum ElemType element_type = mesh->element_type(sideset->block_id());
 
     // TODO: Use node_to_element_graph instead of creating a new one
     // Build node-to-element CSR once (reference behavior).
@@ -289,7 +289,7 @@ int main(int argc, char **argv) {
 
 // #include "sfem_API.hpp"
 
-// static SFEM_INLINE void normal(real_t u[3], real_t v[3], real_t *n) {
+// static SMESH_INLINE void normal(real_t u[3], real_t v[3], real_t *n) {
 //     const real_t u_len = sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
 //     const real_t v_len = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 
@@ -309,7 +309,7 @@ int main(int argc, char **argv) {
 //     }
 // }
 
-// static SFEM_INLINE void normal2(real_t p0[2], real_t p1[2], real_t *n) {
+// static SMESH_INLINE void normal2(real_t p0[2], real_t p1[2], real_t *n) {
 //     n[0] = -p1[1] + p0[1];
 //     n[1] = p1[0] - p0[0];
 
@@ -342,8 +342,8 @@ int main(int argc, char **argv) {
 //         angle_threshold = atof(argv[5]); std::string  output_folder   =
 //         argv[6];
 
-//         int SFEM_DEBUG = 0;
-//         SFEM_READ_ENV(SFEM_DEBUG, atoi);
+//         int SMESH_DEBUG = 0;
+//         SMESH_READ_ENV(SMESH_DEBUG, atoi);
 
 //         if (!rank) {
 //             fprintf(stderr,
@@ -415,8 +415,8 @@ int main(int argc, char **argv) {
 //         if (extract_sideset_from_adj_table(
 //                     element_type_hack, n_elements, table_buff,
 //                     &n_surf_elements, &parent_buff, &side_idx_buff) !=
-//                     SFEM_SUCCESS) {
-//             SFEM_ERROR("Failed to extract
+//                     SMESH_SUCCESS) {
+//             SMESH_ERROR("Failed to extract
 //             extract_sideset_from_adj_table!\n");
 //         }
 
@@ -440,7 +440,7 @@ int main(int argc, char **argv) {
 //         int16_t       *surf_idx     = side_idx->data();
 //         auto           lst          = local_side_table->data();
 
-//         element_idx_t closest_element = SFEM_ELEMENT_IDX_INVALID;
+//         element_idx_t closest_element = SMESH_ELEMENT_IDX_INVALID;
 //         int16_t       closest_side    = -1;
 //         real_t        closest_sq_dist = 1000000;
 
@@ -512,8 +512,8 @@ int main(int argc, char **argv) {
 //         }
 // #endif
 
-//         if (closest_element == SFEM_IDX_INVALID) {
-//             SFEM_ERROR("Invalid set up! for mesh #nelements %ld #nodes
+//         if (closest_element == SMESH_IDX_INVALID) {
+//             SMESH_ERROR("Invalid set up! for mesh #nelements %ld #nodes
 //             %ld\n", n_elements, n_nodes);
 //         }
 
@@ -528,7 +528,7 @@ int main(int argc, char **argv) {
 
 //         equeue[0] = closest_element;
 //         for (ptrdiff_t e = 1; e < size_queue; ++e) {
-//             equeue[e] = SFEM_PTRDIFF_INVALID;
+//             equeue[e] = SMESH_PTRDIFF_INVALID;
 //         }
 
 //         // Next slot
@@ -542,8 +542,8 @@ int main(int argc, char **argv) {
 //         nodes/edges count_t       *n2e_ptr  = nullptr; element_idx_t *n2e_el
 //         = nullptr; const int      nxe_full =
 //         elem_num_nodes(mesh->element_type()); if (build_n2e(n_elements,
-//         n_nodes, nxe_full, elements, &n2e_ptr, &n2e_el) != SFEM_SUCCESS) {
-//             SFEM_ERROR("Failed to build node->element incidence\n");
+//         n_nodes, nxe_full, elements, &n2e_ptr, &n2e_el) != SMESH_SUCCESS) {
+//             SMESH_ERROR("Failed to build node->element incidence\n");
 //         }
 
 //         if (dim == 2) {
@@ -552,7 +552,7 @@ int main(int argc, char **argv) {
 //                 const element_idx_t sp = surf_parents[e];
 //                 const int16_t       s  = surf_idx[e];
 //                 if (eselect[e]) {
-//                     equeue[q] = SFEM_PTRDIFF_INVALID;
+//                     equeue[q] = SMESH_PTRDIFF_INVALID;
 //                     continue;
 //                 }
 
@@ -579,7 +579,7 @@ int main(int argc, char **argv) {
 //                         for (ptrdiff_t k = emap_ptr[esp]; k < emap_ptr[esp +
 //                         1]; ++k) {
 //                             const element_idx_t ne = emap_idx[k];
-//                             if (ne == e || ne == SFEM_ELEMENT_IDX_INVALID ||
+//                             if (ne == e || ne == SMESH_ELEMENT_IDX_INVALID ||
 //                             eselect[ne]) continue; const int16_t ns         =
 //                             surf_idx[ne]; const idx_t   n_nodes[2] =
 //                             {elements[lst[ns * nnxs + 0]][esp],
@@ -607,7 +607,7 @@ int main(int argc, char **argv) {
 //                 }
 
 //                 eselect[e] = 1;
-//                 equeue[q]  = SFEM_PTRDIFF_INVALID;
+//                 equeue[q]  = SMESH_PTRDIFF_INVALID;
 //             }
 //         } else {
 //             for (ptrdiff_t q = 0; equeue[q] >= 0; q = (q + 1) % size_queue) {
@@ -615,7 +615,7 @@ int main(int argc, char **argv) {
 //                 const element_idx_t sp = surf_parents[e];
 //                 const int16_t       s  = surf_idx[e];
 //                 if (eselect[e]) {
-//                     equeue[q] = SFEM_PTRDIFF_INVALID;
+//                     equeue[q] = SMESH_PTRDIFF_INVALID;
 //                     continue;
 //                 }
 
@@ -643,7 +643,7 @@ int main(int argc, char **argv) {
 //                         for (ptrdiff_t k = emap_ptr[esp]; k < emap_ptr[esp +
 //                         1]; ++k) {
 //                             const element_idx_t ne = emap_idx[k];
-//                             if (ne == e || ne == SFEM_ELEMENT_IDX_INVALID ||
+//                             if (ne == e || ne == SMESH_ELEMENT_IDX_INVALID ||
 //                             eselect[ne]) continue; const int16_t ns =
 //                             surf_idx[ne];
 
@@ -684,7 +684,7 @@ int main(int argc, char **argv) {
 //                 }
 
 //                 eselect[e] = 1;
-//                 equeue[q]  = SFEM_PTRDIFF_INVALID;
+//                 equeue[q]  = SMESH_PTRDIFF_INVALID;
 //             }
 //         }
 
@@ -718,7 +718,7 @@ int main(int argc, char **argv) {
 //         sideset_parent->to_file((output_folder + "/parent.raw").c_str());
 //         sideset_lfi->to_file((output_folder + "/lfi.int16.raw").c_str());
 
-//         if (SFEM_DEBUG) {
+//         if (SMESH_DEBUG) {
 //             printf("Extraced %ld/%ld surface elements\n",
 //             long(sideset_parent->size()), long(parent->size())); auto
 //             debug_elements =
@@ -731,8 +731,8 @@ int main(int argc, char **argv) {
 //                                              sideset_parent->data(),
 //                                              sideset_lfi->data(),
 //                                              debug_elements->data()) !=
-//                                              SFEM_SUCCESS) {
-//                 SFEM_ERROR("Unable to extract surface from sideset!\n");
+//                                              SMESH_SUCCESS) {
+//                 SMESH_ERROR("Unable to extract surface from sideset!\n");
 //             }
 
 //             sfem::create_directory((output_folder + "/surf").c_str());
@@ -748,5 +748,5 @@ int main(int argc, char **argv) {
 //         }
 //     }
 
-//     return SFEM_SUCCESS;
+//     return SMESH_SUCCESS;
 // }

@@ -1,10 +1,9 @@
-#include "cu_sshex8_interpolate.h"
+#include "smesh_sshex8_restriction.cuh"
 
-#include "sfem_cuda_base.h"
+#include "smesh_cuda_base.cuh"  
 
 #include "cu_sshex8_inline.hpp"
 
-#include <cSMESH_ASSERT>
 #include <cstdio>
 #include <vector>
 
