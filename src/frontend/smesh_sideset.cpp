@@ -101,6 +101,11 @@ std::vector<std::shared_ptr<Sideset>> Sideset::create_from_selector(
     const std::vector<std::string> &block_names) {
   SMESH_TRACE_SCOPE("Sideset::create_from_selector");
 
+  if (is_semistructured_type(mesh->element_type(0))) {
+    auto coarse = derefine(mesh, 1);
+    return create_from_selector(coarse, selector, block_names);
+  }
+
   //   const ptrdiff_t nnodes = mesh->n_nodes();
   const int dim = mesh->spatial_dimension();
 

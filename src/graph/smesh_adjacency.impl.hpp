@@ -28,6 +28,9 @@ void create_element_adj_table_from_dual_graph(
     element_type_for_algo = TET4;
   } else if (element_type == TRI6) {
     element_type_for_algo = TRI3;
+  } else if (is_semistructured_type(element_type)) {
+    SMESH_ERROR("create_element_adj_table_from_dual_graph: Semistructured type not supported: %s\n", type_to_string(element_type));
+    return;
   }
 
   LocalSideTable lst;

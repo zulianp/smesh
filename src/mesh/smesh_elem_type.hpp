@@ -503,13 +503,13 @@ inline int elem_num_sides(const enum ElemType type) {
   case TET20:
     return 4;
   case PROTEUS_HEX8:
-    return 8;
+    return 6;
   case PROTEUS_HEX27:
-    return 8;
+    return 6;
   case PROTEUS_HEX64:
-    return 8;
+    return 6;
   case PROTEUS_HEX125:
-    return 8;
+    return 6;
   default: {
     SMESH_ERROR("No number of sides found for type: %s\n", type_to_string(type));
     return 0;
