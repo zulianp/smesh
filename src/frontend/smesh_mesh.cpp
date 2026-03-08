@@ -1398,15 +1398,7 @@ int Mesh::split_boundary_layer() {
 }
 
 int Mesh::renumber_nodes() {
-  if (n_blocks() != 1) {
-    SMESH_ERROR("Mesh must have exactly one block to renumber nodes!\n");
-    return SMESH_FAILURE;
-  }
-
-  const block_idx_t block_id = 0;
-  const int nxe = n_nodes_per_element(block_id);
   auto n_nodes = this->n_nodes();
-
   auto new_idx_buff = create_host_buffer<idx_t>(n_nodes);
 
   auto new_idx = new_idx_buff->data();
@@ -1418,6 +1410,7 @@ int Mesh::renumber_nodes() {
   for (auto &b : impl_->blocks) {
     auto elements = b->elements()->data();
     auto n_elements = b->n_elements();
+    auto nxe = b->n_nodes_per_element();
 
     for (ptrdiff_t e = 0; e < n_elements; e++) {
       for (int v = 0; v < nxe; v++) {
@@ -1433,14 +1426,7 @@ int Mesh::renumber_nodes() {
 }
 
 int Mesh::renumber_nodes(const SharedBuffer<idx_t> &node_mapping) {
-  if (n_blocks() != 1) {
-    SMESH_ERROR("Mesh must have exactly one block to renumber nodes!\n");
-    return SMESH_FAILURE;
-  }
-
-  const block_idx_t block_id = 0;
   const int dim = spatial_dimension();
-  const int nxe = n_nodes_per_element(block_id);
   const ptrdiff_t n_nodes = this->n_nodes();
 
   auto points = this->points()->data();
@@ -1462,6 +1448,7 @@ int Mesh::renumber_nodes(const SharedBuffer<idx_t> &node_mapping) {
   for (auto &b : impl_->blocks) {
     auto elements = b->elements()->data();
     auto n_elements = b->n_elements();
+    auto nxe = b->n_nodes_per_element();
 
     for (ptrdiff_t e = 0; e < n_elements; e++) {
       for (int v = 0; v < nxe; v++) {

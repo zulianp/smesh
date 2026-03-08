@@ -268,7 +268,7 @@ inline enum ElemType side_type(const enum ElemType type) {
   case PROTEUS_HEX729:
     return PROTEUS_QUAD81;
   default: {
-    SMESH_ERROR("No side type found for type: %d\n", type);
+    SMESH_ERROR("No side type found for type: %s\n", type_to_string(type));
     return INVALID;
   }
   }
@@ -335,7 +335,7 @@ inline enum ElemType shell_type(const enum ElemType type) {
   case PROTEUS_QUADSHELL36:
     return PROTEUS_QUADSHELL36;
   default: {
-    SMESH_ERROR("No shell type found for type: %d\n", type);
+    SMESH_ERROR("No shell type found for type: %s\n", type_to_string(type));
     return INVALID;
   }
   }
@@ -354,7 +354,7 @@ inline enum ElemType elem_lower_order(const enum ElemType type) {
   case EDGE3:
     return EDGE2;
   default: {
-    SMESH_ERROR("No lower order type found for type: %d\n", type);
+    SMESH_ERROR("No lower order type found for type: %s\n", type_to_string(type));
     return INVALID;
   }
   }
@@ -373,7 +373,7 @@ inline enum ElemType elem_higher_order(const enum ElemType type) {
   case EDGE2:
     return EDGE3;
   default: {
-    SMESH_ERROR("No higher order type found for type: %d\n", type);
+    SMESH_ERROR("No higher order type found for type: %s\n", type_to_string(type));
     return INVALID;
   }
   }
@@ -464,7 +464,7 @@ inline int elem_num_nodes(const enum ElemType type) {
   case PROTEUS_QUADSHELL81:
     return 81;
   default: {
-    SMESH_ERROR("No number of nodes found for type: %d\n", type);
+    SMESH_ERROR("No number of nodes found for type: %s\n", type_to_string(type));
     return 0;
   }
   }
@@ -511,7 +511,7 @@ inline int elem_num_sides(const enum ElemType type) {
   case PROTEUS_HEX125:
     return 8;
   default: {
-    SMESH_ERROR("No number of sides found for type: %d\n", type);
+    SMESH_ERROR("No number of sides found for type: %s\n", type_to_string(type));
     return 0;
   }
   }
@@ -556,7 +556,7 @@ inline int elem_manifold_dim(const enum ElemType type) {
   case PROTEUS_HEX125:
     return 3;
   default: {
-    SMESH_ERROR("No manifold dimension found for type: %d\n", type);
+    SMESH_ERROR("No manifold dimension found for type: %s\n", type_to_string(type));
     return INVALID;
   }
   }
@@ -570,7 +570,7 @@ inline enum ElemType macro_type_variant(const enum ElemType type) {
     return MACRO_TRI3;
 
   default: {
-    SMESH_ERROR("No macro type variant found for type: %d\n", type);
+    SMESH_ERROR("No macro type variant found for type: %s\n", type_to_string(type));
     return type;
   }
   }
@@ -596,8 +596,16 @@ inline enum ElemType macro_base_elem(const enum ElemType macro_type) {
     return PROTEUS_HEX8;
   case PROTEUS_HEX125:
     return PROTEUS_HEX8;
+  case PROTEUS_HEX216:
+    return PROTEUS_HEX8;
+  case PROTEUS_HEX343:
+    return PROTEUS_HEX8;
+  case PROTEUS_HEX512:
+    return PROTEUS_HEX8;
+  case PROTEUS_HEX729:
+    return PROTEUS_HEX8;
   default: {
-    SMESH_ERROR("No macro base elem found for type: %d\n", macro_type);
+    SMESH_ERROR("No macro base elem found for type: %s\n", type_to_string(macro_type));
     return macro_type;
   }
   }
@@ -644,6 +652,10 @@ inline enum ElemType semistructured_type(const enum ElemType type,
                                          const int micro_elements_per_dim) {
   switch (type) {
   case HEX8: {
+    return proteus_hex_type(micro_elements_per_dim);
+  }
+  case PROTEUS_HEX8:
+  {
     return proteus_hex_type(micro_elements_per_dim);
   }
   default: {

@@ -8,6 +8,9 @@ namespace smesh {
     class Mesh;
     class Sideset;
     template <typename T> class Buffer;
+
+    template <typename pack_idx_t>
+    class PackedMesh;
 } // namespace smesh
 
 #endif // SMESH_FORWARD_DECLARATIONS_HPP
