@@ -10,7 +10,11 @@ namespace smesh {
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, ptrdiff_t *, ptrdiff_t *); \
   template int sshex8_hierarchical_renumbering<IDX_T>(                             \
       const int, const int, int *const, const ptrdiff_t, const ptrdiff_t,         \
-      IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
+      IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT); \
+  template int ssquad4_hierarchical_remapping<IDX_T>(                              \
+      const int, const int, int *const, const ptrdiff_t, const ptrdiff_t,         \
+    IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                    \
+      IDX_T **, ptrdiff_t *)
 
 #define SMESH_EXPLICIT_INSTANTIATE_SSHEX8_GRAPH(IDX_T, ELEM_IDX_T, COUNT_T)       \
   template int sshex8_crs_graph<ELEM_IDX_T, COUNT_T, IDX_T>(                       \

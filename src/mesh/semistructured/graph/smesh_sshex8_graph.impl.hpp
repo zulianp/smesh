@@ -1431,7 +1431,7 @@ template<typename idx_t>
 int ssquad4_hierarchical_remapping(const int L, const int nlevels,
                                    int *const levels, const ptrdiff_t nelements,
                                    const ptrdiff_t nnodes,
-                                   const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                   idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
                                    idx_t **SMESH_RESTRICT node_mapping_out,
                                    ptrdiff_t *count_out) {
   idx_t *node_mapping = (idx_t *)malloc(nnodes * sizeof(idx_t));
@@ -1494,7 +1494,7 @@ int ssquad4_hierarchical_remapping(const int L, const int nlevels,
   }
 
   *count_out = next_id;
-  *node_mapping_out = malloc(*count_out * sizeof(idx_t));
+  *node_mapping_out = (idx_t *)malloc(*count_out * sizeof(idx_t));
 
 #ifndef NDEBUG
   for (ptrdiff_t i = 0; i < *count_out; i++) {

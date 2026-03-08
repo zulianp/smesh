@@ -94,7 +94,7 @@ template <typename idx_t>
 int ssquad4_hierarchical_remapping(
     const int L, const int nlevels, int *const levels, const ptrdiff_t nelements,
     const ptrdiff_t nnodes,
-    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     idx_t **SMESH_RESTRICT node_mapping_out, ptrdiff_t *count_out);
 
 } // namespace smesh
