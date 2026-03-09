@@ -155,7 +155,7 @@ std::vector<std::shared_ptr<Sideset>> Sideset::create_from_selector(
           p[d] /= nnxs;
         }
 
-        printf("%ld: %f %f %f\n", e, p[0], p[1], p[2]);
+        // printf("%ld: %f %f %f\n", e, p[0], p[1], p[2]);
 
         if (selector(p[0], p[1], p[2])) {
           parent_list.push_back(e);
