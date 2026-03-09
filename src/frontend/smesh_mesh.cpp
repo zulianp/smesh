@@ -1966,4 +1966,16 @@ std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
     return nullptr;
   }
 }
+
+void Mesh::print(std::ostream &os) const {
+  os << "n_blocks: " << n_blocks() << "\n";
+  
+  for (size_t i = 0; i < n_blocks(); i++) {
+    os << i << ")\n";
+    block(i)->elements()->print(os);
+  }
+
+  os << "n_nodes: " << n_nodes() << "\n";
+  points()->print(os);
+}
 } // namespace smesh

@@ -91,10 +91,6 @@ inline enum ElemType type_from_string(const char *str) {
     return QUAD4;
   if (!strcmp(str, "QUADSHELL4"))
     return QUADSHELL4;
-  // if (!strcmp(str, "SSQUAD4"))
-  //   return SSQUAD4;
-  // if (!strcmp(str, "SSQUADSHELL4"))
-  //   return SSQUADSHELL4;
   if (!strcmp(str, "TET4"))
     return TET4;
   if (!strcmp(str, "TET15"))
@@ -109,8 +105,6 @@ inline enum ElemType type_from_string(const char *str) {
     return MACRO_TET4;
   if (!strcmp(str, "HEX8"))
     return HEX8;
-  // if (!strcmp(str, "SSHEX8"))
-  //   return SSHEX8;
   if (!strcmp(str, "PROTEUS_HEX8"))
     return PROTEUS_HEX8;
   if (!strcmp(str, "PROTEUS_HEX27"))
@@ -165,12 +159,8 @@ inline const char *type_to_string(enum ElemType type) {
     return "WEDGE6";
   case QUAD4:
     return "QUAD4";
-  // case QUADSHELL4:
-  //   return "QUADSHELL4";
-  // case SSQUAD4:
-  //   return "SSQUAD4";
-  // case SSQUADSHELL4:
-  //   return "SSQUADSHELL4";
+  case QUADSHELL4:
+    return "QUADSHELL4";
   case TET4:
     return "TET4";
   case TRI6:
@@ -187,8 +177,6 @@ inline const char *type_to_string(enum ElemType type) {
     return "MACRO_TET4";
   case HEX8:
     return "HEX8";
-  // case SSHEX8:
-  //   return "SSHEX8";
   case TET10:
     return "TET10";
   case TET15:
@@ -249,8 +237,6 @@ inline enum ElemType side_type(const enum ElemType type) {
     return MACRO_TRI3;
   case HEX8:
     return QUAD4;
-  // case SSHEX8:
-  //   return SSQUAD4;
   case PROTEUS_HEX8:
     return PROTEUS_QUAD4;
   case PROTEUS_HEX27:
@@ -298,10 +284,6 @@ inline enum ElemType shell_type(const enum ElemType type) {
     return QUADSHELL4;
   case QUADSHELL4:
     return QUADSHELL4;
-  // case SSQUAD4:
-  //   return SSQUADSHELL4;
-  // case SSQUADSHELL4:
-  //   return SSQUADSHELL4;
   case PROTEUS_HEX8:
     return PROTEUS_QUADSHELL4;
   case PROTEUS_HEX27:

@@ -101,8 +101,10 @@ std::vector<std::shared_ptr<Sideset>> Sideset::create_from_selector(
     const std::vector<std::string> &block_names) {
   SMESH_TRACE_SCOPE("Sideset::create_from_selector");
 
+  // mesh->print();
+
   if (is_semistructured_type(mesh->element_type(0))) {
-    auto coarse = derefine(mesh, 1);
+    auto coarse = sshex_to_hex8(derefine(mesh, 1));
     return create_from_selector(coarse, selector, block_names);
   }
 
@@ -152,6 +154,8 @@ std::vector<std::shared_ptr<Sideset>> Sideset::create_from_selector(
         for (int d = 0; d < dim; d++) {
           p[d] /= nnxs;
         }
+
+        printf("%ld: %f %f %f\n", e, p[0], p[1], p[2]);
 
         if (selector(p[0], p[1], p[2])) {
           parent_list.push_back(e);

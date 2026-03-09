@@ -228,6 +228,8 @@ public:
   void reorder_elements_from_tags(const block_idx_t block_id,
                                   const SharedBuffer<idx_t> &tags);
 
+  void print(std::ostream &os = std::cout) const;
+
 private:
   class Impl;
   std::unique_ptr<Impl> impl_;
