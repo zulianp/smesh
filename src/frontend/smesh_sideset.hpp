@@ -48,7 +48,7 @@ public:
           &selector,
       const std::vector<std::string> &block_names = {});
 
-  void print(std::ostream &os) const;
+  void print(std::ostream &os = std::cout) const;
 
 private:
   class Impl;
