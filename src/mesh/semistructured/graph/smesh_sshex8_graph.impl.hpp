@@ -870,9 +870,10 @@ template<typename idx_t>
 int sshex8_hierarchical_renumbering(
     const int L, const int nlevels, int *const levels,
     const ptrdiff_t nelements, const ptrdiff_t nnodes,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements) {
-  idx_t *node_mapping =
-      static_cast<idx_t *>(malloc(static_cast<size_t>(nnodes) * sizeof(idx_t)));
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+  idx_t *const SMESH_RESTRICT node_mapping) {
+  // idx_t *node_mapping =
+  //     static_cast<idx_t *>(malloc(static_cast<size_t>(nnodes) * sizeof(idx_t)));
 #pragma omp parallel for
   for (ptrdiff_t i = 0; i < nnodes; i++) {
     node_mapping[i] = invalid_idx<idx_t>();
@@ -937,7 +938,7 @@ int sshex8_hierarchical_renumbering(
     }
   }
 
-  free(node_mapping);
+  // free(node_mapping);
   return SMESH_SUCCESS;
 }
 

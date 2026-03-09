@@ -13,22 +13,28 @@
 #include <memory>
 #include <vector>
 
-
 namespace smesh {
-void sshex_block_to_hex8_block(const Mesh::Block &block, Mesh::Block &new_block);
-void ssquad_block_to_quad4_block(const Mesh::Block &block, Mesh::Block &new_block);
+    void sshex_block_to_hex8_block(const Mesh::Block &block, Mesh::Block &new_block);
+    void ssquad_block_to_quad4_block(const Mesh::Block &block, Mesh::Block &new_block);
 
-int semistructured_hierarchical_renumbering(
-    const enum ElemType element_type, const int level, const ptrdiff_t n_nodes,
-    const SharedBuffer<idx_t *> &elements);
-std::shared_ptr<Mesh> to_semistructured(const int level,
-                                        const std::shared_ptr<Mesh> &mesh,
-                                        const bool hiearchical_ordering = false,
-                                        const bool use_GLL = false);
-std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex);
-std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh,
-                               const int to_level);
-                               
-} // namespace smesh
+    int semistructured_hierarchical_renumbering(const enum ElemType          element_type,
+                                                const int                    level,
+                                                const ptrdiff_t              n_nodes,
+                                                const SharedBuffer<idx_t *> &elements);
 
-#endif // SMESH_SEMI_STRUCTURED_MESH_HPP
+    int semistructured_hierarchical_renumbering(const enum ElemType           element_type,
+                                                const int                     level,
+                                                const ptrdiff_t               n_nodes,
+                                                const SharedBuffer<idx_t *>  &elements,
+                                                const SharedBuffer<geom_t *> &points);
+
+    std::shared_ptr<Mesh> to_semistructured(const int                    level,
+                                            const std::shared_ptr<Mesh> &mesh,
+                                            const bool                   hiearchical_ordering = false,
+                                            const bool                   use_GLL              = false);
+    std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex);
+    std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh, const int to_level);
+
+}  // namespace smesh
+
+#endif  // SMESH_SEMI_STRUCTURED_MESH_HPP
