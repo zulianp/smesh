@@ -16,6 +16,8 @@
 
 namespace smesh {
 void sshex_block_to_hex8_block(const Mesh::Block &block, Mesh::Block &new_block);
+void ssquad_block_to_quad4_block(const Mesh::Block &block, Mesh::Block &new_block);
+
 int semistructured_hierarchical_renumbering(
     const enum ElemType element_type, const int level, const ptrdiff_t n_nodes,
     const SharedBuffer<idx_t *> &elements);

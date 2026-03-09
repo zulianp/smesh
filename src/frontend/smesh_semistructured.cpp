@@ -9,6 +9,7 @@
 #include "smesh_sshex8.hpp"
 #include "smesh_sshex8_graph.hpp"
 #include "smesh_sshex8_mesh.hpp"
+#include "smesh_ssquad4_mesh.hpp"
 #include "smesh_ssquad4.hpp"
 #include "smesh_tracer.hpp"
 
@@ -123,6 +124,22 @@ void sshex_block_to_hex8_block(const Mesh::Block &block,
   new_block.set_name(block.name());
   new_block.set_elements(hex8_elements);
   new_block.set_element_type(HEX8);
+}
+
+void ssquad_block_to_quad4_block(const Mesh::Block &block, Mesh::Block &new_block)
+{
+  const int level = proteus_quad_micro_elements_per_dim(block.element_type());
+  const int nnxs = 4;
+  const int nexs = level * level;
+  auto surface =
+      smesh::create_host_buffer<idx_t>(nnxs, block.n_elements() * nexs);
+
+  ssquad4_to_standard_quad4_mesh(level, block.n_elements(),
+                                 block.elements()->data(), surface->data());
+
+  new_block.set_name(block.name());
+  new_block.set_elements(surface);
+  new_block.set_element_type(QUAD4);
 }
 
 std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex) {

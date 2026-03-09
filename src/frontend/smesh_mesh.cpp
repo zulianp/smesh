@@ -1644,6 +1644,23 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
   cmap[std::make_pair(PROTEUS_HEX512, HEX8)] = sshex_block_to_hex8_block;
   cmap[std::make_pair(PROTEUS_HEX729, HEX8)] = sshex_block_to_hex8_block;
 
+  cmap[std::make_pair(PROTEUS_QUAD4, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUAD9, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUAD16, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUAD25, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUAD36, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUAD49, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUAD64, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUAD81, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL4, QUADSHELL4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL9, QUADSHELL4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL16, QUADSHELL4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL25, QUADSHELL4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL36, QUADSHELL4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL49, QUADSHELL4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL64, QUADSHELL4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL81, QUADSHELL4)] = ssquad_block_to_quad4_block;
+
   std::vector<std::shared_ptr<Mesh::Block>> blocks;
   for (auto &block : mesh->blocks()) {
     auto new_block = std::make_shared<Mesh::Block>();
@@ -1842,6 +1859,11 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
     SMESH_ERROR("Skin sideset is not supported for multiblock meshes\n");
     return nullptr;
   }
+
+  if(is_semistructured_type(mesh->element_type(0))) {
+    return skin_sideset(derefine(mesh, 1));
+  }
+
   auto hft = mesh->half_face_table();
   auto e2e_table = hft->data();
 

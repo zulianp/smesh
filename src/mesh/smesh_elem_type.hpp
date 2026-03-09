@@ -37,7 +37,7 @@ enum ElemType {
   // SSQUAD4 = 40000,
   // SSQUADSHELL4 = 140000,
   PROTEUS_HEX8 = 80000,
-// Semistructured types only below this line
+  // Semistructured types only below this line
   SEMISTRUCTURED_ELEMENT = 100000,
   // SSHEX8 = 8000,
   PROTEUS_HEX27 = 270000,
@@ -137,6 +137,22 @@ inline enum ElemType type_from_string(const char *str) {
     return PROTEUS_QUAD64;
   if (!strcmp(str, "PROTEUS_QUAD81"))
     return PROTEUS_QUAD81;
+  if (!strcmp(str, "PROTEUS_QUADSHELL4"))
+    return PROTEUS_QUADSHELL4;
+  if (!strcmp(str, "PROTEUS_QUADSHELL9"))
+    return PROTEUS_QUADSHELL9;
+  if (!strcmp(str, "PROTEUS_QUADSHELL16"))
+    return PROTEUS_QUADSHELL16;
+  if (!strcmp(str, "PROTEUS_QUADSHELL25"))
+    return PROTEUS_QUADSHELL25;
+  if (!strcmp(str, "PROTEUS_QUADSHELL36"))
+    return PROTEUS_QUADSHELL36;
+  if (!strcmp(str, "PROTEUS_QUADSHELL49"))
+    return PROTEUS_QUADSHELL49;
+  if (!strcmp(str, "PROTEUS_QUADSHELL64"))
+    return PROTEUS_QUADSHELL64;
+  if (!strcmp(str, "PROTEUS_QUADSHELL81"))
+    return PROTEUS_QUADSHELL81;
   SMESH_ERROR("No element type found for string: %s\n", str);
   return INVALID;
 }
@@ -207,6 +223,30 @@ inline const char *type_to_string(enum ElemType type) {
     return "PROTEUS_QUAD16";
   case PROTEUS_QUAD25:
     return "PROTEUS_QUAD25";
+  case PROTEUS_QUAD36:
+    return "PROTEUS_QUAD36";
+  case PROTEUS_QUAD49:
+    return "PROTEUS_QUAD49";
+  case PROTEUS_QUAD64:
+    return "PROTEUS_QUAD64";
+  case PROTEUS_QUAD81:
+    return "PROTEUS_QUAD81";
+  case PROTEUS_QUADSHELL4:
+    return "PROTEUS_QUADSHELL4";
+  case PROTEUS_QUADSHELL9:
+    return "PROTEUS_QUADSHELL9";
+  case PROTEUS_QUADSHELL16:
+    return "PROTEUS_QUADSHELL16";
+  case PROTEUS_QUADSHELL25:
+    return "PROTEUS_QUADSHELL25";
+  case PROTEUS_QUADSHELL36:
+    return "PROTEUS_QUADSHELL36";
+  case PROTEUS_QUADSHELL49:
+    return "PROTEUS_QUADSHELL49";
+  case PROTEUS_QUADSHELL64:
+    return "PROTEUS_QUADSHELL64";
+  case PROTEUS_QUADSHELL81:
+    return "PROTEUS_QUADSHELL81";
   default: {
     SMESH_ERROR("No element type found for type: %d\n", type);
     return "INVALID";
@@ -296,7 +336,7 @@ inline enum ElemType shell_type(const enum ElemType type) {
     return PROTEUS_QUADSHELL36;
   case PROTEUS_HEX343:
     return PROTEUS_QUADSHELL49;
-    case PROTEUS_QUAD4:
+  case PROTEUS_QUAD4:
     return PROTEUS_QUADSHELL4;
   case PROTEUS_QUAD9:
     return PROTEUS_QUADSHELL9;
@@ -306,7 +346,7 @@ inline enum ElemType shell_type(const enum ElemType type) {
     return PROTEUS_QUADSHELL25;
   case PROTEUS_QUAD36:
     return PROTEUS_QUADSHELL36;
-    case PROTEUS_QUADSHELL4:
+  case PROTEUS_QUADSHELL4:
     return PROTEUS_QUADSHELL4;
   case PROTEUS_QUADSHELL9:
     return PROTEUS_QUADSHELL9;
@@ -336,7 +376,8 @@ inline enum ElemType elem_lower_order(const enum ElemType type) {
   case EDGE3:
     return EDGE2;
   default: {
-    SMESH_ERROR("No lower order type found for type: %s\n", type_to_string(type));
+    SMESH_ERROR("No lower order type found for type: %s\n",
+                type_to_string(type));
     return INVALID;
   }
   }
@@ -355,7 +396,8 @@ inline enum ElemType elem_higher_order(const enum ElemType type) {
   case EDGE2:
     return EDGE3;
   default: {
-    SMESH_ERROR("No higher order type found for type: %s\n", type_to_string(type));
+    SMESH_ERROR("No higher order type found for type: %s\n",
+                type_to_string(type));
     return INVALID;
   }
   }
@@ -446,7 +488,8 @@ inline int elem_num_nodes(const enum ElemType type) {
   case PROTEUS_QUADSHELL81:
     return 81;
   default: {
-    SMESH_ERROR("No number of nodes found for type: %s\n", type_to_string(type));
+    SMESH_ERROR("No number of nodes found for type: %s\n",
+                type_to_string(type));
     return 0;
   }
   }
@@ -493,7 +536,8 @@ inline int elem_num_sides(const enum ElemType type) {
   case PROTEUS_HEX125:
     return 6;
   default: {
-    SMESH_ERROR("No number of sides found for type: %s\n", type_to_string(type));
+    SMESH_ERROR("No number of sides found for type: %s\n",
+                type_to_string(type));
     return 0;
   }
   }
@@ -538,7 +582,8 @@ inline int elem_manifold_dim(const enum ElemType type) {
   case PROTEUS_HEX125:
     return 3;
   default: {
-    SMESH_ERROR("No manifold dimension found for type: %s\n", type_to_string(type));
+    SMESH_ERROR("No manifold dimension found for type: %s\n",
+                type_to_string(type));
     return INVALID;
   }
   }
@@ -552,7 +597,8 @@ inline enum ElemType macro_type_variant(const enum ElemType type) {
     return MACRO_TRI3;
 
   default: {
-    SMESH_ERROR("No macro type variant found for type: %s\n", type_to_string(type));
+    SMESH_ERROR("No macro type variant found for type: %s\n",
+                type_to_string(type));
     return type;
   }
   }
@@ -587,7 +633,8 @@ inline enum ElemType macro_base_elem(const enum ElemType macro_type) {
   case PROTEUS_HEX729:
     return PROTEUS_HEX8;
   default: {
-    SMESH_ERROR("No macro base elem found for type: %s\n", type_to_string(macro_type));
+    SMESH_ERROR("No macro base elem found for type: %s\n",
+                type_to_string(macro_type));
     return macro_type;
   }
   }
@@ -636,8 +683,7 @@ inline enum ElemType semistructured_type(const enum ElemType type,
   case HEX8: {
     return proteus_hex_type(micro_elements_per_dim);
   }
-  case PROTEUS_HEX8:
-  {
+  case PROTEUS_HEX8: {
     return proteus_hex_type(micro_elements_per_dim);
   }
   default: {
@@ -667,6 +713,48 @@ inline int proteus_hex_micro_elements_per_dim(const enum ElemType type) {
     return 8;
   default: {
     SMESH_ERROR("proteus_hex_micro_elements_per_dim: Invalid element type %d",
+                type);
+    return INVALID;
+  }
+  }
+}
+
+inline int proteus_quad_micro_elements_per_dim(const enum ElemType type) {
+  switch (type) {
+  case PROTEUS_QUAD4:
+    return 1;
+  case PROTEUS_QUAD9:
+    return 2;
+  case PROTEUS_QUAD16:
+    return 3;
+  case PROTEUS_QUAD25:
+    return 4;
+  case PROTEUS_QUAD36:
+    return 5;
+  case PROTEUS_QUAD49:
+    return 6;
+  case PROTEUS_QUAD64:
+    return 7;
+  case PROTEUS_QUAD81:
+    return 8;
+  case PROTEUS_QUADSHELL4:
+    return 1;
+  case PROTEUS_QUADSHELL9:
+    return 2;
+  case PROTEUS_QUADSHELL16:
+    return 3;
+  case PROTEUS_QUADSHELL25:
+    return 4;
+  case PROTEUS_QUADSHELL36:
+    return 5;
+  case PROTEUS_QUADSHELL49:
+    return 6;
+  case PROTEUS_QUADSHELL64:
+    return 7;
+  case PROTEUS_QUADSHELL81:
+    return 8;
+  default: {
+    SMESH_ERROR("proteus_quad_micro_elements_per_dim: Invalid element type %d",
                 type);
     return INVALID;
   }
