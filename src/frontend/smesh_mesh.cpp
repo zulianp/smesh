@@ -216,9 +216,8 @@ public:
     const ptrdiff_t nnodes = points->extent(1);
     if (blocks.size() == 1) {
       auto block0 = blocks[0];
-      create_n2e(block0->n_elements(), nnodes,
-                 block0->n_nodes_per_element(), block0->elements()->data(),
-                 &rowptr, &colidx);
+      create_n2e(block0->n_elements(), nnodes, block0->n_nodes_per_element(),
+                 block0->elements()->data(), &rowptr, &colidx);
     } else {
       // Multiblock: build node-to-element graph over all blocks.
       std::vector<enum ElemType> element_types;
@@ -714,10 +713,8 @@ Mesh::create_node_to_node_graph(const enum ElemType element_type) {
     return node_to_node_graph();
   }
 
-
-  const ptrdiff_t n_nodes = max_node_id(element_type, n_elements(0),
-                                        elements(0)->data()) +
-                            1;
+  const ptrdiff_t n_nodes =
+      max_node_id(element_type, n_elements(0), elements(0)->data()) + 1;
 
   count_t *rowptr{nullptr};
   idx_t *colidx{nullptr};
@@ -814,8 +811,8 @@ Mesh::node_to_node_graph_upper_triangular() {
   if (impl_->blocks.size() == 1) {
     create_crs_graph_upper_triangular_from_element(
         impl_->total_elements(), this->n_nodes(),
-        elem_num_nodes(this->element_type(0)),
-        this->elements(0)->data(), &rowptr, &colidx);
+        elem_num_nodes(this->element_type(0)), this->elements(0)->data(),
+        &rowptr, &colidx);
   } else {
     // AoS to SoA
     std::vector<enum ElemType> element_types;
@@ -1130,7 +1127,8 @@ void Mesh::set_comm(const std::shared_ptr<Communicator> &comm) {
   impl_->comm = comm;
 }
 
-void Mesh::set_element_type(const block_idx_t block_id, const enum ElemType element_type) {
+void Mesh::set_element_type(const block_idx_t block_id,
+                            const enum ElemType element_type) {
   auto blk = this->block(block_id);
   SMESH_ASSERT(blk);
   blk->set_element_type(element_type);
@@ -1524,9 +1522,8 @@ Mesh::select_elements(const std::function<bool(const geom_t, const geom_t,
   return selected_elements;
 }
 
-void Mesh::reorder_elements_from_tags(
-  const block_idx_t block_id,
-  const SharedBuffer<idx_t> &tags) {
+void Mesh::reorder_elements_from_tags(const block_idx_t block_id,
+                                      const SharedBuffer<idx_t> &tags) {
   const ptrdiff_t nelems = n_elements(block_id);
   auto temp = create_host_buffer<idx_t>(nelems);
   auto d_temp = temp->data();
@@ -1916,6 +1913,13 @@ mesh_from_sideset(const std::shared_ptr<Mesh> &mesh,
 
   auto ret = std::make_shared<Mesh>(mesh->comm(), surface_type,
                                     surface_elements, surf_points);
+
+  for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+    for (int d = 0; d < nnxs; ++d) {
+      b_surface_elements[d][i] = b_vol2surf[b_surface_elements[d][i]];
+    }
+  }
+
   ret->set_node_mapping(mapping);
   return ret;
 }
@@ -1969,7 +1973,7 @@ std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
 
 void Mesh::print(std::ostream &os) const {
   os << "n_blocks: " << n_blocks() << "\n";
-  
+
   for (size_t i = 0; i < n_blocks(); i++) {
     os << i << ")\n";
     block(i)->elements()->print(os);

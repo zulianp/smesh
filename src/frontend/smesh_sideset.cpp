@@ -314,10 +314,10 @@ int Sideset::redistribute(const std::shared_ptr<Mesh> &mesh)
     // return redistribute_sideset(mesh->comm(), mesh->n_elements(impl_->block_id), impl_->parent->data(), impl_->lfi->data(), impl_->block_id);
 }
 
-std::shared_ptr<Buffer<element_idx_t>> Sideset::parent() {
+std::shared_ptr<Buffer<element_idx_t>> Sideset::parent() const {
   return impl_->parent;
 }
-std::shared_ptr<Buffer<i16>> Sideset::lfi() { return impl_->lfi; }
+std::shared_ptr<Buffer<i16>> Sideset::lfi() const { return impl_->lfi; }
 block_idx_t Sideset::block_id() const { return impl_->block_id; }
 
 std::shared_ptr<Buffer<idx_t>> create_nodeset_from_sidesets(
@@ -392,6 +392,10 @@ create_surface_from_sideset(const std::shared_ptr<Mesh> &mesh,
           sideset->lfi()->data(), surface->data()) != SMESH_SUCCESS) {
     SMESH_ERROR("Unable to create surface from sideset!");
   }
+
+  // printf("Type: %s->%s\n", type_to_string(block->element_type()), type_to_string(st));
+  // surface->print();
+  
   return {st, surface};
 }
 
@@ -508,6 +512,15 @@ create_surface_from_sidesets(
   } else {
     return create_surface_from_sideset(mesh, sidesets[0]);
   }
+}
+
+void Sideset::print(std::ostream &os) const
+{
+  os << "Sideset: " << block_id() << "\n";
+  os << "Size: " << parent()->size() << "\n";
+
+  parent()->print(os);
+  lfi()->print(os);
 }
 
 } // namespace smesh
