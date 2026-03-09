@@ -45,6 +45,8 @@ namespace smesh {
 
         int write(const Path &path);
 
+        void print(std::ostream &os = std::cout, const int verbosity = 0) const;
+
     private:
         class Block;
         class Impl;

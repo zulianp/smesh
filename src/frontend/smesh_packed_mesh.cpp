@@ -2,6 +2,7 @@
 #include "smesh_env.hpp"
 #include "smesh_mask.hpp"
 #include "smesh_glob.hpp"
+#include "smesh_buffer.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -35,7 +36,7 @@ public:
            ghost_ptr->nbytes() + ghost_idx->nbytes() + n_shared->nbytes();
   }
 
-  void print(std::ostream &os = std::cout) const {
+  void print(std::ostream &os = std::cout, const int verbosity = 0) const {
     os << "--------------------" << std::endl;
     os << "| PackedMesh |" << std::endl;
     os << "n_packs: " << n_packs << std::endl;
@@ -44,6 +45,44 @@ public:
     os << "Original:      " << (block->elements()->nbytes() / 1204.0) << " KB"
        << std::endl;
     os << "--------------------" << std::endl;
+
+    if(verbosity > 0) {
+
+      auto b_owned_nodes_ptr = owned_nodes_ptr->data();
+      auto b_ghost_ptr = ghost_ptr->data();
+      auto b_ghost_idx = ghost_idx->data();
+      ptrdiff_t size_buff = b_owned_nodes_ptr[n_packs];
+      auto nodes = smesh::create_host_buffer<idx_t>(size_buff);
+      auto b_nodes = nodes->data();
+
+      for(ptrdiff_t p = 0; p < n_packs; p++) {
+        // Consruct local 2 global index map for printing
+        const ptrdiff_t owned_start = b_owned_nodes_ptr[p];
+        const ptrdiff_t owned_end = b_owned_nodes_ptr[p + 1];
+
+        for(ptrdiff_t i = owned_start; i < owned_end; i++) {
+          b_nodes[i - owned_start] = i;
+        }
+
+        const ptrdiff_t ghost_start = b_ghost_ptr[p];
+        const ptrdiff_t ghost_end = b_ghost_ptr[p + 1];
+
+        for(ptrdiff_t i = ghost_start; i < ghost_end; i++) {
+          b_nodes[owned_end + i - ghost_start] = b_ghost_idx[i];
+        }
+
+        os << "Pack " << p << ":" << std::endl;
+        
+        for(int v = 0; v < block->n_nodes_per_element(); v++) {
+        for(ptrdiff_t e = 0; e < elements_per_pack; e++) {
+          
+            os << b_nodes[packed_elements->data()[v][e]] << " ";
+          }
+          os << std::endl;
+        }
+      }
+      // packed_elements->print(os);
+    }
   }
 
   void identify_owner(const ptrdiff_t pack_offset,
@@ -514,6 +553,13 @@ int PackedMesh<pack_idx_t>::write(const Path &path) {
   }
 
   return SMESH_SUCCESS;
+}
+
+template <typename pack_idx_t>
+void PackedMesh<pack_idx_t>::print(std::ostream &os, const int verbosity) const {
+  for (auto &block : impl_->blocks) {
+    block->print(os, verbosity);
+  }
 }
 
 template class PackedMesh<uint8_t>;

@@ -188,7 +188,7 @@ convert_host_buffer_to_fake_SoA(const size_t n0,
 
   T **data = static_cast<T **>(malloc(n0 * sizeof(T *)));
   for (size_t i = 0; i < n0; ++i) {
-    data[i] = const_cast<T *>(&in->data()[i * n1]);
+    data[i] = const_cast<T *>(&in->data()[i]);
   }
 
   auto ret = std::make_shared<Buffer<T *>>(
