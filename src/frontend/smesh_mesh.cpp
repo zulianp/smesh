@@ -190,20 +190,6 @@ public:
     return total;
   }
 
-  // enum ElemType default_element_type() const {
-  //   if (blocks.empty() || !blocks[0]) {
-  //     return INVALID;
-  //   }
-  //   return blocks[0]->element_type();
-  // }
-
-  // SharedBuffer<idx_t *> default_elements() const {
-  //   if (blocks.empty() || !blocks[0]) {
-  //     return nullptr;
-  //   }
-  //   return blocks[0]->elements();
-  // }
-
   void create_node_to_element_graph() {
     if (node_to_element_graph) {
       return;
