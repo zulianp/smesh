@@ -89,7 +89,7 @@ public:
 
   int to_files(const Path &path);
 
-  static std::shared_ptr<Buffer<T*>> from_files(const Path &pattern);
+  static std::shared_ptr<Buffer<T *>> from_files(const Path &pattern);
 
   void release();
 
@@ -117,9 +117,9 @@ convert_host_buffer_to_fake_SoA(const size_t n0,
                                 const std::shared_ptr<Buffer<T>> &in);
 
 template <typename T>
-std::shared_ptr<Buffer<T>>
-soa_to_aos(const size_t in_stride0, const size_t in_stride1,
-           const std::shared_ptr<Buffer<T *>> &in);
+std::shared_ptr<Buffer<T>> soa_to_aos(const size_t in_stride0,
+                                      const size_t in_stride1,
+                                      const std::shared_ptr<Buffer<T *>> &in);
 
 template <typename T>
 std::shared_ptr<Buffer<T>> manage_host_buffer(const size_t n, T *data);
@@ -133,9 +133,9 @@ std::shared_ptr<Buffer<T>> view(const std::shared_ptr<Buffer<T>> &buffer,
                                 const size_t begin, const size_t end);
 
 template <typename T>
-std::shared_ptr<Buffer<T *>>
-view(const std::shared_ptr<Buffer<T *>> &buffer, const size_t begin0,
-     const size_t end0, const size_t begin1, const size_t end1);
+std::shared_ptr<Buffer<T *>> view(const std::shared_ptr<Buffer<T *>> &buffer,
+                                  const size_t begin0, const size_t end0,
+                                  const size_t begin1, const size_t end1);
 
 template <typename T>
 std::shared_ptr<Buffer<T>> sub(const std::shared_ptr<Buffer<T *>> &buffer,
@@ -159,39 +159,55 @@ zeros_like(const std::shared_ptr<Buffer<T *>> &buffer);
 
 template <typename T> using SharedBuffer = std::shared_ptr<Buffer<T>>;
 
-
 template <typename T>
-static SharedBuffer<T *> create_buffer(const std::ptrdiff_t n0, const std::ptrdiff_t n1, const MemorySpace es) {
+static SharedBuffer<T *> create_buffer(const std::ptrdiff_t n0,
+                                       const std::ptrdiff_t n1,
+                                       const MemorySpace es) {
 #ifdef SMESH_ENABLE_CUDA
-    if (es == MEMORY_SPACE_DEVICE) return create_device_buffer<T>(n0, n1);
-#endif  // SMESH_ENABLE_CUDA
-    return create_host_buffer<T>(n0, n1);
+  if (es == MEMORY_SPACE_DEVICE)
+    return create_device_buffer<T>(n0, n1);
+#else
+  SMESH_UNUSED(es);
+#endif // SMESH_ENABLE_CUDA
+  return create_host_buffer<T>(n0, n1);
 }
 
 template <typename T>
-static SharedBuffer<T *> create_buffer(const std::ptrdiff_t n0, const std::ptrdiff_t n1, const ExecutionSpace es) {
+static SharedBuffer<T *> create_buffer(const std::ptrdiff_t n0,
+                                       const std::ptrdiff_t n1,
+                                       const ExecutionSpace es) {
 #ifdef SMESH_ENABLE_CUDA
-    if (es == EXECUTION_SPACE_DEVICE) return create_device_buffer<T>(n0, n1);
-#endif  // SMESH_ENABLE_CUDA
-    return create_host_buffer<T>(n0, n1);
+  if (es == EXECUTION_SPACE_DEVICE)
+    return create_device_buffer<T>(n0, n1);
+#else
+  SMESH_UNUSED(es);
+#endif // SMESH_ENABLE_CUDA
+  return create_host_buffer<T>(n0, n1);
 }
 
 template <typename T>
-static SharedBuffer<T> create_buffer(const std::ptrdiff_t n, const MemorySpace es) {
+static SharedBuffer<T> create_buffer(const std::ptrdiff_t n,
+                                     const MemorySpace es) {
 #ifdef SMESH_ENABLE_CUDA
-    if (es == MEMORY_SPACE_DEVICE) return create_device_buffer<T>(n);
-#endif  // SMESH_ENABLE_CUDA
-    return create_host_buffer<T>(n);
+  if (es == MEMORY_SPACE_DEVICE)
+    return create_device_buffer<T>(n);
+#else
+  SMESH_UNUSED(es);
+#endif // SMESH_ENABLE_CUDA
+  return create_host_buffer<T>(n);
 }
 
 template <typename T>
-static SharedBuffer<T> create_buffer(const std::ptrdiff_t n, const ExecutionSpace es) {
+static SharedBuffer<T> create_buffer(const std::ptrdiff_t n,
+                                     const ExecutionSpace es) {
 #ifdef SMESH_ENABLE_CUDA
-    if (es == EXECUTION_SPACE_DEVICE) return create_device_buffer<T>(n);
-#endif  // SMESH_ENABLE_CUDA
-    return create_host_buffer<T>(n);
+  if (es == EXECUTION_SPACE_DEVICE)
+    return create_device_buffer<T>(n);
+#else
+  SMESH_UNUSED(es);
+#endif // SMESH_ENABLE_CUDA
+  return create_host_buffer<T>(n);
 }
-
 
 } // namespace smesh
 
