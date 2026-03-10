@@ -159,6 +159,40 @@ zeros_like(const std::shared_ptr<Buffer<T *>> &buffer);
 
 template <typename T> using SharedBuffer = std::shared_ptr<Buffer<T>>;
 
+
+template <typename T>
+static SharedBuffer<T *> create_buffer(const std::ptrdiff_t n0, const std::ptrdiff_t n1, const MemorySpace es) {
+#ifdef SMESH_ENABLE_CUDA
+    if (es == MEMORY_SPACE_DEVICE) return create_device_buffer<T>(n0, n1);
+#endif  // SMESH_ENABLE_CUDA
+    return create_host_buffer<T>(n0, n1);
+}
+
+template <typename T>
+static SharedBuffer<T *> create_buffer(const std::ptrdiff_t n0, const std::ptrdiff_t n1, const ExecutionSpace es) {
+#ifdef SMESH_ENABLE_CUDA
+    if (es == EXECUTION_SPACE_DEVICE) return create_device_buffer<T>(n0, n1);
+#endif  // SMESH_ENABLE_CUDA
+    return create_host_buffer<T>(n0, n1);
+}
+
+template <typename T>
+static SharedBuffer<T> create_buffer(const std::ptrdiff_t n, const MemorySpace es) {
+#ifdef SMESH_ENABLE_CUDA
+    if (es == MEMORY_SPACE_DEVICE) return create_device_buffer<T>(n);
+#endif  // SMESH_ENABLE_CUDA
+    return create_host_buffer<T>(n);
+}
+
+template <typename T>
+static SharedBuffer<T> create_buffer(const std::ptrdiff_t n, const ExecutionSpace es) {
+#ifdef SMESH_ENABLE_CUDA
+    if (es == EXECUTION_SPACE_DEVICE) return create_device_buffer<T>(n);
+#endif  // SMESH_ENABLE_CUDA
+    return create_host_buffer<T>(n);
+}
+
+
 } // namespace smesh
 
 #endif // SMESH_BUFFER_HPP

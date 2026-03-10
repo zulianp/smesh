@@ -17,7 +17,7 @@ namespace smesh {
                                         const real_t *const SMESH_RESTRICT                      from,
                                         real_t *const SMESH_RESTRICT                            to);
 
-    template <typename idx_t, typename real_t>
+    template <typename idx_t>
     int sshex8_element_node_incidence_count(const int                     level,
                                             const int                     stride,
                                             const ptrdiff_t               nelements,
