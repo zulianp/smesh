@@ -30,6 +30,7 @@ set(SMESH_LIBRARY_SCAN_DIRS
     "src/ssmesh"
     "src/utils"
     "src/outofcore"
+    "src/grid"
 )
 
 if(SMESH_ENABLE_MPI)

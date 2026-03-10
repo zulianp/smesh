@@ -714,7 +714,7 @@ int main(int argc, char **argv) {
 //             }
 //         }
 
-//         sfem::create_directory(output_folder.c_str());
+//         smesh::create_directory(output_folder.c_str());
 //         sideset_parent->to_file((output_folder + "/parent.raw").c_str());
 //         sideset_lfi->to_file((output_folder + "/lfi.int16.raw").c_str());
 
@@ -735,7 +735,7 @@ int main(int argc, char **argv) {
 //                 SMESH_ERROR("Unable to extract surface from sideset!\n");
 //             }
 
-//             sfem::create_directory((output_folder + "/surf").c_str());
+//             smesh::create_directory((output_folder + "/surf").c_str());
 //             debug_elements->to_files((output_folder +
 //             "/surf/i%d.raw").c_str());
 //         }

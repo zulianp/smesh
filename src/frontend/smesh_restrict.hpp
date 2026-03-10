@@ -1,10 +1,83 @@
-#ifndef SMESH_RESTRICT_HPP
-#define SMESH_RESTRICT_HPP
+#ifndef SFEM_RESTRICT_HPP
+#define SFEM_RESTRICT_HPP
 
+// C includes
 #include "smesh_base.hpp"
+#include "smesh_mesh.hpp"
+#include "smesh_sshex8_restriction.hpp"
+
+// C++ includes
+#include "smesh_forward_declarations.hpp"
+
+#include <memory>
 
 namespace smesh {
 
-} // namespace smesh
+    template <typename T>
+    class Restrict final {
+    public:
+        Restrict(const std::shared_ptr<Mesh>& from,
+                 const std::shared_ptr<Mesh>& to,
+                 const ExecutionSpace         es,
+                 const int                    block_size);
 
-#endif // SMESH_RESTRICT_HPP
+        static std::shared_ptr<Restrict> create(const std::shared_ptr<Mesh>& from,
+                                                const std::shared_ptr<Mesh>& to,
+                                                const ExecutionSpace         es,
+                                                const int                    block_size);
+
+        ~Restrict();
+        int            apply(const T* const x, T* const y);
+        ptrdiff_t      rows() const;
+        ptrdiff_t      cols() const;
+        ExecutionSpace execution_space() const;
+
+        const SharedBuffer<uint16_t>& element_to_node_incidence_count() const;
+
+    private:
+        class Impl;
+        std::unique_ptr<Impl> impl_;
+    };
+
+    template <typename T>
+    class SurfaceRestrict final {
+    public:
+        SurfaceRestrict(const int                     from_level,
+                        const smesh::ElemType         from_elem_type,
+                        const ptrdiff_t               from_n_nodes,
+                        const SharedBuffer<idx_t*>&   from_sides,
+                        const SharedBuffer<uint16_t>& from_count,
+                        const int                     to_level,
+                        const smesh::ElemType         to_elem_type,
+                        const ptrdiff_t               to_n_nodes,
+                        const SharedBuffer<idx_t*>&   to_sides,
+                        const ExecutionSpace          es,
+                        const int                     block_size);
+
+        static std::shared_ptr<SurfaceRestrict<T>> create(const int                     from_level,
+                                                          const smesh::ElemType         from_elem_type,
+                                                          const ptrdiff_t               from_n_nodes,
+                                                          const SharedBuffer<idx_t*>&   from_sides,
+                                                          const SharedBuffer<uint16_t>& from_count,
+                                                          const int                     to_level,
+                                                          const smesh::ElemType         to_elem_type,
+                                                          const ptrdiff_t               to_n_nodes,
+                                                          const SharedBuffer<idx_t*>&   to_sides,
+                                                          const ExecutionSpace          es,
+                                                          const int                     block_size);
+
+        ~SurfaceRestrict();
+
+        int            apply(const T* const x, T* const y);
+        ptrdiff_t      rows() const;
+        ptrdiff_t      cols() const;
+        ExecutionSpace execution_space() const;
+
+    private:
+        class Impl;
+        std::unique_ptr<Impl> impl_;
+    };
+
+}  // namespace smesh
+
+#endif
