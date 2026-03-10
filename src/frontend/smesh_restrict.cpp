@@ -242,13 +242,13 @@ namespace smesh {
     class SurfaceRestrict<T>::Impl {
     public:
         int                    from_level;
-        smesh::ElemType        from_elem_type;
+        ElemType        from_elem_type;
         ptrdiff_t              from_n_nodes;
         SharedBuffer<idx_t*>   from_sides;
         SharedBuffer<uint16_t> from_count;
 
         int                  to_level;
-        smesh::ElemType      to_elem_type;
+        ElemType      to_elem_type;
         ptrdiff_t            to_n_nodes;
         SharedBuffer<idx_t*> to_sides;
 
@@ -258,12 +258,12 @@ namespace smesh {
         std::function<int(const T* const x, T* const y)> actual_op;
 
         Impl(const int                     from_level,
-             const smesh::ElemType         from_elem_type,
+             const ElemType         from_elem_type,
              const ptrdiff_t               from_n_nodes,
              const SharedBuffer<idx_t*>&   from_sides,
              const SharedBuffer<uint16_t>& from_count,
              const int                     to_level,
-             const smesh::ElemType         to_elem_type,
+             const ElemType         to_elem_type,
              const ptrdiff_t               to_n_nodes,
              const SharedBuffer<idx_t*>&   to_sides,
              const ExecutionSpace          es,
@@ -320,12 +320,12 @@ namespace smesh {
 
     template <typename T>
     SurfaceRestrict<T>::SurfaceRestrict(const int                     from_level,
-                                        const smesh::ElemType         from_elem_type,
+                                        const ElemType         from_elem_type,
                                         const ptrdiff_t               from_n_nodes,
                                         const SharedBuffer<idx_t*>&   from_sides,
                                         const SharedBuffer<uint16_t>& from_count,
                                         const int                     to_level,
-                                        const smesh::ElemType         to_elem_type,
+                                        const ElemType         to_elem_type,
                                         const ptrdiff_t               to_n_nodes,
                                         const SharedBuffer<idx_t*>&   to_sides,
                                         const ExecutionSpace          es,
@@ -344,12 +344,12 @@ namespace smesh {
 
     template <typename T>
     std::shared_ptr<SurfaceRestrict<T>> SurfaceRestrict<T>::create(const int                     from_level,
-                                                                   const smesh::ElemType         from_elem_type,
+                                                                   const ElemType         from_elem_type,
                                                                    const ptrdiff_t               from_n_nodes,
                                                                    const SharedBuffer<idx_t*>&   from_sides,
                                                                    const SharedBuffer<uint16_t>& from_count,
                                                                    const int                     to_level,
-                                                                   const smesh::ElemType         to_elem_type,
+                                                                   const ElemType         to_elem_type,
                                                                    const ptrdiff_t               to_n_nodes,
                                                                    const SharedBuffer<idx_t*>&   to_sides,
                                                                    const ExecutionSpace          es,
