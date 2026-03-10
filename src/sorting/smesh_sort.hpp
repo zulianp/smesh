@@ -29,6 +29,14 @@ template <typename idx_t> size_t sort_and_unique(idx_t *arr, const size_t size) 
   auto it = std::unique(arr, arr + size);
   return std::distance(arr, it);
 }
+template<typename K, typename I>
+void argsort(const ptrdiff_t n, const K *key, I *idx) {
+    for (ptrdiff_t i = 0; i < n; ++i) {
+        idx[i] = i;
+    }
+
+    std::sort(idx, idx + n, [key](const I l, const I r) { return key[l] < key[r]; });
+}
 
 } // namespace smesh
 
