@@ -42,7 +42,6 @@ static void smesh_print_test_info() {
 #ifdef _OPENMP
 #pragma omp parallel
     {
-        size_t start, len;
         int    id  = omp_get_thread_num();
         int    num = omp_get_num_threads();
 

@@ -22,7 +22,7 @@ using namespace smesh;
 int test_trace_space_operations(const std::shared_ptr<Mesh>                 &coarse_mesh,
                                 const std::shared_ptr<Mesh>                 &fine_mesh,
                                 const std::vector<std::shared_ptr<Sideset>> &sideset,
-                                const std::string                           &name,
+                                const std::string                           & /*name*/,
                                 const int                                    block_size,
                                 const ExecutionSpace                         es) {
     if (sideset.size() > 1) {
@@ -45,7 +45,6 @@ int test_trace_space_operations(const std::shared_ptr<Mesh>                 &coa
     auto coarse_nodeset = manage_host_buffer(n_nodes, nodes);
 
     {
-        auto            points = coarse_mesh->points()->data();
         const ptrdiff_t n      = coarse_nodeset->size();
         auto            idx    = coarse_nodeset->data();
         auto            data   = coarse_x->data();
@@ -110,7 +109,6 @@ int test_trace_space_operations(const std::shared_ptr<Mesh>                 &coa
 #endif
 
     {
-        auto            points = coarse_mesh->points()->data();
         const ptrdiff_t n      = coarse_nodeset->size();
 
         auto rx = restricted_x->data();
@@ -143,19 +141,19 @@ int test_trace_space_prolongation_restriction() {
 
     geom_t Lx       = 1;
     auto   m        = Mesh::create_hex8_cube(Communicator::wrap(comm),
-                                    SMESH_BASE_RESOLUTION * 1,
-                                    SMESH_BASE_RESOLUTION * 1,
-                                    SMESH_BASE_RESOLUTION * 1,
-                                    0,
-                                    0,
-                                    0,
-                                    Lx,
-                                    1,
-                                    1);
+                                             SMESH_BASE_RESOLUTION * 1,
+                                             SMESH_BASE_RESOLUTION * 1,
+                                             SMESH_BASE_RESOLUTION * 1,
+                                             0,
+                                             0,
+                                             0,
+                                             Lx,
+                                             1,
+                                             1);
     m               = smesh::to_semistructured(SMESH_ELEMENT_REFINE_LEVEL, m, true, false);
     int  block_size = 1;
     auto sideset = Sideset::create_from_selector(
-            m, [=](const geom_t /*x*/, const geom_t y, const geom_t z) -> bool { return y > -1e-5 && y < 1e-5; });
+            m, [=](const geom_t /*x*/, const geom_t y, const geom_t /*z*/) -> bool { return y > -1e-5 && y < 1e-5; });
 
     return test_trace_space_operations(derefine(m, 2), m, {sideset}, "test_trace_space_prolongation_restriction", block_size, es);
 }

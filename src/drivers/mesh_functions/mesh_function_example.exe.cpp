@@ -30,7 +30,6 @@ int main(int argc, char *argv[]) {
     auto        mesh   = Mesh::create_from_file(ctx->communicator(), smesh::Path(argv[1]));
     const char *output = argv[2];
 
-    const ptrdiff_t n_elements = mesh->n_elements();
     const ptrdiff_t n_nodes    = mesh->n_nodes();
 
     auto points = mesh->points()->data();

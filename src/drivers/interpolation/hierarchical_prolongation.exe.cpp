@@ -27,10 +27,8 @@ int main(int argc, char *argv[]) {
     const ptrdiff_t n_elements = mesh->n_elements();
     const ptrdiff_t n_nodes    = mesh->n_nodes();
 
-    auto from   = Buffer<real_t>::from_file(path_input);
-    auto to     = create_host_buffer<real_t>(n_nodes);
-    auto b_from = from->data();
-    auto b_to   = to->data();
+    auto from = Buffer<real_t>::from_file(path_input);
+    auto to   = create_host_buffer<real_t>(n_nodes);
 
     hierarchical_prolongation(from_element, to_element, n_elements, mesh->elements(0)->data(), 1, from->data(), to->data()) ||
             to->to_file(path_output);

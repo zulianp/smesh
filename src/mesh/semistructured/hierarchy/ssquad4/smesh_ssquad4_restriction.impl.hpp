@@ -162,7 +162,6 @@ namespace smesh {
 #pragma omp parallel
         {
             const int from_nxe    = ssquad4_nxe(from_level);
-            const int to_nxe      = ssquad4_nxe(to_level);
             const int step_factor = from_level / to_level;
 
             T **from_coeffs = (T **)malloc(vec_size * sizeof(T *));

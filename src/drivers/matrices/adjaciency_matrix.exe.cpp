@@ -41,9 +41,8 @@ int main(int argc, char *argv[]) {
 
 
     auto folder = Path(argv[1]);
-    auto mesh = Mesh::create_from_file(ctx->communicator(), folder);
+    auto mesh               = Mesh::create_from_file(ctx->communicator(), folder);
     const ptrdiff_t n_nodes = mesh->n_nodes();
-    const ptrdiff_t n_elements = mesh->n_elements();
 
     auto crs_graph = mesh->node_to_node_graph();
     const ptrdiff_t nnz = crs_graph->nnz();
@@ -58,9 +57,6 @@ int main(int argc, char *argv[]) {
             for (count_t k = rowptr[i]; k < rowptr[i + 1]; k++) {
                 idx_t col = colidx[k];
                 if (col != i) {
-                    idx_t ii = (i + n_nodes / 2) % n_nodes;
-                    idx_t jj = (col + n_nodes / 2) % n_nodes;
-
                     if (col < i) {
                         b_values[k] = 1;
                     }

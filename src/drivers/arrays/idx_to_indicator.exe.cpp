@@ -37,11 +37,11 @@ int main(int argc, char *argv[]) {
 
     {
         auto b_indicator = indicator->data();
-        auto indices = Buffer<idx_t>::from_file(Path(argv[1]));
-        auto b_indices = indices->data();
+        auto indices     = Buffer<idx_t>::from_file(Path(argv[1]));
+        auto b_indices   = indices->data();
+        auto ndirichlet  = indices->size();
 
-        ptrdiff_t _nope_, ndirichlet;
-        for (ptrdiff_t node = 0; node < ndirichlet; ++node) {
+        for (size_t node = 0; node < ndirichlet; ++node) {
             b_indicator[b_indices[node]] = (indicator_t)1;
         }
     }

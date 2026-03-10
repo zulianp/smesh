@@ -44,10 +44,9 @@ int main(int argc, char *argv[]) {
     }
 
     // Read only the data we need
-    const int nnxe = elem_num_nodes(element_type_for_algo);
-    idx_t **const elems = mesh->elements(0)->data();
+    idx_t **const elems      = mesh->elements(0)->data();
     const ptrdiff_t n_elements = mesh->n_elements();
-    const ptrdiff_t n_nodes = mesh->n_nodes();
+    const ptrdiff_t n_nodes    = mesh->n_nodes();
 
     count_t       *adj_ptr = 0;
     element_idx_t *adj_idx = 0;

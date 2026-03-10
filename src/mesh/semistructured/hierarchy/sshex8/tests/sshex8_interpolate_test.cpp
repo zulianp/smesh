@@ -33,7 +33,7 @@ static int test_restrict_level2_to_level1() {
     auto to   = create_host_buffer<real_t>(8);
     auto from = create_host_buffer<real_t>(27);
 
-    for (ptrdiff_t i = 0; i < from->size(); i++) {
+    for (size_t i = 0; i < from->size(); i++) {
         from->data()[i] = 1;
     }
 
@@ -114,18 +114,18 @@ static int test_level1_to_level4() {
     auto from = create_host_buffer<real_t>(8);
     auto to   = create_host_buffer<real_t>(125);
 
-    for (ptrdiff_t i = 0; i < from->size(); i++) {
+    for (size_t i = 0; i < from->size(); i++) {
         from->data()[i] = 1;
     }
 
     auto from_elements = create_host_buffer<idx_t>(8, 1);
     auto to_elements   = create_host_buffer<idx_t>(125, 1);
 
-    for (ptrdiff_t i = 0; i < from_elements->extent(0); i++) {
+    for (size_t i = 0; i < from_elements->extent(0); i++) {
         from_elements->data()[i][0] = i;
     }
 
-    for (ptrdiff_t i = 0; i < to_elements->extent(0); i++) {
+    for (size_t i = 0; i < to_elements->extent(0); i++) {
         to_elements->data()[i][0] = i;
     }
 
@@ -140,7 +140,7 @@ static int test_level1_to_level4() {
                                         from->data(),
                                         to->data()) == SMESH_SUCCESS);
 
-    for (ptrdiff_t i = 0; i < to->size(); i++) {
+    for (size_t i = 0; i < to->size(); i++) {
         SMESH_TEST_ASSERT(fabs(to->data()[i] - 1) < 1e-12);
     }
 

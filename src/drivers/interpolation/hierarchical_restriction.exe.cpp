@@ -31,10 +31,8 @@ int main(int argc, char *argv[]) {
 
     ptrdiff_t n_coarse_nodes = max_node_id(to_element, n_elements, mesh->elements(0)->data()) + 1;
 
-    auto from   = Buffer<real_t>::from_file(path_input);
-    auto to     = create_host_buffer<real_t>(n_coarse_nodes);
-    auto b_from = from->data();
-    auto b_to   = to->data();
+    auto from = Buffer<real_t>::from_file(path_input);
+    auto to   = create_host_buffer<real_t>(n_coarse_nodes);
 
     if (!SFEM_USE_CRS_GRAPH_RESTRICT) {
         int  nxe                               = elem_num_nodes(mesh->element_type(0));

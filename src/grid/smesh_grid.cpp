@@ -281,17 +281,17 @@ namespace smesh {
     }
 
     template <class T>
-    const ptrdiff_t *const Grid<T>::nlocal() const {
+    const ptrdiff_t *Grid<T>::nlocal() const {
         return impl_->nlocal;
     }
 
     template <class T>
-    const ptrdiff_t *const Grid<T>::nglobal() const {
+    const ptrdiff_t *Grid<T>::nglobal() const {
         return impl_->nglobal;
     }
 
     template <class T>
-    const ptrdiff_t *const Grid<T>::stride() const {
+    const ptrdiff_t *Grid<T>::stride() const {
         return impl_->stride;
     }
 
@@ -311,12 +311,12 @@ namespace smesh {
     }
 
     template <class T>
-    const geom_t *const Grid<T>::origin() const {
+    const geom_t *Grid<T>::origin() const {
         return impl_->origin;
     }
 
     template <class T>
-    const geom_t *const Grid<T>::delta() const {
+    const geom_t *Grid<T>::delta() const {
         return impl_->delta;
     }
 

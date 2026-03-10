@@ -260,7 +260,6 @@ namespace smesh {
 
 #pragma omp parallel
         {
-            const int from_nxe     = ssquad4_nxe(from_level);
             const int to_nxe       = ssquad4_nxe(to_level);
             const int from_to_step = to_level / from_level;
 
@@ -476,7 +475,7 @@ namespace smesh {
     int ssquad4_prolongation_crs_fill(const int                                               level,
                                       const ptrdiff_t                                         nelements,
                                       const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
-                                      const ptrdiff_t                                         to_nnodes,
+                                      const ptrdiff_t                                         /*to_nnodes*/,
                                       count_t *const SMESH_RESTRICT                           rowptr,
                                       idx_t *const SMESH_RESTRICT                             colidx,
                                       T *const SMESH_RESTRICT                                 values) {

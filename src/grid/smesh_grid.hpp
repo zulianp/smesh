@@ -45,12 +45,12 @@ namespace smesh {
         int       spatial_dimension() const;
         int       block_size() const;
 
-        const ptrdiff_t *const nlocal() const;
-        const ptrdiff_t *const nglobal() const;
-        const ptrdiff_t *const stride() const;
+        const ptrdiff_t *nlocal() const;
+        const ptrdiff_t *nglobal() const;
+        const ptrdiff_t *stride() const;
 
-        const geom_t *const origin() const;
-        const geom_t *const delta() const;
+        const geom_t *origin() const;
+        const geom_t *delta() const;
 
         SharedBuffer<T> buffer();
         T              *data();

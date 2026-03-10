@@ -27,16 +27,11 @@ int main(int argc, char *argv[]) {
     // Read data
     ///////////////////////////////////////////////////////////////////////////////
 
-    auto            folder                = Path(argv[1]);
-    auto            mesh                  = Mesh::create_from_file(ctx->communicator(), folder);
-    smesh::ElemType element_type          = mesh->element_type(0);
-    smesh::ElemType element_type_for_algo = element_type;
+    auto            folder       = Path(argv[1]);
+    auto            mesh         = Mesh::create_from_file(ctx->communicator(), folder);
+    smesh::ElemType element_type = mesh->element_type(0);
 
-    if (element_type == smesh::TET10) {
-        element_type_for_algo = smesh::TET4;
-    } else if (element_type == smesh::TRI6) {
-        element_type_for_algo = smesh::TRI3;
-    } if(is_semistructured_type(element_type)) {
+    if (is_semistructured_type(element_type)) {
         mesh = derefine(mesh, 1);
     }
 
