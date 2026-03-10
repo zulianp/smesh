@@ -1192,6 +1192,7 @@ Mesh::create_cube(const std::shared_ptr<Communicator> &comm,
                   const ptrdiff_t ny, const ptrdiff_t nz, const geom_t xmin,
                   const geom_t ymin, const geom_t zmin, const geom_t xmax,
                   const geom_t ymax, const geom_t zmax) {
+  SMESH_TRACE_SCOPE("Mesh::create_cube");
   switch (element_type) {
   case HEX8:
     return create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax,

@@ -5,6 +5,7 @@
 #include "smesh_ops.hpp"
 #include "smesh_reorder.hpp"
 #include "smesh_sfc.hpp"
+#include "smesh_tracer.hpp"
 
 #include <algorithm>
 #include <functional>
@@ -30,12 +31,13 @@ std::shared_ptr<SFC> SFC::create_from_env() {
 }
 
 int SFC::reorder(Mesh &mesh) {
-if (mesh.n_blocks() > 1) {
-  SMESH_ERROR("SFC::reorder is not supported for multiblock meshes");
-  return SMESH_FAILURE;
-}
+  SMESH_TRACE_SCOPE("SFC::reorder");
+  if (mesh.n_blocks() > 1) {
+    SMESH_ERROR("SFC::reorder is not supported for multiblock meshes");
+    return SMESH_FAILURE;
+  }
 
-const block_idx_t block_id = 0;
+  const block_idx_t block_id = 0;
 
   std::map<std::string,
            std::function<int(
@@ -88,7 +90,8 @@ const block_idx_t block_id = 0;
               return key[l] < key[r];
             });
 
-  SMESH_CATCH(mesh_block_reorder(nxe, n_elements, mesh.elements(block_id)->data(), idx,
+  SMESH_CATCH(mesh_block_reorder(nxe, n_elements,
+                                 mesh.elements(block_id)->data(), idx,
                                  mesh.elements(block_id)->data()));
 
   auto n2n_scatter = create_host_buffer<idx_t>(n_nodes);

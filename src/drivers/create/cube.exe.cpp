@@ -1,8 +1,11 @@
 #include "smesh_context.hpp"
 #include "smesh_env.hpp"
 #include "smesh_gencube.hpp"
+#include "smesh_glob.hpp"
+#include "smesh_mesh_reorder.hpp"
 #include "smesh_packed_mesh.hpp"
 #include "smesh_path.hpp"
+#include "smesh_sideset.hpp"
 #include "smesh_tracer.hpp"
 
 #include <stdio.h>
@@ -41,12 +44,53 @@ int main(int argc, char **argv) {
   if ((n_elements > z_chunk_size * nx * ny ||
        n_elements > std::numeric_limits<int>::max()) &&
       element_type == HEX8) {
+    // Huge meshes for testing!
     mesh_hex8_cube_to_folder<i64, f32>(output_folder, nx, ny, nz, xmin, ymin,
                                        zmin, xmax, ymax, zmax, z_chunk_size);
   } else {
     auto mesh = Mesh::create_cube(ctx->communicator(), element_type, nx, ny, nz,
                                   xmin, ymin, zmin, xmax, ymax, zmax);
+
+    if (Env::read<bool>("SMESH_REORDER", true)) {
+      auto reordering = SFC::create_from_env();
+      reordering->reorder(*mesh);
+    }
+
     mesh->write(output_folder);
+
+    if (Env::read<bool>("SMESH_CREATE_SIDESETS", true)) {
+      create_directory(output_folder / "sidesets");
+
+      for (const auto &sideset :
+           Sideset::create_from_plane(mesh, 0, 0, 1, zmin)) {
+        sideset->write(output_folder / "sidesets/back");
+      }
+
+      for (const auto &sideset :
+           Sideset::create_from_plane(mesh, 0, 0, 1, zmax)) {
+        sideset->write(output_folder / "sidesets/front");
+      }
+
+      for (const auto &sideset :
+           Sideset::create_from_plane(mesh, 0, 1, 0, ymin)) {
+        sideset->write(output_folder / "sidesets/bottom");
+      }
+
+      for (const auto &sideset :
+           Sideset::create_from_plane(mesh, 0, 1, 0, ymax)) {
+        sideset->write(output_folder / "sidesets/top");
+      }
+
+      for (const auto &sideset :
+           Sideset::create_from_plane(mesh, 1, 0, 0, xmin)) {
+        sideset->write(output_folder / "sidesets/left");
+      }
+
+      for (const auto &sideset :
+           Sideset::create_from_plane(mesh, 1, 0, 0, xmax)) {
+        sideset->write(output_folder / "sidesets/right");
+      }
+    }
   }
 
   return SMESH_SUCCESS;

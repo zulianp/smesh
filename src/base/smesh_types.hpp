@@ -5,7 +5,6 @@
 
 #include <string_view>
 
-
 namespace smesh {
 
 using i8 = int8_t;
@@ -106,9 +105,8 @@ enum PrimitiveType {
   SMESH_TYPE_UNDEFINED = -1
 };
 
-template< typename T>
-struct TypeToEnum {
-  static enum PrimitiveType value() { 
+template <typename T> struct TypeToEnum {
+  static enum PrimitiveType value() {
     if constexpr (std::is_same_v<T, long> && sizeof(T) == 8) {
       return SMESH_INT64;
     } else if constexpr (std::is_same_v<T, int> && sizeof(T) == 4) {
@@ -121,7 +119,8 @@ struct TypeToEnum {
       return SMESH_LONG;
     }
     SMESH_ERROR("Invalid type: %s", TypeToString<T>::value().data());
-    return SMESH_TYPE_UNDEFINED; }
+    return SMESH_TYPE_UNDEFINED;
+  }
 };
 
 template <> struct TypeToEnum<char> {

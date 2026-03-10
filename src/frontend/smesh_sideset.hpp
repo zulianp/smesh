@@ -48,6 +48,20 @@ public:
           &selector,
       const std::vector<std::string> &block_names = {});
 
+  // Preferred for performance
+  static std::vector<std::shared_ptr<Sideset>> create_from_batch_selector(
+      const std::shared_ptr<Mesh> &mesh,
+      const std::function<void(const ptrdiff_t, const geom_t *const,
+                               const geom_t *const, const geom_t *const,
+                               u8 *const selected)> &selector,
+      const std::vector<std::string> &block_names = {});
+
+  static std::vector<std::shared_ptr<Sideset>>
+  create_from_plane(const std::shared_ptr<Mesh> &mesh, const geom_t normal_x,
+                    const geom_t normal_y, const geom_t normal_z,
+                    const geom_t distance, const geom_t tol = 1e-6,
+                    const std::vector<std::string> &block_names = {});
+
   void print(std::ostream &os = std::cout) const;
 
 private:

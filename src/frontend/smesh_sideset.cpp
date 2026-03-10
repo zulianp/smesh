@@ -101,18 +101,13 @@ std::vector<std::shared_ptr<Sideset>> Sideset::create_from_selector(
     const std::vector<std::string> &block_names) {
   SMESH_TRACE_SCOPE("Sideset::create_from_selector");
 
-  // mesh->print();
-
   if (is_semistructured_type(mesh->element_type(0))) {
     auto coarse = sshex_to_hex8(derefine(mesh, 1));
     return create_from_selector(coarse, selector, block_names);
   }
 
-  //   const ptrdiff_t nnodes = mesh->n_nodes();
   const int dim = mesh->spatial_dimension();
-
   auto points = mesh->points()->data();
-
   enum ElemType element_type = mesh->element_type(0);
 
   const enum ElemType st = side_type(element_type);
@@ -136,6 +131,7 @@ std::vector<std::shared_ptr<Sideset>> Sideset::create_from_selector(
     const ptrdiff_t nelements = block->n_elements();
     auto elements = block->elements()->data();
 
+#if 0
     std::list<element_idx_t> parent_list;
     std::list<i16> lfi_list;
     for (ptrdiff_t e = 0; e < nelements; e++) {
@@ -154,8 +150,6 @@ std::vector<std::shared_ptr<Sideset>> Sideset::create_from_selector(
         for (int d = 0; d < dim; d++) {
           p[d] /= nnxs;
         }
-
-        // printf("%ld: %f %f %f\n", e, p[0], p[1], p[2]);
 
         if (selector(p[0], p[1], p[2])) {
           parent_list.push_back(e);
@@ -182,10 +176,204 @@ std::vector<std::shared_ptr<Sideset>> Sideset::create_from_selector(
       }
     }
 
+#else
+    auto selected = create_host_buffer<u8>(nelements * ns);
+    auto b_selected = selected->data();
+    ptrdiff_t nparents = 0;
+#pragma omp parallel for reduction(+ : nparents)
+    for (ptrdiff_t e = 0; e < nelements; e++) {
+      for (int s = 0; s < ns; s++) {
+        // Barycenter of face
+        double p[3] = {0, 0, 0};
+
+        for (int ln = 0; ln < nnxs; ln++) {
+          const idx_t node = elements[lst(s, ln)][e];
+
+          for (int d = 0; d < dim; d++) {
+            p[d] += points[d][node];
+          }
+        }
+
+        for (int d = 0; d < dim; d++) {
+          p[d] /= nnxs;
+        }
+
+        if (selector(p[0], p[1], p[2])) {
+          b_selected[e * ns + s] = 1;
+          nparents++;
+        }
+      }
+    }
+
+    auto parent = create_host_buffer<element_idx_t>(nparents);
+    auto lfi = create_host_buffer<i16>(nparents);
+
+    auto b_parent = parent->data();
+    auto b_lfi = lfi->data();
+
+    ptrdiff_t offset = 0;
+    // #pragma omp parallel for
+    for (ptrdiff_t e = 0; e < nelements; e++) {
+      for (int s = 0; s < ns; s++) {
+
+        if (b_selected[e * ns + s]) {
+          b_parent[offset] = e;
+          b_lfi[offset] = s;
+          offset++;
+        }
+      }
+    }
+
+#endif
+
     sidesets.push_back(std::make_shared<Sideset>(mesh->comm(), parent, lfi, b));
   }
 
   return sidesets;
+}
+
+std::vector<std::shared_ptr<Sideset>> Sideset::create_from_batch_selector(
+    const std::shared_ptr<Mesh> &mesh,
+    const std::function<void(const ptrdiff_t, const geom_t *const,
+                             const geom_t *const, const geom_t *const,
+                             u8 *const selected)> &selector,
+    const std::vector<std::string> &block_names) {
+  SMESH_TRACE_SCOPE("Sideset::create_from_batch_selector");
+
+  if (is_semistructured_type(mesh->element_type(0))) {
+    auto coarse = sshex_to_hex8(derefine(mesh, 1));
+    return create_from_batch_selector(coarse, selector, block_names);
+  }
+
+  const int dim = mesh->spatial_dimension();
+  auto points = mesh->points()->data();
+  enum ElemType element_type = mesh->element_type(0);
+
+  const enum ElemType st = side_type(element_type);
+  const int nnxs = elem_num_nodes(st);
+  const int ns = elem_num_sides(element_type);
+
+  LocalSideTable lst;
+  lst.fill(element_type);
+
+  size_t n_blocks = mesh->n_blocks();
+  std::vector<std::shared_ptr<Sideset>> sidesets;
+
+  for (size_t b = 0; b < n_blocks; b++) {
+    auto block = mesh->block(b);
+    if (!block_names.empty() && //
+        std::find(block_names.begin(), block_names.end(), block->name()) ==
+            block_names.end()) {
+      continue;
+    }
+
+    const ptrdiff_t nelements = block->n_elements();
+    auto elements = block->elements()->data();
+
+    auto selected = create_host_buffer<u8>(nelements * ns);
+    auto b_selected = selected->data();
+    ptrdiff_t nparents = 0;
+
+    const ptrdiff_t nelements_per_batch = 16;
+    const ptrdiff_t ns_per_batch = nelements_per_batch * ns;
+
+#pragma omp parallel
+    {
+      auto fx = create_host_buffer<geom_t>(ns_per_batch);
+      auto fy = create_host_buffer<geom_t>(ns_per_batch);
+      auto fz = create_host_buffer<geom_t>(ns_per_batch);
+      auto fselected = create_host_buffer<u8>(ns_per_batch);
+
+      auto b_fx = fx->data();
+      auto b_fy = fy->data();
+      auto b_fz = fz->data();
+      auto b_fselected = fselected->data();
+
+      #pragma omp for schedule(static) reduction(+ : nparents)
+      for (ptrdiff_t e = 0; e < nelements; e += nelements_per_batch) {
+        const ptrdiff_t batch_size =
+            std::min(nelements_per_batch, (nelements - e));
+
+        for (ptrdiff_t b = 0; b < batch_size; b++) {
+          for (int s = 0; s < ns; s++) {
+            geom_t p[3] = {0, 0, 0};
+
+            for (int ln = 0; ln < nnxs; ln++) {
+              const idx_t node = elements[lst(s, ln)][e];
+
+              for (int d = 0; d < dim; d++) {
+                p[d] += points[d][node];
+              }
+            }
+
+            for (int d = 0; d < dim; d++) {
+              p[d] /= nnxs;
+            }
+
+            const ptrdiff_t idx = b * ns + s;
+            b_fx[idx] = p[0];
+            b_fy[idx] = p[1];
+            b_fz[idx] = p[2];
+            b_fselected[idx] = 0;
+          }
+        }
+
+        selector(batch_size, b_fx, b_fy, b_fz, b_fselected);
+
+        for (ptrdiff_t b = 0; b < batch_size; b++) {
+          for (int s = 0; s < ns; s++) {
+            const ptrdiff_t idx = b * ns + s;
+            if (b_fselected[idx]) {
+              b_selected[e * ns + s] = 1;
+              nparents++;
+            }
+          }
+        }
+      }
+    }
+
+    auto parent = create_host_buffer<element_idx_t>(nparents);
+    auto lfi = create_host_buffer<i16>(nparents);
+
+    auto b_parent = parent->data();
+    auto b_lfi = lfi->data();
+
+    ptrdiff_t offset = 0;
+    for (ptrdiff_t e = 0; e < nelements; e++) {
+      for (int s = 0; s < ns; s++) {
+        if (b_selected[e * ns + s]) {
+          b_parent[offset] = e;
+          b_lfi[offset] = s;
+          offset++;
+        }
+      }
+    }
+
+    sidesets.push_back(std::make_shared<Sideset>(mesh->comm(), parent, lfi, b));
+  }
+
+  return sidesets;
+}
+
+std::vector<std::shared_ptr<Sideset>> Sideset::create_from_plane(
+    const std::shared_ptr<Mesh> &mesh, const geom_t normal_x,
+    const geom_t normal_y, const geom_t normal_z, const geom_t distance,
+    const geom_t tol, const std::vector<std::string> &block_names) {
+  SMESH_TRACE_SCOPE("Sideset::create_from_plane");
+  return create_from_batch_selector(
+      mesh,
+      [=](const ptrdiff_t batch_size, 
+          const geom_t *const SMESH_RESTRICT x,
+          const geom_t *const SMESH_RESTRICT y,
+          const geom_t *const SMESH_RESTRICT z,
+          u8 *const SMESH_RESTRICT selected) {
+#pragma omp simd
+        for (ptrdiff_t i = 0; i < batch_size; i++) {
+          selected[i] = std::abs(normal_x * x[i] + normal_y * y[i] +
+                                 normal_z * z[i] - distance) < tol;
+        }
+      },
+      block_names);
 }
 
 int Sideset::read(const std::shared_ptr<Communicator> &comm, const Path &folder,
@@ -422,7 +610,8 @@ create_surface_from_sideset_semistructured(
   // const int nnxs = 4;
   // const int nexs = level * level;
   // auto surface =
-  //     smesh::create_host_buffer<idx_t>(nnxs, sideset->parent()->size() * nexs);
+  //     smesh::create_host_buffer<idx_t>(nnxs, sideset->parent()->size() *
+  //     nexs);
 
   // ssquad4_to_standard_quad4_mesh(level, sideset->parent()->size(),
   //                                ss_sides->data(), surface->data());
