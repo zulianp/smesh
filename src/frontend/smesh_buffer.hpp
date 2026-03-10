@@ -58,6 +58,7 @@ public:
   static std::shared_ptr<Buffer<T>> make_empty();
 
   int to_file(const Path &path) const;
+  static std::shared_ptr<Buffer<T>> from_file(const Path &path);
 };
 
 template <typename T> class Buffer<T *> {
@@ -88,6 +89,8 @@ public:
 
   int to_files(const Path &path);
 
+  static std::shared_ptr<Buffer<T*>> from_files(const Path &pattern);
+
   void release();
 
 private:
@@ -114,7 +117,7 @@ convert_host_buffer_to_fake_SoA(const size_t n0,
                                 const std::shared_ptr<Buffer<T>> &in);
 
 template <typename T>
-static std::shared_ptr<Buffer<T>>
+std::shared_ptr<Buffer<T>>
 soa_to_aos(const size_t in_stride0, const size_t in_stride1,
            const std::shared_ptr<Buffer<T *>> &in);
 

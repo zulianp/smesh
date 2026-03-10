@@ -68,6 +68,16 @@ template <typename T> int Buffer<T>::to_file(const Path &path) const {
   return array_write_convert_from_extension<T>(path, data(), this->n_);
 }
 
+template <typename T> std::shared_ptr<Buffer<T>> Buffer<T>::from_file(const Path &path) {
+  T *data = nullptr;
+  ptrdiff_t n = 0;
+  array_read_convert_from_extension<T>(path, &data, &n);
+  if (data == nullptr) {
+    return nullptr;
+  }
+  return std::make_shared<Buffer<T>>(n, data, &free, MEMORY_SPACE_HOST);
+}
+
 template <typename T> Buffer<T *>::~Buffer() {
   if (destroy_) {
     destroy_(static_cast<int>(extent_[0]), reinterpret_cast<void **>(ptr_));
@@ -198,7 +208,7 @@ convert_host_buffer_to_fake_SoA(const size_t n0,
 }
 
 template <typename T>
-static std::shared_ptr<Buffer<T>>
+std::shared_ptr<Buffer<T>>
 soa_to_aos(const size_t in_stride0, const size_t in_stride1,
            const std::shared_ptr<Buffer<T *>> &in) {
   auto n0 = in->extent(0);
