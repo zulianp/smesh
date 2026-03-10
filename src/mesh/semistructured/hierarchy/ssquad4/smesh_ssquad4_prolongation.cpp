@@ -27,6 +27,15 @@
                                                               const ptrdiff_t                                         to_nnodes, \
                                                               COUNT_T *const SMESH_RESTRICT                           rowptr)
 
+#define SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_PROLONGATION_CRS_FILL(IDX_T, COUNT_T, T)                                               \
+    template int ssquad4_prolongation_crs_fill<IDX_T, COUNT_T, T>(const int                                               level,     \
+                                                                   const ptrdiff_t                                         nelements, \
+                                                                   const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT elements,  \
+                                                                   const ptrdiff_t                                         to_nnodes, \
+                                                                   COUNT_T *const SMESH_RESTRICT                           rowptr,    \
+                                                                   IDX_T *const SMESH_RESTRICT                             colidx,    \
+                                                                   T *const SMESH_RESTRICT                                 values)
+
 namespace smesh {
     SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_PROLONGATION(i32, f32);
     SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_PROLONGATION(i64, f32);
@@ -35,6 +44,13 @@ namespace smesh {
 
     SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_PROLONGATION_CRS_NNZ(i32, i32);
     SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_PROLONGATION_CRS_NNZ(i64, i64);
+
+    SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_PROLONGATION_CRS_FILL(i32, i32, f32);
+    SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_PROLONGATION_CRS_FILL(i32, i32, f64);
+    SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_PROLONGATION_CRS_FILL(i64, i64, f32);
+    SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_PROLONGATION_CRS_FILL(i64, i64, f64);
 }  // namespace smesh
 
 #undef SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_PROLONGATION
+#undef SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_PROLONGATION_CRS_NNZ
+#undef SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_PROLONGATION_CRS_FILL

@@ -21,6 +21,17 @@ set(SMESH_LIBRARY_SCAN_DIRS
     "src/graph"
     "src/io"
     "src/mesh"
+    "src/mesh/conversions"
+    "src/mesh/geometry"
+    "src/mesh/hierarchy"
+    "src/mesh/ordering"
+    "src/mesh/semistructured"
+    "src/mesh/semistructured/graph"
+    "src/mesh/semistructured/hierarchy"
+    "src/mesh/semistructured/hierarchy/sshex8"
+    "src/mesh/semistructured/hierarchy/ssquad4"
+    "src/mesh/refinement"
+    "src/mesh/sets"
     "src/packedmesh"
     "src/points"
     "src/profile"
@@ -44,7 +55,7 @@ foreach(_dir IN LISTS SMESH_LIBRARY_SCAN_DIRS)
         set(_dir "${CMAKE_CURRENT_SOURCE_DIR}/${_dir}")
     endif()
 
-    file(GLOB_RECURSE _dir_files
+    file(GLOB _dir_files
         LIST_DIRECTORIES false
         CONFIGURE_DEPENDS
         "${_dir}/*.c"
@@ -151,8 +162,36 @@ foreach(_driver_source IN LISTS _smesh_driver_sources)
     list(APPEND _smesh_driver_targets "${_driver_target}")
 endforeach()
 
+set(_smesh_demo_scan_dir "${CMAKE_CURRENT_SOURCE_DIR}/demo")
+set(_smesh_demo_targets "")
+if(EXISTS "${_smesh_demo_scan_dir}")
+    file(GLOB_RECURSE _smesh_demo_sources
+        LIST_DIRECTORIES false
+        CONFIGURE_DEPENDS
+        "${_smesh_demo_scan_dir}/*.exe.cpp"
+    )
+
+    foreach(_demo_source IN LISTS _smesh_demo_sources)
+        file(RELATIVE_PATH _demo_rel "${_smesh_demo_scan_dir}" "${_demo_source}")
+
+        get_filename_component(_demo_target "${_demo_rel}" NAME_WE) # => foo.exe
+        string(REGEX REPLACE "\\.exe$" "" _demo_target "${_demo_target}")
+
+        if("${_demo_target}" IN_LIST _smesh_demo_targets
+           OR "${_demo_target}" IN_LIST _smesh_driver_targets)
+            string(REGEX REPLACE "\\.exe\\.cpp$" "" _demo_target "${_demo_rel}")
+            string(REPLACE "/" "_" _demo_target "${_demo_target}")
+            string(REPLACE "\\" "_" _demo_target "${_demo_target}")
+        endif()
+
+        add_executable("${_demo_target}" "${_demo_source}")
+        target_link_libraries("${_demo_target}" PRIVATE smesh)
+        list(APPEND _smesh_demo_targets "${_demo_target}")
+    endforeach()
+endif()
+
 install(
-    TARGETS smesh ${_smesh_driver_targets}
+    TARGETS smesh ${_smesh_driver_targets} ${_smesh_demo_targets}
     EXPORT smeshTargets
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -204,7 +243,29 @@ install(
 if(SMESH_ENABLE_TESTING)
     enable_testing()
     message(STATUS "Building tests")
-    add_executable(io_test tests/distributed/io_test.exe.cpp)
-    target_link_libraries(io_test PRIVATE smesh ${SMESH_DEP_LIBRARIES} ${SMESH_SUBMODULES})
-    add_test(NAME io_test COMMAND io_test)
+    set(_smesh_test_sources "")
+    foreach(_test_scan_root IN ITEMS src tests)
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_test_scan_root}")
+            file(GLOB_RECURSE _test_root_sources
+                LIST_DIRECTORIES false
+                CONFIGURE_DEPENDS
+                "${CMAKE_CURRENT_SOURCE_DIR}/${_test_scan_root}/*.c"
+                "${CMAKE_CURRENT_SOURCE_DIR}/${_test_scan_root}/*.cc"
+                "${CMAKE_CURRENT_SOURCE_DIR}/${_test_scan_root}/*.cpp"
+                "${CMAKE_CURRENT_SOURCE_DIR}/${_test_scan_root}/*.cxx"
+            )
+            list(FILTER _test_root_sources INCLUDE REGEX "/tests?/")
+            list(APPEND _smesh_test_sources ${_test_root_sources})
+        endif()
+    endforeach()
+
+    list(REMOVE_DUPLICATES _smesh_test_sources)
+
+    foreach(_test_source IN LISTS _smesh_test_sources)
+        get_filename_component(_test_target "${_test_source}" NAME_WE)
+
+        add_executable("${_test_target}" "${_test_source}")
+        target_link_libraries("${_test_target}" PRIVATE smesh ${SMESH_DEP_LIBRARIES} ${SMESH_SUBMODULES})
+        add_test(NAME "${_test_target}" COMMAND "${_test_target}")
+    endforeach()
 endif()

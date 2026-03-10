@@ -16,6 +16,14 @@
       const int to_level, const int to_level_stride, \
       const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT to_elements, const int vec_size, const REAL_T *const SMESH_RESTRICT from, \
       REAL_T *const SMESH_RESTRICT to);
+
+#define SMESH_EXPLICIT_INSTANTIATE_SSHEX8_ELEMENT_NODE_INCIDENCE_COUNT(IDX_T) \
+  template int sshex8_element_node_incidence_count<IDX_T>(                    \
+      const int level,                                                        \
+      const int stride,                                                       \
+      const ptrdiff_t nelements,                                              \
+      const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT elements,       \
+      uint16_t *const SMESH_RESTRICT count);
 namespace smesh {
 SMESH_EXPLICIT_INSTANTIATE_SSHEX8_RESTRICTION(i32, f32);
 SMESH_EXPLICIT_INSTANTIATE_SSHEX8_RESTRICTION(i64, f32);
@@ -27,7 +35,10 @@ SMESH_EXPLICIT_INSTANTIATE_SSHEX8_RESTRICT(i32, f32);
 SMESH_EXPLICIT_INSTANTIATE_SSHEX8_RESTRICT(i64, f32);
 SMESH_EXPLICIT_INSTANTIATE_SSHEX8_RESTRICT(i32, f64);
 SMESH_EXPLICIT_INSTANTIATE_SSHEX8_RESTRICT(i64, f64);
+SMESH_EXPLICIT_INSTANTIATE_SSHEX8_ELEMENT_NODE_INCIDENCE_COUNT(i32);
+SMESH_EXPLICIT_INSTANTIATE_SSHEX8_ELEMENT_NODE_INCIDENCE_COUNT(i64);
 } // namespace smesh
 
 #undef SMESH_EXPLICIT_INSTANTIATE_SSHEX8_RESTRICTION
 #undef SMESH_EXPLICIT_INSTANTIATE_SSHEX8_RESTRICT
+#undef SMESH_EXPLICIT_INSTANTIATE_SSHEX8_ELEMENT_NODE_INCIDENCE_COUNT

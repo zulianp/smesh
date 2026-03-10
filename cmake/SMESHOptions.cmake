@@ -37,6 +37,8 @@ else()
     option(SMESH_ENABLE_BENCHMARK "enable benchmark suite" OFF)
 endif()
 
+option(SMESH_ENABLE_DEMO "Build the demos" ON)
+
 # ##############################################################################
 # Handle xSDK defaults
 # ##############################################################################
