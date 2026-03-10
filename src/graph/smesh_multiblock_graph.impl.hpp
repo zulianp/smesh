@@ -414,6 +414,7 @@ int create_multiblock_dual_graph_from_n2e(
                 static_cast<ptrdiff_t>(offset) + count_common;
             SMESH_ASSERT(write_pos <
                          n_overestimated_connections + extra_buffer_space);
+            SMESH_UNUSED(write_pos);
 
             elist[count_common] = g_adj;
             blist[count_common] = b_adj;

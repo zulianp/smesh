@@ -109,6 +109,11 @@ void Communicator::broadcast(void *buffer, int count, enum PrimitiveType type,
                              int root) const {
 #ifdef SMESH_ENABLE_MPI
   MPI_Bcast(buffer, count, mpi_type_from_primitive_type(type), root, impl_->comm);
+#else
+  SMESH_UNUSED(buffer);
+  SMESH_UNUSED(count);
+  SMESH_UNUSED(type);
+  SMESH_UNUSED(root);
 #endif
 }
 } // namespace smesh
