@@ -12,9 +12,18 @@
 #include <memory>
 
 namespace smesh {
+    template<typename T>
+    class AbstractRestrict {
+    public:
+        virtual ~AbstractRestrict() = default;
+        virtual int apply(const T* const x, T* const y) = 0;
+        virtual ptrdiff_t rows() const = 0;
+        virtual ptrdiff_t cols() const = 0;
+        virtual ExecutionSpace execution_space() const = 0;
+    };
 
     template <typename T>
-    class Restrict final {
+    class Restrict final : public AbstractRestrict<T> {
     public:
         Restrict(const std::shared_ptr<Mesh>& from,
                  const std::shared_ptr<Mesh>& to,
@@ -27,10 +36,10 @@ namespace smesh {
                                                 const int                    block_size);
 
         ~Restrict();
-        int            apply(const T* const x, T* const y);
-        ptrdiff_t      rows() const;
-        ptrdiff_t      cols() const;
-        ExecutionSpace execution_space() const;
+        int            apply(const T* const x, T* const y) override;
+        ptrdiff_t      rows() const override;
+        ptrdiff_t      cols() const override;
+        ExecutionSpace execution_space() const override;
 
         const SharedBuffer<uint16_t>& element_to_node_incidence_count() const;
 
@@ -40,7 +49,7 @@ namespace smesh {
     };
 
     template <typename T>
-    class SurfaceRestrict final {
+    class SurfaceRestrict final : public AbstractRestrict<T> {
     public:
         SurfaceRestrict(const int                     from_level,
                         const smesh::ElemType         from_elem_type,
@@ -68,10 +77,10 @@ namespace smesh {
 
         ~SurfaceRestrict();
 
-        int            apply(const T* const x, T* const y);
-        ptrdiff_t      rows() const;
-        ptrdiff_t      cols() const;
-        ExecutionSpace execution_space() const;
+        int            apply(const T* const x, T* const y) override;
+        ptrdiff_t      rows() const override;
+        ptrdiff_t      cols() const override;
+        ExecutionSpace execution_space() const override;
 
     private:
         class Impl;

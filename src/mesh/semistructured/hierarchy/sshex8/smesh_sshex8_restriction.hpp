@@ -17,12 +17,14 @@ namespace smesh {
                                         const real_t *const SMESH_RESTRICT                      from,
                                         real_t *const SMESH_RESTRICT                            to);
 
+    template <typename idx_t, typename real_t>
     int sshex8_element_node_incidence_count(const int                     level,
                                             const int                     stride,
                                             const ptrdiff_t               nelements,
                                             const idx_t *const SMESH_RESTRICT*const SMESH_RESTRICT   elements,
                                             uint16_t *const SMESH_RESTRICT count);
 
+    template <typename idx_t, typename real_t>
     int sshex8_restrict(const ptrdiff_t                     nelements,
                         const int                           from_level,
                         const int                           from_level_stride,
