@@ -35,6 +35,8 @@ namespace smesh {
     std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex);
     std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh, const int to_level);
 
+    inline int semistructured_level(const Mesh &mesh) { return proteus_hex_micro_elements_per_dim(mesh.element_type(0)); }
+
 }  // namespace smesh
 
 #endif  // SMESH_SEMI_STRUCTURED_MESH_HPP
