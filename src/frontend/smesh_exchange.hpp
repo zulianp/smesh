@@ -14,11 +14,19 @@ namespace smesh {
 
 class Exchange final {
 public:
-  static std::shared_ptr<Exchange> create_nodal(const std::shared_ptr<Mesh> &mesh);
+  enum class ExchangeScope {
+    GhostsOnly,
+    GhostsAndAura,
+  };
+
+  static std::shared_ptr<Exchange>
+  create_nodal(const std::shared_ptr<Mesh> &mesh,
+               const ExchangeScope exchange_scope = ExchangeScope::GhostsOnly);
 
 #if defined(SMESH_ENABLE_MPI)
   static std::shared_ptr<Exchange>
   create(const std::shared_ptr<Communicator> &comm,
+         const ExchangeScope exchange_scope,
          const ptrdiff_t n_local_nodes, const ptrdiff_t n_owned_nodes,
          const int *const node_owner,
          const ptrdiff_t *const node_offsets, const idx_t *const ghosts);

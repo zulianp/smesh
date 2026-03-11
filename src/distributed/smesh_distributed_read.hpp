@@ -41,6 +41,7 @@ int mesh_from_folder(const MPI_Comm comm, const Path &folder,
                      ptrdiff_t *n_owned_nodes_out, 
                      ptrdiff_t *n_shared_nodes_out,
                      ptrdiff_t *n_ghost_nodes_out,
+                     ptrdiff_t *n_aura_nodes_out,
                      large_idx_t **node_mapping_out, geom_t ***points_out,
                      // Distributed connectivities
                      int **node_owner_out, ptrdiff_t **node_offsets_out,

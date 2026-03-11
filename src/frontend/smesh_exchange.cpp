@@ -5,6 +5,8 @@
 #include "smesh_buffer.hpp"
 #include "smesh_tracer.hpp"
 
+#include <algorithm>
+
 #if defined(SMESH_ENABLE_MPI)
 #include "smesh_distributed_aura.hpp"
 #include <mpi.h>
@@ -14,6 +16,7 @@ namespace smesh {
 
 class Exchange::Impl {
 public:
+  ExchangeScope exchange_scope = ExchangeScope::GhostsOnly;
   std::shared_ptr<Communicator> comm;
   ptrdiff_t nnodes;
   ptrdiff_t n_owned_nodes;
@@ -22,7 +25,9 @@ public:
   SharedBuffer<i64> recv_count;
   SharedBuffer<i64> recv_displs;
   SharedBuffer<idx_t> sparse_idx;
-  SharedBuffer<char> buffer;
+  SharedBuffer<idx_t> import_idx;
+  SharedBuffer<char> send_buffer;
+  SharedBuffer<char> recv_buffer;
   Impl(const std::shared_ptr<Communicator> &comm) : comm(comm) {}
 };
 
@@ -32,14 +37,22 @@ Exchange::Exchange(const std::shared_ptr<Communicator> &comm)
 Exchange::~Exchange() = default;
 
 std::shared_ptr<Exchange>
-Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh) {
+Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh,
+                       const ExchangeScope exchange_scope) {
 #if defined(SMESH_ENABLE_MPI)
   auto dist = mesh->distributed();
-  return create(mesh->comm(), dist->n_nodes_local(), dist->n_nodes_owned(),
+  const bool with_aura = exchange_scope == ExchangeScope::GhostsAndAura;
+  const ptrdiff_t n_local_nodes =
+      dist->n_nodes_owned() + dist->n_nodes_ghosts() +
+      (with_aura ? dist->n_nodes_aura() : 0);
+  const idx_t *const import_idx =
+      with_aura ? dist->ghosts_and_aura()->data() : dist->ghosts()->data();
+  return create(mesh->comm(), exchange_scope, n_local_nodes, dist->n_nodes_owned(),
                 dist->node_owner()->data(), dist->node_offsets()->data(),
-                dist->ghosts()->data());
+                import_idx);
 
 #else
+  SMESH_UNUSED(exchange_scope);
   return std::make_shared<Exchange>(mesh->comm());
 #endif
 }
@@ -47,11 +60,13 @@ Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh) {
 #if defined(SMESH_ENABLE_MPI)
 std::shared_ptr<Exchange>
 Exchange::create(const std::shared_ptr<Communicator> &comm,
+                 const ExchangeScope exchange_scope,
                  const ptrdiff_t n_local_nodes, const ptrdiff_t n_owned_nodes,
                  const int *const node_owner, const ptrdiff_t *const node_offsets,
                  const idx_t *const ghosts) {
   int size = comm->size();
   auto ret = std::make_shared<Exchange>(comm);
+  ret->impl_->exchange_scope = exchange_scope;
   ret->impl_->nnodes = n_local_nodes;
   ret->impl_->n_owned_nodes = n_owned_nodes;
   ret->impl_->send_count = create_host_buffer<i64>(size);
@@ -60,21 +75,38 @@ Exchange::create(const std::shared_ptr<Communicator> &comm,
   ret->impl_->recv_displs = create_host_buffer<i64>(size + 1);
 
   idx_t *sparse_idx = nullptr;
+  idx_t *import_idx = nullptr;
   SMESH_ASSERT(n_local_nodes >= n_owned_nodes);
-  exchange_create(comm->get(), n_local_nodes, n_owned_nodes, node_owner,
-                  node_offsets, ghosts, ret->impl_->send_count->data(),
-                  ret->impl_->send_displs->data(),
-                  ret->impl_->recv_count->data(),
-                  ret->impl_->recv_displs->data(), &sparse_idx);
+  if (exchange_scope == ExchangeScope::GhostsAndAura) {
+    exchange_create(comm->get(), n_local_nodes, n_owned_nodes, node_owner,
+                    node_offsets, ghosts, ret->impl_->send_count->data(),
+                    ret->impl_->send_displs->data(),
+                    ret->impl_->recv_count->data(),
+                    ret->impl_->recv_displs->data(), &sparse_idx, &import_idx);
+  } else {
+    exchange_create_ghosts(comm->get(), n_local_nodes, n_owned_nodes, node_owner,
+                           node_offsets, ghosts, ret->impl_->send_count->data(),
+                           ret->impl_->send_displs->data(),
+                           ret->impl_->recv_count->data(),
+                           ret->impl_->recv_displs->data(), &sparse_idx);
+  }
 
+  auto send_displs = ret->impl_->send_displs->data();
   auto recv_displs = ret->impl_->recv_displs->data();
+  const ptrdiff_t send_total = send_displs[size];
   auto recv_count = ret->impl_->recv_count->data();
   const ptrdiff_t buffer_size = recv_count[size - 1] + recv_displs[size - 1];
+  const ptrdiff_t temp_buffer_size = std::max(send_total, buffer_size);
 
   ret->impl_->sparse_idx =
       manage_host_buffer<idx_t>((ptrdiff_t)recv_displs[size], sparse_idx);
-  ret->impl_->buffer =
-      create_host_buffer<char>(buffer_size * SIZE_LARGEST_TYPE);
+  ret->impl_->send_buffer =
+      create_host_buffer<char>(temp_buffer_size * SIZE_LARGEST_TYPE);
+  if (exchange_scope == ExchangeScope::GhostsAndAura) {
+    ret->impl_->import_idx = manage_host_buffer<idx_t>(send_total, import_idx);
+    ret->impl_->recv_buffer =
+        create_host_buffer<char>(temp_buffer_size * SIZE_LARGEST_TYPE);
+  }
 
   return ret;
 }
@@ -83,11 +115,19 @@ Exchange::create(const std::shared_ptr<Communicator> &comm,
 template <typename T> int Exchange::scatter_add(T *const inout) {
 #if defined(SMESH_ENABLE_MPI)
   SMESH_TRACE_SCOPE("Exchange::scatter_add");
+  if (impl_->exchange_scope == ExchangeScope::GhostsOnly) {
+    return exchange_scatter_add_ghosts(
+        impl_->comm->get(), impl_->n_owned_nodes, impl_->send_count->data(),
+        impl_->send_displs->data(), impl_->recv_count->data(),
+        impl_->recv_displs->data(), impl_->sparse_idx->data(), inout,
+        (T *)impl_->send_buffer->data());
+  }
   return exchange_scatter_add(
       impl_->comm->get(), impl_->n_owned_nodes, impl_->send_count->data(),
       impl_->send_displs->data(), impl_->recv_count->data(),
-      impl_->recv_displs->data(), impl_->sparse_idx->data(), inout,
-      (T *)impl_->buffer->data());
+      impl_->recv_displs->data(), impl_->sparse_idx->data(),
+      impl_->import_idx->data(), inout, (T *)impl_->send_buffer->data(),
+      (T *)impl_->recv_buffer->data());
 #else
 SMESH_UNUSED(inout);
   return SMESH_SUCCESS;
@@ -97,11 +137,19 @@ SMESH_UNUSED(inout);
 template <typename T> int Exchange::gather(T* const inout) {
 #if defined(SMESH_ENABLE_MPI)
   SMESH_TRACE_SCOPE("Exchange::gather");
+  if (impl_->exchange_scope == ExchangeScope::GhostsOnly) {
+    return exchange_gather_ghosts(
+        impl_->comm->get(), impl_->n_owned_nodes, impl_->send_count->data(),
+        impl_->send_displs->data(), impl_->recv_count->data(),
+        impl_->recv_displs->data(), impl_->sparse_idx->data(), inout,
+        (T *)impl_->send_buffer->data());
+  }
   return exchange_gather(
       impl_->comm->get(), impl_->n_owned_nodes, impl_->send_count->data(),
       impl_->send_displs->data(), impl_->recv_count->data(),
-      impl_->recv_displs->data(), impl_->sparse_idx->data(), inout,
-      (T *)impl_->buffer->data());
+      impl_->recv_displs->data(), impl_->sparse_idx->data(),
+      impl_->import_idx->data(), inout, (T *)impl_->send_buffer->data(),
+      (T *)impl_->recv_buffer->data());
 #else
 SMESH_UNUSED(inout);
   return SMESH_SUCCESS;

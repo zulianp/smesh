@@ -21,7 +21,8 @@ int exchange_create(MPI_Comm comm, const ptrdiff_t n_local_nodes,
                     i64 *const SMESH_RESTRICT send_displs,
                     i64 *const SMESH_RESTRICT recv_count,
                     i64 *const SMESH_RESTRICT recv_displs,
-                    idx_t **const SMESH_RESTRICT out_sparse_idx) {
+                    idx_t **const SMESH_RESTRICT out_sparse_idx,
+                    idx_t **const SMESH_RESTRICT out_import_idx) {
   int rank, size;
 
   MPI_Comm_rank(comm, &rank);
@@ -31,13 +32,6 @@ int exchange_create(MPI_Comm comm, const ptrdiff_t n_local_nodes,
   memset(send_displs, 0, ((size_t)size + 1) * sizeof(i64));
   memset(recv_count, 0, (size_t)size * sizeof(i64));
   memset(recv_displs, 0, ((size_t)size + 1) * sizeof(i64));
-
-#ifndef NDEBUG
-  // We need to ensure that the node owners are sorted
-  for (ptrdiff_t i = n_owned_nodes; i < n_local_nodes - 1; i++) {
-    SMESH_ASSERT(node_owner[i] <= node_owner[i + 1]);
-  }
-#endif
 
   //   Loop over all ghost nodes
   for (ptrdiff_t i = n_owned_nodes; i < n_local_nodes; i++) {
@@ -61,13 +55,27 @@ int exchange_create(MPI_Comm comm, const ptrdiff_t n_local_nodes,
     recv_displs[r + 1] = recv_displs[r] + recv_count[r];
   }
 
+  const ptrdiff_t n_import = n_local_nodes - n_owned_nodes;
+  idx_t *ordered_import_idx = (idx_t *)malloc((size_t)n_import * sizeof(idx_t));
+  idx_t *packed_ghosts = (idx_t *)malloc((size_t)n_import * sizeof(idx_t));
+  i64 *cursor = (i64 *)calloc((size_t)size, sizeof(i64));
+  for (ptrdiff_t i = 0; i < n_import; ++i) {
+    const int owner = node_owner[n_owned_nodes + i];
+    const i64 slot = send_displs[owner] + cursor[owner]++;
+    ordered_import_idx[slot] = static_cast<idx_t>(n_owned_nodes + i);
+    packed_ghosts[slot] = ghosts[i];
+  }
+  free(cursor);
+
   idx_t *remote_ghosts =
       (idx_t *)malloc((size_t)recv_displs[size] * sizeof(idx_t));
 
   // send slave nodes to process with master nodes
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
-  SMESH_MPI_CATCH(all_to_allv_64(ghosts, send_count, send_displs, remote_ghosts,
-                                 recv_count, recv_displs, comm, max_chunk_size));
+  SMESH_MPI_CATCH(all_to_allv_64(packed_ghosts, send_count, send_displs,
+                                 remote_ghosts, recv_count, recv_displs, comm,
+                                 max_chunk_size));
+  free(packed_ghosts);
 
   // Replace global indexing with local indexing for identifying master nodes
   for (int r = 0; r < size; r++) {
@@ -82,6 +90,75 @@ int exchange_create(MPI_Comm comm, const ptrdiff_t n_local_nodes,
   }
 
   *out_sparse_idx = remote_ghosts;
+  *out_import_idx = ordered_import_idx;
+  return SMESH_SUCCESS;
+}
+
+template <typename idx_t>
+int exchange_create_ghosts(MPI_Comm comm, const ptrdiff_t n_local_nodes,
+                           const ptrdiff_t n_owned_nodes,
+                           const int *const SMESH_RESTRICT node_owner,
+                           const ptrdiff_t *const SMESH_RESTRICT node_offsets,
+                           const idx_t *const SMESH_RESTRICT ghosts,
+                           i64 *const SMESH_RESTRICT send_count,
+                           i64 *const SMESH_RESTRICT send_displs,
+                           i64 *const SMESH_RESTRICT recv_count,
+                           i64 *const SMESH_RESTRICT recv_displs,
+                           idx_t **const SMESH_RESTRICT out_sparse_idx) {
+  int rank, size;
+
+  MPI_Comm_rank(comm, &rank);
+  MPI_Comm_size(comm, &size);
+
+  memset(send_count, 0, (size_t)size * sizeof(i64));
+  memset(send_displs, 0, ((size_t)size + 1) * sizeof(i64));
+  memset(recv_count, 0, (size_t)size * sizeof(i64));
+  memset(recv_displs, 0, ((size_t)size + 1) * sizeof(i64));
+
+#ifndef NDEBUG
+  for (ptrdiff_t i = n_owned_nodes; i < n_local_nodes - 1; i++) {
+    SMESH_ASSERT(node_owner[i] <= node_owner[i + 1]);
+  }
+#endif
+
+  for (ptrdiff_t i = n_owned_nodes; i < n_local_nodes; i++) {
+    SMESH_ASSERT(node_owner[i] >= 0);
+    SMESH_ASSERT(node_owner[i] < size);
+    send_count[node_owner[i]]++;
+  }
+
+  send_displs[0] = 0;
+  for (int r = 0; r < size; r++) {
+    send_displs[r + 1] = send_displs[r] + send_count[r];
+  }
+
+  SMESH_MPI_CATCH(
+      MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1,
+                   mpi_type<i64>(), comm));
+
+  recv_displs[0] = 0;
+  for (int r = 0; r < size; r++) {
+    recv_displs[r + 1] = recv_displs[r] + recv_count[r];
+  }
+
+  idx_t *remote_ghosts =
+      (idx_t *)malloc((size_t)recv_displs[size] * sizeof(idx_t));
+
+  const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
+  SMESH_MPI_CATCH(all_to_allv_64(ghosts, send_count, send_displs, remote_ghosts,
+                                 recv_count, recv_displs, comm, max_chunk_size));
+
+  for (int r = 0; r < size; r++) {
+    const int begin = recv_displs[r];
+    const int extent = recv_count[r];
+    idx_t *nodes = &remote_ghosts[begin];
+    for (int k = 0; k < extent; k++) {
+      const idx_t global_idx = nodes[k];
+      nodes[k] = global_idx - node_offsets[rank];
+    }
+  }
+
+  *out_sparse_idx = remote_ghosts;
   return SMESH_SUCCESS;
 }
 
@@ -92,20 +169,52 @@ int exchange_scatter_add(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                          const i64 *const SMESH_RESTRICT recv_count,
                          const i64 *const SMESH_RESTRICT recv_displs,
                          const idx_t *const SMESH_RESTRICT scatter_idx,
+                         const idx_t *const SMESH_RESTRICT import_idx,
                          T *const SMESH_RESTRICT inout,
-                         T *const SMESH_RESTRICT aux_scatter_buffer) {
+                         T *const SMESH_RESTRICT send_buffer,
+                         T *const SMESH_RESTRICT recv_buffer) {
+  SMESH_UNUSED(n_owned_nodes);
   // Exchange ghosts
   int size;
   MPI_Comm_size(comm, &size);
+  const ptrdiff_t n_import = send_displs[size];
+  for (ptrdiff_t i = 0; i < n_import; ++i) {
+    send_buffer[i] = inout[import_idx[i]];
+  }
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
-  SMESH_MPI_CATCH(all_to_allv_64(&inout[n_owned_nodes], send_count, send_displs,
-                                 aux_scatter_buffer, recv_count, recv_displs,
+  SMESH_MPI_CATCH(all_to_allv_64(send_buffer, send_count, send_displs,
+                                 recv_buffer, recv_count, recv_displs,
                                  comm, max_chunk_size));
 
   ptrdiff_t count = recv_count[size - 1] + recv_displs[size - 1];
   for (ptrdiff_t i = 0; i < count; i++) {
-    SMESH_ASSERT(aux_scatter_buffer[i] == aux_scatter_buffer[i]);
-    inout[scatter_idx[i]] += aux_scatter_buffer[i];
+    SMESH_ASSERT(recv_buffer[i] == recv_buffer[i]);
+    inout[scatter_idx[i]] += recv_buffer[i];
+  }
+
+  return SMESH_SUCCESS;
+}
+
+template <typename idx_t, typename T>
+int exchange_scatter_add_ghosts(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
+                                const i64 *const SMESH_RESTRICT send_count,
+                                const i64 *const SMESH_RESTRICT send_displs,
+                                const i64 *const SMESH_RESTRICT recv_count,
+                                const i64 *const SMESH_RESTRICT recv_displs,
+                                const idx_t *const SMESH_RESTRICT scatter_idx,
+                                T *const SMESH_RESTRICT inout,
+                                T *const SMESH_RESTRICT recv_buffer) {
+  int size;
+  MPI_Comm_size(comm, &size);
+  const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
+  SMESH_MPI_CATCH(all_to_allv_64(&inout[n_owned_nodes], send_count, send_displs,
+                                 recv_buffer, recv_count, recv_displs, comm,
+                                 max_chunk_size));
+
+  const ptrdiff_t count = recv_count[size - 1] + recv_displs[size - 1];
+  for (ptrdiff_t i = 0; i < count; i++) {
+    SMESH_ASSERT(recv_buffer[i] == recv_buffer[i]);
+    inout[scatter_idx[i]] += recv_buffer[i];
   }
 
   return SMESH_SUCCESS;
@@ -118,17 +227,48 @@ int exchange_gather(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                     const i64 *const SMESH_RESTRICT recv_count,
                     const i64 *const SMESH_RESTRICT recv_displs,
                     const idx_t *const SMESH_RESTRICT gather_idx,
+                    const idx_t *const SMESH_RESTRICT import_idx,
                     T *const SMESH_RESTRICT inout,
-                    T *const SMESH_RESTRICT aux_gather_buffer) {
+                    T *const SMESH_RESTRICT send_buffer,
+                    T *const SMESH_RESTRICT recv_buffer) {
+  SMESH_UNUSED(n_owned_nodes);
   int size;
   MPI_Comm_size(comm, &size);
   const ptrdiff_t total_send = recv_displs[size - 1] + recv_count[size - 1];
   for (ptrdiff_t i = 0; i < total_send; i++) {
-    aux_gather_buffer[i] = inout[gather_idx[i]];
+    send_buffer[i] = inout[gather_idx[i]];
   }
 
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
-  SMESH_MPI_CATCH(all_to_allv_64(aux_gather_buffer, recv_count, recv_displs,
+  SMESH_MPI_CATCH(all_to_allv_64(send_buffer, recv_count, recv_displs,
+                                 recv_buffer, send_count, send_displs,
+                                 comm, max_chunk_size));
+  const ptrdiff_t n_import = send_displs[size];
+  for (ptrdiff_t i = 0; i < n_import; ++i) {
+    inout[import_idx[i]] = recv_buffer[i];
+  }
+
+  return SMESH_SUCCESS;
+}
+
+template <typename idx_t, typename T>
+int exchange_gather_ghosts(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
+                           const i64 *const SMESH_RESTRICT send_count,
+                           const i64 *const SMESH_RESTRICT send_displs,
+                           const i64 *const SMESH_RESTRICT recv_count,
+                           const i64 *const SMESH_RESTRICT recv_displs,
+                           const idx_t *const SMESH_RESTRICT gather_idx,
+                           T *const SMESH_RESTRICT inout,
+                           T *const SMESH_RESTRICT send_buffer) {
+  int size;
+  MPI_Comm_size(comm, &size);
+  const ptrdiff_t total_send = recv_displs[size - 1] + recv_count[size - 1];
+  for (ptrdiff_t i = 0; i < total_send; i++) {
+    send_buffer[i] = inout[gather_idx[i]];
+  }
+
+  const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
+  SMESH_MPI_CATCH(all_to_allv_64(send_buffer, recv_count, recv_displs,
                                  &inout[n_owned_nodes], send_count, send_displs,
                                  comm, max_chunk_size));
 

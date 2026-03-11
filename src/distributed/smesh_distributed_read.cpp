@@ -11,7 +11,8 @@
       IDX_T ***elements_out, int *spatial_dim_out,                             \
       ptrdiff_t *n_global_nodes_out, ptrdiff_t *n_owned_nodes_out,             \
       ptrdiff_t *n_shared_nodes_out,                                            \
-      ptrdiff_t *n_ghost_nodes_out, LARGE_IDX_T **node_mapping_out,            \
+      ptrdiff_t *n_ghost_nodes_out, ptrdiff_t *n_aura_nodes_out,               \
+      LARGE_IDX_T **node_mapping_out,                                           \
       GEOM_T ***points_out, int **node_owner_out,                              \
       ptrdiff_t **node_offsets_out, IDX_T **ghosts_out)
 

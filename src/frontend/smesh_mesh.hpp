@@ -25,6 +25,7 @@ public:
   ptrdiff_t n_nodes_owned() const;
   ptrdiff_t n_nodes_shared() const;
   ptrdiff_t n_nodes_ghosts() const;
+  ptrdiff_t n_nodes_aura() const;
 
   ptrdiff_t n_elements_local() const;
   ptrdiff_t n_elements_owned_not_shared() const;
@@ -38,6 +39,7 @@ public:
   SharedBuffer<int> node_owner() const;
   SharedBuffer<ptrdiff_t> node_offsets() const;
   SharedBuffer<idx_t> ghosts() const;
+  SharedBuffer<idx_t> ghosts_and_aura() const;
 
   friend class Mesh;
 

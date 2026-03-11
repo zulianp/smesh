@@ -544,7 +544,7 @@ int mesh_from_folder_basic(const MPI_Comm comm, const Path &folder,
                      int *spatial_dim_out, ptrdiff_t *n_global_nodes_out,
                      ptrdiff_t *n_owned_nodes_out,
                      ptrdiff_t *n_shared_nodes_out,
-                     ptrdiff_t *n_ghost_nodes_out,
+                     ptrdiff_t *n_ghost_nodes_out, ptrdiff_t *n_aura_nodes_out,
                      large_idx_t **node_mapping_out, geom_t ***points_out,
                      // Distributed connectivities
                      int **node_owner_out, ptrdiff_t **node_offsets_out,
@@ -721,6 +721,7 @@ int mesh_from_folder_basic(const MPI_Comm comm, const Path &folder,
   *n_owned_nodes_out = n_owned;
   *n_shared_nodes_out = n_shared;
   *n_ghost_nodes_out = n_ghosts;
+  *n_aura_nodes_out = n_aura_nodes;
   *node_mapping_out = local2global;
   *points_out = local_points;
 
@@ -745,7 +746,8 @@ int mesh_from_folder(
     // Nodes
     int *spatial_dim_out, ptrdiff_t *n_global_nodes_out,
     ptrdiff_t *n_owned_nodes_out, ptrdiff_t *n_shared_nodes_out,
-    ptrdiff_t *n_ghost_nodes_out, large_idx_t **node_mapping_out,
+    ptrdiff_t *n_ghost_nodes_out, ptrdiff_t *n_aura_nodes_out,
+    large_idx_t **node_mapping_out,
     geom_t ***points_out,
     // Distributed connectivities
     int **node_owner_out, ptrdiff_t **node_offsets_out, idx_t **ghosts_out) {
@@ -755,6 +757,7 @@ int mesh_from_folder(
         n_owned_elements_out, n_shared_elements_out, n_ghost_elements_out,
         element_mapping_out, elements_out, spatial_dim_out, n_global_nodes_out,
         n_owned_nodes_out, n_shared_nodes_out, n_ghost_nodes_out,
+        n_aura_nodes_out,
         node_mapping_out, points_out, node_owner_out, node_offsets_out,
         ghosts_out);
   } else {
@@ -780,6 +783,7 @@ int mesh_from_folder(
         n_owned_elements_out, n_shared_elements_out, n_ghost_elements_out,
         element_mapping_out, elements_out, spatial_dim_out, n_global_nodes_out,
         n_owned_nodes_out, n_shared_nodes_out, n_ghost_nodes_out,
+        n_aura_nodes_out,
         node_mapping_out, points_out, node_owner_out, node_offsets_out,
         ghosts_out);
     }
@@ -803,6 +807,7 @@ int mesh_from_folder(
             n_owned_elements_out, n_shared_elements_out, n_ghost_elements_out,
             element_mapping_out, &elements, spatial_dim_out, n_global_nodes_out,
             n_owned_nodes_out, n_shared_nodes_out, n_ghost_nodes_out,
+            n_aura_nodes_out,
             node_mapping_out, points_out, node_owner_out, node_offsets_out,
             &ghosts) != SMESH_SUCCESS) {
       return SMESH_FAILURE;
@@ -828,8 +833,9 @@ int mesh_from_folder(
     *elements_out = small_elements;
 
 
-    *ghosts_out = (idx_t *)malloc((*n_ghost_nodes_out) * sizeof(idx_t));
-    for (ptrdiff_t i = 0; i < *n_ghost_nodes_out; ++i) {
+    const ptrdiff_t n_import_nodes = *n_ghost_nodes_out + *n_aura_nodes_out;
+    *ghosts_out = (idx_t *)malloc(n_import_nodes * sizeof(idx_t));
+    for (ptrdiff_t i = 0; i < n_import_nodes; ++i) {
       (*ghosts_out)[i] = (idx_t)ghosts[i];
     }
     free(ghosts);

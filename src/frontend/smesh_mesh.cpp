@@ -40,22 +40,23 @@ namespace smesh {
 
 class Distributed::Impl {
 public:
-  ptrdiff_t n_nodes_global;
-  ptrdiff_t n_nodes_owned;
-  ptrdiff_t n_nodes_shared;
-  ptrdiff_t n_nodes_ghosts;
+  ptrdiff_t n_nodes_global = 0;
+  ptrdiff_t n_nodes_owned = 0;
+  ptrdiff_t n_nodes_shared = 0;
+  ptrdiff_t n_nodes_ghosts = 0;
+  ptrdiff_t n_nodes_aura = 0;
 
-  ptrdiff_t n_elements_global;
-  ptrdiff_t n_elements_owned;
-  ptrdiff_t n_elements_shared;
-  ptrdiff_t n_elements_ghosts;
+  ptrdiff_t n_elements_global = 0;
+  ptrdiff_t n_elements_owned = 0;
+  ptrdiff_t n_elements_shared = 0;
+  ptrdiff_t n_elements_ghosts = 0;
 
   SharedBuffer<large_idx_t> node_mapping;
   SharedBuffer<large_idx_t> element_mapping;
 
   SharedBuffer<int> node_owner;
   SharedBuffer<ptrdiff_t> node_offsets;
-  SharedBuffer<idx_t> ghosts;
+  SharedBuffer<idx_t> ghosts_and_aura;
 };
 
 SharedBuffer<large_idx_t> Distributed::node_mapping() const {
@@ -70,7 +71,12 @@ SharedBuffer<int> Distributed::node_owner() const { return impl_->node_owner; }
 SharedBuffer<ptrdiff_t> Distributed::node_offsets() const {
   return impl_->node_offsets;
 }
-SharedBuffer<idx_t> Distributed::ghosts() const { return impl_->ghosts; }
+SharedBuffer<idx_t> Distributed::ghosts() const {
+  return view(impl_->ghosts_and_aura, 0, impl_->n_nodes_ghosts);
+}
+SharedBuffer<idx_t> Distributed::ghosts_and_aura() const {
+  return impl_->ghosts_and_aura;
+}
 
 Distributed::Distributed() : impl_(std::make_unique<Impl>()) {}
 Distributed::~Distributed() = default;
@@ -80,7 +86,7 @@ ptrdiff_t Distributed::n_elements_global() const {
   return impl_->n_elements_global;
 }
 ptrdiff_t Distributed::n_nodes_local() const {
-  return impl_->n_nodes_owned + impl_->n_nodes_ghosts;
+  return impl_->n_nodes_owned + impl_->n_nodes_ghosts + impl_->n_nodes_aura;
 }
 ptrdiff_t Distributed::n_nodes_owned_not_shared() const {
   return impl_->n_nodes_owned - impl_->n_nodes_shared;
@@ -88,6 +94,7 @@ ptrdiff_t Distributed::n_nodes_owned_not_shared() const {
 ptrdiff_t Distributed::n_nodes_owned() const { return impl_->n_nodes_owned; }
 ptrdiff_t Distributed::n_nodes_shared() const { return impl_->n_nodes_shared; }
 ptrdiff_t Distributed::n_nodes_ghosts() const { return impl_->n_nodes_ghosts; }
+ptrdiff_t Distributed::n_nodes_aura() const { return impl_->n_nodes_aura; }
 ptrdiff_t Distributed::n_elements_local() const {
   return impl_->n_elements_owned + impl_->n_elements_ghosts;
 }
@@ -511,6 +518,7 @@ int Mesh::read(const Path &path) {
     ptrdiff_t *node_offsets = nullptr;
     int *node_owner = nullptr;
     idx_t *ghosts = nullptr;
+    ptrdiff_t n_nodes_aura = 0;
 
     int spatial_dim;
     if (mesh_from_folder(
@@ -522,12 +530,13 @@ int Mesh::read(const Path &path) {
             // Nodes
             &spatial_dim, &dist->impl_->n_nodes_global,
             &dist->impl_->n_nodes_owned, &dist->impl_->n_nodes_shared,
-            &dist->impl_->n_nodes_ghosts, &node_mapping, &points,
+            &dist->impl_->n_nodes_ghosts, &n_nodes_aura, &node_mapping, &points,
             // Distributed connectivities
             &node_owner, &node_offsets, &ghosts) != SMESH_SUCCESS) {
       SMESH_ERROR("Failed to read mesh from folder %s\n", path.c_str());
       return SMESH_FAILURE;
     }
+    dist->impl_->n_nodes_aura = n_nodes_aura;
 
     auto elements_buffer = manage_host_buffer<idx_t>(
         nnodesxelem, dist->n_elements_local(), elements);
@@ -545,8 +554,8 @@ int Mesh::read(const Path &path) {
     dist->impl_->node_offsets =
         manage_host_buffer<ptrdiff_t>(comm_size + 1, node_offsets);
 
-    dist->impl_->ghosts =
-        manage_host_buffer<idx_t>(dist->impl_->n_nodes_ghosts, ghosts);
+    dist->impl_->ghosts_and_aura = manage_host_buffer<idx_t>(
+        dist->impl_->n_nodes_ghosts + dist->impl_->n_nodes_aura, ghosts);
 
     // Best effort for basic types
     enum ElemType element_type = (enum ElemType)nnodesxelem;

@@ -196,22 +196,27 @@ int main(int argc, char **argv) {
       i64 *recv_count = (i64 *)malloc((size_t)comm_size * sizeof(i64));
       i64 *recv_displs = (i64 *)malloc(((size_t)comm_size + 1) * sizeof(i64));
       idx_t *scatter_idx = nullptr;
+      idx_t *import_idx = nullptr;
 
       exchange_create<idx_t>(comm->get(), n_local_nodes, n_owned, owner,
                              owned_node_ranges, ghost_and_aura_to_owned,
                              send_count, send_displs, recv_count, recv_displs,
-                             &scatter_idx);
+                             &scatter_idx, &import_idx);
 
       idx_t *owner_global = (idx_t *)malloc(n_local_nodes * sizeof(idx_t));
       for (ptrdiff_t i = 0; i < n_owned; ++i) {
         owner_global[i] = owned_node_ranges[comm_rank] + i;
       }
 
-      idx_t *gather_buffer = (idx_t *)malloc(
-          (size_t)recv_displs[comm_size] * sizeof(idx_t));
+      const ptrdiff_t send_total = send_displs[comm_size];
+      const ptrdiff_t recv_total = recv_displs[comm_size];
+      const ptrdiff_t buffer_size = std::max(send_total, recv_total);
+      idx_t *send_buffer = (idx_t *)malloc((size_t)buffer_size * sizeof(idx_t));
+      idx_t *recv_buffer = (idx_t *)malloc((size_t)buffer_size * sizeof(idx_t));
 
-      exchange_gather(comm->get(), n_owned, recv_count, recv_displs, send_count,
-                      send_displs, scatter_idx, owner_global, gather_buffer);
+      exchange_gather(comm->get(), n_owned, send_count, send_displs, recv_count,
+                      recv_displs, scatter_idx, import_idx, owner_global,
+                      send_buffer, recv_buffer);
 
       array_write(path_block / "owner_global.int32", owner_global,
                   n_local_nodes);
@@ -221,7 +226,9 @@ int main(int argc, char **argv) {
       free(recv_count);
       free(recv_displs);
       free(scatter_idx);
-      free(gather_buffer);
+      free(import_idx);
+      free(send_buffer);
+      free(recv_buffer);
       free(owner_global);
     }
 

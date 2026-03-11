@@ -43,6 +43,7 @@ int main(int argc, char **argv) {
         os << "n_nodes_owned: " << dist->n_nodes_owned() << "\n";
         os << "n_nodes_shared: " << dist->n_nodes_shared() << "\n";
         os << "n_nodes_ghosts: " << dist->n_nodes_ghosts() << "\n";
+        os << "n_nodes_aura: " << dist->n_nodes_aura() << "\n";
 
         os << "n_elements_global: " << dist->n_elements_global() << "\n";
         os << "n_elements_local: " << dist->n_elements_local() << "\n";

@@ -1051,17 +1051,29 @@ int group_ghost_and_aura_by_rank(
   {
     const ptrdiff_t n_import = n_ghosts + n_aura_nodes;
     if (comm_size > 1 && n_import > 0) {
-      ptrdiff_t *displs =
+      ptrdiff_t *ghost_displs =
           (ptrdiff_t *)calloc((size_t)comm_size + 1, sizeof(ptrdiff_t));
-      ptrdiff_t *cursor =
+      ptrdiff_t *aura_displs =
+          (ptrdiff_t *)calloc((size_t)comm_size + 1, sizeof(ptrdiff_t));
+      ptrdiff_t *ghost_cursor =
+          (ptrdiff_t *)calloc((size_t)comm_size, sizeof(ptrdiff_t));
+      ptrdiff_t *aura_cursor =
           (ptrdiff_t *)calloc((size_t)comm_size, sizeof(ptrdiff_t));
 
       for (ptrdiff_t i = 0; i < n_import; ++i) {
         const int r = owner[n_owned + i];
-        displs[(size_t)r + 1]++;
+        if (i < n_ghosts) {
+          ghost_displs[(size_t)r + 1]++;
+        } else {
+          aura_displs[(size_t)r + 1]++;
+        }
       }
       for (int r = 0; r < comm_size; ++r) {
-        displs[(size_t)r + 1] += displs[(size_t)r];
+        ghost_displs[(size_t)r + 1] += ghost_displs[(size_t)r];
+        aura_displs[(size_t)r + 1] += aura_displs[(size_t)r];
+      }
+      for (int r = 0; r <= comm_size; ++r) {
+        aura_displs[(size_t)r] += n_ghosts;
       }
 
       idx_t *old_to_new = (idx_t *)malloc((size_t)n_import * sizeof(idx_t));
@@ -1072,7 +1084,10 @@ int group_ghost_and_aura_by_rank(
 
       for (ptrdiff_t i = 0; i < n_import; ++i) {
         const int r = owner[n_owned + i];
-        const ptrdiff_t pos = displs[(size_t)r] + cursor[(size_t)r]++;
+        const ptrdiff_t pos =
+            (i < n_ghosts)
+                ? (ghost_displs[(size_t)r] + ghost_cursor[(size_t)r]++)
+                : (aura_displs[(size_t)r] + aura_cursor[(size_t)r]++);
         old_to_new[i] = static_cast<idx_t>(pos);
         ghost_tmp[pos] = ghost_and_aura_to_owned[i];
         l2g_tmp[pos] = local2global[n_owned + i];
@@ -1103,8 +1118,10 @@ int group_ghost_and_aura_by_rank(
       free(l2g_tmp);
       free(ghost_tmp);
       free(old_to_new);
-      free(displs);
-      free(cursor);
+      free(ghost_displs);
+      free(aura_displs);
+      free(ghost_cursor);
+      free(aura_cursor);
     }
   }
   return SMESH_SUCCESS;
