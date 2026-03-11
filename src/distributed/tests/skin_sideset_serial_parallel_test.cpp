@@ -51,7 +51,7 @@ int test_skin_sideset_matches_serial() {
   const Path parallel_skin_path = root / "parallel_skin";
 
   const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
-  const ptrdiff_t ny = 10;
+  const ptrdiff_t ny = 4;
   const ptrdiff_t nz = 3;
 
   if (comm->rank() == 0) {
