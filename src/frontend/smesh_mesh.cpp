@@ -21,8 +21,10 @@
 #include "smesh_volume_to_surface.hpp"
 
 #ifdef SMESH_ENABLE_MPI
+#include "smesh_distributed_base.hpp"
 #include "smesh_distributed_read.hpp"
 #include "smesh_distributed_write.hpp"
+#include "smesh_decompose.hpp"
 #endif
 
 #ifdef SMESH_ENABLE_RYAML
@@ -35,6 +37,7 @@
 #include <list>
 #include <map>
 #include <math.h>
+#include <unordered_map>
 #include <vector>
 
 namespace smesh {
@@ -51,6 +54,8 @@ public:
   ptrdiff_t n_elements_owned = 0;
   ptrdiff_t n_elements_shared = 0;
   ptrdiff_t n_elements_ghosts = 0;
+
+  ptrdiff_t element_offset = 0;
 
   SharedBuffer<large_idx_t> node_mapping;
   SharedBuffer<large_idx_t> element_mapping;
@@ -110,6 +115,10 @@ ptrdiff_t Distributed::n_elements_shared() const {
 }
 ptrdiff_t Distributed::n_elements_ghosts() const {
   return impl_->n_elements_ghosts;
+}
+
+ptrdiff_t Distributed::element_offset() const {
+  return impl_->element_offset;
 }
 
 static ptrdiff_t
@@ -538,6 +547,7 @@ int Mesh::read(const Path &path) {
       return SMESH_FAILURE;
     }
     dist->impl_->n_nodes_aura = n_nodes_aura;
+    dist->impl_->element_offset = rank_start(dist->impl_->n_elements_global, impl_->comm->size(), impl_->comm->rank());
 
     auto elements_buffer = manage_host_buffer<idx_t>(
         nnodesxelem, dist->n_elements_local(), elements);
@@ -1852,6 +1862,7 @@ std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
 }
 
 std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
+  SMESH_TRACE_SCOPE("skin_sideset");
   if (mesh->n_blocks() != 1) {
     SMESH_ERROR("Skin sideset is not supported for multiblock meshes\n");
     return nullptr;
@@ -1907,29 +1918,366 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
     return nullptr;
   }
 
+  //TODO: Check for bugs, we are discarding too many faces
+  ptrdiff_t element_offset = 0;
   if(mesh->comm()->size() > 1) {
-    const auto n_owned_elements = mesh->distributed()->n_elements_owned();
+    const auto dist = mesh->distributed();
+    element_offset = dist->element_offset();
+    const auto n_owned_elements = dist->n_elements_owned();
+    const idx_t shared_begin =
+        static_cast<idx_t>(dist->n_nodes_owned_not_shared());
+    const idx_t ghost_end =
+        static_cast<idx_t>(dist->n_nodes_owned() + dist->n_nodes_ghosts());
+    LocalSideTable lst;
+    lst.fill(mesh->element_type(0));
+    const int nnxs = elem_num_nodes(side_type(mesh->element_type(0)));
+    auto elems = mesh->elements(0)->data();
+
     ptrdiff_t write_pos = 0;
     for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
-      if (parent_element[i] < n_owned_elements) {
-        parent_element[write_pos] = parent_element[i];
-        side_idx[write_pos] = side_idx[i];
-        ++write_pos;
+      const element_idx_t parent = parent_element[i];
+      if (parent >= n_owned_elements) {
+        continue;
       }
+
+      bool all_shared_or_ghost = true;
+      const int side = side_idx[i];
+      for (int n = 0; n < nnxs; ++n) {
+        const idx_t node = elems[lst(side, n)][parent];
+        all_shared_or_ghost &=
+            (node >= shared_begin && node < ghost_end);
+      }
+
+      if (all_shared_or_ghost) {
+        continue;
+      }
+
+      parent_element[write_pos] = parent;
+      side_idx[write_pos] = side_idx[i];
+      ++write_pos;
     }
     n_surf_elements = write_pos;
   }
 
+
+
   return std::make_shared<Sideset>(
       mesh->comm(),
       manage_host_buffer<element_idx_t>(n_surf_elements, parent_element),
-      manage_host_buffer<i16>(n_surf_elements, side_idx), 0);
+      manage_host_buffer<i16>(n_surf_elements, side_idx), 0, element_offset);
 #endif
 }
+
+#ifdef SMESH_ENABLE_MPI
+
+// TODO: This is AI Slop code, it should be simplified and optimized
+
+std::shared_ptr<Mesh>
+mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
+                           const std::shared_ptr<Sideset> &sideset) {
+
+  auto [surface_type, surface_elements] =
+      create_surface_from_sideset(mesh, sideset);
+
+  const ptrdiff_t n_nodes = mesh->n_nodes();
+  auto vol2surf = create_host_buffer<idx_t>(n_nodes);
+  auto b_vol2surf = vol2surf->data();
+  for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+    b_vol2surf[i] = invalid_idx<idx_t>();
+  }
+
+  const int nnxs = surface_elements->extent(0);
+  ptrdiff_t n_surf_elements = surface_elements->extent(1);
+  auto b_surface_elements = surface_elements->data();
+
+  const auto parent_dist = mesh->distributed();
+  const ptrdiff_t n_parent_owned = parent_dist->n_nodes_owned();
+  const ptrdiff_t n_parent_ghosts = parent_dist->n_nodes_ghosts();
+
+  for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+    for (int d = 0; d < nnxs; ++d) {
+      idx_t idx = b_surface_elements[d][i];
+      if (b_vol2surf[idx] == invalid_idx<idx_t>()) {
+        b_vol2surf[idx] = 0;
+      }
+    }
+  }
+
+  ptrdiff_t n_surf_nodes = 0;
+  for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+    if (b_vol2surf[i] == invalid_idx<idx_t>()) {
+      continue;
+    }
+
+    b_vol2surf[i] = n_surf_nodes++;
+  }
+
+  auto local_parent = create_host_buffer<idx_t>(n_surf_nodes);
+  auto local_parent_global = create_host_buffer<large_idx_t>(n_surf_nodes);
+  auto b_local_parent = local_parent->data();
+  auto b_local_parent_global = local_parent_global->data();
+  auto b_parent_node_mapping = parent_dist->node_mapping()->data();
+
+  // Compact the sparse volume-to-surface map into dense surface-node arrays while
+  // keeping both the parent local index and its globally unique parent id.
+  for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+    const idx_t local_idx = b_vol2surf[i];
+    if (local_idx == invalid_idx<idx_t>()) {
+      continue;
+    }
+
+    b_local_parent[local_idx] = i;
+    b_local_parent_global[local_idx] = b_parent_node_mapping[i];
+  }
+
+  std::vector<ptrdiff_t> local_counts(mesh->comm()->size());
+  SMESH_MPI_CATCH(MPI_Allgather(&n_surf_nodes, 1, mpi_type<ptrdiff_t>(),
+                                local_counts.data(), 1,
+                                mpi_type<ptrdiff_t>(), mesh->comm()->get()));
+
+  std::vector<int> local_counts_i(mesh->comm()->size());
+  std::vector<int> local_displs_i(mesh->comm()->size());
+  ptrdiff_t total_surface_nodes = 0;
+  // Build displacements for the allgatherv so every rank can index the flattened
+  // list of parent global ids contributed by all other ranks.
+  for (int r = 0; r < mesh->comm()->size(); ++r) {
+    local_counts_i[r] = static_cast<int>(local_counts[r]);
+    local_displs_i[r] = static_cast<int>(total_surface_nodes);
+    total_surface_nodes += local_counts[r];
+  }
+
+  std::vector<large_idx_t> global_parent_ids((size_t)total_surface_nodes);
+  SMESH_MPI_CATCH(MPI_Allgatherv(
+      b_local_parent_global, static_cast<int>(n_surf_nodes),
+      mpi_type<large_idx_t>(), global_parent_ids.data(), local_counts_i.data(),
+      local_displs_i.data(), mpi_type<large_idx_t>(), mesh->comm()->get()));
+
+  std::unordered_map<large_idx_t, int> surface_owner;
+  std::unordered_map<large_idx_t, bool> surface_shared;
+  surface_owner.reserve(global_parent_ids.size());
+  surface_shared.reserve(global_parent_ids.size());
+  // The first rank that reports a parent global id becomes its owner; seeing the
+  // same id on another rank marks that surface node as shared.
+  for (int r = 0; r < mesh->comm()->size(); ++r) {
+    const ptrdiff_t begin = local_displs_i[r];
+    const ptrdiff_t end = begin + local_counts[r];
+    for (ptrdiff_t i = begin; i < end; ++i) {
+      const large_idx_t gid = global_parent_ids[(size_t)i];
+      const auto inserted = surface_owner.emplace(gid, r);
+      if (!inserted.second && inserted.first->second != r) {
+        surface_shared[gid] = true;
+      }
+    }
+  }
+
+  std::vector<idx_t> owned_nodes;
+  std::vector<idx_t> ghost_nodes;
+  std::vector<idx_t> aura_nodes;
+  owned_nodes.reserve((size_t)n_surf_nodes);
+  ghost_nodes.reserve((size_t)n_surf_nodes);
+  aura_nodes.reserve((size_t)n_surf_nodes);
+
+  ptrdiff_t n_surf_shared = 0;
+  const int rank = mesh->comm()->rank();
+  // Classify each local surface node from the current rank's perspective:
+  // owned if this rank won ownership, ghost if the parent node is already a
+  // ghost in the volume mesh, otherwise aura.
+  for (idx_t i = 0; i < n_surf_nodes; ++i) {
+    const large_idx_t gid = b_local_parent_global[i];
+    const int owner = surface_owner[gid];
+    if (owner == rank) {
+      owned_nodes.push_back(i);
+      if (surface_shared[gid]) {
+        ++n_surf_shared;
+      }
+    } else if (b_local_parent[i] < n_parent_owned + n_parent_ghosts) {
+      ghost_nodes.push_back(i);
+    } else {
+      aura_nodes.push_back(i);
+    }
+  }
+
+  auto sort_by_owner = [&](std::vector<idx_t> &nodes) {
+    std::stable_sort(nodes.begin(), nodes.end(), [&](const idx_t a, const idx_t b) {
+      return surface_owner[b_local_parent_global[a]] <
+             surface_owner[b_local_parent_global[b]];
+    });
+  };
+  sort_by_owner(ghost_nodes);
+  sort_by_owner(aura_nodes);
+
+  ptrdiff_t n_surf_owned = owned_nodes.size();
+  ptrdiff_t n_surf_ghosts = ghost_nodes.size();
+  ptrdiff_t n_surf_aura = aura_nodes.size();
+
+  auto surf_points =
+      create_host_buffer<geom_t>(mesh->spatial_dimension(), n_surf_nodes);
+  auto mapping = create_host_buffer<idx_t>(n_surf_nodes);
+  auto old_to_new = create_host_buffer<idx_t>(n_surf_nodes);
+  auto surf_node_owner = create_host_buffer<int>(n_surf_nodes);
+
+  auto b_points = mesh->points()->data();
+  auto b_surf_points = surf_points->data();
+  auto b_mapping = mapping->data();
+  auto b_old_to_new = old_to_new->data();
+  auto b_surf_node_owner = surf_node_owner->data();
+
+  // Reorder nodes into owned/ghost/aura blocks and carry over geometry, parent
+  // mapping, and owning rank in one pass.
+  auto assign_nodes = [&](const std::vector<idx_t> &nodes, ptrdiff_t offset) {
+    const int spatial_dim = mesh->spatial_dimension();
+    for (ptrdiff_t k = 0; k < (ptrdiff_t)nodes.size(); ++k) {
+      const idx_t old_idx = nodes[(size_t)k];
+      const ptrdiff_t new_idx = offset + k;
+      const ptrdiff_t parent_local_idx = b_local_parent[old_idx];
+      b_old_to_new[old_idx] = static_cast<idx_t>(new_idx);
+      b_mapping[new_idx] = parent_local_idx;
+      b_surf_node_owner[new_idx] = surface_owner[b_local_parent_global[old_idx]];
+      for (int d = 0; d < spatial_dim; ++d) {
+        b_surf_points[d][new_idx] = b_points[d][parent_local_idx];
+      }
+    }
+  };
+
+  assign_nodes(owned_nodes, 0);
+  assign_nodes(ghost_nodes, n_surf_owned);
+  assign_nodes(aura_nodes, n_surf_owned + n_surf_ghosts);
+
+  for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+    for (int d = 0; d < nnxs; ++d) {
+      const idx_t old_idx = b_vol2surf[b_surface_elements[d][i]];
+      b_surface_elements[d][i] = b_old_to_new[old_idx];
+    }
+  }
+
+  auto ret = std::make_shared<Mesh>(mesh->comm(), surface_type,
+                                    surface_elements, surf_points);
+
+  ret->set_node_mapping(mapping);
+
+  auto surf_dist = std::make_shared<Distributed>();
+  auto surf_node_mapping = create_host_buffer<large_idx_t>(n_surf_nodes);
+  auto surf_node_offsets =
+      create_host_buffer<ptrdiff_t>(mesh->comm()->size() + 1);
+  auto surf_ghosts_and_aura =
+      create_host_buffer<idx_t>(n_surf_ghosts + n_surf_aura);
+
+  auto b_surf_node_mapping = surf_node_mapping->data();
+  auto b_surf_node_offsets = surf_node_offsets->data();
+  auto b_surf_ghosts_and_aura = surf_ghosts_and_aura->data();
+
+  std::vector<ptrdiff_t> owned_counts(mesh->comm()->size());
+  SMESH_MPI_CATCH(MPI_Allgather(&n_surf_owned, 1, mpi_type<ptrdiff_t>(),
+                                owned_counts.data(), 1,
+                                mpi_type<ptrdiff_t>(), mesh->comm()->get()));
+
+  b_surf_node_offsets[0] = 0;
+  for (int r = 0; r < mesh->comm()->size(); ++r) {
+    b_surf_node_offsets[r + 1] = b_surf_node_offsets[r] + owned_counts[r];
+  }
+
+  std::vector<int> owned_counts_i(mesh->comm()->size());
+  std::vector<int> owned_displs_i(mesh->comm()->size());
+  for (int r = 0; r < mesh->comm()->size(); ++r) {
+    owned_counts_i[r] = static_cast<int>(owned_counts[r]);
+    owned_displs_i[r] = static_cast<int>(b_surf_node_offsets[r]);
+  }
+
+  std::vector<large_idx_t> owned_parent_global_ids(n_surf_owned);
+  for (ptrdiff_t i = 0; i < n_surf_owned; ++i) {
+    owned_parent_global_ids[i] = b_parent_node_mapping[b_mapping[i]];
+    b_surf_node_mapping[i] = b_surf_node_offsets[mesh->comm()->rank()] + i;
+  }
+
+  std::vector<large_idx_t> global_owned_parent_ids(
+      (size_t)b_surf_node_offsets[mesh->comm()->size()]);
+  SMESH_MPI_CATCH(MPI_Allgatherv(
+      owned_parent_global_ids.data(), static_cast<int>(n_surf_owned),
+      mpi_type<large_idx_t>(), global_owned_parent_ids.data(),
+      owned_counts_i.data(), owned_displs_i.data(), mpi_type<large_idx_t>(),
+      mesh->comm()->get()));
+
+  std::unordered_map<large_idx_t, large_idx_t> global_surface_node_ids;
+  global_surface_node_ids.reserve(global_owned_parent_ids.size());
+  for (ptrdiff_t i = 0; i < b_surf_node_offsets[mesh->comm()->size()]; ++i) {
+    global_surface_node_ids.emplace(global_owned_parent_ids[(size_t)i], i);
+  }
+
+  ptrdiff_t import_idx = 0;
+  for (ptrdiff_t i = n_surf_owned; i < n_surf_nodes; ++i) {
+    const auto it = global_surface_node_ids.find(b_parent_node_mapping[b_mapping[i]]);
+    SMESH_ASSERT(it != global_surface_node_ids.end());
+    b_surf_node_mapping[i] = it->second;
+    b_surf_ghosts_and_aura[import_idx++] =
+        static_cast<idx_t>(b_surf_node_mapping[i]);
+  }
+
+  const ptrdiff_t n_parent_owned_elements = parent_dist->n_elements_owned();
+  const auto b_parent_surface_elements = sideset->parent()->data();
+  ptrdiff_t n_surf_owned_elements = 0;
+  ptrdiff_t n_surf_shared_elements = 0;
+  for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+    if (b_parent_surface_elements[i] >= n_parent_owned_elements) {
+      continue;
+    }
+
+    ++n_surf_owned_elements;
+    for (int d = 0; d < nnxs; ++d) {
+      if (b_surface_elements[d][i] >= n_surf_owned) {
+        ++n_surf_shared_elements;
+        break;
+      }
+    }
+  }
+
+  ptrdiff_t element_offset = 0;
+  ptrdiff_t n_surf_global_elements = 0;
+  SMESH_MPI_CATCH(MPI_Exscan(&n_surf_owned_elements, &element_offset, 1,
+                             mpi_type<ptrdiff_t>(), MPI_SUM,
+                             mesh->comm()->get()));
+  if (mesh->comm()->rank() == 0) {
+    element_offset = 0;
+  }
+  SMESH_MPI_CATCH(MPI_Allreduce(&n_surf_owned_elements, &n_surf_global_elements,
+                                1, mpi_type<ptrdiff_t>(), MPI_SUM,
+                                mesh->comm()->get()));
+
+  auto surf_element_mapping =
+      create_host_buffer<large_idx_t>(n_surf_owned_elements);
+  auto b_surf_element_mapping = surf_element_mapping->data();
+  for (ptrdiff_t i = 0; i < n_surf_owned_elements; ++i) {
+    b_surf_element_mapping[i] = element_offset + i;
+  }
+
+  surf_dist->impl_->n_nodes_global = b_surf_node_offsets[mesh->comm()->size()];
+  surf_dist->impl_->n_nodes_owned = n_surf_owned;
+  surf_dist->impl_->n_nodes_shared = n_surf_shared;
+  surf_dist->impl_->n_nodes_ghosts = n_surf_ghosts;
+  surf_dist->impl_->n_nodes_aura = n_surf_aura;
+  surf_dist->impl_->n_elements_global = n_surf_global_elements;
+  surf_dist->impl_->n_elements_owned = n_surf_owned_elements;
+  surf_dist->impl_->n_elements_shared = n_surf_shared_elements;
+  surf_dist->impl_->n_elements_ghosts = n_surf_elements - n_surf_owned_elements;
+  surf_dist->impl_->node_mapping = surf_node_mapping;
+  surf_dist->impl_->element_mapping = surf_element_mapping;
+  surf_dist->impl_->node_owner = surf_node_owner;
+  surf_dist->impl_->node_offsets = surf_node_offsets;
+  surf_dist->impl_->ghosts_and_aura = surf_ghosts_and_aura;
+
+  ret->impl_->distributed = surf_dist;
+  return ret;
+}
+#endif
 
 std::shared_ptr<Mesh>
 mesh_from_sideset(const std::shared_ptr<Mesh> &mesh,
                   const std::shared_ptr<Sideset> &sideset) {
+  SMESH_TRACE_SCOPE("mesh_from_sideset");
+#ifdef SMESH_ENABLE_MPI
+  if (mesh->comm()->size() > 1) {
+    return mesh_from_sideset_parallel(mesh, sideset);
+  }
+#endif
 
   auto [surface_type, surface_elements] =
       create_surface_from_sideset(mesh, sideset);
@@ -1984,11 +2332,6 @@ mesh_from_sideset(const std::shared_ptr<Mesh> &mesh,
   }
 
   ret->set_node_mapping(mapping);
-
-  if(mesh->comm()->size() > 1) {
-// TODO: Create Distributed for surface mesh
-  }
-
   return ret;
 }
 

@@ -33,14 +33,14 @@ public:
 
   Sideset(const std::shared_ptr<Communicator> &comm,
           const SharedBuffer<element_idx_t> &parent,
-          const SharedBuffer<i16> &lfi, block_idx_t block_id = 0);
+          const SharedBuffer<i16> &lfi, block_idx_t block_id = 0, ptrdiff_t element_offset = 0);
   Sideset();
   ~Sideset();
 
   static std::shared_ptr<Sideset>
   create(const std::shared_ptr<Communicator> &comm,
          const SharedBuffer<element_idx_t> &parent,
-         const SharedBuffer<i16> &lfi, block_idx_t block_id = 0);
+         const SharedBuffer<i16> &lfi, block_idx_t block_id = 0, ptrdiff_t element_offset = 0);
 
   static std::vector<std::shared_ptr<Sideset>> create_from_selector(
       const std::shared_ptr<Mesh> &mesh,

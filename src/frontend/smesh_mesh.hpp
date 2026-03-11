@@ -32,6 +32,7 @@ public:
   ptrdiff_t n_elements_owned() const;
   ptrdiff_t n_elements_shared() const;
   ptrdiff_t n_elements_ghosts() const;
+  ptrdiff_t element_offset() const;
 
   SharedBuffer<large_idx_t> node_mapping() const;
   SharedBuffer<large_idx_t> element_mapping() const;
@@ -42,6 +43,12 @@ public:
   SharedBuffer<idx_t> ghosts_and_aura() const;
 
   friend class Mesh;
+  friend std::shared_ptr<Mesh>
+  mesh_from_sideset(const std::shared_ptr<Mesh> &mesh,
+                    const std::shared_ptr<Sideset> &sideset);
+  friend std::shared_ptr<Mesh>
+  mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
+                             const std::shared_ptr<Sideset> &sideset);
 
 private:
   class Impl;
@@ -233,6 +240,13 @@ public:
   void print(std::ostream &os = std::cout) const;
 
 private:
+  friend std::shared_ptr<Mesh>
+  mesh_from_sideset(const std::shared_ptr<Mesh> &mesh,
+                    const std::shared_ptr<Sideset> &sideset);
+  friend std::shared_ptr<Mesh>
+  mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
+                             const std::shared_ptr<Sideset> &sideset);
+
   class Impl;
   std::unique_ptr<Impl> impl_;
 };
@@ -250,9 +264,13 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh);
 std::shared_ptr<Mesh>
 mesh_from_sideset(const std::shared_ptr<Mesh> &mesh,
                   const std::shared_ptr<Sideset> &sideset);
+std::shared_ptr<Mesh>
+mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
+                           const std::shared_ptr<Sideset> &sideset);
 std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh);
 std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
                               const geom_t height, const ptrdiff_t nlayers);
+                              
 } // namespace smesh
 
 #endif // SMESH_MESH_HPP
