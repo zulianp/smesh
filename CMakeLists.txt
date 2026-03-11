@@ -220,6 +220,11 @@ install(
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
+set(SMESH_PACKAGE_NEEDS_BLAS OFF)
+if(SMESH_ENABLE_BLAS AND NOT APPLE)
+    set(SMESH_PACKAGE_NEEDS_BLAS ON)
+endif()
+
 configure_package_config_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/smeshConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/smeshConfig.cmake
