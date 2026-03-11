@@ -33,6 +33,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <fstream>
 #include <list>
 #include <map>
@@ -1927,6 +1928,117 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
       ++write_pos;
     }
     n_surf_elements = write_pos;
+
+    // FIXME: AI Slop to be clean-up
+    // TODO: explain with inline comments what this code is doing
+    if (n_surf_elements > 0) {
+      LocalSideTable lst;
+      lst.fill(mesh->element_type(0));
+      const int ns = elem_num_sides(mesh->element_type(0));
+      const int nnxs = elem_num_nodes(side_type(mesh->element_type(0)));
+      auto elems = mesh->elements(0)->data();
+      auto node_mapping = dist->node_mapping()->data();
+
+      using FaceKey =
+          std::array<large_idx_t, LocalSideTable::MAX_NUM_NODES_PER_SIDE>;
+
+      std::vector<FaceKey> local_face_keys((size_t)n_surf_elements);
+      for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+        auto &key = local_face_keys[(size_t)i];
+        const element_idx_t parent = parent_element[i];
+        const int side = side_idx[i];
+
+        for (int n = 0; n < nnxs; ++n) {
+          const idx_t node = elems[lst(side, n)][parent];
+          key[(size_t)n] = node_mapping[node];
+        }
+
+        std::sort(key.begin(), key.begin() + nnxs);
+      }
+
+      const ptrdiff_t n_owned_faces =
+          static_cast<ptrdiff_t>(n_owned_elements) * ns;
+      std::vector<large_idx_t> local_owned_face_key_data(
+          (size_t)n_owned_faces * (size_t)nnxs);
+      for (ptrdiff_t parent = 0; parent < n_owned_elements; ++parent) {
+        for (int side = 0; side < ns; ++side) {
+          std::array<large_idx_t, LocalSideTable::MAX_NUM_NODES_PER_SIDE> key;
+          for (int n = 0; n < nnxs; ++n) {
+            const idx_t node = elems[lst(side, n)][parent];
+            key[(size_t)n] = node_mapping[node];
+          }
+
+          std::sort(key.begin(), key.begin() + nnxs);
+
+          const ptrdiff_t face_idx = parent * ns + side;
+          for (int n = 0; n < nnxs; ++n) {
+            local_owned_face_key_data[(size_t)face_idx * (size_t)nnxs +
+                                      (size_t)n] = key[(size_t)n];
+          }
+        }
+      }
+
+      std::vector<ptrdiff_t> local_counts(mesh->comm()->size());
+      SMESH_MPI_CATCH(MPI_Allgather(&n_owned_faces, 1, mpi_type<ptrdiff_t>(),
+                                    local_counts.data(), 1,
+                                    mpi_type<ptrdiff_t>(),
+                                    mesh->comm()->get()));
+
+      std::vector<int> local_counts_i(mesh->comm()->size());
+      std::vector<int> local_displs_i(mesh->comm()->size());
+      ptrdiff_t total_faces = 0;
+      ptrdiff_t total_face_entries = 0;
+      for (int r = 0; r < mesh->comm()->size(); ++r) {
+        local_counts_i[r] = static_cast<int>(local_counts[r] * nnxs);
+        local_displs_i[r] = static_cast<int>(total_face_entries);
+        total_faces += local_counts[r];
+        total_face_entries += local_counts[r] * nnxs;
+      }
+
+      std::vector<large_idx_t> global_face_key_data(
+          (size_t)total_face_entries);
+      SMESH_MPI_CATCH(MPI_Allgatherv(
+          local_owned_face_key_data.empty() ? nullptr
+                                            : local_owned_face_key_data.data(),
+          static_cast<int>(local_owned_face_key_data.size()),
+          mpi_type<large_idx_t>(),
+          global_face_key_data.empty() ? nullptr : global_face_key_data.data(),
+          local_counts_i.data(), local_displs_i.data(),
+          mpi_type<large_idx_t>(), mesh->comm()->get()));
+
+      std::vector<FaceKey> global_face_keys((size_t)total_faces);
+      for (ptrdiff_t i = 0; i < total_faces; ++i) {
+        auto &key = global_face_keys[(size_t)i];
+        for (int n = 0; n < nnxs; ++n) {
+          key[(size_t)n] =
+              global_face_key_data[(size_t)i * (size_t)nnxs + (size_t)n];
+        }
+      }
+
+      const auto face_key_less = [nnxs](const FaceKey &lhs,
+                                        const FaceKey &rhs) -> bool {
+        return std::lexicographical_compare(lhs.begin(), lhs.begin() + nnxs,
+                                            rhs.begin(), rhs.begin() + nnxs);
+      };
+
+      std::sort(global_face_keys.begin(), global_face_keys.end(), face_key_less);
+
+      write_pos = 0;
+      for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+        const auto range = std::equal_range(
+            global_face_keys.begin(), global_face_keys.end(),
+            local_face_keys[(size_t)i], face_key_less);
+        if (range.second - range.first != 1) {
+          continue;
+        }
+
+        parent_element[write_pos] = parent_element[i];
+        side_idx[write_pos] = side_idx[i];
+        ++write_pos;
+      }
+
+      n_surf_elements = write_pos;
+    }
   }
 
 
