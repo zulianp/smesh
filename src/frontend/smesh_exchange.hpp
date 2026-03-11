@@ -25,7 +25,8 @@ public:
   Exchange(const std::shared_ptr<Communicator> &comm);
   ~Exchange();
 
-  template <typename T> int exchange_add(T *const inout);
+  template <typename T> int scatter_add(T *const inout);
+  template <typename T> int gather(T* const inout);
 
   class Impl;
 

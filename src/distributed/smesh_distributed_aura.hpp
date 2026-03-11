@@ -38,7 +38,7 @@ int gather_mapped_field(MPI_Comm comm, const ptrdiff_t n_local,
                         const void *SMESH_RESTRICT const data_in,
                         void *SMESH_RESTRICT const data_out);
 
-                        template <typename idx_t, typename T>
+template <typename idx_t, typename T>
 int exchange_gather(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                     const i64 *const SMESH_RESTRICT send_count,
                     const i64 *const SMESH_RESTRICT send_displs,
