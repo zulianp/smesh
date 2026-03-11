@@ -21,9 +21,6 @@ int test_owned_elements_point_to_owned_nodes() {
     return SMESH_TEST_SUCCESS;
   }
 
-
-  // auto mesh_path = Path("pump");
-
   char path_buffer[256];
   std::snprintf(path_buffer, sizeof(path_buffer),
                 "/tmp/smesh_owned_elements_owned_nodes_test_%d",
