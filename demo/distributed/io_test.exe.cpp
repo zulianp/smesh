@@ -63,6 +63,14 @@ int main(int argc, char **argv) {
       //   mesh->element_mapping()->data(), 1);
 
       comm->barrier();
+
+      {
+        // auto local_output = Output::create(mesh, Path("test_" + std::to_string(comm->rank())));
+        auto local_mesh =std::make_shared<Mesh>(Communicator::self(), mesh->blocks(), mesh->points());
+        local_mesh->write(Path("test_" + std::to_string(comm->rank())));
+
+        // local_output->write_nodal("nodal_data", ,
+      }
     }
   }
 

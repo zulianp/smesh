@@ -32,19 +32,19 @@ public:
   std::shared_ptr<Buffer<element_idx_t>> parent;
   std::shared_ptr<Buffer<i16>> lfi;
   block_idx_t block_id{0};
-  ptrdiff_t element_offset{0};
+  SharedBuffer<large_idx_t> element_mapping;
 };
 
 Sideset::Sideset(const std::shared_ptr<Communicator> &comm,
                  const std::shared_ptr<Buffer<element_idx_t>> &parent,
                  const std::shared_ptr<Buffer<i16>> &lfi, block_idx_t block_id,
-                 ptrdiff_t element_offset)
+                 const SharedBuffer<large_idx_t> &element_mapping)
     : impl_(std::make_unique<Impl>()) {
   impl_->comm = comm;
   impl_->parent = parent;
   impl_->lfi = lfi;
   impl_->block_id = block_id;
-  impl_->element_offset = element_offset;
+  impl_->element_mapping = element_mapping;
 }
 
 Sideset::Sideset() : impl_(std::make_unique<Impl>()) {}
@@ -58,8 +58,8 @@ std::shared_ptr<Sideset>
 Sideset::create(const std::shared_ptr<Communicator> &comm,
                 const std::shared_ptr<Buffer<element_idx_t>> &parent,
                 const std::shared_ptr<Buffer<i16>> &lfi, block_idx_t block_id,
-                ptrdiff_t element_offset) {
-  return std::make_shared<Sideset>(comm, parent, lfi, block_id, element_offset);
+                const SharedBuffer<large_idx_t> &element_mapping) {
+  return std::make_shared<Sideset>(comm, parent, lfi, block_id, element_mapping);
 }
 
 std::shared_ptr<Sideset>
@@ -89,11 +89,11 @@ int Sideset::write(const Path &path) const {
     MPI_Allreduce(MPI_IN_PLACE, &n_sides_global, 1, mpi_type<u64>(), MPI_SUM,
                   comm()->get());
 
-    if (impl_->element_offset) {
+    if (impl_->element_mapping) {
       auto parent = create_host_buffer<element_idx_t>(n_sides_local);
       auto b_parent = parent->data();
       for (u64 i = 0; i < n_sides_local; i++) {
-        b_parent[i] = impl_->parent->data()[i] + impl_->element_offset;
+        b_parent[i] = impl_->element_mapping->data()[impl_->parent->data()[i]];
       }
       array_write_convert_from_extension(comm()->get(), parent_path, b_parent,
                                          n_sides_local, n_sides_global);
@@ -427,9 +427,9 @@ int Sideset::read(const std::shared_ptr<Communicator> &comm, const Path &folder,
   i16 *lfi{nullptr};
 
   auto parent_file =
-      detect_files(folder / "parent", {".raw", ".int16", ".int32", ".int64"});
+      detect_files(folder / "parent.*", {"raw", "int16", "int32", "int64"});
   auto lfi_file =
-      detect_files(folder / "lfi", {".raw", ".int16", ".int32", ".int64"});
+      detect_files(folder / "lfi.*", {"raw", "int16", "int32", "int64"});
 
   if (parent_file.empty() || lfi_file.empty()) {
     SMESH_ERROR("Unable to find parent or lfi file in sideset at %s\n",

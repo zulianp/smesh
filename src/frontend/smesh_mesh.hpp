@@ -32,7 +32,6 @@ public:
   ptrdiff_t n_elements_owned() const;
   ptrdiff_t n_elements_shared() const;
   ptrdiff_t n_elements_ghosts() const;
-  ptrdiff_t element_offset() const;
 
   SharedBuffer<large_idx_t> node_mapping() const;
   SharedBuffer<large_idx_t> element_mapping() const;

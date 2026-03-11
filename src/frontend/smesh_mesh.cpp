@@ -55,8 +55,6 @@ public:
   ptrdiff_t n_elements_shared = 0;
   ptrdiff_t n_elements_ghosts = 0;
 
-  ptrdiff_t element_offset = 0;
-
   SharedBuffer<large_idx_t> node_mapping;
   SharedBuffer<large_idx_t> element_mapping;
 
@@ -115,10 +113,6 @@ ptrdiff_t Distributed::n_elements_shared() const {
 }
 ptrdiff_t Distributed::n_elements_ghosts() const {
   return impl_->n_elements_ghosts;
-}
-
-ptrdiff_t Distributed::element_offset() const {
-  return impl_->element_offset;
 }
 
 static ptrdiff_t
@@ -547,7 +541,6 @@ int Mesh::read(const Path &path) {
       return SMESH_FAILURE;
     }
     dist->impl_->n_nodes_aura = n_nodes_aura;
-    dist->impl_->element_offset = rank_start(dist->impl_->n_elements_global, impl_->comm->size(), impl_->comm->rank());
 
     auto elements_buffer = manage_host_buffer<idx_t>(
         nnodesxelem, dist->n_elements_local(), elements);
@@ -1919,13 +1912,10 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
   }
 
   //TODO: Check for bugs, we are discarding too many faces
-  ptrdiff_t element_offset = 0;
   if(mesh->comm()->size() > 1) {
     const auto dist = mesh->distributed();
-    element_offset = dist->element_offset();
     const auto n_owned_elements = dist->n_elements_owned();
-    const idx_t shared_begin =
-        static_cast<idx_t>(dist->n_nodes_owned_not_shared());
+    const idx_t ghost_begin = static_cast<idx_t>(dist->n_nodes_owned());
     const idx_t ghost_end =
         static_cast<idx_t>(dist->n_nodes_owned() + dist->n_nodes_ghosts());
     LocalSideTable lst;
@@ -1940,15 +1930,14 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
         continue;
       }
 
-      bool all_shared_or_ghost = true;
+      bool all_ghosts = true;
       const int side = side_idx[i];
       for (int n = 0; n < nnxs; ++n) {
         const idx_t node = elems[lst(side, n)][parent];
-        all_shared_or_ghost &=
-            (node >= shared_begin && node < ghost_end);
+        all_ghosts &= (node >= ghost_begin && node < ghost_end);
       }
 
-      if (all_shared_or_ghost) {
+      if (all_ghosts) {
         continue;
       }
 
@@ -1964,7 +1953,7 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
   return std::make_shared<Sideset>(
       mesh->comm(),
       manage_host_buffer<element_idx_t>(n_surf_elements, parent_element),
-      manage_host_buffer<i16>(n_surf_elements, side_idx), 0, element_offset);
+      manage_host_buffer<i16>(n_surf_elements, side_idx), 0, mesh->comm()->size() > 1 ? mesh->distributed()->element_mapping() : nullptr);
 #endif
 }
 
