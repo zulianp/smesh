@@ -206,6 +206,7 @@ namespace smesh {
                              element_idx_t **SMESH_RESTRICT                          parent_element,
                              i16 **SMESH_RESTRICT                                    side_idx);
 
+
 }  // namespace smesh
 
 #endif  // SMESH_ADJACENCY_HPP

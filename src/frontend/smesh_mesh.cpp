@@ -18,6 +18,7 @@
 #include "smesh_sshex8_mesh.hpp"
 #include "smesh_tracer.hpp"
 #include "smesh_write.hpp"
+#include "smesh_volume_to_surface.hpp"
 
 #ifdef SMESH_ENABLE_MPI
 #include "smesh_distributed_read.hpp"
@@ -1860,6 +1861,9 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
     return skin_sideset(derefine(mesh, 1));
   }
 
+#if 0
+  // half-face table is slower than the n2e graph for this case
+
   auto hft = mesh->half_face_table();
   auto e2e_table = hft->data();
 
@@ -1880,6 +1884,34 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
       mesh->comm(),
       manage_host_buffer<element_idx_t>(n_surf_elements, parent_element),
       manage_host_buffer<i16>(n_surf_elements, side_idx), 0);
+
+#else
+
+  auto n2e_graph = mesh->node_to_element_graph();
+  auto n2e_graph_ptr = n2e_graph->rowptr()->data();
+  auto n2e_graph_idx = n2e_graph->colidx()->data();
+
+  ptrdiff_t n_surf_elements = 0;
+  element_idx_t *parent_element = 0;
+  i16 *side_idx = 0;
+
+  int err = extract_skin_sideset_from_n2e(mesh->n_elements(0), mesh->n_nodes(),
+                                          mesh->element_type(0),
+                                          mesh->elements(0)->data(),
+                                          n2e_graph_ptr, n2e_graph_idx,
+                                          &n_surf_elements, &parent_element,
+                                          &side_idx);
+
+  if (err != SMESH_SUCCESS) {
+    SMESH_ERROR("Unable to extract skin sideset!\n");
+    return nullptr;
+  }
+
+  return std::make_shared<Sideset>(
+      mesh->comm(),
+      manage_host_buffer<element_idx_t>(n_surf_elements, parent_element),
+      manage_host_buffer<i16>(n_surf_elements, side_idx), 0);
+#endif
 }
 
 std::shared_ptr<Mesh>

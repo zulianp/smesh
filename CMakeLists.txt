@@ -102,6 +102,8 @@ endforeach()
 
 list(FILTER _smesh_library_files EXCLUDE REGEX "\\.exe\\.(c|cc|cpp|cxx)$")
 list(REMOVE_DUPLICATES _smesh_library_files)
+set(_smesh_public_headers ${_smesh_library_files})
+list(FILTER _smesh_public_headers INCLUDE REGEX "\\.(h|hh|hpp|hxx|inl|cuh)$")
 
 add_library(smesh ${_smesh_library_files})
 target_link_libraries(smesh
@@ -217,6 +219,11 @@ target_include_directories(smesh
 
 install(
     FILES "${_smesh_config_hpp_out}"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(
+    FILES ${_smesh_public_headers}
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
