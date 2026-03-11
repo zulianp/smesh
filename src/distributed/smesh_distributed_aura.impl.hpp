@@ -122,14 +122,14 @@ int exchange_gather(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                     T *const SMESH_RESTRICT aux_gather_buffer) {
   int size;
   MPI_Comm_size(comm, &size);
-  const ptrdiff_t total_send = send_displs[size - 1] + send_count[size - 1] ;
+  const ptrdiff_t total_send = recv_displs[size - 1] + recv_count[size - 1];
   for (ptrdiff_t i = 0; i < total_send; i++) {
     aux_gather_buffer[i] = inout[gather_idx[i]];
   }
 
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
-  SMESH_MPI_CATCH(all_to_allv_64(aux_gather_buffer, send_count, send_displs,
-                                 &inout[n_owned_nodes], recv_count, recv_displs,
+  SMESH_MPI_CATCH(all_to_allv_64(aux_gather_buffer, recv_count, recv_displs,
+                                 &inout[n_owned_nodes], send_count, send_displs,
                                  comm, max_chunk_size));
 
   return SMESH_SUCCESS;

@@ -3,6 +3,7 @@
 #include "smesh_communicator.hpp"
 #include "smesh_types.hpp"
 #include "smesh_buffer.hpp"
+#include "smesh_tracer.hpp"
 
 #if defined(SMESH_ENABLE_MPI)
 #include "smesh_distributed_aura.hpp"
@@ -34,7 +35,7 @@ std::shared_ptr<Exchange>
 Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh) {
 #if defined(SMESH_ENABLE_MPI)
   auto dist = mesh->distributed();
-  return create(mesh->comm(), dist->n_nodes_global(), dist->n_nodes_owned(),
+  return create(mesh->comm(), dist->n_nodes_local(), dist->n_nodes_owned(),
                 dist->node_owner()->data(), dist->node_offsets()->data(),
                 dist->ghosts()->data());
 
@@ -46,12 +47,12 @@ Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh) {
 #if defined(SMESH_ENABLE_MPI)
 std::shared_ptr<Exchange>
 Exchange::create(const std::shared_ptr<Communicator> &comm,
-                 const ptrdiff_t nnodes, const ptrdiff_t n_owned_nodes,
+                 const ptrdiff_t n_local_nodes, const ptrdiff_t n_owned_nodes,
                  const int *const node_owner, const ptrdiff_t *const node_offsets,
                  const idx_t *const ghosts) {
   int size = comm->size();
   auto ret = std::make_shared<Exchange>(comm);
-  ret->impl_->nnodes = nnodes;
+  ret->impl_->nnodes = n_local_nodes;
   ret->impl_->n_owned_nodes = n_owned_nodes;
   ret->impl_->send_count = create_host_buffer<i64>(size);
   ret->impl_->send_displs = create_host_buffer<i64>(size + 1);
@@ -59,8 +60,9 @@ Exchange::create(const std::shared_ptr<Communicator> &comm,
   ret->impl_->recv_displs = create_host_buffer<i64>(size + 1);
 
   idx_t *sparse_idx = nullptr;
-  exchange_create(comm->get(), nnodes, n_owned_nodes, node_owner, node_offsets,
-                  ghosts, ret->impl_->send_count->data(),
+  SMESH_ASSERT(n_local_nodes >= n_owned_nodes);
+  exchange_create(comm->get(), n_local_nodes, n_owned_nodes, node_owner,
+                  node_offsets, ghosts, ret->impl_->send_count->data(),
                   ret->impl_->send_displs->data(),
                   ret->impl_->recv_count->data(),
                   ret->impl_->recv_displs->data(), &sparse_idx);
@@ -80,6 +82,7 @@ Exchange::create(const std::shared_ptr<Communicator> &comm,
 
 template <typename T> int Exchange::scatter_add(T *const inout) {
 #if defined(SMESH_ENABLE_MPI)
+  SMESH_TRACE_SCOPE("Exchange::scatter_add");
   return exchange_scatter_add(
       impl_->comm->get(), impl_->n_owned_nodes, impl_->send_count->data(),
       impl_->send_displs->data(), impl_->recv_count->data(),
@@ -93,6 +96,7 @@ SMESH_UNUSED(inout);
 
 template <typename T> int Exchange::gather(T* const inout) {
 #if defined(SMESH_ENABLE_MPI)
+  SMESH_TRACE_SCOPE("Exchange::gather");
   return exchange_gather(
       impl_->comm->get(), impl_->n_owned_nodes, impl_->send_count->data(),
       impl_->send_displs->data(), impl_->recv_count->data(),

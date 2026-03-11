@@ -771,7 +771,7 @@ int mesh_from_folder(
     const size_t num_nodes = file_size(x_files[0]) / num_bytes(to_real_type(x_files[0].extension()));
     const size_t max_idx = std::max(num_e_idx, num_nodes);
 
-    printf("max_idx: %ld\n", max_idx);
+    // printf("max_idx: %ld\n", max_idx);
 
     if(max_idx < std::numeric_limits<idx_t>::max()) {
       // It should not overflow so we can use the smaller type
