@@ -11,6 +11,7 @@ namespace smesh {
 class SFC {
 public:
   SFC();
+  SFC(const std::string &ordering_type);
   ~SFC();
 
   int reorder(Mesh &mesh);

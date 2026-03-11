@@ -18,6 +18,9 @@ public:
   std::string ordering_type;
 };
 
+SFC::SFC(const std::string &ordering_type) : impl_(std::make_unique<Impl>()) {
+  impl_->ordering_type = ordering_type;
+}
 SFC::SFC() : impl_(std::make_unique<Impl>()) {
   impl_->ordering_type = "morton3";
 }
@@ -57,7 +60,8 @@ int SFC::reorder(Mesh &mesh) {
              int slow = 2;
              return encode_cartesian3<geom_t>(n_points, x, y, z, fast, mid,
                                               slow, encoding);
-           }}};
+           }},
+          {"random3", encode_random3<geom_t>}};
 
   auto iter = encode_functions.find(impl_->ordering_type);
   if (iter == encode_functions.end()) {

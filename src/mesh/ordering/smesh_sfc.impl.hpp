@@ -264,6 +264,21 @@ int encode_cartesian3(const ptrdiff_t n_points,
   return SMESH_SUCCESS;
 }
 
+template <typename geom_t>
+int encode_random3(const ptrdiff_t n_points,
+                  const geom_t *const SMESH_RESTRICT x,
+                  const geom_t *const SMESH_RESTRICT y,
+                  const geom_t *const SMESH_RESTRICT z,
+                  u32 *const SMESH_RESTRICT encoding) {
+  SMESH_UNUSED(x);
+  SMESH_UNUSED(y);
+  SMESH_UNUSED(z);
+
+  for (ptrdiff_t i = 0; i < n_points; ++i) {
+    encoding[i] = rand();
+  }
+  return SMESH_SUCCESS;
+}
 } // namespace smesh
 
 #endif // SMESH_SFC_IMPL_HPP

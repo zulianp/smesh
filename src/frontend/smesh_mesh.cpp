@@ -1911,33 +1911,14 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
     return nullptr;
   }
 
-  //TODO: Check for bugs, we are discarding too many faces
   if(mesh->comm()->size() > 1) {
     const auto dist = mesh->distributed();
     const auto n_owned_elements = dist->n_elements_owned();
-    const idx_t ghost_begin = static_cast<idx_t>(dist->n_nodes_owned());
-    const idx_t ghost_end =
-        static_cast<idx_t>(dist->n_nodes_owned() + dist->n_nodes_ghosts());
-    LocalSideTable lst;
-    lst.fill(mesh->element_type(0));
-    const int nnxs = elem_num_nodes(side_type(mesh->element_type(0)));
-    auto elems = mesh->elements(0)->data();
 
     ptrdiff_t write_pos = 0;
     for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
       const element_idx_t parent = parent_element[i];
       if (parent >= n_owned_elements) {
-        continue;
-      }
-
-      bool all_ghosts = true;
-      const int side = side_idx[i];
-      for (int n = 0; n < nnxs; ++n) {
-        const idx_t node = elems[lst(side, n)][parent];
-        all_ghosts &= (node >= ghost_begin && node < ghost_end);
-      }
-
-      if (all_ghosts) {
         continue;
       }
 
