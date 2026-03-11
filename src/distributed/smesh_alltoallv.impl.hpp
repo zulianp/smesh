@@ -160,5 +160,65 @@ int all_to_allv_64(const T *send_elements, const i64 *large_send_count,
                           max_chunk_size);
 }
 
+inline int all_to_allv_64_bv(const void *send_elements,
+                             const i64 *large_send_count,
+                             const i64 *large_send_displs,
+                             MPI_Datatype scalar_send_datatype,
+                             void *recv_elements,
+                             const i64 *large_recv_count,
+                             const i64 *large_recv_displs,
+                             MPI_Datatype scalar_recv_datatype,
+                             const ptrdiff_t block_size, MPI_Comm comm,
+                             i64 max_chunk_size) {
+  SMESH_ASSERT(block_size > 0);
+
+  if (block_size == 1) {
+    return all_to_allv_64_b(send_elements, large_send_count, large_send_displs,
+                            scalar_send_datatype, recv_elements,
+                            large_recv_count, large_recv_displs,
+                            scalar_recv_datatype, comm, max_chunk_size);
+  }
+
+  SMESH_ASSERT(block_size <= std::numeric_limits<int>::max());
+
+  MPI_Datatype send_datatype = MPI_DATATYPE_NULL;
+  MPI_Datatype recv_datatype = MPI_DATATYPE_NULL;
+
+  SMESH_MPI_CATCH(
+      MPI_Type_contiguous((int)block_size, scalar_send_datatype, &send_datatype));
+  SMESH_MPI_CATCH(MPI_Type_commit(&send_datatype));
+
+  if (scalar_send_datatype == scalar_recv_datatype) {
+    recv_datatype = send_datatype;
+  } else {
+    SMESH_MPI_CATCH(MPI_Type_contiguous((int)block_size, scalar_recv_datatype,
+                                        &recv_datatype));
+    SMESH_MPI_CATCH(MPI_Type_commit(&recv_datatype));
+  }
+
+  const int err =
+      all_to_allv_64_b(send_elements, large_send_count, large_send_displs,
+                       send_datatype, recv_elements, large_recv_count,
+                       large_recv_displs, recv_datatype, comm, max_chunk_size);
+
+  if (recv_datatype != send_datatype) {
+    SMESH_MPI_CATCH(MPI_Type_free(&recv_datatype));
+  }
+  SMESH_MPI_CATCH(MPI_Type_free(&send_datatype));
+  return err;
+}
+
+template <typename T>
+int all_to_allv_64v(const T *send_elements, const i64 *large_send_count,
+                    const i64 *large_send_displs, T *recv_elements,
+                    const i64 *large_recv_count,
+                    const i64 *large_recv_displs, const ptrdiff_t block_size,
+                    MPI_Comm comm, i64 max_chunk_size) {
+  return all_to_allv_64_bv(send_elements, large_send_count, large_send_displs,
+                           mpi_type<T>(), recv_elements, large_recv_count,
+                           large_recv_displs, mpi_type<T>(), block_size, comm,
+                           max_chunk_size);
+}
+
 } // namespace smesh
 #endif // SMESH_ALLTOALLV_IMPL_HPP

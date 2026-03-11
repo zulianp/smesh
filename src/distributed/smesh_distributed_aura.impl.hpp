@@ -172,24 +172,33 @@ int exchange_scatter_add(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                          const idx_t *const SMESH_RESTRICT import_idx,
                          T *const SMESH_RESTRICT inout,
                          T *const SMESH_RESTRICT send_buffer,
-                         T *const SMESH_RESTRICT recv_buffer) {
+                         T *const SMESH_RESTRICT recv_buffer,
+                         const ptrdiff_t block_size) {
   SMESH_UNUSED(n_owned_nodes);
   // Exchange ghosts
   int size;
   MPI_Comm_size(comm, &size);
   const ptrdiff_t n_import = send_displs[size];
   for (ptrdiff_t i = 0; i < n_import; ++i) {
-    send_buffer[i] = inout[import_idx[i]];
+    const ptrdiff_t src = (ptrdiff_t)import_idx[i] * block_size;
+    const ptrdiff_t dst = i * block_size;
+    for (ptrdiff_t c = 0; c < block_size; ++c) {
+      send_buffer[dst + c] = inout[src + c];
+    }
   }
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
-  SMESH_MPI_CATCH(all_to_allv_64(send_buffer, send_count, send_displs,
-                                 recv_buffer, recv_count, recv_displs,
-                                 comm, max_chunk_size));
+  SMESH_MPI_CATCH(all_to_allv_64v(send_buffer, send_count, send_displs,
+                                  recv_buffer, recv_count, recv_displs,
+                                  block_size, comm, max_chunk_size));
 
-  ptrdiff_t count = recv_count[size - 1] + recv_displs[size - 1];
+  const ptrdiff_t count = recv_displs[size];
   for (ptrdiff_t i = 0; i < count; i++) {
-    SMESH_ASSERT(recv_buffer[i] == recv_buffer[i]);
-    inout[scatter_idx[i]] += recv_buffer[i];
+    const ptrdiff_t dst = (ptrdiff_t)scatter_idx[i] * block_size;
+    const ptrdiff_t src = i * block_size;
+    for (ptrdiff_t c = 0; c < block_size; ++c) {
+      SMESH_ASSERT(recv_buffer[src + c] == recv_buffer[src + c]);
+      inout[dst + c] += recv_buffer[src + c];
+    }
   }
 
   return SMESH_SUCCESS;
@@ -203,18 +212,24 @@ int exchange_scatter_add_ghosts(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                                 const i64 *const SMESH_RESTRICT recv_displs,
                                 const idx_t *const SMESH_RESTRICT scatter_idx,
                                 T *const SMESH_RESTRICT inout,
-                                T *const SMESH_RESTRICT recv_buffer) {
+                                T *const SMESH_RESTRICT recv_buffer,
+                                const ptrdiff_t block_size) {
   int size;
   MPI_Comm_size(comm, &size);
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
-  SMESH_MPI_CATCH(all_to_allv_64(&inout[n_owned_nodes], send_count, send_displs,
-                                 recv_buffer, recv_count, recv_displs, comm,
-                                 max_chunk_size));
+  SMESH_MPI_CATCH(all_to_allv_64v(&inout[n_owned_nodes * block_size],
+                                  send_count, send_displs, recv_buffer,
+                                  recv_count, recv_displs, block_size, comm,
+                                  max_chunk_size));
 
-  const ptrdiff_t count = recv_count[size - 1] + recv_displs[size - 1];
+  const ptrdiff_t count = recv_displs[size];
   for (ptrdiff_t i = 0; i < count; i++) {
-    SMESH_ASSERT(recv_buffer[i] == recv_buffer[i]);
-    inout[scatter_idx[i]] += recv_buffer[i];
+    const ptrdiff_t dst = (ptrdiff_t)scatter_idx[i] * block_size;
+    const ptrdiff_t src = i * block_size;
+    for (ptrdiff_t c = 0; c < block_size; ++c) {
+      SMESH_ASSERT(recv_buffer[src + c] == recv_buffer[src + c]);
+      inout[dst + c] += recv_buffer[src + c];
+    }
   }
 
   return SMESH_SUCCESS;
@@ -230,22 +245,31 @@ int exchange_gather(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                     const idx_t *const SMESH_RESTRICT import_idx,
                     T *const SMESH_RESTRICT inout,
                     T *const SMESH_RESTRICT send_buffer,
-                    T *const SMESH_RESTRICT recv_buffer) {
+                    T *const SMESH_RESTRICT recv_buffer,
+                    const ptrdiff_t block_size) {
   SMESH_UNUSED(n_owned_nodes);
   int size;
   MPI_Comm_size(comm, &size);
   const ptrdiff_t total_send = recv_displs[size - 1] + recv_count[size - 1];
   for (ptrdiff_t i = 0; i < total_send; i++) {
-    send_buffer[i] = inout[gather_idx[i]];
+    const ptrdiff_t src = (ptrdiff_t)gather_idx[i] * block_size;
+    const ptrdiff_t dst = i * block_size;
+    for (ptrdiff_t c = 0; c < block_size; ++c) {
+      send_buffer[dst + c] = inout[src + c];
+    }
   }
 
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
-  SMESH_MPI_CATCH(all_to_allv_64(send_buffer, recv_count, recv_displs,
-                                 recv_buffer, send_count, send_displs,
-                                 comm, max_chunk_size));
+  SMESH_MPI_CATCH(all_to_allv_64v(send_buffer, recv_count, recv_displs,
+                                  recv_buffer, send_count, send_displs,
+                                  block_size, comm, max_chunk_size));
   const ptrdiff_t n_import = send_displs[size];
   for (ptrdiff_t i = 0; i < n_import; ++i) {
-    inout[import_idx[i]] = recv_buffer[i];
+    const ptrdiff_t dst = (ptrdiff_t)import_idx[i] * block_size;
+    const ptrdiff_t src = i * block_size;
+    for (ptrdiff_t c = 0; c < block_size; ++c) {
+      inout[dst + c] = recv_buffer[src + c];
+    }
   }
 
   return SMESH_SUCCESS;
@@ -259,18 +283,24 @@ int exchange_gather_ghosts(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                            const i64 *const SMESH_RESTRICT recv_displs,
                            const idx_t *const SMESH_RESTRICT gather_idx,
                            T *const SMESH_RESTRICT inout,
-                           T *const SMESH_RESTRICT send_buffer) {
+                           T *const SMESH_RESTRICT send_buffer,
+                           const ptrdiff_t block_size) {
   int size;
   MPI_Comm_size(comm, &size);
   const ptrdiff_t total_send = recv_displs[size - 1] + recv_count[size - 1];
   for (ptrdiff_t i = 0; i < total_send; i++) {
-    send_buffer[i] = inout[gather_idx[i]];
+    const ptrdiff_t src = (ptrdiff_t)gather_idx[i] * block_size;
+    const ptrdiff_t dst = i * block_size;
+    for (ptrdiff_t c = 0; c < block_size; ++c) {
+      send_buffer[dst + c] = inout[src + c];
+    }
   }
 
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
-  SMESH_MPI_CATCH(all_to_allv_64(send_buffer, recv_count, recv_displs,
-                                 &inout[n_owned_nodes], send_count, send_displs,
-                                 comm, max_chunk_size));
+  SMESH_MPI_CATCH(all_to_allv_64v(send_buffer, recv_count, recv_displs,
+                                  &inout[n_owned_nodes * block_size],
+                                  send_count, send_displs, block_size, comm,
+                                  max_chunk_size));
 
   return SMESH_SUCCESS;
 }

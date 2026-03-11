@@ -43,16 +43,19 @@ int exchange_scatter_add(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                          const idx_t *const SMESH_RESTRICT import_idx,
                          T *const SMESH_RESTRICT inout,
                          T *const SMESH_RESTRICT send_buffer,
-                         T *const SMESH_RESTRICT recv_buffer);
+                         T *const SMESH_RESTRICT recv_buffer,
+                         const ptrdiff_t block_size);
 
 template <typename idx_t, typename T>
-int exchange_scatter_add_ghosts(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
+inline int exchange_scatter_add(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                                 const i64 *const SMESH_RESTRICT send_count,
                                 const i64 *const SMESH_RESTRICT send_displs,
                                 const i64 *const SMESH_RESTRICT recv_count,
                                 const i64 *const SMESH_RESTRICT recv_displs,
                                 const idx_t *const SMESH_RESTRICT scatter_idx,
+                                const idx_t *const SMESH_RESTRICT import_idx,
                                 T *const SMESH_RESTRICT inout,
+                                T *const SMESH_RESTRICT send_buffer,
                                 T *const SMESH_RESTRICT recv_buffer);
 
 template <typename idx_t>
@@ -73,7 +76,42 @@ int exchange_gather(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                     const idx_t *const SMESH_RESTRICT import_idx,
                     T *const SMESH_RESTRICT inout,
                     T *const SMESH_RESTRICT send_buffer,
-                    T *const SMESH_RESTRICT recv_buffer);
+                    T *const SMESH_RESTRICT recv_buffer,
+                    const ptrdiff_t block_size);
+
+template <typename idx_t, typename T>
+inline int exchange_gather(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
+                           const i64 *const SMESH_RESTRICT send_count,
+                           const i64 *const SMESH_RESTRICT send_displs,
+                           const i64 *const SMESH_RESTRICT recv_count,
+                           const i64 *const SMESH_RESTRICT recv_displs,
+                           const idx_t *const SMESH_RESTRICT gather_idx,
+                           const idx_t *const SMESH_RESTRICT import_idx,
+                           T *const SMESH_RESTRICT inout,
+                           T *const SMESH_RESTRICT send_buffer,
+                           T *const SMESH_RESTRICT recv_buffer);
+
+template <typename idx_t, typename T>
+int exchange_scatter_add_ghosts(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
+                                const i64 *const SMESH_RESTRICT send_count,
+                                const i64 *const SMESH_RESTRICT send_displs,
+                                const i64 *const SMESH_RESTRICT recv_count,
+                                const i64 *const SMESH_RESTRICT recv_displs,
+                                const idx_t *const SMESH_RESTRICT scatter_idx,
+                                T *const SMESH_RESTRICT inout,
+                                T *const SMESH_RESTRICT recv_buffer,
+                                const ptrdiff_t block_size);
+
+template <typename idx_t, typename T>
+inline int exchange_scatter_add_ghosts(MPI_Comm comm,
+                                       const ptrdiff_t n_owned_nodes,
+                                       const i64 *const SMESH_RESTRICT send_count,
+                                       const i64 *const SMESH_RESTRICT send_displs,
+                                       const i64 *const SMESH_RESTRICT recv_count,
+                                       const i64 *const SMESH_RESTRICT recv_displs,
+                                       const idx_t *const SMESH_RESTRICT scatter_idx,
+                                       T *const SMESH_RESTRICT inout,
+                                       T *const SMESH_RESTRICT recv_buffer);
 
 template <typename idx_t, typename T>
 int exchange_gather_ghosts(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
@@ -83,7 +121,81 @@ int exchange_gather_ghosts(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                            const i64 *const SMESH_RESTRICT recv_displs,
                            const idx_t *const SMESH_RESTRICT gather_idx,
                            T *const SMESH_RESTRICT inout,
-                           T *const SMESH_RESTRICT send_buffer);
+                           T *const SMESH_RESTRICT send_buffer,
+                           const ptrdiff_t block_size);
+
+template <typename idx_t, typename T>
+inline int exchange_gather_ghosts(MPI_Comm comm,
+                                  const ptrdiff_t n_owned_nodes,
+                                  const i64 *const SMESH_RESTRICT send_count,
+                                  const i64 *const SMESH_RESTRICT send_displs,
+                                  const i64 *const SMESH_RESTRICT recv_count,
+                                  const i64 *const SMESH_RESTRICT recv_displs,
+                                  const idx_t *const SMESH_RESTRICT gather_idx,
+                                  T *const SMESH_RESTRICT inout,
+                                  T *const SMESH_RESTRICT send_buffer);
+
+template <typename idx_t, typename T>
+inline int exchange_scatter_add(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
+                                const i64 *const SMESH_RESTRICT send_count,
+                                const i64 *const SMESH_RESTRICT send_displs,
+                                const i64 *const SMESH_RESTRICT recv_count,
+                                const i64 *const SMESH_RESTRICT recv_displs,
+                                const idx_t *const SMESH_RESTRICT scatter_idx,
+                                const idx_t *const SMESH_RESTRICT import_idx,
+                                T *const SMESH_RESTRICT inout,
+                                T *const SMESH_RESTRICT send_buffer,
+                                T *const SMESH_RESTRICT recv_buffer) {
+  return exchange_scatter_add(comm, n_owned_nodes, send_count, send_displs,
+                              recv_count, recv_displs, scatter_idx, import_idx,
+                              inout, send_buffer, recv_buffer, 1);
+}
+
+template <typename idx_t, typename T>
+inline int exchange_gather(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
+                           const i64 *const SMESH_RESTRICT send_count,
+                           const i64 *const SMESH_RESTRICT send_displs,
+                           const i64 *const SMESH_RESTRICT recv_count,
+                           const i64 *const SMESH_RESTRICT recv_displs,
+                           const idx_t *const SMESH_RESTRICT gather_idx,
+                           const idx_t *const SMESH_RESTRICT import_idx,
+                           T *const SMESH_RESTRICT inout,
+                           T *const SMESH_RESTRICT send_buffer,
+                           T *const SMESH_RESTRICT recv_buffer) {
+  return exchange_gather(comm, n_owned_nodes, send_count, send_displs,
+                         recv_count, recv_displs, gather_idx, import_idx, inout,
+                         send_buffer, recv_buffer, 1);
+}
+
+template <typename idx_t, typename T>
+inline int exchange_scatter_add_ghosts(MPI_Comm comm,
+                                       const ptrdiff_t n_owned_nodes,
+                                       const i64 *const SMESH_RESTRICT send_count,
+                                       const i64 *const SMESH_RESTRICT send_displs,
+                                       const i64 *const SMESH_RESTRICT recv_count,
+                                       const i64 *const SMESH_RESTRICT recv_displs,
+                                       const idx_t *const SMESH_RESTRICT scatter_idx,
+                                       T *const SMESH_RESTRICT inout,
+                                       T *const SMESH_RESTRICT recv_buffer) {
+  return exchange_scatter_add_ghosts(comm, n_owned_nodes, send_count,
+                                     send_displs, recv_count, recv_displs,
+                                     scatter_idx, inout, recv_buffer, 1);
+}
+
+template <typename idx_t, typename T>
+inline int exchange_gather_ghosts(MPI_Comm comm,
+                                  const ptrdiff_t n_owned_nodes,
+                                  const i64 *const SMESH_RESTRICT send_count,
+                                  const i64 *const SMESH_RESTRICT send_displs,
+                                  const i64 *const SMESH_RESTRICT recv_count,
+                                  const i64 *const SMESH_RESTRICT recv_displs,
+                                  const idx_t *const SMESH_RESTRICT gather_idx,
+                                  T *const SMESH_RESTRICT inout,
+                                  T *const SMESH_RESTRICT send_buffer) {
+  return exchange_gather_ghosts(comm, n_owned_nodes, send_count, send_displs,
+                                recv_count, recv_displs, gather_idx, inout,
+                                send_buffer, 1);
+}
 } // namespace smesh
 
 #endif // SMESH_DISTRIBUTED_AURA_HPP

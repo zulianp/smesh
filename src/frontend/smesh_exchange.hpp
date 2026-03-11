@@ -35,7 +35,10 @@ public:
   ~Exchange();
 
   template <typename T> int scatter_add(T *const inout);
+  template <typename T>
+  int scatter_add(T *const inout, const ptrdiff_t block_size);
   template <typename T> int gather(T* const inout);
+  template <typename T> int gather(T *const inout, const ptrdiff_t block_size);
 
   class Impl;
 

@@ -33,23 +33,23 @@
 #define SMESH_INSTANTIATE_EXCHANGE_SCATTER_ADD(IDX_T, T)                       \
   template int exchange_scatter_add<IDX_T, T>(                                 \
       MPI_Comm, ptrdiff_t, const i64 *, const i64 *, const i64 *, const i64 *, \
-      const IDX_T *, const IDX_T *, T *, T *, T *);                            \
+      const IDX_T *, const IDX_T *, T *, T *, T *, ptrdiff_t);                 \
   template int exchange_gather<IDX_T, T>(                                      \
       MPI_Comm, const ptrdiff_t, const i64 *const SMESH_RESTRICT,              \
       const i64 *const SMESH_RESTRICT, const i64 *const SMESH_RESTRICT,        \
       const i64 *const SMESH_RESTRICT, const IDX_T *const SMESH_RESTRICT,      \
       const IDX_T *const SMESH_RESTRICT, T *const SMESH_RESTRICT,              \
-      T *const SMESH_RESTRICT, T *const SMESH_RESTRICT)
+      T *const SMESH_RESTRICT, T *const SMESH_RESTRICT, ptrdiff_t)
 
 #define SMESH_INSTANTIATE_EXCHANGE_SCATTER_ADD_GHOSTS(IDX_T, T)                \
   template int exchange_scatter_add_ghosts<IDX_T, T>(                          \
       MPI_Comm, ptrdiff_t, const i64 *, const i64 *, const i64 *, const i64 *, \
-      const IDX_T *, T *, T *);                                                \
+      const IDX_T *, T *, T *, ptrdiff_t);                                     \
   template int exchange_gather_ghosts<IDX_T, T>(                               \
       MPI_Comm, const ptrdiff_t, const i64 *const SMESH_RESTRICT,              \
       const i64 *const SMESH_RESTRICT, const i64 *const SMESH_RESTRICT,        \
       const i64 *const SMESH_RESTRICT, const IDX_T *const SMESH_RESTRICT,      \
-      T *const SMESH_RESTRICT, T *const SMESH_RESTRICT)
+      T *const SMESH_RESTRICT, T *const SMESH_RESTRICT, ptrdiff_t)
 
 #define SMESH_INSTANTIATE_EXCHANGE_SCATTER_ADD_FOR_IDX(IDX_T)                  \
   SMESH_INSTANTIATE_EXCHANGE_SCATTER_ADD(IDX_T, f16);                          \
