@@ -1907,6 +1907,19 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
     return nullptr;
   }
 
+  if(mesh->comm()->size() > 1) {
+    const auto n_owned_elements = mesh->distributed()->n_elements_owned();
+    ptrdiff_t write_pos = 0;
+    for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+      if (parent_element[i] < n_owned_elements) {
+        parent_element[write_pos] = parent_element[i];
+        side_idx[write_pos] = side_idx[i];
+        ++write_pos;
+      }
+    }
+    n_surf_elements = write_pos;
+  }
+
   return std::make_shared<Sideset>(
       mesh->comm(),
       manage_host_buffer<element_idx_t>(n_surf_elements, parent_element),
@@ -1971,6 +1984,11 @@ mesh_from_sideset(const std::shared_ptr<Mesh> &mesh,
   }
 
   ret->set_node_mapping(mapping);
+
+  if(mesh->comm()->size() > 1) {
+// TODO: Create Distributed for surface mesh
+  }
+
   return ret;
 }
 

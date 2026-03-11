@@ -34,6 +34,8 @@ int extract_skin_sideset_from_n2e(
         idx_t side_nodes[LocalSideTable::MAX_NUM_NODES_PER_SIDE];
 
         for (int s = 0; s < ns; ++s) {
+            // Seed the candidate face with the first node and use its node-to-element
+            // adjacency as the initial search space for a matching neighboring element.
             idx_t pivot_node = elems[lst(s, 0)][e];
             count_t pivot_begin = n2e_ptr[pivot_node];
             count_t pivot_end = n2e_ptr[pivot_node + 1];
@@ -45,6 +47,8 @@ int extract_skin_sideset_from_n2e(
                 const idx_t node = elems[lst(s, n)][e];
                 side_nodes[n] = node;
 
+                // Switch to the least-connected face node so the neighbor scan touches
+                // as few candidate adjacent elements as possible.
                 const count_t begin = n2e_ptr[node];
                 const count_t end = n2e_ptr[node + 1];
                 const count_t degree = end - begin;
@@ -57,6 +61,8 @@ int extract_skin_sideset_from_n2e(
             }
 
             unsigned char boundary = 1;
+            // Any element incident to the pivot node is a possible neighbor; if one of
+            // them contains every node of this face, the face is interior.
             for (count_t it = pivot_begin; it < pivot_end; ++it) {
                 const element_idx_t e_adj = n2e_idx[it];
                 if (e_adj == e) {
@@ -80,6 +86,7 @@ int extract_skin_sideset_from_n2e(
                 }
 
                 if (matches == nnxs) {
+                    // A second element owns the same face, so this side is not on the skin.
                     boundary = 0;
                     break;
                 }
