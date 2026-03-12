@@ -35,7 +35,7 @@ int test_owned_elements_point_to_owned_nodes() {
     std::filesystem::remove_all(mesh_path.to_string());
 
     auto serial_mesh = Mesh::create_tet4_cube(Communicator::self(), nx, ny, nz);
-    SFC::create_from_env()->reorder(*serial_mesh);
+    SFC("random3").reorder(*serial_mesh);
     SMESH_TEST_ASSERT(serial_mesh != nullptr);
     SMESH_TEST_ASSERT(serial_mesh->write(mesh_path) == SMESH_SUCCESS);
   }

@@ -144,7 +144,7 @@ int main(int argc, char **argv) {
 
     l2g_t *local2global_with_aura = nullptr;
     ptrdiff_t n_aura_nodes = 0;
-    stitch_aura_elements(comm->get(), n_owned, n_shared, n_ghosts, local2global,
+    stich_aura_elements(comm->get(), n_owned, n_shared, n_ghosts, local2global,
                          nnodesxelem, n_aura_elements, aura_element_nodes,
                          n_local_elements, local_elements,
                          &local2global_with_aura, &n_aura_nodes);

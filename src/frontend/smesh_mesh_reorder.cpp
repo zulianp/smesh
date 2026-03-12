@@ -113,13 +113,17 @@ int SFC::reorder(Mesh &mesh) {
   SMESH_CATCH(reorder_scatter(n_nodes, n2n_scatter->data(), coords,
                               mesh.points()->data()[0]));
 
+  if (spatial_dim > 1) {
   memcpy(coords, mesh.points()->data()[1], n_nodes * sizeof(geom_t));
-  SMESH_CATCH(reorder_scatter(n_nodes, n2n_scatter->data(), coords,
-                              mesh.points()->data()[1]));
+    SMESH_CATCH(reorder_scatter(n_nodes, n2n_scatter->data(), coords,
+                                mesh.points()->data()[1]));
+  }
 
-  memcpy(coords, mesh.points()->data()[2], n_nodes * sizeof(geom_t));
-  SMESH_CATCH(reorder_scatter(n_nodes, n2n_scatter->data(), coords,
-                              mesh.points()->data()[2]));
+  if (spatial_dim > 2) {
+    memcpy(coords, mesh.points()->data()[2], n_nodes * sizeof(geom_t));
+    SMESH_CATCH(reorder_scatter(n_nodes, n2n_scatter->data(), coords,
+                                mesh.points()->data()[2]));
+  }
 
   free(buff);
   return SMESH_SUCCESS;

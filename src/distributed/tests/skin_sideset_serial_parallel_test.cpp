@@ -59,7 +59,7 @@ int test_skin_sideset_matches_serial() {
     std::filesystem::create_directories(root.to_string());
 
     auto serial_mesh = Mesh::create_tet4_cube(Communicator::self(), nx, ny, nz);
-    SFC::create_from_env()->reorder(*serial_mesh);
+    SFC("random3").reorder(*serial_mesh);
     SMESH_TEST_ASSERT(serial_mesh != nullptr);
     SMESH_TEST_ASSERT(serial_mesh->write(mesh_path) == SMESH_SUCCESS);
 

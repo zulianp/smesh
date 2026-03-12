@@ -517,6 +517,9 @@ int rearrange_local_elements(
   return SMESH_SUCCESS;
 }
 
+
+// TODO: Add an extra output where the global element mapping for the aura elements is stored
+// Change the client code and in the frontend assign them to Distributed::element_id_aura
 template <typename idx_t, typename count_t, typename element_idx_t,
           typename large_idx_t>
 int expand_aura_elements_inconsistent(
@@ -815,7 +818,7 @@ int determine_ownership(const int comm_size, const int comm_rank,
 // - from e2n graph we can identify the unsorted aura nodes (old global indices)
 
 template <typename idx_t, typename large_idx_t>
-int stitch_aura_elements(
+int stich_aura_elements(
     MPI_Comm comm, const ptrdiff_t n_owned_nodes,
     const ptrdiff_t n_shared_nodes, const ptrdiff_t n_ghost_nodes,
     const large_idx_t *const SMESH_RESTRICT local2global,
@@ -825,7 +828,7 @@ int stitch_aura_elements(
     const ptrdiff_t n_local_elements, idx_t **const SMESH_RESTRICT e2n_local,
     large_idx_t **const SMESH_RESTRICT n2n_local2global_out,
     ptrdiff_t *const SMESH_RESTRICT out_n_aura_nodes) {
-  SMESH_TRACE_SCOPE("stitch_aura_elements");
+  SMESH_TRACE_SCOPE("stich_aura_elements");
   (void)comm;
   const ptrdiff_t n_local_nodes = n_owned_nodes + n_ghost_nodes;
 

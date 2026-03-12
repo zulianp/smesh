@@ -171,7 +171,7 @@ int node_ownership_ranges(MPI_Comm comm, const ptrdiff_t n_owned_nodes,
                           ptrdiff_t *const SMESH_RESTRICT owned_nodes_ranges);
 
 template <typename idx_t, typename local2global_t = idx_t>
-int stitch_aura_elements(
+int stich_aura_elements(
     MPI_Comm comm, const ptrdiff_t n_owned_nodes,
     const ptrdiff_t n_shared_nodes, const ptrdiff_t n_ghost_nodes,
     const local2global_t *const SMESH_RESTRICT local2global,

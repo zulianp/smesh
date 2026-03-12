@@ -172,6 +172,8 @@ inline const char *type_to_string(enum ElemType type) {
     return "NODE1";
   case EDGE2:
     return "EDGE2";
+  case EDGESHELL2:
+    return "EDGESHELL2";
   case EDGE3:
     return "EDGE3";
   case BEAM2:
@@ -429,6 +431,8 @@ inline int elem_num_nodes(const enum ElemType type) {
   case NODE1:
     return 1;
   case EDGE2:
+    return 2;
+  case EDGESHELL2:
     return 2;
   case EDGE3:
     return 3;

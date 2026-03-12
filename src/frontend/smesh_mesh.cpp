@@ -62,6 +62,9 @@ public:
   SharedBuffer<int> node_owner;
   SharedBuffer<ptrdiff_t> node_offsets;
   SharedBuffer<idx_t> ghosts_and_aura;
+
+  // Only exists for aura elements (global id)
+  SharedBuffer<large_idx_t> element_id_aura;
 };
 
 SharedBuffer<large_idx_t> Distributed::node_mapping() const {
@@ -1866,32 +1869,6 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
     return skin_sideset(derefine(mesh, 1));
   }
 
-#if 0
-  // half-face table is slower than the n2e graph for this case
-
-  auto hft = mesh->half_face_table();
-  auto e2e_table = hft->data();
-
-  ptrdiff_t n_surf_elements = 0;
-  element_idx_t *parent_element = 0;
-  i16 *side_idx = 0;
-
-  int err = extract_sideset_from_adj_table(
-      mesh->element_type(0), mesh->n_elements(0), e2e_table, &n_surf_elements,
-      &parent_element, &side_idx);
-
-  if (err != SMESH_SUCCESS) {
-    SMESH_ERROR("Unable to extract skin sideset!\n");
-    return nullptr;
-  }
-
-  return std::make_shared<Sideset>(
-      mesh->comm(),
-      manage_host_buffer<element_idx_t>(n_surf_elements, parent_element),
-      manage_host_buffer<i16>(n_surf_elements, side_idx), 0);
-
-#else
-
   auto n2e_graph = mesh->node_to_element_graph();
   auto n2e_graph_ptr = n2e_graph->rowptr()->data();
   auto n2e_graph_idx = n2e_graph->colidx()->data();
@@ -1929,8 +1906,8 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
     }
     n_surf_elements = write_pos;
 
+#if 0
     // FIXME: AI Slop to be clean-up
-    // TODO: explain with inline comments what this code is doing
     if (n_surf_elements > 0) {
       LocalSideTable lst;
       lst.fill(mesh->element_type(0));
@@ -1942,6 +1919,9 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
       using FaceKey =
           std::array<large_idx_t, LocalSideTable::MAX_NUM_NODES_PER_SIDE>;
 
+      // Build a canonical key for each candidate surface face on this rank by
+      // mapping its local node ids to distributed/global node ids and sorting
+      // them so the key is independent of side orientation.
       std::vector<FaceKey> local_face_keys((size_t)n_surf_elements);
       for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
         auto &key = local_face_keys[(size_t)i];
@@ -1956,6 +1936,9 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
         std::sort(key.begin(), key.begin() + nnxs);
       }
 
+      // Enumerate every side of every owned volume element on this rank using
+      // the same canonical representation. These are the faces this rank is
+      // allowed to contribute to the final distributed sideset.
       const ptrdiff_t n_owned_faces =
           static_cast<ptrdiff_t>(n_owned_elements) * ns;
       std::vector<large_idx_t> local_owned_face_key_data(
@@ -1978,6 +1961,8 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
         }
       }
 
+      // Gather the owned-face keys from all ranks so we can detect whether a
+      // candidate surface face corresponds to exactly one globally owned face.
       std::vector<ptrdiff_t> local_counts(mesh->comm()->size());
       SMESH_MPI_CATCH(MPI_Allgather(&n_owned_faces, 1, mpi_type<ptrdiff_t>(),
                                     local_counts.data(), 1,
@@ -2025,6 +2010,9 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
 
       write_pos = 0;
       for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+        // Keep only faces that match a unique owned face globally. If the key
+        // is missing or duplicated, the face belongs to another rank or is
+        // ambiguous, so we drop it from this local sideset.
         const auto range = std::equal_range(
             global_face_keys.begin(), global_face_keys.end(),
             local_face_keys[(size_t)i], face_key_less);
@@ -2039,21 +2027,18 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
 
       n_surf_elements = write_pos;
     }
+#endif
   }
-
-
 
   return std::make_shared<Sideset>(
       mesh->comm(),
       manage_host_buffer<element_idx_t>(n_surf_elements, parent_element),
       manage_host_buffer<i16>(n_surf_elements, side_idx), 0, mesh->comm()->size() > 1 ? mesh->distributed()->element_mapping() : nullptr);
-#endif
 }
 
 #ifdef SMESH_ENABLE_MPI
 
-// TODO: This is AI Slop code, it should be simplified and optimized
-
+// FIXME: This is AI Slop code, it should be simplified and optimized
 std::shared_ptr<Mesh>
 mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
                            const std::shared_ptr<Sideset> &sideset) {
