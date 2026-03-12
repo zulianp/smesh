@@ -14,6 +14,10 @@
   template void mesh_wedge6_to_3x_tet4<IDX_T>(                                 \
       const ptrdiff_t,                                                         \
       const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                 \
+      IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT);                      \
+  template void mesh_quad4_to_2x_tri3<IDX_T>(                                  \
+      const ptrdiff_t,                                                         \
+      const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                 \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
 
 namespace smesh {

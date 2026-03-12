@@ -97,6 +97,39 @@ void mesh_wedge6_to_3x_tet4(
   }
 }
 
+template <typename idx_t>
+void mesh_quad4_to_2x_tri3(
+    const ptrdiff_t n_elements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT quad4_elements,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT tri3_elements) {
+  for (ptrdiff_t quad = 0; quad < n_elements; quad++) {
+    const ptrdiff_t tri = quad * 2;
+
+    const auto i0 = quad4_elements[0][quad];
+    const auto i1 = quad4_elements[1][quad];
+    const auto i2 = quad4_elements[2][quad];
+    const auto i3 = quad4_elements[3][quad];
+
+    // if (quad % 2 == 0) {
+      tri3_elements[0][tri] = i0;
+      tri3_elements[1][tri] = i1;
+      tri3_elements[2][tri] = i2;
+
+      tri3_elements[0][tri + 1] = i0;
+      tri3_elements[1][tri + 1] = i2;
+      tri3_elements[2][tri + 1] = i3;
+    // } else {
+    //   tri3_elements[0][tri] = i0;
+    //   tri3_elements[1][tri] = i1;
+    //   tri3_elements[2][tri] = i3;
+
+    //   tri3_elements[0][tri + 1] = i1;
+    //   tri3_elements[1][tri + 1] = i2;
+    //   tri3_elements[2][tri + 1] = i3;
+    // }
+  }
+}
+
 } // namespace smesh
 
 #endif // SMESH_CONVERSION_IMPL_HPP

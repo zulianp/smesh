@@ -23,6 +23,12 @@ void mesh_wedge6_to_3x_tet4(
     const ptrdiff_t n_elements,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT wedge6_elements,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT tet4_elements);
+
+template <typename idx_t>
+void mesh_quad4_to_2x_tri3(
+    const ptrdiff_t n_elements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT quad4_elements,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT tri3_elements);
 } // namespace smesh
 
 #endif // SMESH_CONVERSION_HPP

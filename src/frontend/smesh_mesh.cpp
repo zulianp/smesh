@@ -17,15 +17,15 @@
 #include "smesh_sshex8_graph.hpp"
 #include "smesh_sshex8_mesh.hpp"
 #include "smesh_tracer.hpp"
-#include "smesh_write.hpp"
 #include "smesh_volume_to_surface.hpp"
+#include "smesh_write.hpp"
 
 #ifdef SMESH_ENABLE_MPI
 #include "smesh_alltoallv.impl.hpp"
+#include "smesh_decompose.hpp"
 #include "smesh_distributed_base.hpp"
 #include "smesh_distributed_read.hpp"
 #include "smesh_distributed_write.hpp"
-#include "smesh_decompose.hpp"
 #endif
 
 #ifdef SMESH_ENABLE_RYAML
@@ -36,8 +36,8 @@
 #include <algorithm>
 #include <array>
 #include <fstream>
-#include <list>
 #include <limits>
+#include <list>
 #include <map>
 #include <math.h>
 #include <unordered_map>
@@ -1615,6 +1615,15 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
                            new_block.elements()->data());
   };
 
+  cmap[std::make_pair(QUAD4, TRI3)] = [](const Mesh::Block &block,
+                                        Mesh::Block &new_block) {
+    new_block.set_element_type(TRI3);
+    new_block.set_elements(
+        create_host_buffer<idx_t>(3, block.n_elements() * 2));
+    mesh_quad4_to_2x_tri3(block.n_elements(), block.elements()->data(),
+                          new_block.elements()->data());
+  };
+
   cmap[std::make_pair(HEX8, PROTEUS_HEX8)] = [](const Mesh::Block &block,
                                                 Mesh::Block &new_block) {
     new_block.set_element_type(PROTEUS_HEX8);
@@ -1665,14 +1674,22 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
   cmap[std::make_pair(PROTEUS_QUAD49, QUAD4)] = ssquad_block_to_quad4_block;
   cmap[std::make_pair(PROTEUS_QUAD64, QUAD4)] = ssquad_block_to_quad4_block;
   cmap[std::make_pair(PROTEUS_QUAD81, QUAD4)] = ssquad_block_to_quad4_block;
-  cmap[std::make_pair(PROTEUS_QUADSHELL4, QUADSHELL4)] = ssquad_block_to_quad4_block;
-  cmap[std::make_pair(PROTEUS_QUADSHELL9, QUADSHELL4)] = ssquad_block_to_quad4_block;
-  cmap[std::make_pair(PROTEUS_QUADSHELL16, QUADSHELL4)] = ssquad_block_to_quad4_block;
-  cmap[std::make_pair(PROTEUS_QUADSHELL25, QUADSHELL4)] = ssquad_block_to_quad4_block;
-  cmap[std::make_pair(PROTEUS_QUADSHELL36, QUADSHELL4)] = ssquad_block_to_quad4_block;
-  cmap[std::make_pair(PROTEUS_QUADSHELL49, QUADSHELL4)] = ssquad_block_to_quad4_block;
-  cmap[std::make_pair(PROTEUS_QUADSHELL64, QUADSHELL4)] = ssquad_block_to_quad4_block;
-  cmap[std::make_pair(PROTEUS_QUADSHELL81, QUADSHELL4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL4, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL9, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL16, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL25, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL36, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL49, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL64, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL81, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
 
   std::vector<std::shared_ptr<Mesh::Block>> blocks;
   for (auto &block : mesh->blocks()) {
@@ -1874,7 +1891,7 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
     return nullptr;
   }
 
-  if(is_semistructured_type(mesh->element_type(0))) {
+  if (is_semistructured_type(mesh->element_type(0))) {
     return skin_sideset(derefine(mesh, 1));
   }
 
@@ -1886,19 +1903,17 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
   element_idx_t *parent_element = 0;
   i16 *side_idx = 0;
 
-  int err = extract_skin_sideset_from_n2e(mesh->n_elements(0), mesh->n_nodes(),
-                                          mesh->element_type(0),
-                                          mesh->elements(0)->data(),
-                                          n2e_graph_ptr, n2e_graph_idx,
-                                          &n_surf_elements, &parent_element,
-                                          &side_idx);
+  int err = extract_skin_sideset_from_n2e(
+      mesh->n_elements(0), mesh->n_nodes(), mesh->element_type(0),
+      mesh->elements(0)->data(), n2e_graph_ptr, n2e_graph_idx, &n_surf_elements,
+      &parent_element, &side_idx);
 
   if (err != SMESH_SUCCESS) {
     SMESH_ERROR("Unable to extract skin sideset!\n");
     return nullptr;
   }
 
-  if(mesh->comm()->size() > 1) {
+  if (mesh->comm()->size() > 1) {
     const auto dist = mesh->distributed();
     const auto n_global_elements = dist->n_elements_global();
     const auto n_owned_elements = dist->n_elements_owned();
@@ -1913,9 +1928,8 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
     auto element_mapping = dist->element_mapping()->data();
     element_idx_t *owned_global_to_local = nullptr;
     if (n_owned_elements > 0) {
-      owned_global_to_local =
-          (element_idx_t *)malloc((size_t)n_owned_elements *
-                                  sizeof(element_idx_t));
+      owned_global_to_local = (element_idx_t *)malloc((size_t)n_owned_elements *
+                                                      sizeof(element_idx_t));
       for (ptrdiff_t i = 0; i < n_owned_elements; ++i) {
         owned_global_to_local[element_mapping[i] - element_start] =
             static_cast<element_idx_t>(i);
@@ -1924,8 +1938,7 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
 
     u8 *shared_face_mask = nullptr;
     if (n_shared_elements > 0) {
-      shared_face_mask =
-          (u8 *)calloc((size_t)n_shared_elements, sizeof(u8));
+      shared_face_mask = (u8 *)calloc((size_t)n_shared_elements, sizeof(u8));
     }
 
     const auto n_aura_elements = dist->n_elements_ghosts();
@@ -1994,16 +2007,16 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
       const i64 max_chunk_size =
           (i64)std::numeric_limits<i32>::max() / comm_size;
 
-      SMESH_MPI_CATCH(all_to_allv_64(
-          send_global_ids, send_count, send_displs, recv_global_ids, recv_count,
-          recv_displs, mesh->comm()->get(), max_chunk_size));
-      SMESH_MPI_CATCH(all_to_allv_64(
-          send_face_mask, send_count, send_displs, recv_face_mask, recv_count,
-          recv_displs, mesh->comm()->get(), max_chunk_size));
+      SMESH_MPI_CATCH(all_to_allv_64(send_global_ids, send_count, send_displs,
+                                     recv_global_ids, recv_count, recv_displs,
+                                     mesh->comm()->get(), max_chunk_size));
+      SMESH_MPI_CATCH(all_to_allv_64(send_face_mask, send_count, send_displs,
+                                     recv_face_mask, recv_count, recv_displs,
+                                     mesh->comm()->get(), max_chunk_size));
 
       for (i64 i = 0; i < recv_displs[comm_size]; ++i) {
-        const ptrdiff_t local_element = owned_global_to_local[recv_global_ids[i] -
-                                                              element_start];
+        const ptrdiff_t local_element =
+            owned_global_to_local[recv_global_ids[i] - element_start];
         if (local_element < n_owned_not_shared ||
             local_element >= n_owned_elements) {
           continue;
@@ -2056,7 +2069,9 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
   return std::make_shared<Sideset>(
       mesh->comm(),
       manage_host_buffer<element_idx_t>(n_surf_elements, parent_element),
-      manage_host_buffer<i16>(n_surf_elements, side_idx), 0, mesh->comm()->size() > 1 ? mesh->distributed()->element_mapping() : nullptr);
+      manage_host_buffer<i16>(n_surf_elements, side_idx), 0,
+      mesh->comm()->size() > 1 ? mesh->distributed()->element_mapping()
+                               : nullptr);
 }
 
 #ifdef SMESH_ENABLE_MPI
@@ -2108,8 +2123,9 @@ mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
   auto b_local_parent_global = local_parent_global->data();
   auto b_parent_node_mapping = parent_dist->node_mapping()->data();
 
-  // Compact the sparse volume-to-surface map into dense surface-node arrays while
-  // keeping both the parent local index and its globally unique parent id.
+  // Compact the sparse volume-to-surface map into dense surface-node arrays
+  // while keeping both the parent local index and its globally unique parent
+  // id.
   for (ptrdiff_t i = 0; i < n_nodes; ++i) {
     const idx_t local_idx = b_vol2surf[i];
     if (local_idx == invalid_idx<idx_t>()) {
@@ -2122,14 +2138,14 @@ mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
 
   std::vector<ptrdiff_t> local_counts(mesh->comm()->size());
   SMESH_MPI_CATCH(MPI_Allgather(&n_surf_nodes, 1, mpi_type<ptrdiff_t>(),
-                                local_counts.data(), 1,
-                                mpi_type<ptrdiff_t>(), mesh->comm()->get()));
+                                local_counts.data(), 1, mpi_type<ptrdiff_t>(),
+                                mesh->comm()->get()));
 
   std::vector<int> local_counts_i(mesh->comm()->size());
   std::vector<int> local_displs_i(mesh->comm()->size());
   ptrdiff_t total_surface_nodes = 0;
-  // Build displacements for the allgatherv so every rank can index the flattened
-  // list of parent global ids contributed by all other ranks.
+  // Build displacements for the allgatherv so every rank can index the
+  // flattened list of parent global ids contributed by all other ranks.
   for (int r = 0; r < mesh->comm()->size(); ++r) {
     local_counts_i[r] = static_cast<int>(local_counts[r]);
     local_displs_i[r] = static_cast<int>(total_surface_nodes);
@@ -2146,8 +2162,8 @@ mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
   std::unordered_map<large_idx_t, bool> surface_shared;
   surface_owner.reserve(global_parent_ids.size());
   surface_shared.reserve(global_parent_ids.size());
-  // The first rank that reports a parent global id becomes its owner; seeing the
-  // same id on another rank marks that surface node as shared.
+  // The first rank that reports a parent global id becomes its owner; seeing
+  // the same id on another rank marks that surface node as shared.
   for (int r = 0; r < mesh->comm()->size(); ++r) {
     const ptrdiff_t begin = local_displs_i[r];
     const ptrdiff_t end = begin + local_counts[r];
@@ -2188,10 +2204,11 @@ mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
   }
 
   auto sort_by_owner = [&](std::vector<idx_t> &nodes) {
-    std::stable_sort(nodes.begin(), nodes.end(), [&](const idx_t a, const idx_t b) {
-      return surface_owner[b_local_parent_global[a]] <
-             surface_owner[b_local_parent_global[b]];
-    });
+    std::stable_sort(nodes.begin(), nodes.end(),
+                     [&](const idx_t a, const idx_t b) {
+                       return surface_owner[b_local_parent_global[a]] <
+                              surface_owner[b_local_parent_global[b]];
+                     });
   };
   sort_by_owner(ghost_nodes);
   sort_by_owner(aura_nodes);
@@ -2222,7 +2239,8 @@ mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
       const ptrdiff_t parent_local_idx = b_local_parent[old_idx];
       b_old_to_new[old_idx] = static_cast<idx_t>(new_idx);
       b_mapping[new_idx] = parent_local_idx;
-      b_surf_node_owner[new_idx] = surface_owner[b_local_parent_global[old_idx]];
+      b_surf_node_owner[new_idx] =
+          surface_owner[b_local_parent_global[old_idx]];
       for (int d = 0; d < spatial_dim; ++d) {
         b_surf_points[d][new_idx] = b_points[d][parent_local_idx];
       }
@@ -2258,8 +2276,8 @@ mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
 
   std::vector<ptrdiff_t> owned_counts(mesh->comm()->size());
   SMESH_MPI_CATCH(MPI_Allgather(&n_surf_owned, 1, mpi_type<ptrdiff_t>(),
-                                owned_counts.data(), 1,
-                                mpi_type<ptrdiff_t>(), mesh->comm()->get()));
+                                owned_counts.data(), 1, mpi_type<ptrdiff_t>(),
+                                mesh->comm()->get()));
 
   b_surf_node_offsets[0] = 0;
   for (int r = 0; r < mesh->comm()->size(); ++r) {
@@ -2295,7 +2313,8 @@ mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
 
   ptrdiff_t import_idx = 0;
   for (ptrdiff_t i = n_surf_owned; i < n_surf_nodes; ++i) {
-    const auto it = global_surface_node_ids.find(b_parent_node_mapping[b_mapping[i]]);
+    const auto it =
+        global_surface_node_ids.find(b_parent_node_mapping[b_mapping[i]]);
     SMESH_ASSERT(it != global_surface_node_ids.end());
     b_surf_node_mapping[i] = it->second;
     b_surf_ghosts_and_aura[import_idx++] =
