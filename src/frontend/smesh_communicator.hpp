@@ -8,46 +8,54 @@
 #include <mpi.h>
 #endif
 
-#include <memory>
-#include <iostream>
 #include <functional>
+#include <iostream>
+#include <memory>
 
 namespace smesh {
 
 class Communicator {
 public:
-    Communicator();
-    ~Communicator();
-    static std::shared_ptr<Communicator> world();
-    static std::shared_ptr<Communicator> null();
-    static std::shared_ptr<Communicator> self();
+  Communicator();
+  ~Communicator();
+  static std::shared_ptr<Communicator> world();
+  static std::shared_ptr<Communicator> null();
+  static std::shared_ptr<Communicator> self();
 
-    int rank() const;
-    int size() const;
-    void barrier() const;
+  int rank() const;
+  int size() const;
+  void barrier() const;
 
 #ifdef SMESH_ENABLE_MPI
-    static std::shared_ptr<Communicator> wrap(MPI_Comm comm);
-    Communicator(MPI_Comm comm);
-    MPI_Comm &get();
+  static std::shared_ptr<Communicator> wrap(MPI_Comm comm);
+  Communicator(MPI_Comm comm);
+  MPI_Comm &get();
 #endif
 
-    void print_callback(const std::function<void(std::ostream &)> &callback) const;
+  void
+  print_callback(const std::function<void(std::ostream &)> &callback) const;
 
-    template <typename T>
-    void broadcast(T *const value, int count, int root) const
-    {
-        broadcast(value, count, TypeToEnum<T>::value(), root);
-    }
+  template <typename T>
+  void broadcast(T *const value, int count, int root) const {
+    broadcast(value, count, TypeToEnum<T>::value(), root);
+  }
 
-    void broadcast(void *buffer, int count, enum PrimitiveType type,
-        int root) const;
+  void broadcast(void *buffer, int count, enum PrimitiveType type,
+                 int root) const;
+
+  template <typename T> T sum(const T &value) const {
+    T result = value;
+    sum(&result, 1, TypeToEnum<T>::value());
+    return result;
+  }
+
+  void sum(void *buffer, int count, enum PrimitiveType type) const;
 
 private:
-    class Impl;
-    std::unique_ptr<Impl> impl_;
+  class Impl;
+  std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace smesh
+} // namespace smesh
 
 #endif // SMESH_DISTRIBUTED_COMMUNICATOR_HPP

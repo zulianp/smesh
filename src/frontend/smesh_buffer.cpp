@@ -77,6 +77,7 @@ namespace smesh {
     template std::shared_ptr<Buffer<T *>> zeros_like<T>(const std::shared_ptr<Buffer<T *>> &);                                  \
     template std::shared_ptr<Buffer<T>>   soa_to_aos<T>(                                                                        \
             const size_t in_stride0, const size_t in_stride1, const std::shared_ptr<Buffer<T *>> &in)
+        //TODO: add missing explicit instantiations 
 
     SMESH_EXPLICIT_INSTANTIATE_BUFFER_2D(f16);
     SMESH_EXPLICIT_INSTANTIATE_BUFFER_2D(f32);
@@ -94,7 +95,11 @@ namespace smesh {
     template std::shared_ptr<Buffer<O *>> astype<O, I>(const std::shared_ptr<Buffer<I *>> &)
 
     SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f16, f64);
-    SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f64, u16);
+    SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f64, f16);
+    SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f64, f32);
+    SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f32, f16);
+    SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f16, f32);
+    SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f32, u8);
 
 #undef SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE
 }  // namespace smesh
