@@ -8,7 +8,8 @@
       ptrdiff_t *n_global_elements_out, ptrdiff_t *n_owned_elements_out,       \
       ptrdiff_t *n_shared_elements_out,                                         \
       ptrdiff_t *n_ghost_elements_out, LARGE_IDX_T **element_mapping_out,      \
-      IDX_T ***elements_out, int *spatial_dim_out,                             \
+      LARGE_IDX_T **aura_element_mapping_out, IDX_T ***elements_out,           \
+      int *spatial_dim_out,                                                    \
       ptrdiff_t *n_global_nodes_out, ptrdiff_t *n_owned_nodes_out,             \
       ptrdiff_t *n_shared_nodes_out,                                            \
       ptrdiff_t *n_ghost_nodes_out, ptrdiff_t *n_aura_nodes_out,               \

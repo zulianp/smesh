@@ -517,9 +517,6 @@ int rearrange_local_elements(
   return SMESH_SUCCESS;
 }
 
-
-// TODO: Add an extra output where the global element mapping for the aura elements is stored
-// Change the client code and in the frontend assign them to Distributed::element_id_aura
 template <typename idx_t, typename count_t, typename element_idx_t,
           typename large_idx_t>
 int expand_aura_elements_inconsistent(
@@ -532,7 +529,7 @@ int expand_aura_elements_inconsistent(
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT local_elements,
     const large_idx_t *const SMESH_RESTRICT element_local_to_global,
     const ptrdiff_t node_n_owned, const ptrdiff_t nodes_n_ghosts,
-    idx_t **const SMESH_RESTRICT out_aura_elements,
+    large_idx_t **const SMESH_RESTRICT out_aura_element_mapping,
     idx_t **const SMESH_RESTRICT out_aura_element_nodes,
     ptrdiff_t *const SMESH_RESTRICT out_n_aura) {
   SMESH_TRACE_SCOPE("expand_aura_elements_inconsistent");
@@ -645,7 +642,16 @@ int expand_aura_elements_inconsistent(
   free(recv_count);
   free(recv_displs);
 
-  *out_aura_elements = reinterpret_cast<idx_t *>(send_elements);
+  const ptrdiff_t n_aura = static_cast<ptrdiff_t>(send_displs[comm_size]);
+  large_idx_t *aura_element_mapping = (large_idx_t *)malloc(
+      static_cast<size_t>(n_aura) * sizeof(large_idx_t));
+  for (ptrdiff_t i = 0; i < n_aura; ++i) {
+    aura_element_mapping[i] = static_cast<large_idx_t>(send_elements[i]);
+  }
+
+  free(send_elements);
+
+  *out_aura_element_mapping = aura_element_mapping;
   *out_n_aura = static_cast<ptrdiff_t>(send_displs[comm_size]);
 
   free(send_count);

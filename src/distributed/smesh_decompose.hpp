@@ -156,7 +156,7 @@ int expand_aura_elements_inconsistent(
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT local_elements,
     const large_idx_t *const SMESH_RESTRICT element_local_to_global,
     const ptrdiff_t node_n_owned, const ptrdiff_t nodes_n_ghosts,
-    idx_t **const SMESH_RESTRICT out_aura_elements,
+    large_idx_t **const SMESH_RESTRICT out_aura_element_mapping,
     idx_t **const SMESH_RESTRICT out_aura_element_nodes,
     ptrdiff_t *const SMESH_RESTRICT out_n_aura);
 

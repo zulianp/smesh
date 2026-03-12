@@ -21,6 +21,7 @@
 #include "smesh_volume_to_surface.hpp"
 
 #ifdef SMESH_ENABLE_MPI
+#include "smesh_alltoallv.impl.hpp"
 #include "smesh_distributed_base.hpp"
 #include "smesh_distributed_read.hpp"
 #include "smesh_distributed_write.hpp"
@@ -36,6 +37,7 @@
 #include <array>
 #include <fstream>
 #include <list>
+#include <limits>
 #include <map>
 #include <math.h>
 #include <unordered_map>
@@ -64,7 +66,7 @@ public:
   SharedBuffer<idx_t> ghosts_and_aura;
 
   // Only exists for aura elements (global id)
-  SharedBuffer<large_idx_t> element_id_aura;
+  SharedBuffer<large_idx_t> aura_element_mapping;
 };
 
 SharedBuffer<large_idx_t> Distributed::node_mapping() const {
@@ -74,6 +76,9 @@ SharedBuffer<large_idx_t> Distributed::node_mapping() const {
 
 SharedBuffer<large_idx_t> Distributed::element_mapping() const {
   return impl_->element_mapping;
+}
+SharedBuffer<large_idx_t> Distributed::aura_element_mapping() const {
+  return impl_->aura_element_mapping;
 }
 SharedBuffer<int> Distributed::node_owner() const { return impl_->node_owner; }
 SharedBuffer<ptrdiff_t> Distributed::node_offsets() const {
@@ -520,6 +525,7 @@ int Mesh::read(const Path &path) {
     auto dist = std::make_shared<Distributed>();
     int nnodesxelem;
     large_idx_t *element_mapping = nullptr;
+    large_idx_t *aura_element_mapping = nullptr;
     large_idx_t *node_mapping = nullptr;
     idx_t **elements = nullptr;
     geom_t **points = nullptr;
@@ -534,7 +540,8 @@ int Mesh::read(const Path &path) {
             // Elements
             &nnodesxelem, &dist->impl_->n_elements_global,
             &dist->impl_->n_elements_owned, &dist->impl_->n_elements_shared,
-            &dist->impl_->n_elements_ghosts, &element_mapping, &elements,
+            &dist->impl_->n_elements_ghosts, &element_mapping,
+            &aura_element_mapping, &elements,
             // Nodes
             &spatial_dim, &dist->impl_->n_nodes_global,
             &dist->impl_->n_nodes_owned, &dist->impl_->n_nodes_shared,
@@ -556,6 +563,8 @@ int Mesh::read(const Path &path) {
         manage_host_buffer<int>(dist->n_nodes_local(), node_owner);
     dist->impl_->element_mapping = manage_host_buffer<large_idx_t>(
         dist->n_elements_owned(), element_mapping);
+    dist->impl_->aura_element_mapping = manage_host_buffer<large_idx_t>(
+        dist->n_elements_ghosts(), aura_element_mapping);
 
     int comm_size;
     MPI_Comm_size(impl_->comm->get(), &comm_size);
@@ -1891,7 +1900,129 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
 
   if(mesh->comm()->size() > 1) {
     const auto dist = mesh->distributed();
+    const auto n_global_elements = dist->n_elements_global();
     const auto n_owned_elements = dist->n_elements_owned();
+    const auto n_shared_elements = dist->n_elements_shared();
+    const auto n_owned_not_shared = dist->n_elements_owned_not_shared();
+
+#ifdef SMESH_ENABLE_MPI
+    const int comm_size = mesh->comm()->size();
+    SMESH_ASSERT(elem_num_sides(mesh->element_type(0)) <= 8);
+    const auto element_start =
+        rank_start(n_global_elements, comm_size, mesh->comm()->rank());
+    auto element_mapping = dist->element_mapping()->data();
+    element_idx_t *owned_global_to_local = nullptr;
+    if (n_owned_elements > 0) {
+      owned_global_to_local =
+          (element_idx_t *)malloc((size_t)n_owned_elements *
+                                  sizeof(element_idx_t));
+      for (ptrdiff_t i = 0; i < n_owned_elements; ++i) {
+        owned_global_to_local[element_mapping[i] - element_start] =
+            static_cast<element_idx_t>(i);
+      }
+    }
+
+    u8 *shared_face_mask = nullptr;
+    if (n_shared_elements > 0) {
+      shared_face_mask =
+          (u8 *)calloc((size_t)n_shared_elements, sizeof(u8));
+    }
+
+    const auto n_aura_elements = dist->n_elements_ghosts();
+    u8 *aura_face_mask = nullptr;
+    if (n_aura_elements > 0) {
+      aura_face_mask = (u8 *)calloc((size_t)n_aura_elements, sizeof(u8));
+    }
+
+    for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+      const element_idx_t parent = parent_element[i];
+      const u8 side_mask = static_cast<u8>(1u << side_idx[i]);
+
+      if (parent < n_owned_elements) {
+        if (parent >= n_owned_not_shared) {
+          shared_face_mask[parent - n_owned_not_shared] |= side_mask;
+        }
+      } else {
+        aura_face_mask[parent - n_owned_elements] |= side_mask;
+      }
+    }
+
+    {
+      const large_idx_t *aura_element_mapping =
+          n_aura_elements > 0 ? dist->aura_element_mapping()->data() : nullptr;
+      i64 *send_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
+      i64 *send_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
+
+      for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
+        const int owner =
+            rank_owner(n_global_elements, aura_element_mapping[i], comm_size);
+        send_displs[owner + 1]++;
+      }
+
+      for (int r = 0; r < comm_size; ++r) {
+        send_displs[r + 1] += send_displs[r];
+      }
+
+      auto send_global_ids = (large_idx_t *)malloc(
+          (size_t)send_displs[comm_size] * sizeof(large_idx_t));
+      auto send_face_mask =
+          (u8 *)malloc((size_t)send_displs[comm_size] * sizeof(u8));
+
+      memset(send_count, 0, (size_t)comm_size * sizeof(i64));
+      for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
+        const large_idx_t global_id = aura_element_mapping[i];
+        const int owner = rank_owner(n_global_elements, global_id, comm_size);
+        const i64 pos = send_displs[owner] + send_count[owner]++;
+        send_global_ids[pos] = global_id;
+        send_face_mask[pos] = aura_face_mask[i];
+      }
+
+      i64 *recv_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
+      i64 *recv_displs = (i64 *)malloc(((size_t)comm_size + 1) * sizeof(i64));
+      SMESH_MPI_CATCH(MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count,
+                                   1, mpi_type<i64>(), mesh->comm()->get()));
+
+      recv_displs[0] = 0;
+      for (int r = 0; r < comm_size; ++r) {
+        recv_displs[r + 1] = recv_displs[r] + recv_count[r];
+      }
+
+      auto recv_global_ids = (large_idx_t *)malloc(
+          (size_t)recv_displs[comm_size] * sizeof(large_idx_t));
+      auto recv_face_mask =
+          (u8 *)malloc((size_t)recv_displs[comm_size] * sizeof(u8));
+      const i64 max_chunk_size =
+          (i64)std::numeric_limits<i32>::max() / comm_size;
+
+      SMESH_MPI_CATCH(all_to_allv_64(
+          send_global_ids, send_count, send_displs, recv_global_ids, recv_count,
+          recv_displs, mesh->comm()->get(), max_chunk_size));
+      SMESH_MPI_CATCH(all_to_allv_64(
+          send_face_mask, send_count, send_displs, recv_face_mask, recv_count,
+          recv_displs, mesh->comm()->get(), max_chunk_size));
+
+      for (i64 i = 0; i < recv_displs[comm_size]; ++i) {
+        const ptrdiff_t local_element = owned_global_to_local[recv_global_ids[i] -
+                                                              element_start];
+        if (local_element < n_owned_not_shared ||
+            local_element >= n_owned_elements) {
+          continue;
+        }
+
+        shared_face_mask[local_element - n_owned_not_shared] &=
+            recv_face_mask[i];
+      }
+
+      free(send_count);
+      free(send_displs);
+      free(send_global_ids);
+      free(send_face_mask);
+      free(recv_count);
+      free(recv_displs);
+      free(recv_global_ids);
+      free(recv_face_mask);
+    }
+#endif
 
     ptrdiff_t write_pos = 0;
     for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
@@ -1900,133 +2031,25 @@ std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
         continue;
       }
 
+      if (parent >= n_owned_not_shared) {
+#ifdef SMESH_ENABLE_MPI
+        const u8 side_mask = static_cast<u8>(1u << side_idx[i]);
+        if ((shared_face_mask[parent - n_owned_not_shared] & side_mask) == 0) {
+          continue;
+        }
+#endif
+      }
+
       parent_element[write_pos] = parent;
       side_idx[write_pos] = side_idx[i];
       ++write_pos;
     }
     n_surf_elements = write_pos;
 
-#if 0
-    // FIXME: AI Slop to be clean-up
-    if (n_surf_elements > 0) {
-      LocalSideTable lst;
-      lst.fill(mesh->element_type(0));
-      const int ns = elem_num_sides(mesh->element_type(0));
-      const int nnxs = elem_num_nodes(side_type(mesh->element_type(0)));
-      auto elems = mesh->elements(0)->data();
-      auto node_mapping = dist->node_mapping()->data();
-
-      using FaceKey =
-          std::array<large_idx_t, LocalSideTable::MAX_NUM_NODES_PER_SIDE>;
-
-      // Build a canonical key for each candidate surface face on this rank by
-      // mapping its local node ids to distributed/global node ids and sorting
-      // them so the key is independent of side orientation.
-      std::vector<FaceKey> local_face_keys((size_t)n_surf_elements);
-      for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
-        auto &key = local_face_keys[(size_t)i];
-        const element_idx_t parent = parent_element[i];
-        const int side = side_idx[i];
-
-        for (int n = 0; n < nnxs; ++n) {
-          const idx_t node = elems[lst(side, n)][parent];
-          key[(size_t)n] = node_mapping[node];
-        }
-
-        std::sort(key.begin(), key.begin() + nnxs);
-      }
-
-      // Enumerate every side of every owned volume element on this rank using
-      // the same canonical representation. These are the faces this rank is
-      // allowed to contribute to the final distributed sideset.
-      const ptrdiff_t n_owned_faces =
-          static_cast<ptrdiff_t>(n_owned_elements) * ns;
-      std::vector<large_idx_t> local_owned_face_key_data(
-          (size_t)n_owned_faces * (size_t)nnxs);
-      for (ptrdiff_t parent = 0; parent < n_owned_elements; ++parent) {
-        for (int side = 0; side < ns; ++side) {
-          std::array<large_idx_t, LocalSideTable::MAX_NUM_NODES_PER_SIDE> key;
-          for (int n = 0; n < nnxs; ++n) {
-            const idx_t node = elems[lst(side, n)][parent];
-            key[(size_t)n] = node_mapping[node];
-          }
-
-          std::sort(key.begin(), key.begin() + nnxs);
-
-          const ptrdiff_t face_idx = parent * ns + side;
-          for (int n = 0; n < nnxs; ++n) {
-            local_owned_face_key_data[(size_t)face_idx * (size_t)nnxs +
-                                      (size_t)n] = key[(size_t)n];
-          }
-        }
-      }
-
-      // Gather the owned-face keys from all ranks so we can detect whether a
-      // candidate surface face corresponds to exactly one globally owned face.
-      std::vector<ptrdiff_t> local_counts(mesh->comm()->size());
-      SMESH_MPI_CATCH(MPI_Allgather(&n_owned_faces, 1, mpi_type<ptrdiff_t>(),
-                                    local_counts.data(), 1,
-                                    mpi_type<ptrdiff_t>(),
-                                    mesh->comm()->get()));
-
-      std::vector<int> local_counts_i(mesh->comm()->size());
-      std::vector<int> local_displs_i(mesh->comm()->size());
-      ptrdiff_t total_faces = 0;
-      ptrdiff_t total_face_entries = 0;
-      for (int r = 0; r < mesh->comm()->size(); ++r) {
-        local_counts_i[r] = static_cast<int>(local_counts[r] * nnxs);
-        local_displs_i[r] = static_cast<int>(total_face_entries);
-        total_faces += local_counts[r];
-        total_face_entries += local_counts[r] * nnxs;
-      }
-
-      std::vector<large_idx_t> global_face_key_data(
-          (size_t)total_face_entries);
-      SMESH_MPI_CATCH(MPI_Allgatherv(
-          local_owned_face_key_data.empty() ? nullptr
-                                            : local_owned_face_key_data.data(),
-          static_cast<int>(local_owned_face_key_data.size()),
-          mpi_type<large_idx_t>(),
-          global_face_key_data.empty() ? nullptr : global_face_key_data.data(),
-          local_counts_i.data(), local_displs_i.data(),
-          mpi_type<large_idx_t>(), mesh->comm()->get()));
-
-      std::vector<FaceKey> global_face_keys((size_t)total_faces);
-      for (ptrdiff_t i = 0; i < total_faces; ++i) {
-        auto &key = global_face_keys[(size_t)i];
-        for (int n = 0; n < nnxs; ++n) {
-          key[(size_t)n] =
-              global_face_key_data[(size_t)i * (size_t)nnxs + (size_t)n];
-        }
-      }
-
-      const auto face_key_less = [nnxs](const FaceKey &lhs,
-                                        const FaceKey &rhs) -> bool {
-        return std::lexicographical_compare(lhs.begin(), lhs.begin() + nnxs,
-                                            rhs.begin(), rhs.begin() + nnxs);
-      };
-
-      std::sort(global_face_keys.begin(), global_face_keys.end(), face_key_less);
-
-      write_pos = 0;
-      for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
-        // Keep only faces that match a unique owned face globally. If the key
-        // is missing or duplicated, the face belongs to another rank or is
-        // ambiguous, so we drop it from this local sideset.
-        const auto range = std::equal_range(
-            global_face_keys.begin(), global_face_keys.end(),
-            local_face_keys[(size_t)i], face_key_less);
-        if (range.second - range.first != 1) {
-          continue;
-        }
-
-        parent_element[write_pos] = parent_element[i];
-        side_idx[write_pos] = side_idx[i];
-        ++write_pos;
-      }
-
-      n_surf_elements = write_pos;
-    }
+#ifdef SMESH_ENABLE_MPI
+    free(owned_global_to_local);
+    free(shared_face_mask);
+    free(aura_face_mask);
 #endif
   }
 

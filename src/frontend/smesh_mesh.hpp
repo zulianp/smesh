@@ -35,6 +35,7 @@ public:
 
   SharedBuffer<large_idx_t> node_mapping() const;
   SharedBuffer<large_idx_t> element_mapping() const;
+  SharedBuffer<large_idx_t> aura_element_mapping() const;
 
   SharedBuffer<int> node_owner() const;
   SharedBuffer<ptrdiff_t> node_offsets() const;

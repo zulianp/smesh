@@ -110,7 +110,7 @@ int main(int argc, char **argv) {
                              local_n2e_ptr, local_n2e_idx, local_elements,
                              n_owned, &n_owned_not_shared, element_mapping);
 
-    idx_t *aura_elements = nullptr;
+    l2g_t *aura_element_mapping = nullptr;
     idx_t **aura_element_nodes =
         (idx_t **)malloc(nnodesxelem * sizeof(idx_t *));
     for (int d = 0; d < nnodesxelem; ++d) {
@@ -120,8 +120,8 @@ int main(int argc, char **argv) {
     expand_aura_elements_inconsistent(
         comm->get(), n_global_elements, n_local_elements, nnodesxelem,
         local_n2e_ptr, local_n2e_idx, local2global, local_elements,
-        element_mapping, n_owned, n_ghosts, &aura_elements, aura_element_nodes,
-        &n_aura_elements);
+        element_mapping, n_owned, n_ghosts, &aura_element_mapping,
+        aura_element_nodes, &n_aura_elements);
 
     long long owned_nodes_start_ll = 0;
     long long n_owned_ll = (long long)n_owned;
@@ -253,7 +253,7 @@ int main(int argc, char **argv) {
     free(ghost_and_aura_to_owned);
     free(global2owned);
     free(owned_node_ranges);
-    free(aura_elements);
+    free(aura_element_mapping);
     for (int d = 0; d < nnodesxelem; ++d) {
       free(aura_element_nodes[d]);
     }

@@ -4,6 +4,7 @@
 #include "smesh_path.hpp"
 #include "smesh_tracer.hpp"
 
+#include <cstring>
 #include <stdio.h>
 
 using namespace smesh;
@@ -65,11 +66,23 @@ int main(int argc, char **argv) {
       comm->barrier();
 
       {
-        // auto local_output = Output::create(mesh, Path("test_" + std::to_string(comm->rank())));
-        auto local_mesh =std::make_shared<Mesh>(Communicator::self(), mesh->blocks(), mesh->points());
-        local_mesh->write(Path("test_" + std::to_string(comm->rank())));
+        auto local_path = Path("test_" + std::to_string(comm->rank()));
+        auto local_mesh =
+            std::make_shared<Mesh>(Communicator::self(), mesh->blocks(),
+                                   mesh->points());
+        local_mesh->write(local_path);
 
-        // local_output->write_nodal("nodal_data", ,
+        auto aura_element_mapping = dist->aura_element_mapping();
+        auto local_element_mapping =
+            create_host_buffer<large_idx_t>(local_mesh->n_elements());
+        std::memcpy(local_element_mapping->data(), element_mapping->data(),
+                    element_mapping->nbytes());
+        std::memcpy(local_element_mapping->data() + element_mapping->size(),
+                    aura_element_mapping->data(),
+                    aura_element_mapping->nbytes());
+
+        auto local_output = Output::create(local_mesh, local_path);
+        local_output->write_elemental("elemental_data", local_element_mapping);
       }
     }
   }
