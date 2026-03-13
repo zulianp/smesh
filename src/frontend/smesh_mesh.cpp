@@ -2,6 +2,7 @@
 #include "smesh_adjacency.hpp"
 #include "smesh_build.hpp"
 #include "smesh_conversion.hpp"
+#include "smesh_device_buffer.hpp"
 #include "smesh_file_extensions.hpp"
 #include "smesh_glob.hpp"
 #include "smesh_graph.hpp"
@@ -138,6 +139,190 @@ max_node_id(const enum ElemType element_type, const ptrdiff_t n_elements,
   return static_cast<ptrdiff_t>(max_id);
 }
 
+class ComputeData::Impl {
+public:
+  std::vector<SharedBuffer<idx_t *>> elements_SoA;
+  std::vector<SharedBuffer<idx_t>> elements_AoS;
+
+  SharedBuffer<geom_t *> points_SoA;
+  SharedBuffer<geom_t> points_AoS;
+
+  std::vector<SharedBuffer<void *>> jacobians_SoA;
+  std::vector<SharedBuffer<void>> jacobians_AoS;
+  std::vector<SharedBuffer<void *>> jacobian_adjugate_SoA;
+  std::vector<SharedBuffer<void>> jacobian_adjugate_AoS;
+  std::vector<SharedBuffer<void>> jacobian_determinant;
+
+  ~Impl() {}
+
+  void clear() {
+    elements_SoA.clear();
+    elements_AoS.clear();
+    points_SoA = nullptr;
+    points_AoS = nullptr;
+    jacobians_SoA.clear();
+    jacobians_AoS.clear();
+    jacobian_adjugate_SoA.clear();
+    jacobian_adjugate_AoS.clear();
+    jacobian_determinant.clear();
+  }
+};
+
+ComputeData::ComputeData() : impl_(std::make_unique<Impl>()) {}
+ComputeData::~ComputeData() = default;
+
+SharedBuffer<idx_t *> ComputeData::elements_SoA(const block_idx_t block_id) {
+  SMESH_ASSERT(impl_->elements_SoA.size() > block_id);
+  return impl_->elements_SoA[block_id];
+}
+
+SharedBuffer<idx_t> ComputeData::elements_AoS(const block_idx_t block_id) {
+  SMESH_ASSERT(impl_->elements_AoS.size() > block_id);
+  return impl_->elements_AoS[block_id];
+}
+
+SharedBuffer<geom_t *> ComputeData::points_SoA() {
+  SMESH_ASSERT(impl_->points_SoA);
+  return impl_->points_SoA;
+}
+
+SharedBuffer<geom_t> ComputeData::points_AoS() {
+  SMESH_ASSERT(impl_->points_AoS);
+  return impl_->points_AoS;
+}
+
+SharedBuffer<void *> ComputeData::jacobians_SoA(const block_idx_t block_id) {
+  SMESH_ASSERT(impl_->jacobians_SoA.size() > block_id);
+  return impl_->jacobians_SoA[block_id];
+}
+
+SharedBuffer<void> ComputeData::jacobians_AoS(const block_idx_t block_id) {
+  SMESH_ASSERT(impl_->jacobians_AoS.size() > block_id);
+  return impl_->jacobians_AoS[block_id];
+}
+
+SharedBuffer<void *>
+ComputeData::jacobian_adjugate_SoA(const block_idx_t block_id) {
+  SMESH_ASSERT(impl_->jacobian_adjugate_SoA.size() > block_id);
+  return impl_->jacobian_adjugate_SoA[block_id];
+}
+
+SharedBuffer<void>
+ComputeData::jacobian_adjugate_AoS(const block_idx_t block_id) {
+  SMESH_ASSERT(impl_->jacobian_adjugate_AoS.size() > block_id);
+  return impl_->jacobian_adjugate_AoS[block_id];
+}
+
+SharedBuffer<void>
+ComputeData::jacobian_determinant(const block_idx_t block_id) {
+  SMESH_ASSERT(impl_->jacobian_determinant.size() > block_id);
+  return impl_->jacobian_determinant[block_id];
+}
+
+void ComputeData::set_num_blocks(const ptrdiff_t num_blocks) {
+  impl_->elements_SoA.resize(num_blocks);
+  impl_->elements_AoS.resize(num_blocks);
+  impl_->jacobians_SoA.resize(num_blocks);
+  impl_->jacobians_AoS.resize(num_blocks);
+  impl_->jacobian_adjugate_SoA.resize(num_blocks);
+  impl_->jacobian_adjugate_AoS.resize(num_blocks);
+  impl_->jacobian_determinant.resize(num_blocks);
+}
+
+void ComputeData::set_elements_SoA(const block_idx_t block_id,
+                                   const SharedBuffer<idx_t *> &elements) {
+  SMESH_ASSERT(impl_->elements_SoA.size() > block_id);
+  impl_->elements_SoA[block_id] = elements;
+}
+void ComputeData::set_elements_AoS(const block_idx_t block_id,
+                                   const SharedBuffer<idx_t> &elements) {
+  SMESH_ASSERT(impl_->elements_AoS.size() > block_id);
+  impl_->elements_AoS[block_id] = elements;
+}
+void ComputeData::set_points_SoA(const SharedBuffer<geom_t *> &points) {
+  impl_->points_SoA = points;
+}
+void ComputeData::set_points_AoS(const SharedBuffer<geom_t> &points) {
+  impl_->points_AoS = points;
+}
+void ComputeData::set_jacobians_SoA(const block_idx_t block_id,
+                                    const SharedBuffer<void *> &jacobians) {
+  SMESH_ASSERT(impl_->jacobians_SoA.size() > block_id);
+  impl_->jacobians_SoA[block_id] = jacobians;
+}
+void ComputeData::set_jacobians_AoS(const block_idx_t block_id,
+                                    const SharedBuffer<void> &jacobians) {
+  SMESH_ASSERT(impl_->jacobians_AoS.size() > block_id);
+  impl_->jacobians_AoS[block_id] = jacobians;
+}
+void ComputeData::set_jacobian_adjugate_SoA(
+    const block_idx_t block_id, const SharedBuffer<void *> &jacobian_adjugate) {
+  SMESH_ASSERT(impl_->jacobian_adjugate_SoA.size() > block_id);
+  impl_->jacobian_adjugate_SoA[block_id] = jacobian_adjugate;
+}
+void ComputeData::set_jacobian_adjugate_AoS(
+    const block_idx_t block_id, const SharedBuffer<void> &jacobian_adjugate) {
+  SMESH_ASSERT(impl_->jacobian_adjugate_AoS.size() > block_id);
+  impl_->jacobian_adjugate_AoS[block_id] = jacobian_adjugate;
+}
+void ComputeData::set_jacobian_determinant(
+    const block_idx_t block_id,
+    const SharedBuffer<void> &jacobian_determinant) {
+  SMESH_ASSERT(impl_->jacobian_determinant.size() > block_id);
+  impl_->jacobian_determinant[block_id] = jacobian_determinant;
+}
+
+int ComputeData::commit_to_device() {
+  int n_blocks = impl_->elements_SoA.size();
+  for (int i = 0; i < n_blocks; ++i) {
+    if (impl_->elements_SoA[i]) {
+      impl_->elements_SoA[i] = to_device(impl_->elements_SoA[i]);
+    }
+  }
+  for (int i = 0; i < n_blocks; ++i) {
+    if (impl_->elements_AoS[i]) {
+      impl_->elements_AoS[i] = to_device(impl_->elements_AoS[i]);
+    }
+  }
+  if (impl_->points_AoS) {
+    impl_->points_AoS = to_device(impl_->points_AoS);
+  }
+  if (impl_->points_SoA) {
+    impl_->points_SoA = to_device(impl_->points_SoA);
+  }
+
+  for (int i = 0; i < n_blocks; ++i) {
+    if (impl_->jacobians_SoA[i]) {
+      impl_->jacobians_SoA[i] = to_device(impl_->jacobians_SoA[i]);
+    }
+  }
+  for (int i = 0; i < n_blocks; ++i) {
+    if (impl_->jacobians_AoS[i]) {
+      impl_->jacobians_AoS[i] = to_device(impl_->jacobians_AoS[i]);
+    }
+  }
+  for (int i = 0; i < n_blocks; ++i) {
+    if (impl_->jacobian_adjugate_SoA[i]) {
+      impl_->jacobian_adjugate_SoA[i] =
+          to_device(impl_->jacobian_adjugate_SoA[i]);
+    }
+  }
+  for (int i = 0; i < n_blocks; ++i) {
+    if (impl_->jacobian_adjugate_AoS[i]) {
+      impl_->jacobian_adjugate_AoS[i] =
+          to_device(impl_->jacobian_adjugate_AoS[i]);
+    }
+  }
+  for (int i = 0; i < n_blocks; ++i) {
+    if (impl_->jacobian_determinant[i]) {
+      impl_->jacobian_determinant[i] =
+          to_device(impl_->jacobian_determinant[i]);
+    }
+  }
+
+  return SMESH_SUCCESS;
+}
+
 class Mesh::Block::Impl {
 public:
   std::string name;
@@ -186,6 +371,8 @@ public:
   std::shared_ptr<NodeToNodeGraph> crs_graph_upper_triangular;
   std::shared_ptr<NodeToElementGraph> node_to_element_graph;
 
+  std::shared_ptr<ComputeData> compute_data;
+
   ~Impl() {}
 
   void clear() {
@@ -197,6 +384,7 @@ public:
     crs_graph_upper_triangular = nullptr;
     distributed = nullptr;
     node_to_element_graph = nullptr;
+    compute_data = nullptr;
   }
 
   // Helper methods for backward compatibility
@@ -257,6 +445,124 @@ std::shared_ptr<Communicator> Mesh::comm() const { return impl_->comm; }
 std::shared_ptr<Distributed> Mesh::distributed() const {
   SMESH_ASSERT(impl_->distributed);
   return impl_->distributed;
+}
+
+std::shared_ptr<ComputeData> Mesh::compute_data() const {
+  SMESH_ASSERT(impl_->compute_data);
+  return impl_->compute_data;
+}
+
+int Mesh::init_compute_data(const int flags, const enum ExecutionSpace space) {
+  if (!impl_->compute_data) {
+    impl_->compute_data = std::make_shared<ComputeData>();
+  }
+
+  auto &blocks = impl_->blocks;
+  auto &compute_data = impl_->compute_data;
+  auto &points = impl_->points;
+
+  const ptrdiff_t n_blocks = blocks.size();
+
+  compute_data->set_num_blocks(blocks.size());
+  if (flags & DD_ELEMENT_SOA) {
+    for (ptrdiff_t i = 0; i < n_blocks; ++i) {
+      auto block = blocks[i];
+      if (block && block->elements()) {
+        compute_data->set_elements_SoA(i, block->elements());
+      } else {
+        compute_data->set_elements_SoA(i, nullptr);
+      }
+    }
+  }
+
+  if (flags & DD_ELEMENT_AOS) {
+    for (ptrdiff_t i = 0; i < n_blocks; ++i) {
+      auto block = blocks[i];
+      if (block && block->elements()) {
+        auto elements = soa_to_aos(block->n_nodes_per_element(),
+                                   block->n_elements(), block->elements());
+        compute_data->set_elements_AoS(i, elements);
+      }
+    }
+  }
+
+  if (flags & DD_POINT_SOA) {
+    compute_data->set_points_SoA(points);
+  }
+
+  if (flags & DD_POINT_AOS) {
+    compute_data->set_points_AoS(
+        soa_to_aos(points->extent(0), points->extent(1), points));
+  }
+
+  if (flags & DD_JACOBIAN_SOA) {
+    for (ptrdiff_t i = 0; i < n_blocks; ++i) {
+      auto block = blocks[i];
+      if (block) {
+        // impl_->compute_data->set_jacobians_SoA(i, block->jacobians());
+      } else {
+        compute_data->set_jacobians_SoA(i, nullptr);
+      }
+    }
+  }
+
+  if (flags & DD_JACOBIAN_AOS) {
+    for (ptrdiff_t i = 0; i < n_blocks; ++i) {
+      auto block = blocks[i];
+      if (block) {
+        // impl_->compute_data->set_jacobians_AoS(i, block->jacobians());
+      } else {
+        compute_data->set_jacobians_AoS(i, nullptr);
+      }
+    }
+  }
+
+  if (flags & DD_JACOBIAN_ADJUGATE_SOA) {
+    for (ptrdiff_t i = 0; i < n_blocks; ++i) {
+      auto block = blocks[i];
+      if (block) {
+        // impl_->compute_data->set_jacobian_adjugate_SoA(
+        //     i, block->jacobian_adjugate());
+
+      } else {
+        compute_data->set_jacobian_adjugate_SoA(i, nullptr);
+      }
+    }
+  }
+
+  if (flags & DD_JACOBIAN_ADJUGATE_AOS) {
+    for (ptrdiff_t i = 0; i < n_blocks; ++i) {
+      auto block = blocks[i];
+      if (block) {
+        // impl_->compute_data->set_jacobian_adjugate_AoS(
+        //     i, block->jacobian_adjugate());
+      } else {
+        compute_data->set_jacobian_adjugate_AoS(i, nullptr);
+      }
+    }
+  }
+
+  if (flags & DD_JACOBIAN_DETERMINANT) {
+    for (ptrdiff_t i = 0; i < n_blocks; ++i) {
+      auto block = blocks[i];
+      if (block) {
+        // impl_->compute_data->set_jacobian_determinant(
+        //     i, block->jacobian_determinant());
+      } else {
+        compute_data->set_jacobian_determinant(i, nullptr);
+      }
+    }
+  }
+
+#ifdef SMESH_ENABLE_CUDA
+  if (space == EXECUTION_SPACE_DEVICE) {
+    return compute_data->commit_to_device();
+  }
+#else
+  SMESH_UNUSED(space);
+#endif // SMESH_ENABLE_CUDA
+
+  return SMESH_SUCCESS;
 }
 
 Mesh::Mesh(const std::shared_ptr<Communicator> &comm,
@@ -479,8 +785,8 @@ int Mesh::read(const Path &path) {
 
         enum ElemType et = element_types[b];
         if (et == INVALID) {
-          // Fallback: infer from number of nodes per element when metadata is
-          // missing.
+          // Fallback: infer from number of nodes per element when metadata
+          // is missing.
           et = (enum ElemType)nnodesxelem;
         }
 
@@ -656,8 +962,8 @@ int Mesh::write(const Path &path) const {
     }
 
     if (impl_->blocks.size() != 1 || !impl_->blocks[0]) {
-      SMESH_ERROR(
-          "Mesh::write (MPI) currently supports only single-block meshes.\n");
+      SMESH_ERROR("Mesh::write (MPI) currently supports only single-block "
+                  "meshes.\n");
     }
 
     auto dist = impl_->distributed;
@@ -716,8 +1022,8 @@ SharedBuffer<element_idx_t> Mesh::half_face_table() {
 std::shared_ptr<Mesh::NodeToNodeGraph>
 Mesh::create_node_to_node_graph(const enum ElemType element_type) {
   if (n_blocks() != 1) {
-    SMESH_ERROR(
-        "create_node_to_node_graph is not supported for multi-block meshes!\n");
+    SMESH_ERROR("create_node_to_node_graph is not supported for multi-block "
+                "meshes!\n");
     return nullptr;
   }
 
@@ -1616,7 +1922,7 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
   };
 
   cmap[std::make_pair(QUAD4, TRI3)] = [](const Mesh::Block &block,
-                                        Mesh::Block &new_block) {
+                                         Mesh::Block &new_block) {
     new_block.set_element_type(TRI3);
     new_block.set_elements(
         create_host_buffer<idx_t>(3, block.n_elements() * 2));
@@ -2124,8 +2430,8 @@ mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
   auto b_parent_node_mapping = parent_dist->node_mapping()->data();
 
   // Compact the sparse volume-to-surface map into dense surface-node arrays
-  // while keeping both the parent local index and its globally unique parent
-  // id.
+  // while keeping both the parent local index and its globally unique
+  // parent id.
   for (ptrdiff_t i = 0; i < n_nodes; ++i) {
     const idx_t local_idx = b_vol2surf[i];
     if (local_idx == invalid_idx<idx_t>()) {
@@ -2162,8 +2468,8 @@ mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
   std::unordered_map<large_idx_t, bool> surface_shared;
   surface_owner.reserve(global_parent_ids.size());
   surface_shared.reserve(global_parent_ids.size());
-  // The first rank that reports a parent global id becomes its owner; seeing
-  // the same id on another rank marks that surface node as shared.
+  // The first rank that reports a parent global id becomes its owner;
+  // seeing the same id on another rank marks that surface node as shared.
   for (int r = 0; r < mesh->comm()->size(); ++r) {
     const ptrdiff_t begin = local_displs_i[r];
     const ptrdiff_t end = begin + local_counts[r];
@@ -2229,8 +2535,8 @@ mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
   auto b_old_to_new = old_to_new->data();
   auto b_surf_node_owner = surf_node_owner->data();
 
-  // Reorder nodes into owned/ghost/aura blocks and carry over geometry, parent
-  // mapping, and owning rank in one pass.
+  // Reorder nodes into owned/ghost/aura blocks and carry over geometry,
+  // parent mapping, and owning rank in one pass.
   auto assign_nodes = [&](const std::vector<idx_t> &nodes, ptrdiff_t offset) {
     const int spatial_dim = mesh->spatial_dimension();
     for (ptrdiff_t k = 0; k < (ptrdiff_t)nodes.size(); ++k) {

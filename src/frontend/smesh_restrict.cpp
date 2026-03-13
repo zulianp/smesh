@@ -1,5 +1,6 @@
 #include "smesh_restrict.hpp"
 #include "smesh_buffer.hpp"
+#include "smesh_device_buffer.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_restriction.hpp"
 #include "smesh_semistructured.hpp"
@@ -63,7 +64,8 @@ public:
 
       auto elements = from_mesh->device_elements();
       if (!elements) {
-        elements = create_device_elements(from_mesh, from_mesh->element_type());
+        elements =
+            create_device_elements(from_mesh, from_mesh->element_type(0));
         from_mesh->set_device_elements(elements);
       }
 

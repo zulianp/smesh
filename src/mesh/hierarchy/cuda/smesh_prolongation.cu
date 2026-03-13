@@ -98,14 +98,15 @@ int cu_tet4_to_macrotet4_prolongation(
     const idx_t *const SMESH_RESTRICT coarse_colidx,
     const idx_t *const SMESH_RESTRICT fine_node_map, const int vec_size,
     const enum PrimitiveType from_type, const void *const SMESH_RESTRICT from,
-    const enum PrimitiveType to_type, void *const SMESH_RESTRICT to, void *stream) {
+    const enum PrimitiveType to_type, void *const SMESH_RESTRICT to,
+    void *stream) {
   SMESH_ASSERT(from_type == to_type && "TODO mixed types!");
   if (from_type != to_type) {
     return SMESH_FAILURE;
   }
 
   switch (from_type) {
-  case SMESH_REAL_DEFAULT: {
+  case SMESH_DEFAULT: {
     return cu_tet4_to_macrotet4_prolongation_tpl(
         coarse_nnodes, coarse_rowptr, coarse_colidx, fine_node_map, vec_size,
         (real_t *)from, (real_t *)to, stream);
@@ -121,10 +122,11 @@ int cu_tet4_to_macrotet4_prolongation(
         (f64 *)from, (f64 *)to, stream);
   }
   default: {
-    SMESH_ERROR("[Error] cu_tet4_to_macrotet4_prolongation_tpl: not implemented "
-               "for type %s "
-               "(code %d)\n",
-               real_type_to_string(from_type), from_type);
+    SMESH_ERROR(
+        "[Error] cu_tet4_to_macrotet4_prolongation_tpl: not implemented "
+        "for type %s "
+        "(code %d)\n",
+        real_type_to_string(from_type), from_type);
     return SMESH_FAILURE;
   }
   }
@@ -136,7 +138,8 @@ int cu_tet4_to_macrotet4_prolongation(
 
 template <typename From, typename To, typename idx_t>
 __global__ void cu_macrotet4_to_tet4_prolongation_elemental_kernel(
-    const ptrdiff_t nelements, const idx_t *const SMESH_RESTRICT*const SMESH_RESTRICT elements,
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const int vec_size, const ptrdiff_t from_stride,
     const From *const SMESH_RESTRICT from, const ptrdiff_t to_stride,
     To *const SMESH_RESTRICT to) {
@@ -191,7 +194,8 @@ __global__ void cu_macrotet4_to_tet4_prolongation_elemental_kernel(
 
 template <typename From, typename To, typename idx_t>
 static int cu_macrotet4_to_tet4_prolongation_elemental_tpl(
-    const ptrdiff_t nelements, const idx_t *const SMESH_RESTRICT*const SMESH_RESTRICT elements,
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const int vec_size, const ptrdiff_t from_stride,
     const From *const SMESH_RESTRICT from, const ptrdiff_t to_stride,
     To *const SMESH_RESTRICT to, void *stream) {
@@ -202,7 +206,8 @@ static int cu_macrotet4_to_tet4_prolongation_elemental_tpl(
     int min_grid_size;
     cudaOccupancyMaxPotentialBlockSize(
         &min_grid_size, &block_size,
-        cu_macrotet4_to_tet4_prolongation_elemental_kernel<From, To, idx_t>, 0, 0);
+        cu_macrotet4_to_tet4_prolongation_elemental_kernel<From, To, idx_t>, 0,
+        0);
   }
 #endif // SMESH_USE_OCCUPANCY_MAX_POTENTIAL
 
@@ -254,10 +259,11 @@ int cu_macrotet4_to_tet4_prolongation_elemental(
         (f64 *)to, stream);
   }
   default: {
-    SMESH_ERROR("[Error] cu_tet4_to_macrotet4_prolongation_tpl: not implemented "
-               "for type %s "
-               "(code %d)\n",
-               real_type_to_string(from_type), from_type);
+    SMESH_ERROR(
+        "[Error] cu_tet4_to_macrotet4_prolongation_tpl: not implemented "
+        "for type %s "
+        "(code %d)\n",
+        real_type_to_string(from_type), from_type);
     return SMESH_FAILURE;
   }
   }

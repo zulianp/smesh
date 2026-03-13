@@ -40,25 +40,25 @@ __global__ void cu_macrotet4_to_tet4_restriction_elemental_kernel(
       const ptrdiff_t ii8 = i8 * vec_size + v;
       const ptrdiff_t ii9 = i9 * vec_size + v;
 
-      const T to0 = from[ii0 * from_stride] / e2n_count[i0] +
-                    from[ii4 * from_stride] * (0.5 / e2n_count[i4]) +
-                    from[ii6 * from_stride] * (0.5 / e2n_count[i6]) +
-                    from[ii7 * from_stride] * (0.5 / e2n_count[i7]);
+      const To to0 = from[ii0 * from_stride] / e2n_count[i0] +
+                     from[ii4 * from_stride] * (To(0.5) / e2n_count[i4]) +
+                     from[ii6 * from_stride] * (To(0.5) / e2n_count[i6]) +
+                     from[ii7 * from_stride] * (To(0.5) / e2n_count[i7]);
 
-      const T to1 = from[ii1 * from_stride] / e2n_count[i1] +
-                    from[ii5 * from_stride] * (0.5 / e2n_count[i5]) +
-                    from[ii8 * from_stride] * (0.5 / e2n_count[i8]) +
-                    from[ii4 * from_stride] * (0.5 / e2n_count[i4]);
+      const To to1 = from[ii1 * from_stride] / e2n_count[i1] +
+                     from[ii5 * from_stride] * (To(0.5) / e2n_count[i5]) +
+                     from[ii8 * from_stride] * (To(0.5) / e2n_count[i8]) +
+                     from[ii4 * from_stride] * (To(0.5) / e2n_count[i4]);
 
-      const T to2 = from[ii2 * from_stride] / e2n_count[i2] +
-                    from[ii9 * from_stride] * (0.5 / e2n_count[i9]) +
-                    from[ii5 * from_stride] * (0.5 / e2n_count[i5]) +
-                    from[ii6 * from_stride] * (0.5 / e2n_count[i6]);
+      const To to2 = from[ii2 * from_stride] / e2n_count[i2] +
+                     from[ii9 * from_stride] * (To(0.5) / e2n_count[i9]) +
+                     from[ii5 * from_stride] * (To(0.5) / e2n_count[i5]) +
+                     from[ii6 * from_stride] * (To(0.5) / e2n_count[i6]);
 
-      const T to3 = from[ii3 * from_stride] / e2n_count[i3] +
-                    from[ii7 * from_stride] * (0.5 / e2n_count[i7]) +
-                    from[ii8 * from_stride] * (0.5 / e2n_count[i8]) +
-                    from[ii9 * from_stride] * (0.5 / e2n_count[i9]);
+      const To to3 = from[ii3 * from_stride] / e2n_count[i3] +
+                     from[ii7 * from_stride] * (To(0.5) / e2n_count[i7]) +
+                     from[ii8 * from_stride] * (To(0.5) / e2n_count[i8]) +
+                     from[ii9 * from_stride] * (To(0.5) / e2n_count[i9]);
 
       atomicAdd(&to[ii0 * to_stride], to0);
       atomicAdd(&to[ii1 * to_stride], to1);
@@ -83,11 +83,12 @@ static int cu_macrotet4_to_tet4_restriction_elemental(
     int min_grid_size;
     cudaOccupancyMaxPotentialBlockSize(
         &min_grid_size, &block_size,
-        cu_macrotet4_to_tet4_restriction_elemental_kernel<From, To, idx_t>, 0, 0);
+        cu_macrotet4_to_tet4_restriction_elemental_kernel<From, To, idx_t>, 0,
+        0);
   }
 #endif // SMESH_USE_OCCUPANCY_MAX_POTENTIAL
 
-  const ptrdiff_t n_blocks = div_round_up(nelements, block_size);
+  const ptrdiff_t n_blocks = div_round_up<ptrdiff_t>(nelements, block_size);
 
   if (stream) {
     cudaStream_t s = *static_cast<cudaStream_t *>(stream);

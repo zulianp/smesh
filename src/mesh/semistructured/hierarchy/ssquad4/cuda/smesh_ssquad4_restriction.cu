@@ -5,6 +5,7 @@
 
 #include <cassert>
 
+namespace smesh {
 template <typename From, typename To>
 __global__ void cu_ssquad4_hierarchical_restriction_kernel(
     const int level, const ptrdiff_t nelements, const ptrdiff_t stride,
@@ -109,7 +110,7 @@ static int cu_ssquad4_hierarchical_restriction_tpl(
   return SMESH_SUCCESS;
 }
 
-extern int cu_ssquad4_hierarchical_restriction(
+int cu_ssquad4_hierarchical_restriction(
     const int level, const ptrdiff_t nelements, const ptrdiff_t stride,
     const idx_t *const SMESH_RESTRICT elements,
     const uint16_t *const SMESH_RESTRICT element_to_node_incidence_count,
@@ -254,7 +255,7 @@ static int cu_ssquad4_hierarchical_restriction_SoA_tpl(
   return SMESH_SUCCESS;
 }
 
-extern int cu_ssquad4_hierarchical_restriction_SoA(
+int cu_ssquad4_hierarchical_restriction_SoA(
     const int level, const ptrdiff_t nelements,
     idx_t **const SMESH_RESTRICT elements,
     const uint16_t *const SMESH_RESTRICT element_to_node_incidence_count,
@@ -346,7 +347,7 @@ __global__ void cu_ssquad4_restrict_kernel(
                 "layout and indexing.");
 
   // Unsigned char necessary for multiple template instantiations of this kernel
-  extern __shared__ unsigned char cu_buff[];
+  __shared__ unsigned char cu_buff[];
 
   const int step_factor = from_level / to_level;
 
@@ -519,7 +520,7 @@ int cu_ssquad4_restrict_tpl(
   return SMESH_SUCCESS;
 }
 
-extern int cu_ssquad4_restrict(
+int cu_ssquad4_restrict(
     const ptrdiff_t nelements,
     // const ptrdiff_t                     stride,
     const int from_level, const int from_level_stride,
@@ -534,21 +535,6 @@ extern int cu_ssquad4_restrict(
   if (from_type != to_type) {
     return SMESH_FAILURE;
   }
-
-  // if (to_level == 1) {
-  //     return cu_ssquad4_hierarchical_restriction_SoA(from_level,
-  //                                                    nelements,
-  //                                                    from_elements,
-  //                                                    from_element_to_node_incidence_count,
-  //                                                    vec_size,
-  //                                                    from_type,
-  //                                                    from_stride,
-  //                                                    from,
-  //                                                    to_type,
-  //                                                    to_stride,
-  //                                                    to,
-  //                                                    stream);
-  // }
 
   switch (from_type) {
   case SMESH_REAL_DEFAULT: {
@@ -589,3 +575,5 @@ extern int cu_ssquad4_restrict(
   }
   }
 }
+
+} // namespace smesh

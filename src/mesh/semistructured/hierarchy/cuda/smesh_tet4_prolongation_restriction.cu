@@ -1,8 +1,8 @@
 #include "smesh_tet4_prolongation_restriction.cuh"
 
 #include "smesh_cuda_base.cuh"
+#include "smesh_types.hpp"
 
-#include <cSMESH_ASSERT>
 #include <cstdio>
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -105,7 +105,7 @@ extern int cu_tet4_to_macrotet4_prolongation(
   }
 
   switch (from_type) {
-  case SMESH_REAL_DEFAULT: {
+  case SMESH_DEFAULT: {
     return cu_tet4_to_macrotet4_prolongation_tpl(
         coarse_nnodes, coarse_rowptr, coarse_colidx, fine_node_map, vec_size,
         (real_t *)from, (real_t *)to, stream);
@@ -254,7 +254,8 @@ extern int cu_macrotet4_to_tet4_restriction(
 ////////////////////////////////////////////////////////////////////////
 template <typename From, typename To>
 __global__ void cu_macrotet4_to_tet4_prolongation_element_based_kernel(
-    const ptrdiff_t nelements, idx_t **const SMESH_RESTRICT elements,
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const int vec_size, const ptrdiff_t from_stride,
     const From *const SMESH_RESTRICT from, const ptrdiff_t to_stride,
     To *const SMESH_RESTRICT to) {
@@ -317,7 +318,8 @@ __global__ void cu_macrotet4_to_tet4_prolongation_element_based_kernel(
 
 template <typename From, typename To>
 static int cu_macrotet4_to_tet4_prolongation_element_based_tpl(
-    const ptrdiff_t nelements, idx_t **const SMESH_RESTRICT elements,
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const int vec_size, const ptrdiff_t from_stride,
     const From *const SMESH_RESTRICT from, const ptrdiff_t to_stride,
     To *const SMESH_RESTRICT to, void *stream) {
@@ -352,7 +354,8 @@ static int cu_macrotet4_to_tet4_prolongation_element_based_tpl(
 }
 
 int cu_macrotet4_to_tet4_prolongation_element_based(
-    const ptrdiff_t nelements, idx_t **const SMESH_RESTRICT elements,
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const int vec_size, const enum PrimitiveType from_type,
     const ptrdiff_t from_stride, const void *const SMESH_RESTRICT from,
     const enum PrimitiveType to_type, const ptrdiff_t to_stride,
@@ -393,7 +396,8 @@ int cu_macrotet4_to_tet4_prolongation_element_based(
 
 template <typename From, typename To>
 __global__ void cu_macrotet4_to_tet4_restriction_element_based_kernel(
-    const ptrdiff_t nelements, idx_t **const SMESH_RESTRICT elements,
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const uint16_t *const SMESH_RESTRICT e2n_count, const int vec_size,
     const ptrdiff_t from_stride, const From *const SMESH_RESTRICT from,
     const ptrdiff_t to_stride, To *const SMESH_RESTRICT to) {
@@ -460,7 +464,8 @@ __global__ void cu_macrotet4_to_tet4_restriction_element_based_kernel(
 
 template <typename From, typename To>
 static int cu_macrotet4_to_tet4_restriction_element_based_tpl(
-    const ptrdiff_t nelements, idx_t **const SMESH_RESTRICT elements,
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const uint16_t *const SMESH_RESTRICT element_to_node_incidence_count,
     const int vec_size, const ptrdiff_t from_stride,
     const From *const SMESH_RESTRICT from, const ptrdiff_t to_stride,
@@ -498,7 +503,8 @@ static int cu_macrotet4_to_tet4_restriction_element_based_tpl(
 }
 
 int cu_macrotet4_to_tet4_restriction_element_based(
-    const ptrdiff_t nelements, idx_t **const SMESH_RESTRICT elements,
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const uint16_t *const SMESH_RESTRICT element_to_node_incidence_count,
     const int vec_size, const enum PrimitiveType from_type,
     const ptrdiff_t from_stride, const void *const SMESH_RESTRICT from,

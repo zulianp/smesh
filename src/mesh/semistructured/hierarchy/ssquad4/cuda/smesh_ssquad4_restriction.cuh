@@ -1,8 +1,8 @@
-#ifndef CU_SSQUAD4_RESTRICTION_H
-#define CU_SSQUAD4_RESTRICTION_H
+#ifndef SMESH_SSQUAD4_RESTRICTION_CUH
+#define SMESH_SSQUAD4_RESTRICTION_CUH
 
-#include "sfem_base.hpp"
-#include "sfem_defs.hpp"
+#include "smesh_base.hpp"
+#include "smesh_types.hpp"
 #include <stddef.h>
 
 namespace smesh {

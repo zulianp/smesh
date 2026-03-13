@@ -1,9 +1,10 @@
-#ifndef CUT_TET4_PROLONGATION_RESTRICTION_H
-#define CUT_TET4_PROLONGATION_RESTRICTION_H
+#ifndef SMESH_TET4_PROLONGATION_RESTRICTION_CUH
+#define SMESH_TET4_PROLONGATION_RESTRICTION_CUH
 
 #include <stddef.h>
 
 #include "smesh_base.hpp"
+#include "smesh_types.hpp"
 
 namespace smesh {
 

@@ -55,6 +55,67 @@ private:
   std::unique_ptr<Impl> impl_;
 };
 
+enum ComputeDataFlags {
+  DD_NONE = 0,
+  DD_ELEMENT_SOA = 1 << 0,
+  DD_ELEMENT_AOS = 1 << 1,
+  DD_POINT_AOS = 1 << 2,
+  DD_POINT_SOA = 1 << 3,
+  DD_JACOBIAN_SOA = 1 << 0,
+  DD_JACOBIAN_AOS = 1 << 1,
+  DD_JACOBIAN_ADJUGATE_SOA = 1 << 2,
+  DD_JACOBIAN_ADJUGATE_AOS = 1 << 3,
+  DD_JACOBIAN_DETERMINANT = 1 << 4,
+  DD_ALL_SOA = DD_ELEMENT_SOA | DD_POINT_SOA | DD_JACOBIAN_SOA |
+               DD_JACOBIAN_ADJUGATE_SOA | DD_JACOBIAN_DETERMINANT,
+  DD_ALL_AOS = DD_ELEMENT_AOS | DD_POINT_AOS | DD_JACOBIAN_AOS |
+               DD_JACOBIAN_ADJUGATE_AOS,
+  DD_ALL = DD_ALL_SOA | DD_ALL_AOS
+};
+
+class ComputeData {
+public:
+  ComputeData();
+  ~ComputeData();
+  SharedBuffer<idx_t *> elements_SoA(const block_idx_t block_id);
+  SharedBuffer<idx_t> elements_AoS(const block_idx_t block_id);
+
+  SharedBuffer<geom_t *> points_SoA();
+  SharedBuffer<geom_t> points_AoS();
+
+  // Precision may vary based on compilation flags
+  SharedBuffer<void *> jacobians_SoA(const block_idx_t block_id);
+  SharedBuffer<void> jacobians_AoS(const block_idx_t block_id);
+  SharedBuffer<void *> jacobian_adjugate_SoA(const block_idx_t block_id);
+  SharedBuffer<void> jacobian_adjugate_AoS(const block_idx_t block_id);
+  SharedBuffer<void> jacobian_determinant(const block_idx_t block_id);
+
+  void set_num_blocks(const ptrdiff_t num_blocks);
+
+  void set_elements_SoA(const block_idx_t block_id,
+                        const SharedBuffer<idx_t *> &elements);
+  void set_elements_AoS(const block_idx_t block_id,
+                        const SharedBuffer<idx_t> &elements);
+  void set_points_SoA(const SharedBuffer<geom_t *> &points);
+  void set_points_AoS(const SharedBuffer<geom_t> &points);
+  void set_jacobians_SoA(const block_idx_t block_id,
+                         const SharedBuffer<void *> &jacobians);
+  void set_jacobians_AoS(const block_idx_t block_id,
+                         const SharedBuffer<void> &jacobians);
+  void set_jacobian_adjugate_SoA(const block_idx_t block_id,
+                                 const SharedBuffer<void *> &jacobian_adjugate);
+  void set_jacobian_adjugate_AoS(const block_idx_t block_id,
+                                 const SharedBuffer<void> &jacobian_adjugate);
+  void set_jacobian_determinant(const block_idx_t block_id,
+                                const SharedBuffer<void> &jacobian_determinant);
+
+  int commit_to_device();
+
+private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+};
+
 class Mesh final {
 public:
   using NodeToNodeGraph = smesh::CRSGraph<count_t, idx_t>;
@@ -92,6 +153,9 @@ public:
   Mesh(const std::shared_ptr<Communicator> &comm,
        const std::vector<std::shared_ptr<Block>> &blocks,
        SharedBuffer<geom_t *> points);
+
+  int init_compute_data(const int flags, const enum ExecutionSpace space);
+  std::shared_ptr<ComputeData> compute_data() const;
 
   int read(const Path &path);
   int write(const Path &path) const;
@@ -229,7 +293,8 @@ public:
   int renumber_nodes(const SharedBuffer<idx_t> &node_mapping);
   void set_node_mapping(const SharedBuffer<idx_t> &node_mapping);
   void set_comm(const std::shared_ptr<Communicator> &comm);
-  void set_element_type(const block_idx_t block_id, const enum ElemType element_type);
+  void set_element_type(const block_idx_t block_id,
+                        const enum ElemType element_type);
   std::pair<SharedBuffer<geom_t>, SharedBuffer<geom_t>> compute_bounding_box();
 
   std::shared_ptr<Mesh> clone() const;
@@ -270,7 +335,7 @@ mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
 std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh);
 std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
                               const geom_t height, const ptrdiff_t nlayers);
-                              
+
 } // namespace smesh
 
 #endif // SMESH_MESH_HPP

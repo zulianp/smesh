@@ -5,6 +5,8 @@
 
 #include <cassert>
 
+namespace smesh {
+
 template <typename From, typename To>
 __global__ void cu_ssquad4_hierarchical_prolongation_kernel(
     const int level, const ptrdiff_t nelements, const ptrdiff_t stride,
@@ -101,7 +103,7 @@ static int cu_ssquad4_hierarchical_prolongation_tpl(
   return SMESH_SUCCESS;
 }
 
-extern int cu_ssquad4_hierarchical_prolongation(
+int cu_ssquad4_hierarchical_prolongation(
     const int level, const ptrdiff_t nelements, const ptrdiff_t stride,
     const idx_t *const SMESH_RESTRICT elements, const int vec_size,
     const enum PrimitiveType from_type, const ptrdiff_t from_stride,
@@ -183,7 +185,7 @@ __global__ void cu_ssquad4_prolongate_kernel(
   static_assert(TILE_SIZE == 4, "This only works with tile size 8!");
 
   // Uunsigned char necessary for multiple instantiations
-  extern __shared__ unsigned char cu_buff[];
+  __shared__ unsigned char cu_buff[];
 
   const int step_factor = to_level / from_level;
 
@@ -344,7 +346,7 @@ int cu_ssquad4_prolongate_tpl(const ptrdiff_t nelements, const ptrdiff_t stride,
   return SMESH_SUCCESS;
 }
 
-extern int cu_ssquad4_prolongate(
+int cu_ssquad4_prolongate(
     const ptrdiff_t nelements, const ptrdiff_t stride, const int from_level,
     const int from_level_stride, idx_t *const SMESH_RESTRICT from_elements,
     const int to_level, const int to_level_stride,
@@ -386,3 +388,5 @@ extern int cu_ssquad4_prolongate(
   }
   }
 }
+
+} // namespace smesh
