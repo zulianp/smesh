@@ -21,6 +21,8 @@
 #include "smesh_volume_to_surface.hpp"
 #include "smesh_write.hpp"
 
+#include "smesh_jacobians.hpp"
+
 #ifdef SMESH_ENABLE_MPI
 #include "smesh_alltoallv.impl.hpp"
 #include "smesh_decompose.hpp"
@@ -139,7 +141,7 @@ max_node_id(const enum ElemType element_type, const ptrdiff_t n_elements,
   return static_cast<ptrdiff_t>(max_id);
 }
 
-class ComputeData::Impl {
+class GeometricData::Impl {
 public:
   std::vector<SharedBuffer<idx_t *>> elements_SoA;
   std::vector<SharedBuffer<idx_t>> elements_AoS;
@@ -147,11 +149,11 @@ public:
   SharedBuffer<geom_t *> points_SoA;
   SharedBuffer<geom_t> points_AoS;
 
-  std::vector<SharedBuffer<void *>> jacobians_SoA;
-  std::vector<SharedBuffer<void>> jacobians_AoS;
-  std::vector<SharedBuffer<void *>> jacobian_adjugate_SoA;
-  std::vector<SharedBuffer<void>> jacobian_adjugate_AoS;
-  std::vector<SharedBuffer<void>> jacobian_determinant;
+  std::vector<SharedBuffer<jacobian_t *>> jacobians_SoA;
+  std::vector<SharedBuffer<jacobian_t>> jacobians_AoS;
+  std::vector<SharedBuffer<jacobian_t *>> jacobian_adjugate_SoA;
+  std::vector<SharedBuffer<jacobian_t>> jacobian_adjugate_AoS;
+  std::vector<SharedBuffer<geom_t>> jacobian_determinant;
 
   ~Impl() {}
 
@@ -168,58 +170,60 @@ public:
   }
 };
 
-ComputeData::ComputeData() : impl_(std::make_unique<Impl>()) {}
-ComputeData::~ComputeData() = default;
+GeometricData::GeometricData() : impl_(std::make_unique<Impl>()) {}
+GeometricData::~GeometricData() = default;
 
-SharedBuffer<idx_t *> ComputeData::elements_SoA(const block_idx_t block_id) {
+SharedBuffer<idx_t *> GeometricData::elements_SoA(const block_idx_t block_id) {
   SMESH_ASSERT(impl_->elements_SoA.size() > block_id);
   return impl_->elements_SoA[block_id];
 }
 
-SharedBuffer<idx_t> ComputeData::elements_AoS(const block_idx_t block_id) {
+SharedBuffer<idx_t> GeometricData::elements_AoS(const block_idx_t block_id) {
   SMESH_ASSERT(impl_->elements_AoS.size() > block_id);
   return impl_->elements_AoS[block_id];
 }
 
-SharedBuffer<geom_t *> ComputeData::points_SoA() {
+SharedBuffer<geom_t *> GeometricData::points_SoA() {
   SMESH_ASSERT(impl_->points_SoA);
   return impl_->points_SoA;
 }
 
-SharedBuffer<geom_t> ComputeData::points_AoS() {
+SharedBuffer<geom_t> GeometricData::points_AoS() {
   SMESH_ASSERT(impl_->points_AoS);
   return impl_->points_AoS;
 }
 
-SharedBuffer<void *> ComputeData::jacobians_SoA(const block_idx_t block_id) {
+SharedBuffer<jacobian_t *>
+GeometricData::jacobians_SoA(const block_idx_t block_id) {
   SMESH_ASSERT(impl_->jacobians_SoA.size() > block_id);
   return impl_->jacobians_SoA[block_id];
 }
 
-SharedBuffer<void> ComputeData::jacobians_AoS(const block_idx_t block_id) {
+SharedBuffer<jacobian_t>
+GeometricData::jacobians_AoS(const block_idx_t block_id) {
   SMESH_ASSERT(impl_->jacobians_AoS.size() > block_id);
   return impl_->jacobians_AoS[block_id];
 }
 
-SharedBuffer<void *>
-ComputeData::jacobian_adjugate_SoA(const block_idx_t block_id) {
+SharedBuffer<jacobian_t *>
+GeometricData::jacobian_adjugate_SoA(const block_idx_t block_id) {
   SMESH_ASSERT(impl_->jacobian_adjugate_SoA.size() > block_id);
   return impl_->jacobian_adjugate_SoA[block_id];
 }
 
-SharedBuffer<void>
-ComputeData::jacobian_adjugate_AoS(const block_idx_t block_id) {
+SharedBuffer<jacobian_t>
+GeometricData::jacobian_adjugate_AoS(const block_idx_t block_id) {
   SMESH_ASSERT(impl_->jacobian_adjugate_AoS.size() > block_id);
   return impl_->jacobian_adjugate_AoS[block_id];
 }
 
-SharedBuffer<void>
-ComputeData::jacobian_determinant(const block_idx_t block_id) {
+SharedBuffer<geom_t>
+GeometricData::jacobian_determinant(const block_idx_t block_id) {
   SMESH_ASSERT(impl_->jacobian_determinant.size() > block_id);
   return impl_->jacobian_determinant[block_id];
 }
 
-void ComputeData::set_num_blocks(const ptrdiff_t num_blocks) {
+void GeometricData::set_num_blocks(const ptrdiff_t num_blocks) {
   impl_->elements_SoA.resize(num_blocks);
   impl_->elements_AoS.resize(num_blocks);
   impl_->jacobians_SoA.resize(num_blocks);
@@ -229,50 +233,52 @@ void ComputeData::set_num_blocks(const ptrdiff_t num_blocks) {
   impl_->jacobian_determinant.resize(num_blocks);
 }
 
-void ComputeData::set_elements_SoA(const block_idx_t block_id,
-                                   const SharedBuffer<idx_t *> &elements) {
+void GeometricData::set_elements_SoA(const block_idx_t block_id,
+                                     const SharedBuffer<idx_t *> &elements) {
   SMESH_ASSERT(impl_->elements_SoA.size() > block_id);
   impl_->elements_SoA[block_id] = elements;
 }
-void ComputeData::set_elements_AoS(const block_idx_t block_id,
-                                   const SharedBuffer<idx_t> &elements) {
+void GeometricData::set_elements_AoS(const block_idx_t block_id,
+                                     const SharedBuffer<idx_t> &elements) {
   SMESH_ASSERT(impl_->elements_AoS.size() > block_id);
   impl_->elements_AoS[block_id] = elements;
 }
-void ComputeData::set_points_SoA(const SharedBuffer<geom_t *> &points) {
+void GeometricData::set_points_SoA(const SharedBuffer<geom_t *> &points) {
   impl_->points_SoA = points;
 }
-void ComputeData::set_points_AoS(const SharedBuffer<geom_t> &points) {
+void GeometricData::set_points_AoS(const SharedBuffer<geom_t> &points) {
   impl_->points_AoS = points;
 }
-void ComputeData::set_jacobians_SoA(const block_idx_t block_id,
-                                    const SharedBuffer<void *> &jacobians) {
+void GeometricData::set_jacobians_SoA(
+    const block_idx_t block_id, const SharedBuffer<jacobian_t *> &jacobians) {
   SMESH_ASSERT(impl_->jacobians_SoA.size() > block_id);
   impl_->jacobians_SoA[block_id] = jacobians;
 }
-void ComputeData::set_jacobians_AoS(const block_idx_t block_id,
-                                    const SharedBuffer<void> &jacobians) {
+void GeometricData::set_jacobians_AoS(
+    const block_idx_t block_id, const SharedBuffer<jacobian_t> &jacobians) {
   SMESH_ASSERT(impl_->jacobians_AoS.size() > block_id);
   impl_->jacobians_AoS[block_id] = jacobians;
 }
-void ComputeData::set_jacobian_adjugate_SoA(
-    const block_idx_t block_id, const SharedBuffer<void *> &jacobian_adjugate) {
+void GeometricData::set_jacobian_adjugate_SoA(
+    const block_idx_t block_id,
+    const SharedBuffer<jacobian_t *> &jacobian_adjugate) {
   SMESH_ASSERT(impl_->jacobian_adjugate_SoA.size() > block_id);
   impl_->jacobian_adjugate_SoA[block_id] = jacobian_adjugate;
 }
-void ComputeData::set_jacobian_adjugate_AoS(
-    const block_idx_t block_id, const SharedBuffer<void> &jacobian_adjugate) {
+void GeometricData::set_jacobian_adjugate_AoS(
+    const block_idx_t block_id,
+    const SharedBuffer<jacobian_t> &jacobian_adjugate) {
   SMESH_ASSERT(impl_->jacobian_adjugate_AoS.size() > block_id);
   impl_->jacobian_adjugate_AoS[block_id] = jacobian_adjugate;
 }
-void ComputeData::set_jacobian_determinant(
+void GeometricData::set_jacobian_determinant(
     const block_idx_t block_id,
-    const SharedBuffer<void> &jacobian_determinant) {
+    const SharedBuffer<geom_t> &jacobian_determinant) {
   SMESH_ASSERT(impl_->jacobian_determinant.size() > block_id);
   impl_->jacobian_determinant[block_id] = jacobian_determinant;
 }
 
-int ComputeData::commit_to_device() {
+int GeometricData::send_to_device() {
   int n_blocks = impl_->elements_SoA.size();
   for (int i = 0; i < n_blocks; ++i) {
     if (impl_->elements_SoA[i]) {
@@ -371,8 +377,6 @@ public:
   std::shared_ptr<NodeToNodeGraph> crs_graph_upper_triangular;
   std::shared_ptr<NodeToElementGraph> node_to_element_graph;
 
-  std::shared_ptr<ComputeData> compute_data;
-
   ~Impl() {}
 
   void clear() {
@@ -384,7 +388,6 @@ public:
     crs_graph_upper_triangular = nullptr;
     distributed = nullptr;
     node_to_element_graph = nullptr;
-    compute_data = nullptr;
   }
 
   // Helper methods for backward compatibility
@@ -447,18 +450,11 @@ std::shared_ptr<Distributed> Mesh::distributed() const {
   return impl_->distributed;
 }
 
-std::shared_ptr<ComputeData> Mesh::compute_data() const {
-  SMESH_ASSERT(impl_->compute_data);
-  return impl_->compute_data;
-}
-
-int Mesh::init_compute_data(const int flags, const enum ExecutionSpace space) {
-  if (!impl_->compute_data) {
-    impl_->compute_data = std::make_shared<ComputeData>();
-  }
+std::shared_ptr<GeometricData>
+Mesh::create_geometric_data(const int flags, const enum ExecutionSpace space) {
+  auto compute_data = std::make_shared<GeometricData>();
 
   auto &blocks = impl_->blocks;
-  auto &compute_data = impl_->compute_data;
   auto &points = impl_->points;
 
   const ptrdiff_t n_blocks = blocks.size();
@@ -499,7 +495,7 @@ int Mesh::init_compute_data(const int flags, const enum ExecutionSpace space) {
     for (ptrdiff_t i = 0; i < n_blocks; ++i) {
       auto block = blocks[i];
       if (block) {
-        // impl_->compute_data->set_jacobians_SoA(i, block->jacobians());
+        SMESH_ERROR("DD_JACOBIAN_SOA is not supported yet!");
       } else {
         compute_data->set_jacobians_SoA(i, nullptr);
       }
@@ -510,7 +506,7 @@ int Mesh::init_compute_data(const int flags, const enum ExecutionSpace space) {
     for (ptrdiff_t i = 0; i < n_blocks; ++i) {
       auto block = blocks[i];
       if (block) {
-        // impl_->compute_data->set_jacobians_AoS(i, block->jacobians());
+        SMESH_ERROR("DD_JACOBIAN_AOS is not supported yet!");
       } else {
         compute_data->set_jacobians_AoS(i, nullptr);
       }
@@ -521,11 +517,21 @@ int Mesh::init_compute_data(const int flags, const enum ExecutionSpace space) {
     for (ptrdiff_t i = 0; i < n_blocks; ++i) {
       auto block = blocks[i];
       if (block) {
-        // impl_->compute_data->set_jacobian_adjugate_SoA(
-        //     i, block->jacobian_adjugate());
+        auto adjugate = create_host_buffer<jacobian_t>(
+            block->n_nodes_per_element(), block->n_elements());
+
+        auto determinant = create_host_buffer<jacobian_t>(block->n_elements());
+
+        adjugate_fill(block->element_type(), block->n_elements(),
+                      block->elements()->data(), points->data(), 1,
+                      adjugate->data(), determinant->data());
+
+        compute_data->set_jacobian_adjugate_SoA(i, adjugate);
+        compute_data->set_jacobian_determinant(i, determinant);
 
       } else {
         compute_data->set_jacobian_adjugate_SoA(i, nullptr);
+        compute_data->set_jacobian_determinant(i, nullptr);
       }
     }
   }
@@ -534,21 +540,24 @@ int Mesh::init_compute_data(const int flags, const enum ExecutionSpace space) {
     for (ptrdiff_t i = 0; i < n_blocks; ++i) {
       auto block = blocks[i];
       if (block) {
-        // impl_->compute_data->set_jacobian_adjugate_AoS(
-        //     i, block->jacobian_adjugate());
+        auto adjugate = create_host_buffer<jacobian_t>(
+            block->n_elements() * block->n_nodes_per_element());
+
+        auto fake_adjugate = convert_host_buffer_to_fake_SoA(
+            block->n_nodes_per_element(), adjugate);
+
+        auto determinant = create_host_buffer<jacobian_t>(block->n_elements());
+        const int dim = spatial_dimension();
+
+        adjugate_fill(block->element_type(), block->n_elements(),
+                      block->elements()->data(), points->data(), dim * dim,
+                      fake_adjugate->data(), determinant->data());
+
+        compute_data->set_jacobian_adjugate_AoS(i, adjugate);
+        compute_data->set_jacobian_determinant(i, determinant);
+
       } else {
         compute_data->set_jacobian_adjugate_AoS(i, nullptr);
-      }
-    }
-  }
-
-  if (flags & DD_JACOBIAN_DETERMINANT) {
-    for (ptrdiff_t i = 0; i < n_blocks; ++i) {
-      auto block = blocks[i];
-      if (block) {
-        // impl_->compute_data->set_jacobian_determinant(
-        //     i, block->jacobian_determinant());
-      } else {
         compute_data->set_jacobian_determinant(i, nullptr);
       }
     }
@@ -556,7 +565,7 @@ int Mesh::init_compute_data(const int flags, const enum ExecutionSpace space) {
 
 #ifdef SMESH_ENABLE_CUDA
   if (space == EXECUTION_SPACE_DEVICE) {
-    return compute_data->commit_to_device();
+    return compute_data->send_to_device();
   }
 #else
   SMESH_UNUSED(space);

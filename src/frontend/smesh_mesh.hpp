@@ -55,7 +55,7 @@ private:
   std::unique_ptr<Impl> impl_;
 };
 
-enum ComputeDataFlags {
+enum GeometricDataFlags {
   DD_NONE = 0,
   DD_ELEMENT_SOA = 1 << 0,
   DD_ELEMENT_AOS = 1 << 1,
@@ -73,10 +73,10 @@ enum ComputeDataFlags {
   DD_ALL = DD_ALL_SOA | DD_ALL_AOS
 };
 
-class ComputeData {
+class GeometricData {
 public:
-  ComputeData();
-  ~ComputeData();
+  GeometricData();
+  ~GeometricData();
   SharedBuffer<idx_t *> elements_SoA(const block_idx_t block_id);
   SharedBuffer<idx_t> elements_AoS(const block_idx_t block_id);
 
@@ -84,11 +84,11 @@ public:
   SharedBuffer<geom_t> points_AoS();
 
   // Precision may vary based on compilation flags
-  SharedBuffer<void *> jacobians_SoA(const block_idx_t block_id);
-  SharedBuffer<void> jacobians_AoS(const block_idx_t block_id);
-  SharedBuffer<void *> jacobian_adjugate_SoA(const block_idx_t block_id);
-  SharedBuffer<void> jacobian_adjugate_AoS(const block_idx_t block_id);
-  SharedBuffer<void> jacobian_determinant(const block_idx_t block_id);
+  SharedBuffer<jacobian_t *> jacobians_SoA(const block_idx_t block_id);
+  SharedBuffer<jacobian_t> jacobians_AoS(const block_idx_t block_id);
+  SharedBuffer<jacobian_t *> jacobian_adjugate_SoA(const block_idx_t block_id);
+  SharedBuffer<jacobian_t> jacobian_adjugate_AoS(const block_idx_t block_id);
+  SharedBuffer<geom_t> jacobian_determinant(const block_idx_t block_id);
 
   void set_num_blocks(const ptrdiff_t num_blocks);
 
@@ -99,17 +99,20 @@ public:
   void set_points_SoA(const SharedBuffer<geom_t *> &points);
   void set_points_AoS(const SharedBuffer<geom_t> &points);
   void set_jacobians_SoA(const block_idx_t block_id,
-                         const SharedBuffer<void *> &jacobians);
+                         const SharedBuffer<jacobian_t *> &jacobians);
   void set_jacobians_AoS(const block_idx_t block_id,
-                         const SharedBuffer<void> &jacobians);
-  void set_jacobian_adjugate_SoA(const block_idx_t block_id,
-                                 const SharedBuffer<void *> &jacobian_adjugate);
-  void set_jacobian_adjugate_AoS(const block_idx_t block_id,
-                                 const SharedBuffer<void> &jacobian_adjugate);
-  void set_jacobian_determinant(const block_idx_t block_id,
-                                const SharedBuffer<void> &jacobian_determinant);
+                         const SharedBuffer<jacobian_t> &jacobians);
+  void set_jacobian_adjugate_SoA(
+      const block_idx_t block_id,
+      const SharedBuffer<jacobian_t *> &jacobian_adjugate);
+  void
+  set_jacobian_adjugate_AoS(const block_idx_t block_id,
+                            const SharedBuffer<jacobian_t> &jacobian_adjugate);
+  void
+  set_jacobian_determinant(const block_idx_t block_id,
+                           const SharedBuffer<geom_t> &jacobian_determinant);
 
-  int commit_to_device();
+  int send_to_device();
 
 private:
   class Impl;
@@ -154,8 +157,8 @@ public:
        const std::vector<std::shared_ptr<Block>> &blocks,
        SharedBuffer<geom_t *> points);
 
-  int init_compute_data(const int flags, const enum ExecutionSpace space);
-  std::shared_ptr<ComputeData> compute_data() const;
+  std::shared_ptr<GeometricData>
+  create_geometric_data(const int flags, const enum ExecutionSpace space);
 
   int read(const Path &path);
   int write(const Path &path) const;
