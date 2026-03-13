@@ -150,6 +150,9 @@ inline double time_seconds() { return time_milliseconds() / 1000.0; }
   }
 #endif
 
+
+#define SMESH_DEFAULT_STREAM 0
+
 } // namespace smesh
 
 #endif // SMESH_BASE_HPP

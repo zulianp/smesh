@@ -177,7 +177,7 @@ int cu_sshex8_hierarchical_prolongation(
   }
 
   switch (from_type) {
-  case SMESH_REAL_DEFAULT: {
+  case SMESH_DEFAULT: {
     return cu_sshex8_hierarchical_prolongation_tpl(
         level, nelements, elements, vec_size, from_stride, (real_t *)from,
         to_stride, (real_t *)to, stream);
@@ -196,7 +196,7 @@ int cu_sshex8_hierarchical_prolongation(
     SMESH_ERROR(
         "[Error]  cu_sshex8_prolongation_tpl: not implemented for type %s "
         "(code %d)\n",
-        real_type_to_string(from_type), from_type);
+        to_string(from_type), from_type);
     return SMESH_FAILURE;
   }
   }
@@ -335,7 +335,7 @@ extern int cu_sshex8_hierarchical_restriction(
   }
 
   switch (from_type) {
-  case SMESH_REAL_DEFAULT: {
+  case SMESH_DEFAULT: {
     return cu_sshex8_hierarchical_restriction_tpl(
         level, nelements, elements, element_to_node_incidence_count, vec_size,
         from_stride, (real_t *)from, to_stride, (real_t *)to, stream);
@@ -354,7 +354,7 @@ extern int cu_sshex8_hierarchical_restriction(
     SMESH_ERROR("[Error]  cu_sshex8_prolongation_tpl: not implemented for type "
                 "%s "
                 "(code %d)\n",
-                real_type_to_string(from_type), from_type);
+                to_string(from_type), from_type);
     return SMESH_FAILURE;
   }
   }
@@ -579,7 +579,7 @@ int sshex8_hierarchical_restriction(
   }
 
   switch (from_type) {
-  case SMESH_REAL_DEFAULT: {
+  case SMESH_DEFAULT: {
     return sshex8_hierarchical_restriction_tpl<real_t, real_t, idx_t>(
         nelements, from_level, from_level_stride, from_elements,
         from_element_to_node_incidence_count, to_level, to_level_stride,
@@ -605,7 +605,7 @@ int sshex8_hierarchical_restriction(
     SMESH_ERROR("[Error]  sshex8_hierarchical_restriction: not implemented for type "
                 "%s "
                 "(code %d)\n",
-                real_type_to_string(from_type), from_type);
+                to_string(from_type), from_type);
     return SMESH_FAILURE;
   }
   }

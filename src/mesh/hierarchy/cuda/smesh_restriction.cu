@@ -126,7 +126,7 @@ int cu_macrotet4_to_tet4_restriction_elemental(
   }
 
   switch (from_type) {
-  case SMESH_REAL_DEFAULT: {
+  case SMESH_DEFAULT: {
     return cu_macrotet4_to_tet4_restriction_elemental(
         nelements, elements, element_to_node_incidence_count, vec_size,
         from_stride, (real_t *)from, to_stride, (real_t *)to, stream);
@@ -147,7 +147,7 @@ int cu_macrotet4_to_tet4_restriction_elemental(
         "for type "
         "%s "
         "(code %d)\n",
-        real_type_to_string(from_type), from_type);
+        to_string(from_type), from_type);
     return SMESH_FAILURE;
   }
   }

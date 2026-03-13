@@ -126,7 +126,7 @@ int cu_tet4_to_macrotet4_prolongation(
         "[Error] cu_tet4_to_macrotet4_prolongation_tpl: not implemented "
         "for type %s "
         "(code %d)\n",
-        real_type_to_string(from_type), from_type);
+        to_string(from_type), from_type);
     return SMESH_FAILURE;
   }
   }
@@ -243,7 +243,7 @@ int cu_macrotet4_to_tet4_prolongation_elemental(
   }
 
   switch (from_type) {
-  case SMESH_REAL_DEFAULT: {
+  case SMESH_DEFAULT: {
     return cu_macrotet4_to_tet4_prolongation_elemental_tpl(
         nelements, elements, vec_size, from_stride, (real_t *)from, to_stride,
         (real_t *)to, stream);
@@ -263,7 +263,7 @@ int cu_macrotet4_to_tet4_prolongation_elemental(
         "[Error] cu_tet4_to_macrotet4_prolongation_tpl: not implemented "
         "for type %s "
         "(code %d)\n",
-        real_type_to_string(from_type), from_type);
+        to_string(from_type), from_type);
     return SMESH_FAILURE;
   }
   }

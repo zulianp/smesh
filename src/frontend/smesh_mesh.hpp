@@ -160,6 +160,9 @@ public:
   std::shared_ptr<GeometricData>
   create_geometric_data(const int flags, const enum ExecutionSpace space);
 
+  int init_geometric_data(const int flags, const enum ExecutionSpace space);
+  std::shared_ptr<GeometricData> geometric_data() const;
+
   int read(const Path &path);
   int write(const Path &path) const;
   int initialize_node_to_node_graph();

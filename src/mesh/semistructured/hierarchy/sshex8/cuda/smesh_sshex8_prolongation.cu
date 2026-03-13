@@ -413,7 +413,7 @@ extern int cu_sshex8_prolongate(const ptrdiff_t                 nelements,
     }
 
     switch (from_type) {
-        case SMESH_REAL_DEFAULT: {
+        case SMESH_DEFAULT: {
             return cu_sshex8_prolongate_tpl<real_t, real_t>(nelements,
                                                             from_level,
                                                             from_level_stride,
@@ -470,7 +470,7 @@ extern int cu_sshex8_prolongate(const ptrdiff_t                 nelements,
                     "[Error]  cu_sshex8_prolongate: not implemented for type "
                     "%s "
                     "(code %d)\n",
-                    real_type_to_string(from_type),
+                    to_string(from_type),
                     from_type);
             return SMESH_FAILURE;
         }

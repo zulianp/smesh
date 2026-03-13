@@ -62,21 +62,19 @@ public:
     if (EXECUTION_SPACE_DEVICE == es) {
       auto dbuff = to_device(element_to_node_incidence_count);
 
-      auto elements = from_mesh->device_elements();
-      if (!elements) {
-        elements =
-            create_device_elements(from_mesh, from_mesh->element_type(0));
-        from_mesh->set_device_elements(elements);
+      auto elements = from_mesh->geometric_data()->elements_SoA(0);
+      if (elements->mem_space() != MEMORY_SPACE_DEVICE) {
+        SMESH_ERROR("Elements are not on the device");
+        return;
       }
 
       if (is_semistructured_type(from_element)) {
         if (is_semistructured_type(to_element)) {
           // FIXME make sure to reuse fine level elements and strides
-          auto to_elements = to_mesh->device_elements();
-          if (!to_elements) {
-            to_elements =
-                create_device_elements(to_mesh, to_mesh->element_type());
-            to_mesh->set_device_elements(to_elements);
+          auto to_elements = to_mesh->geometric_data()->elements_SoA(0);
+          if (to_elements->mem_space() != MEMORY_SPACE_DEVICE) {
+            SMESH_ERROR("To elements are not on the device");
+            return;
           }
 
           actual_op = [=](const real_t *const from, real_t *const to) -> int {
@@ -84,8 +82,8 @@ public:
             return cu_sshex8_restrict(
                 from_mesh->n_elements(), semistructured_level(*from_mesh), 1,
                 elements->data(), dbuff->data(), semistructured_level(*to_mesh),
-                1, to_elements->data(), block_size, SMESH_REAL_DEFAULT, 1, from,
-                SMESH_REAL_DEFAULT, 1, to, SMESH_DEFAULT_STREAM);
+                1, to_elements->data(), block_size, SMESH_DEFAULT, 1, from,
+                SMESH_DEFAULT, 1, to, SMESH_DEFAULT_STREAM);
           };
           return;
         } else {
@@ -94,8 +92,8 @@ public:
 
             return cu_sshex8_hierarchical_restriction(
                 semistructured_level(*from_mesh), from_mesh->n_elements(),
-                elements->data(), dbuff->data(), block_size, SMESH_REAL_DEFAULT,
-                1, from, SMESH_REAL_DEFAULT, 1, to, SMESH_DEFAULT_STREAM);
+                elements->data(), dbuff->data(), block_size, SMESH_DEFAULT, 1,
+                from, SMESH_DEFAULT, 1, to, SMESH_DEFAULT_STREAM);
           };
           return;
         }
@@ -105,8 +103,8 @@ public:
 
           return cu_macrotet4_to_tet4_restriction_element_based(
               from_mesh->n_elements(), elements->data(), dbuff->data(),
-              block_size, SMESH_REAL_DEFAULT, 1, from, SMESH_REAL_DEFAULT, 1,
-              to, SMESH_DEFAULT_STREAM);
+              block_size, SMESH_DEFAULT, 1, from, SMESH_DEFAULT, 1, to,
+              SMESH_DEFAULT_STREAM);
         };
         return;
       }
@@ -238,8 +236,8 @@ public:
     if (es == EXECUTION_SPACE_DEVICE) {
       cu_ssquad4_restrict(from_sides->extent(1), from_level, 1,
                           from_sides->data(), from_count->data(), to_level, 1,
-                          to_sides->data(), block_size, SMESH_REAL_DEFAULT, 1,
-                          x, SMESH_REAL_DEFAULT, 1, y, SMESH_DEFAULT_STREAM);
+                          to_sides->data(), block_size, SMESH_DEFAULT, 1, x,
+                          SMESH_DEFAULT, 1, y, SMESH_DEFAULT_STREAM);
       return SMESH_SUCCESS;
     }
 #endif

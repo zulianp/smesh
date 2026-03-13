@@ -115,7 +115,7 @@ int cu_ssquad4_hierarchical_prolongation(
   }
 
   switch (from_type) {
-  case SMESH_REAL_DEFAULT: {
+  case SMESH_DEFAULT: {
     return cu_ssquad4_hierarchical_prolongation_tpl(
         level, nelements, stride, elements, vec_size, from_stride,
         (real_t *)from, to_stride, (real_t *)to, stream);
@@ -134,7 +134,7 @@ int cu_ssquad4_hierarchical_prolongation(
     SMESH_ERROR(
         "[Error]  cu_ssquad4_prolongation_tpl: not implemented for type %s "
         "(code %d)\n",
-        real_type_to_string(from_type), from_type);
+        to_string(from_type), from_type);
     return SMESH_FAILURE;
   }
   }
@@ -360,7 +360,7 @@ int cu_ssquad4_prolongate(
   }
 
   switch (from_type) {
-  case SMESH_REAL_DEFAULT: {
+  case SMESH_DEFAULT: {
     return cu_ssquad4_prolongate_tpl<real_t, real_t>(
         nelements, stride, from_level, from_level_stride, from_elements,
         to_level, to_level_stride, to_elements, vec_size, from_stride,
@@ -383,7 +383,7 @@ int cu_ssquad4_prolongate(
     SMESH_ERROR("[Error]  cu_ssquad4_prolongate: not implemented for type "
                 "%s "
                 "(code %d)\n",
-                real_type_to_string(from_type), from_type);
+                to_string(from_type), from_type);
     return SMESH_FAILURE;
   }
   }

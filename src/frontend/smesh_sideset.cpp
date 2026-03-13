@@ -527,6 +527,7 @@ int Sideset::redistribute(const std::shared_ptr<Mesh> &mesh) {
   impl_->parent =
       smesh::manage_host_buffer(recv_displs[comm_size], recv_elements);
   impl_->lfi = smesh::manage_host_buffer(recv_displs[comm_size], recv_lfi);
+  impl_->element_mapping = dist->element_mapping();
 
   free(send_count);
   free(send_displs);

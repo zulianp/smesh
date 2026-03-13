@@ -377,6 +377,8 @@ public:
   std::shared_ptr<NodeToNodeGraph> crs_graph_upper_triangular;
   std::shared_ptr<NodeToElementGraph> node_to_element_graph;
 
+  std::shared_ptr<GeometricData> geometric_data;
+
   ~Impl() {}
 
   void clear() {
@@ -388,6 +390,7 @@ public:
     crs_graph_upper_triangular = nullptr;
     distributed = nullptr;
     node_to_element_graph = nullptr;
+    geometric_data = nullptr;
   }
 
   // Helper methods for backward compatibility
@@ -443,6 +446,15 @@ public:
   }
 };
 
+std::shared_ptr<GeometricData> Mesh::geometric_data() const {
+  SMESH_ASSERT(impl_->geometric_data);
+  if (!impl_->geometric_data) {
+    SMESH_ERROR("Geometric data not initialized");
+    return nullptr;
+  }
+  return impl_->geometric_data;
+}
+
 std::shared_ptr<Communicator> Mesh::comm() const { return impl_->comm; }
 
 std::shared_ptr<Distributed> Mesh::distributed() const {
@@ -452,21 +464,21 @@ std::shared_ptr<Distributed> Mesh::distributed() const {
 
 std::shared_ptr<GeometricData>
 Mesh::create_geometric_data(const int flags, const enum ExecutionSpace space) {
-  auto compute_data = std::make_shared<GeometricData>();
+  auto geo_data = std::make_shared<GeometricData>();
 
   auto &blocks = impl_->blocks;
   auto &points = impl_->points;
 
   const ptrdiff_t n_blocks = blocks.size();
 
-  compute_data->set_num_blocks(blocks.size());
+  geo_data->set_num_blocks(blocks.size());
   if (flags & GEO_ELEMENT_SOA) {
     for (ptrdiff_t i = 0; i < n_blocks; ++i) {
       auto block = blocks[i];
       if (block && block->elements()) {
-        compute_data->set_elements_SoA(i, block->elements());
+        geo_data->set_elements_SoA(i, block->elements());
       } else {
-        compute_data->set_elements_SoA(i, nullptr);
+        geo_data->set_elements_SoA(i, nullptr);
       }
     }
   }
@@ -477,17 +489,17 @@ Mesh::create_geometric_data(const int flags, const enum ExecutionSpace space) {
       if (block && block->elements()) {
         auto elements = soa_to_aos(block->n_nodes_per_element(),
                                    block->n_elements(), block->elements());
-        compute_data->set_elements_AoS(i, elements);
+        geo_data->set_elements_AoS(i, elements);
       }
     }
   }
 
   if (flags & GEO_POINT_SOA) {
-    compute_data->set_points_SoA(points);
+    geo_data->set_points_SoA(points);
   }
 
   if (flags & GEO_POINT_AOS) {
-    compute_data->set_points_AoS(
+    geo_data->set_points_AoS(
         soa_to_aos(points->extent(0), points->extent(1), points));
   }
 
@@ -497,7 +509,7 @@ Mesh::create_geometric_data(const int flags, const enum ExecutionSpace space) {
       if (block) {
         SMESH_ERROR("GEO_JACOBIAN_SOA is not supported yet!");
       } else {
-        compute_data->set_jacobians_SoA(i, nullptr);
+        geo_data->set_jacobians_SoA(i, nullptr);
       }
     }
   }
@@ -508,7 +520,7 @@ Mesh::create_geometric_data(const int flags, const enum ExecutionSpace space) {
       if (block) {
         SMESH_ERROR("GEO_JACOBIAN_AOS is not supported yet!");
       } else {
-        compute_data->set_jacobians_AoS(i, nullptr);
+        geo_data->set_jacobians_AoS(i, nullptr);
       }
     }
   }
@@ -526,12 +538,12 @@ Mesh::create_geometric_data(const int flags, const enum ExecutionSpace space) {
                       block->elements()->data(), points->data(), 1,
                       adjugate->data(), determinant->data());
 
-        compute_data->set_jacobian_adjugate_SoA(i, adjugate);
-        compute_data->set_jacobian_determinant(i, determinant);
+        geo_data->set_jacobian_adjugate_SoA(i, adjugate);
+        geo_data->set_jacobian_determinant(i, determinant);
 
       } else {
-        compute_data->set_jacobian_adjugate_SoA(i, nullptr);
-        compute_data->set_jacobian_determinant(i, nullptr);
+        geo_data->set_jacobian_adjugate_SoA(i, nullptr);
+        geo_data->set_jacobian_determinant(i, nullptr);
       }
     }
   }
@@ -553,24 +565,31 @@ Mesh::create_geometric_data(const int flags, const enum ExecutionSpace space) {
                       block->elements()->data(), points->data(), dim * dim,
                       fake_adjugate->data(), determinant->data());
 
-        compute_data->set_jacobian_adjugate_AoS(i, adjugate);
-        compute_data->set_jacobian_determinant(i, determinant);
+        geo_data->set_jacobian_adjugate_AoS(i, adjugate);
+        geo_data->set_jacobian_determinant(i, determinant);
 
       } else {
-        compute_data->set_jacobian_adjugate_AoS(i, nullptr);
-        compute_data->set_jacobian_determinant(i, nullptr);
+        geo_data->set_jacobian_adjugate_AoS(i, nullptr);
+        geo_data->set_jacobian_determinant(i, nullptr);
       }
     }
   }
 
 #ifdef SMESH_ENABLE_CUDA
   if (space == EXECUTION_SPACE_DEVICE) {
-    return compute_data->send_to_device();
+    geo_data->send_to_device();
   }
 #else
   SMESH_UNUSED(space);
 #endif // SMESH_ENABLE_CUDA
 
+  return geo_data;
+}
+
+int Mesh::init_geometric_data(const int flags,
+                              const enum ExecutionSpace space) {
+  auto geo_data = create_geometric_data(flags, space);
+  impl_->geometric_data = geo_data;
   return SMESH_SUCCESS;
 }
 

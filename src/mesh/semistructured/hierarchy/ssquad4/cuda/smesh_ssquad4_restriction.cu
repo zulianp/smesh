@@ -124,7 +124,7 @@ int cu_ssquad4_hierarchical_restriction(
   }
 
   switch (from_type) {
-  case SMESH_REAL_DEFAULT: {
+  case SMESH_DEFAULT: {
     return cu_ssquad4_hierarchical_restriction_tpl(
         level, nelements, stride, elements, element_to_node_incidence_count,
         vec_size, from_stride, (real_t *)from, to_stride, (real_t *)to, stream);
@@ -144,7 +144,7 @@ int cu_ssquad4_hierarchical_restriction(
         "[Error]  cu_ssquad4_prolongation_tpl: not implemented for type "
         "%s "
         "(code %d)\n",
-        real_type_to_string(from_type), from_type);
+        to_string(from_type), from_type);
     assert(0);
     return SMESH_FAILURE;
   }
@@ -269,7 +269,7 @@ int cu_ssquad4_hierarchical_restriction_SoA(
   }
 
   switch (from_type) {
-  case SMESH_REAL_DEFAULT: {
+  case SMESH_DEFAULT: {
     return cu_ssquad4_hierarchical_restriction_SoA_tpl(
         level, nelements, elements, element_to_node_incidence_count, vec_size,
         from_stride, (real_t *)from, to_stride, (real_t *)to, stream);
@@ -289,7 +289,7 @@ int cu_ssquad4_hierarchical_restriction_SoA(
         "[Error]  cu_ssquad4_prolongation_tpl: not implemented for type "
         "%s "
         "(code %d)\n",
-        real_type_to_string(from_type), from_type);
+        to_string(from_type), from_type);
     assert(0);
     return SMESH_FAILURE;
   }
@@ -537,7 +537,7 @@ int cu_ssquad4_restrict(
   }
 
   switch (from_type) {
-  case SMESH_REAL_DEFAULT: {
+  case SMESH_DEFAULT: {
     return cu_ssquad4_restrict_tpl<real_t, real_t>(
         nelements,
         // stride,
@@ -569,7 +569,7 @@ int cu_ssquad4_restrict(
     SMESH_ERROR("[Error]  cu_ssquad4_prolongate: not implemented for type "
                 "%s "
                 "(code %d)\n",
-                real_type_to_string(from_type), from_type);
+                to_string(from_type), from_type);
     assert(0);
     return SMESH_FAILURE;
   }

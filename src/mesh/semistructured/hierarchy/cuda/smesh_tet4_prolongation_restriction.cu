@@ -223,7 +223,7 @@ extern int cu_macrotet4_to_tet4_restriction(
   }
 
   switch (from_type) {
-  case SMESH_REAL_DEFAULT: {
+  case SMESH_DEFAULT: {
     return cu_macrotet4_to_tet4_restriction_tpl(
         coarse_nnodes, coarse_rowptr, coarse_colidx, fine_node_map, vec_size,
         (real_t *)from, (real_t *)to, stream);
@@ -366,7 +366,7 @@ int cu_macrotet4_to_tet4_prolongation_element_based(
   }
 
   switch (from_type) {
-  case SMESH_REAL_DEFAULT: {
+  case SMESH_DEFAULT: {
     return cu_macrotet4_to_tet4_prolongation_element_based_tpl(
         nelements, elements, vec_size, from_stride, (real_t *)from, to_stride,
         (real_t *)to, stream);
@@ -516,7 +516,7 @@ int cu_macrotet4_to_tet4_restriction_element_based(
   }
 
   switch (from_type) {
-  case SMESH_REAL_DEFAULT: {
+  case SMESH_DEFAULT: {
     return cu_macrotet4_to_tet4_restriction_element_based_tpl(
         nelements, elements, element_to_node_incidence_count, vec_size,
         from_stride, (real_t *)from, to_stride, (real_t *)to, stream);
