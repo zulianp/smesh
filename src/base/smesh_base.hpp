@@ -111,22 +111,22 @@
 #define SMESH_ASSERT(cond)
 #endif
 
-#define SMESH_BOTH SMESH_HOST SMESH_DEVICE
+#define SMESH_HOST_DEVICE SMESH_HOST SMESH_DEVICE
 
 namespace smesh {
-inline SMESH_BOTH int32_t div_round_up(int32_t a, int32_t b) {
+inline SMESH_HOST_DEVICE int32_t div_round_up(int32_t a, int32_t b) {
   return (a + b - 1) / b;
 }
 
-inline SMESH_BOTH uint32_t div_round_up(uint32_t a, uint32_t b) {
+inline SMESH_HOST_DEVICE uint32_t div_round_up(uint32_t a, uint32_t b) {
   return (a + b - 1) / b;
 }
 
-inline SMESH_BOTH int64_t div_round_up(int64_t a, int64_t b) {
+inline SMESH_HOST_DEVICE int64_t div_round_up(int64_t a, int64_t b) {
   return (a + b - 1) / b;
 }
 
-inline SMESH_BOTH uint64_t div_round_up(uint64_t a, uint64_t b) {
+inline SMESH_HOST_DEVICE uint64_t div_round_up(uint64_t a, uint64_t b) {
   return (a + b - 1) / b;
 }
 
