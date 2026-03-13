@@ -1,9 +1,11 @@
 #ifndef SMESH_TRACER_HPP
 #define SMESH_TRACER_HPP
 
-#include <stdio.h>
-
 #include "smesh_base.hpp"
+
+#include <stdio.h>
+#include <string>
+#include <memory>
 
 namespace smesh {
 

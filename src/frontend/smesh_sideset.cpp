@@ -523,17 +523,19 @@ int Sideset::redistribute(const std::shared_ptr<Mesh> &mesh) {
                  recv_displs, mesh->comm()->get(),
                  std::numeric_limits<i32>::max());
 
+
+
+  impl_->parent =
+      smesh::manage_host_buffer(recv_displs[comm_size], recv_elements);
+  impl_->lfi = smesh::manage_host_buffer(recv_displs[comm_size], recv_lfi);
+
   free(send_count);
   free(send_displs);
   free(recv_count);
   free(recv_displs);
   free(send_elements);
   free(send_lfi);
-
-  impl_->parent =
-      smesh::manage_host_buffer(recv_displs[comm_size], recv_elements);
-  impl_->lfi = smesh::manage_host_buffer(recv_displs[comm_size], recv_lfi);
-
+  
   return SMESH_SUCCESS;
 #endif
 

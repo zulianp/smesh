@@ -5,6 +5,9 @@
 #include "smesh_elem_type.hpp"
 #include "smesh_path.hpp"
 
+#include <vector> 
+#include <string>
+
 namespace smesh {
 
 int array_write(const Path &path, const enum PrimitiveType type, const void *const SMESH_RESTRICT data,

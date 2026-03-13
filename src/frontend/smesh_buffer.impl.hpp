@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <type_traits>
+#include <ostream>
 
 #include "smesh_buffer.hpp"
 
@@ -96,7 +97,11 @@ template <typename T> void Buffer<T *>::print(std::ostream &os) {
   os << "Buffer size " << extent_[0] << ", " << extent_[1] << "\n";
   for (size_t i = 0; i < extent_[0]; i++) {
     for (size_t j = 0; j < extent_[1]; j++) {
-      os << ptr_[i][j] << " ";
+      if constexpr (std::is_same_v<T, f16>) {
+        os << static_cast<float>(ptr_[i][j]) << " ";
+      } else {
+        os << ptr_[i][j] << " ";
+      }
     }
     os << "\n";
   }

@@ -4,6 +4,9 @@
 #include "smesh_sshex8.hpp"
 #include "smesh_sshex8_restriction.hpp"
 
+#include <string.h>
+#include <stdlib.h>
+
 namespace smesh {
 
     template <typename idx_t, typename real_t>
@@ -160,7 +163,7 @@ namespace smesh {
                         const int                                               vec_size,
                         const real_t *const SMESH_RESTRICT                      from,
                         real_t *const SMESH_RESTRICT                            to) {
-        assert(from_level % to_level == 0);
+        SMESH_ASSERT(from_level % to_level == 0);
 
         if (from_level % to_level != 0) {
             SMESH_ERROR("Nested meshes requirement: to_level must be divisible by from_level!");
@@ -229,8 +232,8 @@ namespace smesh {
                                 const scalar_t ly = (yi - cyi * step_factor) / ((scalar_t)step_factor);
                                 const scalar_t lz = (zi - czi * step_factor) / ((scalar_t)step_factor);
 
-                                assert(lx <= 1 + 1e-8);
-                                assert(lx >= -1e-8);
+                                SMESH_ASSERT(lx <= 1 + 1e-8);
+                                SMESH_ASSERT(lx >= -1e-8);
 
                                 const scalar_t phi0x[2] = {1 - lx, lx};
                                 const scalar_t phi0y[2] = {1 - ly, ly};
