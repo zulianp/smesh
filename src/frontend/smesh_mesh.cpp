@@ -460,7 +460,7 @@ Mesh::create_geometric_data(const int flags, const enum ExecutionSpace space) {
   const ptrdiff_t n_blocks = blocks.size();
 
   compute_data->set_num_blocks(blocks.size());
-  if (flags & DD_ELEMENT_SOA) {
+  if (flags & GEO_ELEMENT_SOA) {
     for (ptrdiff_t i = 0; i < n_blocks; ++i) {
       auto block = blocks[i];
       if (block && block->elements()) {
@@ -471,7 +471,7 @@ Mesh::create_geometric_data(const int flags, const enum ExecutionSpace space) {
     }
   }
 
-  if (flags & DD_ELEMENT_AOS) {
+  if (flags & GEO_ELEMENT_AOS) {
     for (ptrdiff_t i = 0; i < n_blocks; ++i) {
       auto block = blocks[i];
       if (block && block->elements()) {
@@ -482,38 +482,38 @@ Mesh::create_geometric_data(const int flags, const enum ExecutionSpace space) {
     }
   }
 
-  if (flags & DD_POINT_SOA) {
+  if (flags & GEO_POINT_SOA) {
     compute_data->set_points_SoA(points);
   }
 
-  if (flags & DD_POINT_AOS) {
+  if (flags & GEO_POINT_AOS) {
     compute_data->set_points_AoS(
         soa_to_aos(points->extent(0), points->extent(1), points));
   }
 
-  if (flags & DD_JACOBIAN_SOA) {
+  if (flags & GEO_JACOBIAN_SOA) {
     for (ptrdiff_t i = 0; i < n_blocks; ++i) {
       auto block = blocks[i];
       if (block) {
-        SMESH_ERROR("DD_JACOBIAN_SOA is not supported yet!");
+        SMESH_ERROR("GEO_JACOBIAN_SOA is not supported yet!");
       } else {
         compute_data->set_jacobians_SoA(i, nullptr);
       }
     }
   }
 
-  if (flags & DD_JACOBIAN_AOS) {
+  if (flags & GEO_JACOBIAN_AOS) {
     for (ptrdiff_t i = 0; i < n_blocks; ++i) {
       auto block = blocks[i];
       if (block) {
-        SMESH_ERROR("DD_JACOBIAN_AOS is not supported yet!");
+        SMESH_ERROR("GEO_JACOBIAN_AOS is not supported yet!");
       } else {
         compute_data->set_jacobians_AoS(i, nullptr);
       }
     }
   }
 
-  if (flags & DD_JACOBIAN_ADJUGATE_SOA) {
+  if (flags & GEO_JACOBIAN_ADJUGATE_SOA) {
     for (ptrdiff_t i = 0; i < n_blocks; ++i) {
       auto block = blocks[i];
       if (block) {
@@ -536,7 +536,7 @@ Mesh::create_geometric_data(const int flags, const enum ExecutionSpace space) {
     }
   }
 
-  if (flags & DD_JACOBIAN_ADJUGATE_AOS) {
+  if (flags & GEO_JACOBIAN_ADJUGATE_AOS) {
     for (ptrdiff_t i = 0; i < n_blocks; ++i) {
       auto block = blocks[i];
       if (block) {
