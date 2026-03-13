@@ -3,8 +3,8 @@
 
 #include <cstdlib>
 #include <cstring>
-#include <type_traits>
 #include <ostream>
+#include <type_traits>
 
 #include "smesh_buffer.hpp"
 
@@ -42,7 +42,6 @@ template <typename T> void Buffer<T>::print(std::ostream &os) const {
       os << static_cast<float>(d[i]) << " ";
     } else {
       os << d[i] << " ";
-  
     }
   }
   os << "\n";
@@ -50,14 +49,14 @@ template <typename T> void Buffer<T>::print(std::ostream &os) const {
 
 template <typename T>
 std::shared_ptr<Buffer<T>> Buffer<T>::wrap(const size_t n, T *const x,
-                                          enum MemorySpace mem_space) {
+                                           enum MemorySpace mem_space) {
   return std::make_shared<Buffer<T>>(n, x, nullptr, mem_space);
 }
 
 template <typename T>
 std::shared_ptr<Buffer<T>> Buffer<T>::own(const size_t n, T *x,
-                                         std::function<void(void *)> destroy,
-                                         enum MemorySpace mem_space) {
+                                          std::function<void(void *)> destroy,
+                                          enum MemorySpace mem_space) {
   return std::make_shared<Buffer<T>>(n, x, destroy, mem_space);
 }
 
@@ -69,7 +68,8 @@ template <typename T> int Buffer<T>::to_file(const Path &path) const {
   return array_write_convert_from_extension<T>(path, data(), this->n_);
 }
 
-template <typename T> std::shared_ptr<Buffer<T>> Buffer<T>::from_file(const Path &path) {
+template <typename T>
+std::shared_ptr<Buffer<T>> Buffer<T>::from_file(const Path &path) {
   T *data = nullptr;
   ptrdiff_t n = 0;
   array_read_convert_from_extension<T>(path, &data, &n);
@@ -109,16 +109,17 @@ template <typename T> void Buffer<T *>::print(std::ostream &os) {
 }
 
 template <typename T>
-std::shared_ptr<Buffer<T *>> Buffer<T *>::wrap(const size_t n0,
-                                               const size_t n1, T **x,
+std::shared_ptr<Buffer<T *>> Buffer<T *>::wrap(const size_t n0, const size_t n1,
+                                               T **x,
                                                enum MemorySpace mem_space) {
   return std::make_shared<Buffer<T *>>(n0, n1, x, nullptr, mem_space);
 }
 
 template <typename T>
-std::shared_ptr<Buffer<T *>> Buffer<T *>::own(
-    const size_t n0, const size_t n1, T **x,
-    std::function<void(int n, void **)> destroy, enum MemorySpace mem_space) {
+std::shared_ptr<Buffer<T *>>
+Buffer<T *>::own(const size_t n0, const size_t n1, T **x,
+                 std::function<void(int n, void **)> destroy,
+                 enum MemorySpace mem_space) {
   return std::make_shared<Buffer<T *>>(n0, n1, x, destroy, mem_space);
 }
 
@@ -133,7 +134,8 @@ template <typename T> int Buffer<T *>::to_files(const Path &format) {
       SMESH_ERROR("Path is too long!\n");
     }
 
-    if (array_write_convert_from_extension<T>(Path(path), ptr_[i], extent_[1])) {
+    if (array_write_convert_from_extension<T>(Path(path), ptr_[i],
+                                              extent_[1])) {
       ret = SMESH_FAILURE;
     }
   }
@@ -148,8 +150,8 @@ template <typename T> void Buffer<T *>::release() {
 
 template <typename T>
 std::shared_ptr<Buffer<T>> create_host_buffer(const size_t n) {
-  auto ret = std::make_shared<Buffer<T>>(n, static_cast<T *>(calloc(n, sizeof(T))),
-                                         &free, MEMORY_SPACE_HOST);
+  auto ret = std::make_shared<Buffer<T>>(
+      n, static_cast<T *>(calloc(n, sizeof(T))), &free, MEMORY_SPACE_HOST);
   return ret;
 }
 
@@ -213,9 +215,9 @@ convert_host_buffer_to_fake_SoA(const size_t n0,
 }
 
 template <typename T>
-std::shared_ptr<Buffer<T>>
-soa_to_aos(const size_t in_stride0, const size_t in_stride1,
-           const std::shared_ptr<Buffer<T *>> &in) {
+std::shared_ptr<Buffer<T>> soa_to_aos(const size_t in_stride0,
+                                      const size_t in_stride1,
+                                      const std::shared_ptr<Buffer<T *>> &in) {
   auto n0 = in->extent(0);
   auto n1 = in->extent(1);
 
@@ -262,9 +264,9 @@ std::shared_ptr<Buffer<T>> view(const std::shared_ptr<Buffer<T>> &buffer,
 }
 
 template <typename T>
-std::shared_ptr<Buffer<T *>>
-view(const std::shared_ptr<Buffer<T *>> &buffer, const size_t begin0,
-     const size_t end0, const size_t begin1, const size_t end1) {
+std::shared_ptr<Buffer<T *>> view(const std::shared_ptr<Buffer<T *>> &buffer,
+                                  const size_t begin0, const size_t end0,
+                                  const size_t begin1, const size_t end1) {
   const size_t extent0 = end0 - begin0;
   const size_t extent1 = end1 - begin1;
 

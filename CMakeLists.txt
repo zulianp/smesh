@@ -42,6 +42,7 @@ set(SMESH_LIBRARY_SCAN_DIRS
     "src/utils"
     "src/outofcore"
     "src/grid"
+    "src/arrays"
 )
 
 if(SMESH_ENABLE_MPI)
@@ -70,7 +71,7 @@ foreach(_dir IN LISTS SMESH_LIBRARY_SCAN_DIRS)
     )
 
     if(SMESH_ENABLE_CUDA)
-    # Add CUDA files to the library
+        # Add CUDA files to the library if CUDA is enabled
         file(GLOB_RECURSE _dir_cuda_files
             LIST_DIRECTORIES false
             CONFIGURE_DEPENDS
@@ -79,6 +80,13 @@ foreach(_dir IN LISTS SMESH_LIBRARY_SCAN_DIRS)
         )
         message(STATUS "CUDA files: ${_dir_cuda_files}")
         list(APPEND _dir_files ${_dir_cuda_files})
+    else()
+        file(GLOB_RECURSE _dir_fallback_files
+        LIST_DIRECTORIES false
+        CONFIGURE_DEPENDS
+        "${_dir}/*.fallback.cpp")
+        message(STATUS "Fallback files: ${_dir_fallback_files}")
+        list(APPEND _dir_files ${_dir_fallback_files})
     endif()
 
     list(APPEND _smesh_library_include_dirs "${_dir}")

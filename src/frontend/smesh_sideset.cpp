@@ -59,7 +59,8 @@ Sideset::create(const std::shared_ptr<Communicator> &comm,
                 const std::shared_ptr<Buffer<element_idx_t>> &parent,
                 const std::shared_ptr<Buffer<i16>> &lfi, block_idx_t block_id,
                 const SharedBuffer<large_idx_t> &element_mapping) {
-  return std::make_shared<Sideset>(comm, parent, lfi, block_id, element_mapping);
+  return std::make_shared<Sideset>(comm, parent, lfi, block_id,
+                                   element_mapping);
 }
 
 std::shared_ptr<Sideset>
@@ -523,8 +524,6 @@ int Sideset::redistribute(const std::shared_ptr<Mesh> &mesh) {
                  recv_displs, mesh->comm()->get(),
                  std::numeric_limits<i32>::max());
 
-
-
   impl_->parent =
       smesh::manage_host_buffer(recv_displs[comm_size], recv_elements);
   impl_->lfi = smesh::manage_host_buffer(recv_displs[comm_size], recv_lfi);
@@ -535,7 +534,7 @@ int Sideset::redistribute(const std::shared_ptr<Mesh> &mesh) {
   free(recv_displs);
   free(send_elements);
   free(send_lfi);
-  
+
   return SMESH_SUCCESS;
 #endif
 

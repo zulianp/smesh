@@ -159,6 +159,14 @@ zeros_like(const std::shared_ptr<Buffer<T *>> &buffer);
 
 template <typename T> using SharedBuffer = std::shared_ptr<Buffer<T>>;
 
+} // namespace smesh
+
+namespace smesh {
+
+#ifdef SMESH_ENABLE_CUDA
+template <typename T> SharedBuffer<T> create_device_buffer(const ptrdiff_t n);
+#endif // SMESH_ENABLE_CUDA
+
 template <typename T>
 static SharedBuffer<T *> create_buffer(const std::ptrdiff_t n0,
                                        const std::ptrdiff_t n1,
