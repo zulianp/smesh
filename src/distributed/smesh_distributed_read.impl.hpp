@@ -533,41 +533,23 @@ int mesh_coordinates_from_folder(MPI_Comm comm, const Path &folder,
 }
 
 template <typename idx_t, typename geom_t, typename large_idx_t>
-int mesh_from_folder_basic(const MPI_Comm comm, const Path &folder,
-                     // Elements
-                     int *nnodesxelem_out, ptrdiff_t *n_global_elements_out,
-                     ptrdiff_t *n_owned_elements_out,
-                     ptrdiff_t *n_shared_elements_out,
-                     ptrdiff_t *n_ghost_elements_out,
-                     large_idx_t **element_mapping_out,
-                     large_idx_t **aura_element_mapping_out,
-                     idx_t ***elements_out,
-                     // Nodes
-                     int *spatial_dim_out, ptrdiff_t *n_global_nodes_out,
-                     ptrdiff_t *n_owned_nodes_out,
-                     ptrdiff_t *n_shared_nodes_out,
-                     ptrdiff_t *n_ghost_nodes_out, ptrdiff_t *n_aura_nodes_out,
-                     large_idx_t **node_mapping_out, geom_t ***points_out,
-                     // Distributed connectivities
-                     int **node_owner_out, ptrdiff_t **node_offsets_out,
-                     idx_t **ghosts_out) {
-
-  int comm_rank, comm_size;
-  MPI_Comm_rank(comm, &comm_rank);
-  MPI_Comm_size(comm, &comm_size);
-  int nnodesxelem;
-  idx_t **elems;
-  ptrdiff_t n_local_elements;
-  ptrdiff_t n_global_elements;
-  mesh_block_from_folder<idx_t>(comm, folder, &nnodesxelem, &elems,
-                                &n_local_elements, &n_global_elements);
-
-  int spatial_dim;
-  geom_t **points;
-  ptrdiff_t n_local2global;
-  ptrdiff_t n_global_nodes;
-  mesh_coordinates_from_folder(comm, folder, &spatial_dim, &points,
-                               &n_local2global, &n_global_nodes);
+int mesh_create_parallel(
+    const MPI_Comm comm, const int comm_size, const int comm_rank,
+    const int nnodesxelem, idx_t **elems, const ptrdiff_t n_local_elements,
+    const ptrdiff_t n_global_elements, const int spatial_dim, geom_t **points,
+    const ptrdiff_t n_local2global, const ptrdiff_t n_global_nodes,
+    // Elements
+    int *nnodesxelem_out, ptrdiff_t *n_global_elements_out,
+    ptrdiff_t *n_owned_elements_out, ptrdiff_t *n_shared_elements_out,
+    ptrdiff_t *n_ghost_elements_out, large_idx_t **element_mapping_out,
+    large_idx_t **aura_element_mapping_out, idx_t ***elements_out,
+    // Nodes
+    int *spatial_dim_out, ptrdiff_t *n_global_nodes_out,
+    ptrdiff_t *n_owned_nodes_out, ptrdiff_t *n_shared_nodes_out,
+    ptrdiff_t *n_ghost_nodes_out, ptrdiff_t *n_aura_nodes_out,
+    large_idx_t **node_mapping_out, geom_t ***points_out,
+    // Distributed connectivities
+    int **node_owner_out, ptrdiff_t **node_offsets_out, idx_t **ghosts_out) {
 
   large_idx_t *n2eptr;
   idx_t *n2e_idx;
@@ -658,9 +640,9 @@ int mesh_from_folder_basic(const MPI_Comm comm, const Path &folder,
   // FIXME append aura nodes to element_mapping
   ptrdiff_t n_aura_nodes = 0;
   stich_aura_elements(comm, n_owned, n_shared, n_ghosts, local2global,
-                       nnodesxelem, n_aura_elements, aura_element_nodes,
-                       n_local_elements, local_elements,
-                       &local2global_with_aura, &n_aura_nodes);
+                      nnodesxelem, n_aura_elements, aura_element_nodes,
+                      n_local_elements, local_elements, &local2global_with_aura,
+                      &n_aura_nodes);
   for (int d = 0; d < nnodesxelem; ++d) {
     free(aura_element_nodes[d]);
   }
@@ -738,6 +720,50 @@ int mesh_from_folder_basic(const MPI_Comm comm, const Path &folder,
 }
 
 template <typename idx_t, typename geom_t, typename large_idx_t>
+int mesh_from_folder_basic(
+    const MPI_Comm comm, const Path &folder,
+    // Elements
+    int *nnodesxelem_out, ptrdiff_t *n_global_elements_out,
+    ptrdiff_t *n_owned_elements_out, ptrdiff_t *n_shared_elements_out,
+    ptrdiff_t *n_ghost_elements_out, large_idx_t **element_mapping_out,
+    large_idx_t **aura_element_mapping_out, idx_t ***elements_out,
+    // Nodes
+    int *spatial_dim_out, ptrdiff_t *n_global_nodes_out,
+    ptrdiff_t *n_owned_nodes_out, ptrdiff_t *n_shared_nodes_out,
+    ptrdiff_t *n_ghost_nodes_out, ptrdiff_t *n_aura_nodes_out,
+    large_idx_t **node_mapping_out, geom_t ***points_out,
+    // Distributed connectivities
+    int **node_owner_out, ptrdiff_t **node_offsets_out, idx_t **ghosts_out) {
+
+  int comm_rank, comm_size;
+  MPI_Comm_rank(comm, &comm_rank);
+  MPI_Comm_size(comm, &comm_size);
+  int nnodesxelem;
+  idx_t **elems;
+  ptrdiff_t n_local_elements;
+  ptrdiff_t n_global_elements;
+  mesh_block_from_folder<idx_t>(comm, folder, &nnodesxelem, &elems,
+                                &n_local_elements, &n_global_elements);
+
+  int spatial_dim;
+  geom_t **points;
+  ptrdiff_t n_local2global;
+  ptrdiff_t n_global_nodes;
+  mesh_coordinates_from_folder(comm, folder, &spatial_dim, &points,
+                               &n_local2global, &n_global_nodes);
+
+  return mesh_create_parallel<idx_t, geom_t, large_idx_t>(
+      comm, comm_size, comm_rank, nnodesxelem, elems, n_local_elements,
+      n_global_elements, spatial_dim, points, n_local2global, n_global_nodes,
+      nnodesxelem_out, n_global_elements_out, n_owned_elements_out,
+      n_shared_elements_out, n_ghost_elements_out, element_mapping_out,
+      aura_element_mapping_out, elements_out, spatial_dim_out,
+      n_global_nodes_out, n_owned_nodes_out, n_shared_nodes_out,
+      n_ghost_nodes_out, n_aura_nodes_out, node_mapping_out, points_out,
+      node_owner_out, node_offsets_out, ghosts_out);
+}
+
+template <typename idx_t, typename geom_t, typename large_idx_t>
 int mesh_from_folder(
     const MPI_Comm comm, const Path &folder,
     // Elements
@@ -749,8 +775,7 @@ int mesh_from_folder(
     int *spatial_dim_out, ptrdiff_t *n_global_nodes_out,
     ptrdiff_t *n_owned_nodes_out, ptrdiff_t *n_shared_nodes_out,
     ptrdiff_t *n_ghost_nodes_out, ptrdiff_t *n_aura_nodes_out,
-    large_idx_t **node_mapping_out,
-    geom_t ***points_out,
+    large_idx_t **node_mapping_out, geom_t ***points_out,
     // Distributed connectivities
     int **node_owner_out, ptrdiff_t **node_offsets_out, idx_t **ghosts_out) {
   if constexpr (std::is_same_v<large_idx_t, idx_t>) {
@@ -764,35 +789,39 @@ int mesh_from_folder(
         ghosts_out);
   } else {
 
-    std::vector<Path> i_files = detect_files(folder / "i0.*", {"raw", "int16", "int32", "int64"});
-    std::vector<Path> x_files = detect_files(folder / "x*.*", {"raw", "float16", "float32", "float64"});
+    std::vector<Path> i_files =
+        detect_files(folder / "i0.*", {"raw", "int16", "int32", "int64"});
+    std::vector<Path> x_files =
+        detect_files(folder / "x*.*", {"raw", "float16", "float32", "float64"});
 
-    if(i_files.empty() || x_files.empty()) {
+    if (i_files.empty() || x_files.empty()) {
       SMESH_ERROR("No mesh files found in folder %s\n", folder.c_str());
       return SMESH_FAILURE;
     }
 
-    const size_t num_e_idx = file_size(i_files[0]) / num_bytes(to_integer_type(i_files[0].extension()));
-    const size_t num_nodes = file_size(x_files[0]) / num_bytes(to_real_type(x_files[0].extension()));
+    const size_t num_e_idx = file_size(i_files[0]) /
+                             num_bytes(to_integer_type(i_files[0].extension()));
+    const size_t num_nodes =
+        file_size(x_files[0]) / num_bytes(to_real_type(x_files[0].extension()));
     const size_t max_idx = std::max(num_e_idx, num_nodes);
 
     // printf("max_idx: %ld\n", max_idx);
 
-    if(max_idx < std::numeric_limits<idx_t>::max()) {
+    if (max_idx < std::numeric_limits<idx_t>::max()) {
       // It should not overflow so we can use the smaller type
       return mesh_from_folder_basic<idx_t, geom_t, large_idx_t>(
-        comm, folder, nnodesxelem_out, n_global_elements_out,
-        n_owned_elements_out, n_shared_elements_out, n_ghost_elements_out,
-        element_mapping_out, aura_element_mapping_out, elements_out,
-        spatial_dim_out, n_global_nodes_out, n_owned_nodes_out,
-        n_shared_nodes_out, n_ghost_nodes_out, n_aura_nodes_out,
-        node_mapping_out, points_out, node_owner_out, node_offsets_out,
-        ghosts_out);
+          comm, folder, nnodesxelem_out, n_global_elements_out,
+          n_owned_elements_out, n_shared_elements_out, n_ghost_elements_out,
+          element_mapping_out, aura_element_mapping_out, elements_out,
+          spatial_dim_out, n_global_nodes_out, n_owned_nodes_out,
+          n_shared_nodes_out, n_ghost_nodes_out, n_aura_nodes_out,
+          node_mapping_out, points_out, node_owner_out, node_offsets_out,
+          ghosts_out);
     }
 
     int rank;
     MPI_Comm_rank(comm, &rank);
-    if(!rank) {
+    if (!rank) {
       printf("Using large index type\n");
       fflush(stdout);
     }
@@ -802,7 +831,6 @@ int mesh_from_folder(
 
     large_idx_t **elements;
     large_idx_t *ghosts;
-
 
     if (mesh_from_folder_basic<large_idx_t, geom_t, large_idx_t>(
             comm, folder, nnodesxelem_out, n_global_elements_out,
@@ -818,8 +846,7 @@ int mesh_from_folder(
     const ptrdiff_t nnodesxelem = *nnodesxelem_out;
     const ptrdiff_t n_local_elements = *n_owned_elements_out;
 
-
-    idx_t **small_elements  = (idx_t **)malloc(nnodesxelem * sizeof(idx_t *));
+    idx_t **small_elements = (idx_t **)malloc(nnodesxelem * sizeof(idx_t *));
 
     for (int d = 0; d < nnodesxelem; ++d) {
       small_elements[d] = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
@@ -833,7 +860,6 @@ int mesh_from_folder(
     free(elements);
 
     *elements_out = small_elements;
-
 
     const ptrdiff_t n_import_nodes = *n_ghost_nodes_out + *n_aura_nodes_out;
     *ghosts_out = (idx_t *)malloc(n_import_nodes * sizeof(idx_t));

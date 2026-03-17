@@ -88,7 +88,7 @@ static int cu_macrotet4_to_tet4_restriction_elemental(
   }
 #endif // SMESH_USE_OCCUPANCY_MAX_POTENTIAL
 
-  const ptrdiff_t n_blocks = div_round_up<ptrdiff_t>(nelements, block_size);
+  const ptrdiff_t n_blocks = div_round_up(nelements, (ptrdiff_t)block_size);
 
   if (stream) {
     cudaStream_t s = *static_cast<cudaStream_t *>(stream);
