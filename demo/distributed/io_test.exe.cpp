@@ -38,24 +38,28 @@ int main(int argc, char **argv) {
       auto dist = mesh->distributed();
       auto node_mapping = mesh->distributed()->node_mapping();
       auto element_mapping = mesh->distributed()->element_mapping();
-      comm->print_callback([&](std::ostream &os) {
-        os << "n_nodes_global: " << dist->n_nodes_global() << "\n";
-        os << "n_nodes_local: " << dist->n_nodes_local() << "\n";
-        os << "n_nodes_owned: " << dist->n_nodes_owned() << "\n";
-        os << "n_nodes_shared: " << dist->n_nodes_shared() << "\n";
-        os << "n_nodes_ghosts: " << dist->n_nodes_ghosts() << "\n";
-        os << "n_nodes_aura: " << dist->n_nodes_aura() << "\n";
 
-        os << "n_elements_global: " << dist->n_elements_global() << "\n";
-        os << "n_elements_local: " << dist->n_elements_local() << "\n";
-        os << "n_elements_owned: " << dist->n_elements_owned() << "\n";
-        os << "n_elements_ghosts: " << dist->n_elements_ghosts() << "\n";
-        os << "n_elements_shared: " << dist->n_elements_shared() << "\n";
+      if (0) {
+        comm->print_callback([&](std::ostream &os) {
+          os << "n_nodes_global: " << dist->n_nodes_global() << "\n";
+          os << "n_nodes_local: " << dist->n_nodes_local() << "\n";
+          os << "n_nodes_owned: " << dist->n_nodes_owned() << "\n";
+          os << "n_nodes_shared: " << dist->n_nodes_shared() << "\n";
+          os << "n_nodes_ghosts: " << dist->n_nodes_ghosts() << "\n";
+          os << "n_nodes_aura: " << dist->n_nodes_aura() << "\n";
 
-        os << "element_type: " << type_to_string(mesh->element_type(0)) << "\n";
-        os << "elem_num_nodes: " << elem_num_nodes(mesh->element_type(0))
-           << "\n";
-      });
+          os << "n_elements_global: " << dist->n_elements_global() << "\n";
+          os << "n_elements_local: " << dist->n_elements_local() << "\n";
+          os << "n_elements_owned: " << dist->n_elements_owned() << "\n";
+          os << "n_elements_ghosts: " << dist->n_elements_ghosts() << "\n";
+          os << "n_elements_shared: " << dist->n_elements_shared() << "\n";
+
+          os << "element_type: " << type_to_string(mesh->element_type(0))
+             << "\n";
+          os << "elem_num_nodes: " << elem_num_nodes(mesh->element_type(0))
+             << "\n";
+        });
+      }
 
       comm->barrier();
 
@@ -65,11 +69,10 @@ int main(int argc, char **argv) {
 
       comm->barrier();
 
-      {
+      if (0) {
         auto local_path = Path("test_" + std::to_string(comm->rank()));
-        auto local_mesh =
-            std::make_shared<Mesh>(Communicator::self(), mesh->blocks(),
-                                   mesh->points());
+        auto local_mesh = std::make_shared<Mesh>(
+            Communicator::self(), mesh->blocks(), mesh->points());
         local_mesh->write(local_path);
 
         auto aura_element_mapping = dist->aura_element_mapping();
@@ -85,6 +88,8 @@ int main(int argc, char **argv) {
         local_output->write_elemental("elemental_data", local_element_mapping);
       }
     }
+
+    comm->barrier();
   }
 
   return SMESH_SUCCESS;
