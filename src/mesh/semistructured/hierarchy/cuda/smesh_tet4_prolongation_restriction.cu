@@ -125,7 +125,7 @@ extern int cu_tet4_to_macrotet4_prolongation(
         "[Error] cu_tet4_to_macrotet4_prolongation_tpl: not implemented "
         "for type %s "
         "(code %d)\n",
-        type_to_string(from_type), from_type);
+        to_string(from_type), from_type);
     return SMESH_FAILURE;
   }
   }
@@ -145,7 +145,7 @@ __global__ void cu_macrotet4_to_tet4_restriction_kernel(
   for (ptrdiff_t i = blockIdx.x * blockDim.x + threadIdx.x; i < coarse_nnodes;
        i += blockDim.x * gridDim.x) {
     for (int v = 0; v < vec_size; v++) {
-      atomicAdd(&to[i * vec_size + v], from[i * vec_size + v]);
+      atomicAdd(&to[i * vec_size + v], (To)from[i * vec_size + v]);
     }
 
     const count_t start = coarse_rowptr[i];
@@ -243,7 +243,7 @@ extern int cu_macrotet4_to_tet4_restriction(
         "[Error] cu_tet4_to_macrotet4_prolongation_tpl: not implemented "
         "for type %s "
         "(code %d)\n",
-        type_to_string(from_type), from_type);
+        to_string(from_type), from_type);
     return SMESH_FAILURE;
   }
   }
@@ -386,7 +386,7 @@ int cu_macrotet4_to_tet4_prolongation_element_based(
         "[Error] cu_tet4_to_macrotet4_prolongation_tpl: not implemented "
         "for type %s "
         "(code %d)\n",
-        type_to_string(from_type), from_type);
+        to_string(from_type), from_type);
     return SMESH_FAILURE;
   }
   }
@@ -537,7 +537,7 @@ int cu_macrotet4_to_tet4_restriction_element_based(
         "for type "
         "%s "
         "(code %d)\n",
-        type_to_string(from_type), from_type);
+        to_string(from_type), from_type);
     return SMESH_FAILURE;
   }
   }

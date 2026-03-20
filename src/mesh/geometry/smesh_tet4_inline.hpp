@@ -56,12 +56,16 @@ tet4_fff(const T px0, const T px1, const T px2, const T px3, const T py0,
   const T x31 = x0 * x1 - x10 * x9;
   const T x32 = -x0 * x6 + x10 * x13;
   const T x33 = -x1 * x13 + x6 * x9;
-  *fff0 = x20 * (POW2(x21) * x22 + x22 * POW2(x23) + x22 * POW2(x24));
-  *fff1 = x20 * (x25 * x26 + x27 * x28 + x29 * x30);
-  *fff2 = x20 * (x26 * x31 + x28 * x32 + x30 * x33);
-  *fff3 = x20 * (x22 * POW2(x25) + x22 * POW2(x27) + x22 * POW2(x29));
-  *fff4 = x20 * (x22 * x25 * x31 + x22 * x27 * x32 + x22 * x29 * x33);
-  *fff5 = x20 * (x22 * POW2(x31) + x22 * POW2(x32) + x22 * POW2(x33));
+  *fff0 =
+      (FFFType)(x20 * (POW2(x21) * x22 + x22 * POW2(x23) + x22 * POW2(x24)));
+  *fff1 = (FFFType)(x20 * (x25 * x26 + x27 * x28 + x29 * x30));
+  *fff2 = (FFFType)(x20 * (x26 * x31 + x28 * x32 + x30 * x33));
+  *fff3 =
+      (FFFType)(x20 * (x22 * POW2(x25) + x22 * POW2(x27) + x22 * POW2(x29)));
+  *fff4 =
+      (FFFType)(x20 * (x22 * x25 * x31 + x22 * x27 * x32 + x22 * x29 * x33));
+  *fff5 =
+      (FFFType)(x20 * (x22 * POW2(x31) + x22 * POW2(x32) + x22 * POW2(x33)));
 }
 
 template <typename T>
@@ -107,20 +111,27 @@ tet4_adjugate_and_det(const T px0, const T px1, const T px2, const T px3,
   const T x4 = jacobian[2] * jacobian[4];
 
   // Store adjugate in lower precision
-  *adjugate0 = x0 - x1;
-  *adjugate1 = jacobian[2] * jacobian[7] - x2;
-  *adjugate2 = x3 - x4;
-  *adjugate3 = -jacobian[3] * jacobian[8] + jacobian[5] * jacobian[6];
-  *adjugate4 = jacobian[0] * jacobian[8] - jacobian[2] * jacobian[6];
-  *adjugate5 = -jacobian[0] * jacobian[5] + jacobian[2] * jacobian[3];
-  *adjugate6 = jacobian[3] * jacobian[7] - jacobian[4] * jacobian[6];
-  *adjugate7 = -jacobian[0] * jacobian[7] + jacobian[1] * jacobian[6];
-  *adjugate8 = jacobian[0] * jacobian[4] - jacobian[1] * jacobian[3];
+  *adjugate0 = (AdjugateType)(x0 - x1);
+  *adjugate1 = (AdjugateType)(jacobian[2] * jacobian[7] - x2);
+  *adjugate2 = (AdjugateType)(x3 - x4);
+  *adjugate3 =
+      (AdjugateType)(-jacobian[3] * jacobian[8] + jacobian[5] * jacobian[6]);
+  *adjugate4 =
+      (AdjugateType)(jacobian[0] * jacobian[8] - jacobian[2] * jacobian[6]);
+  *adjugate5 =
+      (AdjugateType)(-jacobian[0] * jacobian[5] + jacobian[2] * jacobian[3]);
+  *adjugate6 =
+      (AdjugateType)(jacobian[3] * jacobian[7] - jacobian[4] * jacobian[6]);
+  *adjugate7 =
+      (AdjugateType)(-jacobian[0] * jacobian[7] + jacobian[1] * jacobian[6]);
+  *adjugate8 =
+      (AdjugateType)(jacobian[0] * jacobian[4] - jacobian[1] * jacobian[3]);
 
   // Store determinant in lower precision
-  *determinant = jacobian[0] * x0 - jacobian[0] * x1 +
-                 jacobian[2] * jacobian[3] * jacobian[7] - jacobian[3] * x2 +
-                 jacobian[6] * x3 - jacobian[6] * x4;
+  *determinant =
+      (DeterminantType)(jacobian[0] * x0 - jacobian[0] * x1 +
+                        jacobian[2] * jacobian[3] * jacobian[7] -
+                        jacobian[3] * x2 + jacobian[6] * x3 - jacobian[6] * x4);
 }
 
 } // namespace smesh

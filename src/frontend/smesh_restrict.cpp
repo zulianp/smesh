@@ -13,6 +13,7 @@
 #ifdef SMESH_ENABLE_CUDA
 #include "smesh_sshex8_restriction.cuh"
 #include "smesh_ssquad4_restriction.cuh"
+#include "smesh_tet4_prolongation_restriction.cuh"
 #endif
 
 namespace smesh {

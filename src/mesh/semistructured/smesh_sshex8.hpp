@@ -5,7 +5,7 @@
 
 namespace smesh {
 
-static inline int sshex8_nxe(int level) {
+static SMESH_INLINE SMESH_HOST_DEVICE int sshex8_nxe(int level) {
   const int corners = 8;
   const int edge_nodes = 12 * (level - 1);
   const int face_nodes = 6 * (level - 1) * (level - 1);
@@ -13,10 +13,12 @@ static inline int sshex8_nxe(int level) {
   return corners + edge_nodes + face_nodes + vol_nodes;
 }
 
-inline int sshex8_txe(int level) { return level * level * level; }
+SMESH_INLINE SMESH_HOST_DEVICE int sshex8_txe(int level) {
+  return level * level * level;
+}
 
-static inline int sshex8_lidx(const int L, const int x, const int y,
-                                    const int z) {
+static SMESH_INLINE SMESH_HOST_DEVICE int
+sshex8_lidx(const int L, const int x, const int y, const int z) {
   int Lp1 = L + 1;
   int ret = z * (Lp1 * Lp1) + y * Lp1 + x;
   SMESH_ASSERT(ret < sshex8_nxe(L));
@@ -25,7 +27,7 @@ static inline int sshex8_lidx(const int L, const int x, const int y,
 }
 
 template <typename T>
-static SMESH_INLINE void
+static SMESH_INLINE SMESH_HOST_DEVICE void
 hex8_sub_adj_0(const T *const SMESH_RESTRICT adjugate, const T determinant,
                const T h, T *const SMESH_RESTRICT sub_adjugate,
                T *const SMESH_RESTRICT sub_determinant) {

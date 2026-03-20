@@ -4,6 +4,8 @@
 #include "smesh_elem_type.hpp"
 #include "smesh_types.hpp"
 
+#include <stddef.h>
+
 namespace smesh {
 
 // TODO: once we need 2D

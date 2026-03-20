@@ -1,9 +1,11 @@
 #include "smesh_ssquad4_restriction.cuh"
 
 #include "smesh_cuda_base.cuh"
+#include "smesh_macros.hpp"
 #include "smesh_ssquad4_inline.cuh"
 
 #include <cassert>
+#include <vector>
 
 namespace smesh {
 template <typename From, typename To>
@@ -347,7 +349,7 @@ __global__ void cu_ssquad4_restrict_kernel(
                 "layout and indexing.");
 
   // Unsigned char necessary for multiple template instantiations of this kernel
-  __shared__ unsigned char cu_buff[];
+  extern __shared__ unsigned char cu_buff[];
 
   const int step_factor = from_level / to_level;
 

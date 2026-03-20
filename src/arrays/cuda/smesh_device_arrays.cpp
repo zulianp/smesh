@@ -34,7 +34,7 @@ template <typename T> T *alloc(const size_t n) {
   return ptr;
 }
 
-template <typename T> void destroy(void *a) { SMESH_CUDA_CHECK(cudaFree(a)); }
+void destroy(void *a) { SMESH_CUDA_CHECK(cudaFree(a)); }
 
 template <typename T>
 void copy(const size_t n, const T *const src, T *const dest) {
@@ -72,7 +72,12 @@ void host_to_device(const size_t n, const T *const h, T *d) {
   template void smesh::device::host_to_device<T *>(const size_t n,             \
                                                    T *const *const h, T **d);
 
+namespace smesh {
+SMESH_INSTANTIATE_DEVICE_ARRAYS(f16)
 SMESH_INSTANTIATE_DEVICE_ARRAYS(char)
+#if defined(__clang__)
+SMESH_INSTANTIATE_DEVICE_ARRAYS(long)
+#endif
 SMESH_INSTANTIATE_DEVICE_ARRAYS(i8)
 SMESH_INSTANTIATE_DEVICE_ARRAYS(i16)
 SMESH_INSTANTIATE_DEVICE_ARRAYS(i32)
@@ -83,5 +88,6 @@ SMESH_INSTANTIATE_DEVICE_ARRAYS(u32)
 SMESH_INSTANTIATE_DEVICE_ARRAYS(u64)
 SMESH_INSTANTIATE_DEVICE_ARRAYS(f32)
 SMESH_INSTANTIATE_DEVICE_ARRAYS(f64)
+} // namespace smesh
 
 #undef SMESH_INSTANTIATE_DEVICE_ARRAYS

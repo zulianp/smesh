@@ -76,12 +76,16 @@ static SMESH_INLINE SMESH_HOST_DEVICE void hex8_fff( // X
   const T x38 = x17 * x19 - x23 * x25;
   const T x39 = -x19 * x21 + x25 * x6;
   const T x40 = -x17 * x6 + x21 * x23;
-  *fff0 = x27 * (POW2(x28) * x29 + x29 * POW2(x30) + x29 * POW2(x31));
-  *fff1 = x27 * (x32 * x33 + x34 * x35 + x36 * x37);
-  *fff2 = x27 * (x33 * x38 + x35 * x39 + x37 * x40);
-  *fff3 = x27 * (x29 * POW2(x32) + x29 * POW2(x34) + x29 * POW2(x36));
-  *fff4 = x27 * (x29 * x32 * x38 + x29 * x34 * x39 + x29 * x36 * x40);
-  *fff5 = x27 * (x29 * POW2(x38) + x29 * POW2(x39) + x29 * POW2(x40));
+  *fff0 =
+      (FFFType)(x27 * (POW2(x28) * x29 + x29 * POW2(x30) + x29 * POW2(x31)));
+  *fff1 = (FFFType)(x27 * (x32 * x33 + x34 * x35 + x36 * x37));
+  *fff2 = (FFFType)(x27 * (x33 * x38 + x35 * x39 + x37 * x40));
+  *fff3 =
+      (FFFType)(x27 * (x29 * POW2(x32) + x29 * POW2(x34) + x29 * POW2(x36)));
+  *fff4 =
+      (FFFType)(x27 * (x29 * x32 * x38 + x29 * x34 * x39 + x29 * x36 * x40));
+  *fff5 =
+      (FFFType)(x27 * (x29 * POW2(x38) + x29 * POW2(x39) + x29 * POW2(x40)));
 }
 
 template <typename T>
@@ -166,18 +170,25 @@ static SMESH_INLINE SMESH_HOST_DEVICE void hex8_adjugate_and_det(
   const T x3 = jacobian[1] * jacobian[5];
   const T x4 = jacobian[2] * jacobian[4];
 
-  *adjugate0 = x0 - x1;
-  *adjugate1 = jacobian[2] * jacobian[7] - x2;
-  *adjugate2 = x3 - x4;
-  *adjugate3 = -jacobian[3] * jacobian[8] + jacobian[5] * jacobian[6];
-  *adjugate4 = jacobian[0] * jacobian[8] - jacobian[2] * jacobian[6];
-  *adjugate5 = -jacobian[0] * jacobian[5] + jacobian[2] * jacobian[3];
-  *adjugate6 = jacobian[3] * jacobian[7] - jacobian[4] * jacobian[6];
-  *adjugate7 = -jacobian[0] * jacobian[7] + jacobian[1] * jacobian[6];
-  *adjugate8 = jacobian[0] * jacobian[4] - jacobian[1] * jacobian[3];
-  *determinant = jacobian[0] * x0 - jacobian[0] * x1 +
-                 jacobian[2] * jacobian[3] * jacobian[7] - jacobian[3] * x2 +
-                 jacobian[6] * x3 - jacobian[6] * x4;
+  *adjugate0 = (AdjugateType)(x0 - x1);
+  *adjugate1 = (AdjugateType)(jacobian[2] * jacobian[7] - x2);
+  *adjugate2 = (AdjugateType)(x3 - x4);
+  *adjugate3 =
+      (AdjugateType)(-jacobian[3] * jacobian[8] + jacobian[5] * jacobian[6]);
+  *adjugate4 =
+      (AdjugateType)(jacobian[0] * jacobian[8] - jacobian[2] * jacobian[6]);
+  *adjugate5 =
+      (AdjugateType)(-jacobian[0] * jacobian[5] + jacobian[2] * jacobian[3]);
+  *adjugate6 =
+      (AdjugateType)(jacobian[3] * jacobian[7] - jacobian[4] * jacobian[6]);
+  *adjugate7 =
+      (AdjugateType)(-jacobian[0] * jacobian[7] + jacobian[1] * jacobian[6]);
+  *adjugate8 =
+      (AdjugateType)(jacobian[0] * jacobian[4] - jacobian[1] * jacobian[3]);
+  *determinant =
+      (DeterminantType)(jacobian[0] * x0 - jacobian[0] * x1 +
+                        jacobian[2] * jacobian[3] * jacobian[7] -
+                        jacobian[3] * x2 + jacobian[6] * x3 - jacobian[6] * x4);
 }
 
 template <typename T, typename AdjugateType>

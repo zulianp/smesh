@@ -79,13 +79,13 @@
 
 #define SMESH_IMPLEMENT_ME() SMESH_ERROR("Implement me!\n")
 
-#ifdef NDEBUG
+// #ifdef NDEBUG
 #define SMESH_INLINE inline
 #define SMESH_FORCE_INLINE inline __attribute__((always_inline))
-#else
-#define SMESH_INLINE       // No inline in debug mode
-#define SMESH_FORCE_INLINE // No force inline in debug mode
-#endif
+// #else
+// #define SMESH_INLINE       // No inline in debug mode
+// #define SMESH_FORCE_INLINE // No force inline in debug mode
+// #endif
 
 #define SMESH_UNUSED(var) (void)var
 #ifndef _WIN32
@@ -149,7 +149,6 @@ inline double time_seconds() { return time_milliseconds() / 1000.0; }
     }                                                                          \
   }
 #endif
-
 
 #define SMESH_DEFAULT_STREAM 0
 

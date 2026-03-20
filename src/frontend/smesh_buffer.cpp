@@ -102,4 +102,9 @@ namespace smesh {
     SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f32, u8);
 
 #undef SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE
+
+    template std::shared_ptr<Buffer<void>> Buffer<void>::make_empty();
+    template Buffer<void *>::~Buffer();
+    template void **Buffer<void *>::data();
+    template void *const *Buffer<void *>::data() const;
 }  // namespace smesh

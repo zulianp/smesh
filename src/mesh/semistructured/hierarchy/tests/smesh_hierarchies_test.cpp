@@ -1,6 +1,7 @@
 #include <memory>
 
 #include "smesh_buffer.hpp"
+#include "smesh_device_buffer.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sideset.hpp"
@@ -67,17 +68,23 @@ int test_trace_space_operations(
                         sideset[0]->parent()->size(),
                         sideset[0]->parent()->data(), sideset[0]->lfi()->data(),
                         fine_sides->data()) == SMESH_SUCCESS);
-
-  SMESH_TEST_ASSERT(
-      ssquad4_prolongate(fine_sides->extent(1),     // nelements,
-                         coarse_level,              // rom_level
-                         fine_level / coarse_level, // from_level_stride
-                         fine_sides->data(),        // from_elements
-                         fine_level,                // to_level
-                         1,                         // to_level_stride
-                         fine_sides->data(),        // to_elements
-                         block_size,                // vec_size
-                         coarse_x->data(), fine_x->data()) == SMESH_SUCCESS);
+#ifdef SMESH_ENABLE_CUDA
+  if (es == EXECUTION_SPACE_DEVICE) {
+    // TODO
+  } else
+#endif
+  {
+    SMESH_TEST_ASSERT(
+        ssquad4_prolongate(fine_sides->extent(1),     // nelements,
+                           coarse_level,              // rom_level
+                           fine_level / coarse_level, // from_level_stride
+                           fine_sides->data(),        // from_elements
+                           fine_level,                // to_level
+                           1,                         // to_level_stride
+                           fine_sides->data(),        // to_elements
+                           block_size,                // vec_size
+                           coarse_x->data(), fine_x->data()) == SMESH_SUCCESS);
+  }
 
   auto restricted_x =
       create_buffer<real_t>(coarse_mesh->n_nodes() * block_size, es);

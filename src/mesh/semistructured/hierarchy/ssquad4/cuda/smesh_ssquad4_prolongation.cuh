@@ -1,8 +1,10 @@
 #ifndef CU_SSQUAD4_PROLONGATION_H
 #define CU_SSQUAD4_PROLONGATION_H
 
-#include "sfem_base.hpp"
-#include "sfem_defs.hpp"
+#include "smesh_base.hpp"
+
+#include "smesh_types.hpp"
+
 #include <stddef.h>
 
 namespace smesh {

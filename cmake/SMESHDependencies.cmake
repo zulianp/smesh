@@ -73,11 +73,71 @@ endif()
 
 # ##############################################################################
 
+# if(SMESH_ENABLE_CUDA)
+#     enable_language(CUDA)
+#     if(NOT DEFINED CMAKE_CUDA_STANDARD)
+#         set(CMAKE_CUDA_STANDARD 17)
+#         set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+#     endif()
+
+#     if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+#         set(CMAKE_CUDA_ARCHITECTURES 90)
+#     endif()
+# endif()
+
+
 if(SMESH_ENABLE_CUDA)
     enable_language(CUDA)
+
     if(NOT DEFINED CMAKE_CUDA_STANDARD)
-        set(CMAKE_CUDA_STANDARD 17)
-        set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+      set(CMAKE_CUDA_STANDARD 17)
+      set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+    endif()
+
+    set(SMESH_DEP_INCLUDES "${SMESH_DEP_INCLUDES};${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}")
+    #set(SMESH_DEP_LIBRARIES "${SMESH_DEP_LIBRARIES};${CMAKE_CUDA_IMPLICIT_LINK_DIRECTORIES}")
+
+    include(CheckLanguage)
+    check_language(CUDA)
+
+    find_package(CUDAToolkit REQUIRED)
+
+    list(APPEND SMESH_DEP_LIBRARIES "CUDA::cudart")
+
+    set(_SMESH_CUDA_MODULES "CUDA::cusparse;CUDA::cublas;CUDA::nvToolsExt")
+    set(SMESH_ENABLE_CUBLAS TRUE)
+    set(SMESH_ENABLE_CUSPARSE TRUE)
+
+    set(SMESH_CUDA_MATH_LIBS_FOUND FALSE)
+
+    foreach(CUDA_MODULE ${_SMESH_CUDA_MODULES})
+        if(TARGET ${CUDA_MODULE})
+            list(APPEND SMESH_DEP_LIBRARIES "${CUDA_MODULE}")
+            set(SMESH_CUDA_MATH_LIBS_FOUND TRUE)
+        else()
+            message(WARNING "[Warning] CUDAToolkit does not have module ${CUDA_MODULE} in a standard location!")
+            
+        endif()
+    endforeach()
+
+    if(NOT SMESH_CUDA_MATH_LIBS_FOUND)
+        message("Trying with: CRAY_CUDATOOLKIT_POST_LINK_OPTS=$ENV{CRAY_CUDATOOLKIT_POST_LINK_OPTS}")
+        message("Trying with: CRAY_CUDATOOLKIT_INCLUDE_OPTS=$ENV{CRAY_CUDATOOLKIT_INCLUDE_OPTS}")
+        list(APPEND SMESH_DEP_LIBRARIES "$ENV{CRAY_CUDATOOLKIT_POST_LINK_OPTS} -lcublas -lcusparse")
+        include_directories($ENV{CRAY_CUDATOOLKIT_INCLUDE_OPTS})
+    endif()
+
+    #https://github.com/NVIDIA/thrust/blob/main/thrust/cmake/README.md
+    find_package(Thrust CONFIG)
+    if(Thrust_FOUND)
+        thrust_create_target(Thrust)
+        list(APPEND SMESH_DEP_LIBRARIES Thrust)
+    else()
+        message(WARNING "Thrust not found!")
+    endif()
+
+     if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        set(CMAKE_CUDA_ARCHITECTURES 90)
     endif()
 endif()
 

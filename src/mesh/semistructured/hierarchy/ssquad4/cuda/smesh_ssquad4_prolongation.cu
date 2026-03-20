@@ -1,9 +1,12 @@
 #include "smesh_ssquad4_prolongation.cuh"
 
 #include "smesh_cuda_base.cuh"
+#include "smesh_macros.hpp"
 #include "smesh_ssquad4_inline.cuh"
+#include "smesh_types.hpp"
 
 #include <cassert>
+#include <vector>
 
 namespace smesh {
 
@@ -185,7 +188,7 @@ __global__ void cu_ssquad4_prolongate_kernel(
   static_assert(TILE_SIZE == 4, "This only works with tile size 8!");
 
   // Uunsigned char necessary for multiple instantiations
-  __shared__ unsigned char cu_buff[];
+  extern __shared__ unsigned char cu_buff[];
 
   const int step_factor = to_level / from_level;
 

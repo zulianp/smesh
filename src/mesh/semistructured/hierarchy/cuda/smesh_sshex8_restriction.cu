@@ -1,11 +1,15 @@
 #include "smesh_sshex8_restriction.cuh"
 
-#include "smesh_cuda_base.cuh"  
+#include "smesh_cuda_base.cuh"
 
-#include "cu_sshex8_inline.hpp"
+#include "smesh_macros.hpp"
+#include "smesh_sshex8.hpp"
+#include "smesh_types.hpp"
 
 #include <cstdio>
 #include <vector>
+
+namespace smesh {
 
 static const int TILE_SIZE = 8;
 #define ROUND_ROBIN(val, shift) ((val + shift) & (TILE_SIZE - 1))
@@ -61,16 +65,14 @@ __global__ void cu_sshex8_hierarchical_prolongation_kernel(
     const int vec_size, const ptrdiff_t from_stride,
     const From *const SMESH_RESTRICT from, const ptrdiff_t to_stride,
     To *const SMESH_RESTRICT to) {
-  const int corners[8] = {// Bottom
-                          cu_sshex8_lidx(level, 0, 0, 0),
-                          cu_sshex8_lidx(level, level, 0, 0),
-                          cu_sshex8_lidx(level, level, level, 0),
-                          cu_sshex8_lidx(level, 0, level, 0),
-                          // Top
-                          cu_sshex8_lidx(level, 0, 0, level),
-                          cu_sshex8_lidx(level, level, 0, level),
-                          cu_sshex8_lidx(level, level, level, level),
-                          cu_sshex8_lidx(level, 0, level, level)};
+  const int corners[8] = {
+      // Bottom
+      sshex8_lidx(level, 0, 0, 0), sshex8_lidx(level, level, 0, 0),
+      sshex8_lidx(level, level, level, 0), sshex8_lidx(level, 0, level, 0),
+      // Top
+      sshex8_lidx(level, 0, 0, level), sshex8_lidx(level, level, 0, level),
+      sshex8_lidx(level, level, level, level),
+      sshex8_lidx(level, 0, level, level)};
 
   const scalar_t h = 1. / level;
 
@@ -79,7 +81,7 @@ __global__ void cu_sshex8_hierarchical_prolongation_kernel(
     for (int zi = 0; zi < level + 1; zi++) {
       for (int yi = 0; yi < level + 1; yi++) {
         for (int xi = 0; xi < level + 1; xi++) {
-          idx_t idx = elements[cu_sshex8_lidx(level, xi, yi, zi)][e];
+          idx_t idx = elements[sshex8_lidx(level, xi, yi, zi)][e];
 
           const scalar_t x = xi * h;
           const scalar_t y = yi * h;
@@ -167,9 +169,9 @@ template <typename idx_t>
 int cu_sshex8_hierarchical_prolongation(
     const int level, const ptrdiff_t nelements,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
-    const int vec_size, const enum RealType from_type,
+    const int vec_size, const enum PrimitiveType from_type,
     const ptrdiff_t from_stride, const void *const SMESH_RESTRICT from,
-    const enum RealType to_type, const ptrdiff_t to_stride,
+    const enum PrimitiveType to_type, const ptrdiff_t to_stride,
     void *const SMESH_RESTRICT to, void *stream) {
   SMESH_ASSERT(from_type == to_type && "TODO mixed types!");
   if (from_type != to_type) {
@@ -209,16 +211,14 @@ __global__ void cu_sshex8_hierarchical_restriction_kernel(
     const u16 *const SMESH_RESTRICT e2n_count, const int vec_size,
     const ptrdiff_t from_stride, const From *const SMESH_RESTRICT from,
     const ptrdiff_t to_stride, To *const SMESH_RESTRICT to) {
-  const int corners[8] = {// Bottom
-                          cu_sshex8_lidx(level, 0, 0, 0),
-                          cu_sshex8_lidx(level, level, 0, 0),
-                          cu_sshex8_lidx(level, level, level, 0),
-                          cu_sshex8_lidx(level, 0, level, 0),
-                          // Top
-                          cu_sshex8_lidx(level, 0, 0, level),
-                          cu_sshex8_lidx(level, level, 0, level),
-                          cu_sshex8_lidx(level, level, level, level),
-                          cu_sshex8_lidx(level, 0, level, level)};
+  const int corners[8] = {
+      // Bottom
+      sshex8_lidx(level, 0, 0, 0), sshex8_lidx(level, level, 0, 0),
+      sshex8_lidx(level, level, level, 0), sshex8_lidx(level, 0, level, 0),
+      // Top
+      sshex8_lidx(level, 0, 0, level), sshex8_lidx(level, level, 0, level),
+      sshex8_lidx(level, level, level, level),
+      sshex8_lidx(level, 0, level, level)};
 
   const scalar_t h = 1. / level;
   scalar_t acc[8];
@@ -233,7 +233,7 @@ __global__ void cu_sshex8_hierarchical_restriction_kernel(
       for (int zi = 0; zi < level + 1; zi++) {
         for (int yi = 0; yi < level + 1; yi++) {
           for (int xi = 0; xi < level + 1; xi++) {
-            const int lidx = cu_sshex8_lidx(level, xi, yi, zi);
+            const int lidx = sshex8_lidx(level, xi, yi, zi);
             const ptrdiff_t idx = elements[lidx][e];
 
             const scalar_t x = xi * h;
@@ -325,9 +325,9 @@ extern int cu_sshex8_hierarchical_restriction(
     const int level, const ptrdiff_t nelements,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const u16 *const SMESH_RESTRICT element_to_node_incidence_count,
-    const int vec_size, const enum RealType from_type,
+    const int vec_size, const enum PrimitiveType from_type,
     const ptrdiff_t from_stride, const void *const SMESH_RESTRICT from,
-    const enum RealType to_type, const ptrdiff_t to_stride,
+    const enum PrimitiveType to_type, const ptrdiff_t to_stride,
     void *const SMESH_RESTRICT to, void *stream) {
   SMESH_ASSERT(from_type == to_type && "TODO mixed types!");
   if (from_type != to_type) {
@@ -369,8 +369,8 @@ __global__ void sshex8_hierarchical_restriction_kernel(
     const int to_level, const int to_level_stride,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT to_elements,
     const To *const SMESH_RESTRICT S, const int vec_size,
-    const enum RealType from_type, const ptrdiff_t from_stride,
-    const From *const SMESH_RESTRICT from, const enum RealType to_type,
+    const enum PrimitiveType from_type, const ptrdiff_t from_stride,
+    const From *const SMESH_RESTRICT from, const enum PrimitiveType to_type,
     const ptrdiff_t to_stride, To *const SMESH_RESTRICT to) {
   static_assert(
       TILE_SIZE == 8,
@@ -448,10 +448,10 @@ __global__ void sshex8_hierarchical_restriction_kernel(
                   __syncwarp();
                   if (from_exists) {
                     const int idx_from =
-                        cu_sshex8_lidx(from_level * from_level_stride,
-                                       off_from_xi * from_level_stride,
-                                       off_from_yi * from_level_stride,
-                                       off_from_zi * from_level_stride);
+                        sshex8_lidx(from_level * from_level_stride,
+                                    off_from_xi * from_level_stride,
+                                    off_from_yi * from_level_stride,
+                                    off_from_zi * from_level_stride);
 
                     const idx_t gidx = from_elements[idx_from][e];
                     const ptrdiff_t idx = (gidx * vec_size + d) * from_stride;
@@ -497,7 +497,7 @@ __global__ void sshex8_hierarchical_restriction_kernel(
                               off_to_yi <= to_level && //
                               off_to_xi <= to_level;
           if (exists) {
-            const int idx_to = cu_sshex8_lidx(
+            const int idx_to = sshex8_lidx(
                 to_level * to_level_stride, off_to_xi * to_level_stride,
                 off_to_yi * to_level_stride, off_to_zi * to_level_stride);
 
@@ -518,8 +518,8 @@ int sshex8_hierarchical_restriction_tpl(
     const u16 *const SMESH_RESTRICT from_element_to_node_incidence_count,
     const int to_level, const int to_level_stride,
     idx_t **const SMESH_RESTRICT to_elements, const int vec_size,
-    const enum RealType from_type, const ptrdiff_t from_stride,
-    const From *const SMESH_RESTRICT from, const enum RealType to_type,
+    const enum PrimitiveType from_type, const ptrdiff_t from_stride,
+    const From *const SMESH_RESTRICT from, const enum PrimitiveType to_type,
     const ptrdiff_t to_stride, To *const SMESH_RESTRICT to, void *stream) {
   SMESH_DEBUG_SYNCHRONIZE();
 
@@ -529,7 +529,8 @@ int sshex8_hierarchical_restriction_tpl(
   {
     int min_grid_size;
     cudaOccupancyMaxPotentialBlockSize(
-        &min_grid_size, &block_size, sshex8_hierarchical_restriction_kernel<From, To>, 0, 0);
+        &min_grid_size, &block_size,
+        sshex8_hierarchical_restriction_kernel<From, To>, 0, 0);
   }
 #endif // SMESH_USE_OCCUPANCY_MAX_POTENTIAL
 
@@ -566,12 +567,13 @@ int sshex8_hierarchical_restriction_tpl(
 template <typename idx_t>
 int sshex8_hierarchical_restriction(
     const ptrdiff_t nelements, const int from_level,
-    const int from_level_stride, const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT from_elements,
+    const int from_level_stride,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT from_elements,
     const u16 *const SMESH_RESTRICT from_element_to_node_incidence_count,
     const int to_level, const int to_level_stride,
     idx_t **const SMESH_RESTRICT to_elements, const int vec_size,
-    const enum RealType from_type, const ptrdiff_t from_stride,
-    const void *const SMESH_RESTRICT from, const enum RealType to_type,
+    const enum PrimitiveType from_type, const ptrdiff_t from_stride,
+    const void *const SMESH_RESTRICT from, const enum PrimitiveType to_type,
     const ptrdiff_t to_stride, void *const SMESH_RESTRICT to, void *stream) {
   SMESH_ASSERT(from_type == to_type && "TODO mixed types!");
   if (from_type != to_type) {
@@ -602,11 +604,13 @@ int sshex8_hierarchical_restriction(
   }
 
   default: {
-    SMESH_ERROR("[Error]  sshex8_hierarchical_restriction: not implemented for type "
-                "%s "
-                "(code %d)\n",
-                to_string(from_type), from_type);
+    SMESH_ERROR(
+        "[Error]  sshex8_hierarchical_restriction: not implemented for type "
+        "%s "
+        "(code %d)\n",
+        to_string(from_type), from_type);
     return SMESH_FAILURE;
   }
   }
 }
+} // namespace smesh

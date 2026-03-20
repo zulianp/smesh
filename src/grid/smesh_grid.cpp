@@ -1,4 +1,5 @@
 #include "smesh_grid.hpp"
+#include "smesh_device_buffer.hpp"
 #include "smesh_glob.hpp"
 #include "smesh_tracer.hpp"
 

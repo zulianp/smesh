@@ -75,6 +75,10 @@ foreach(_dir IN LISTS SMESH_LIBRARY_SCAN_DIRS)
         file(GLOB_RECURSE _dir_cuda_files
             LIST_DIRECTORIES false
             CONFIGURE_DEPENDS
+            "${_dir}/cuda/*.c"
+            "${_dir}/cuda/*.cc"
+            "${_dir}/cuda/*.cpp"
+            "${_dir}/cuda/*.cxx"
             "${_dir}/*.cu"
             "${_dir}/*.cuh"
         )
