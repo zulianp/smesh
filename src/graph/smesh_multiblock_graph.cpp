@@ -37,6 +37,14 @@
 namespace smesh {
 SMESH_EXPLICIT_INSTANTIATE_MULTIBLOCK_GRAPH(i32);
 SMESH_EXPLICIT_INSTANTIATE_MULTIBLOCK_GRAPH(i64);
+template int create_multiblock_crs_graph<i64, i32, i64>(
+    block_idx_t, const enum ElemType *, const ptrdiff_t *,
+    const i64 *const SMESH_RESTRICT *const SMESH_RESTRICT *, ptrdiff_t,
+    i32 **, i64 **);
+template int create_multiblock_crs_graph_upper_triangular<i64, i32, i64>(
+    block_idx_t, const enum ElemType *, const ptrdiff_t *,
+    const i64 *const SMESH_RESTRICT *const SMESH_RESTRICT *, ptrdiff_t,
+    i32 **, i64 **);
 } // namespace smesh
 
 #undef SMESH_EXPLICIT_INSTANTIATE_MULTIBLOCK_GRAPH

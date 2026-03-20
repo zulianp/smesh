@@ -49,6 +49,11 @@ template void create_element_adj_table<i64, i64, i32>(
     const ptrdiff_t, const ptrdiff_t, enum ElemType,
     const i64 *const SMESH_RESTRICT *const SMESH_RESTRICT,
     i32 **SMESH_RESTRICT);
+template int extract_skin_sideset<i64, i64, i32>(
+    const ptrdiff_t, const ptrdiff_t, const enum ElemType,
+    const i64 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+    ptrdiff_t *SMESH_RESTRICT, i32 **SMESH_RESTRICT,
+    i16 **SMESH_RESTRICT);
 } // namespace smesh
 
 #undef SMESH_EXPLICIT_INSTANTIATE_ADJACENCY
