@@ -77,7 +77,7 @@ namespace smesh {
     template std::shared_ptr<Buffer<T *>> zeros_like<T>(const std::shared_ptr<Buffer<T *>> &);                                  \
     template std::shared_ptr<Buffer<T>>   soa_to_aos<T>(                                                                        \
             const size_t in_stride0, const size_t in_stride1, const std::shared_ptr<Buffer<T *>> &in)
-        //TODO: add missing explicit instantiations 
+    // TODO: add missing explicit instantiations
 
     SMESH_EXPLICIT_INSTANTIATE_BUFFER_2D(f16);
     SMESH_EXPLICIT_INSTANTIATE_BUFFER_2D(f32);
@@ -90,8 +90,8 @@ namespace smesh {
 
 #undef SMESH_EXPLICIT_INSTANTIATE_BUFFER_2D
 
-#define SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(O, I) \
-    template std::shared_ptr<Buffer<O>> astype<O, I>(const std::shared_ptr<Buffer<I>> &); \
+#define SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(O, I)                                      \
+    template std::shared_ptr<Buffer<O>>   astype<O, I>(const std::shared_ptr<Buffer<I>> &); \
     template std::shared_ptr<Buffer<O *>> astype<O, I>(const std::shared_ptr<Buffer<I *>> &)
 
     SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f16, f64);
@@ -100,11 +100,13 @@ namespace smesh {
     SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f32, f16);
     SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f16, f32);
     SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f32, u8);
+    SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f64, u8);
+    SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f64, u16);
 
 #undef SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE
 
     template std::shared_ptr<Buffer<void>> Buffer<void>::make_empty();
     template Buffer<void *>::~Buffer();
-    template void **Buffer<void *>::data();
+    template void       **Buffer<void *>::data();
     template void *const *Buffer<void *>::data() const;
 }  // namespace smesh

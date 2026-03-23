@@ -1,12 +1,10 @@
 #ifndef SFEM_RESTRICT_HPP
 #define SFEM_RESTRICT_HPP
 
-// C includes
 #include "smesh_base.hpp"
+#include "smesh_types.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_sshex8_restriction.hpp"
-
-// C++ includes
 #include "smesh_forward_declarations.hpp"
 
 #ifdef SMESH_ENABLE_CUDA
