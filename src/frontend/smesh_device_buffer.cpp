@@ -73,6 +73,8 @@ SharedBuffer<void *> to_device<void>(const SharedBuffer<void *> &in) {
     SMESH_EXPLICIT_INSTANTIATE_DEVICE_BUFFER_1D(f16);
     SMESH_EXPLICIT_INSTANTIATE_DEVICE_BUFFER_1D(f32);
     SMESH_EXPLICIT_INSTANTIATE_DEVICE_BUFFER_1D(f64);
+    template SharedBuffer<const f32> to_host<const f32>(const SharedBuffer<const f32> &);
+    template SharedBuffer<const f64> to_host<const f64>(const SharedBuffer<const f64> &);
 
     SMESH_EXPLICIT_INSTANTIATE_DEVICE_BUFFER_1D(i8);
     SMESH_EXPLICIT_INSTANTIATE_DEVICE_BUFFER_1D(i16);

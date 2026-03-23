@@ -29,14 +29,16 @@ int cu_macrotet4_to_tet4_restriction(
 // Element-based (more generic)
 
 int cu_macrotet4_to_tet4_prolongation_element_based(
-    const ptrdiff_t nelements, idx_t **const SMESH_RESTRICT elements,
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const int vec_size, const enum PrimitiveType from_type,
     const ptrdiff_t from_stride, const void *const SMESH_RESTRICT from,
     const enum PrimitiveType to_type, const ptrdiff_t to_stride,
     void *const SMESH_RESTRICT to, void *stream);
 
 int cu_macrotet4_to_tet4_restriction_element_based(
-    const ptrdiff_t nelements, idx_t **const SMESH_RESTRICT elements,
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const uint16_t *const SMESH_RESTRICT element_to_node_incidence_count,
     const int vec_size, const enum PrimitiveType from_type,
     const ptrdiff_t from_stride, const void *const SMESH_RESTRICT from,

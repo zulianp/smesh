@@ -21,6 +21,8 @@ namespace smesh {
     template class Buffer<f16>;
     template class Buffer<f32>;
     template class Buffer<f64>;
+    template class Buffer<const f32>;
+    template class Buffer<const f64>;
 
     template class Buffer<i8>;
     template class Buffer<i16>;
@@ -106,7 +108,12 @@ namespace smesh {
 #undef SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE
 
     template std::shared_ptr<Buffer<void>> Buffer<void>::make_empty();
+    template std::shared_ptr<Buffer<void>> Buffer<void>::own(const size_t                n,
+                                                             void                       *x,
+                                                             std::function<void(void *)> destroy,
+                                                             enum MemorySpace            mem_space);
     template Buffer<void *>::~Buffer();
     template void       **Buffer<void *>::data();
     template void *const *Buffer<void *>::data() const;
+    template void        *Buffer<void>::data();
 }  // namespace smesh

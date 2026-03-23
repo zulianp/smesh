@@ -79,6 +79,8 @@ foreach(_dir IN LISTS SMESH_LIBRARY_SCAN_DIRS)
             "${_dir}/cuda/*.cc"
             "${_dir}/cuda/*.cpp"
             "${_dir}/cuda/*.cxx"
+            "${_dir}/cuda/*.cu"
+            "${_dir}/cuda/*.cuh"
             "${_dir}/*.cu"
             "${_dir}/*.cuh"
         )

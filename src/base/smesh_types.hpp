@@ -4,6 +4,7 @@
 #include "smesh_base.hpp"
 
 #include <string_view>
+#include <type_traits>
 
 namespace smesh {
 
@@ -42,36 +43,43 @@ using f64 = double;
 // using element_idx_t = i64;
 // using count_t = i64;
 
-static const f16 F16_MAX = (f16)65504.0f;
-static const size_t SIZE_LARGEST_TYPE = sizeof(i64);
+    static const f16    F16_MAX           = (f16)65504.0f;
+    static const size_t SIZE_LARGEST_TYPE = sizeof(i64);
 
-template <typename T> struct TypeToString {
-  static const std::string_view value() { return "raw"; }
-};
+    template <typename T>
+    struct TypeToString {
+        static const std::string_view value() { return "raw"; }
+    };
 
-template <> struct TypeToString<i16> {
-  static const std::string_view value() { return "int16"; }
-};
+    template <>
+    struct TypeToString<i16> {
+        static const std::string_view value() { return "int16"; }
+    };
 
-template <> struct TypeToString<i32> {
-  static const std::string_view value() { return "int32"; }
-};
+    template <>
+    struct TypeToString<i32> {
+        static const std::string_view value() { return "int32"; }
+    };
 
-template <> struct TypeToString<i64> {
-  static const std::string_view value() { return "int64"; }
-};
+    template <>
+    struct TypeToString<i64> {
+        static const std::string_view value() { return "int64"; }
+    };
 
-template <> struct TypeToString<f16> {
-  static const std::string_view value() { return "float16"; }
-};
+    template <>
+    struct TypeToString<f16> {
+        static const std::string_view value() { return "float16"; }
+    };
 
-template <> struct TypeToString<f32> {
-  static const std::string_view value() { return "float32"; }
-};
+    template <>
+    struct TypeToString<f32> {
+        static const std::string_view value() { return "float32"; }
+    };
 
-template <> struct TypeToString<f64> {
-  static const std::string_view value() { return "float64"; }
-};
+    template <>
+    struct TypeToString<f64> {
+        static const std::string_view value() { return "float64"; }
+    };
 
 // template <> struct TypeToString<ptrdiff_t> {
 //   static const std::string_view value() {
@@ -102,15 +110,18 @@ enum PrimitiveType {
   SMESH_UINT64 = 180,
   SMESH_CHAR = 1,
   SMESH_LONG = 160,
-  SMESH_TYPE_UNDEFINED = -1
-};
+        SMESH_TYPE_UNDEFINED = -1
+    };
 
-template <typename T> struct TypeToEnum {
-  static enum PrimitiveType value() {
-    if constexpr (std::is_same_v<T, long> && sizeof(T) == 8) {
-      return SMESH_INT64;
-    } else if constexpr (std::is_same_v<T, int> && sizeof(T) == 4) {
-      return SMESH_INT32;
+    template <typename T>
+    struct TypeToEnum {
+        static enum PrimitiveType value() {
+            if constexpr (std::is_same_v<T, void>) {
+                return SMESH_TYPE_UNDEFINED;
+            } else if constexpr (std::is_same_v<T, long> && sizeof(T) == 8) {
+                return SMESH_INT64;
+            } else if constexpr (std::is_same_v<T, int> && sizeof(T) == 4) {
+                return SMESH_INT32;
     } else if constexpr (std::is_same_v<T, short> && sizeof(T) == 2) {
       return SMESH_INT16;
     } else if constexpr (std::is_same_v<T, char> && sizeof(T) == 1) {
@@ -120,52 +131,70 @@ template <typename T> struct TypeToEnum {
     }
     SMESH_ERROR("Invalid type: %s", TypeToString<T>::value().data());
     return SMESH_TYPE_UNDEFINED;
-  }
-};
+        }
+    };
 
-template <> struct TypeToEnum<char> {
-  static enum PrimitiveType value() { return SMESH_CHAR; }
-};
+    template <typename T>
+    struct TypeToEnum<const T> {
+        static enum PrimitiveType value() {
+            return TypeToEnum<std::remove_cv_t<T>>::value();
+        }
+    };
 
-template <> struct TypeToEnum<f16> {
-  static enum PrimitiveType value() { return SMESH_FLOAT16; }
-};
+    template <>
+    struct TypeToEnum<char> {
+        static enum PrimitiveType value() { return SMESH_CHAR; }
+    };
 
-template <> struct TypeToEnum<f32> {
-  static enum PrimitiveType value() { return SMESH_FLOAT32; }
-};
+    template <>
+    struct TypeToEnum<f16> {
+        static enum PrimitiveType value() { return SMESH_FLOAT16; }
+    };
 
-template <> struct TypeToEnum<f64> {
-  static enum PrimitiveType value() { return SMESH_FLOAT64; }
-};
+    template <>
+    struct TypeToEnum<f32> {
+        static enum PrimitiveType value() { return SMESH_FLOAT32; }
+    };
 
-template <> struct TypeToEnum<i16> {
-  static enum PrimitiveType value() { return SMESH_INT16; }
-};
+    template <>
+    struct TypeToEnum<f64> {
+        static enum PrimitiveType value() { return SMESH_FLOAT64; }
+    };
 
-template <> struct TypeToEnum<i32> {
-  static enum PrimitiveType value() { return SMESH_INT32; }
-};
+    template <>
+    struct TypeToEnum<i16> {
+        static enum PrimitiveType value() { return SMESH_INT16; }
+    };
 
-template <> struct TypeToEnum<i64> {
-  static enum PrimitiveType value() { return SMESH_INT64; }
-};
+    template <>
+    struct TypeToEnum<i32> {
+        static enum PrimitiveType value() { return SMESH_INT32; }
+    };
 
-template <> struct TypeToEnum<i8> {
-  static enum PrimitiveType value() { return SMESH_INT8; }
-};
+    template <>
+    struct TypeToEnum<i64> {
+        static enum PrimitiveType value() { return SMESH_INT64; }
+    };
 
-template <> struct TypeToEnum<u8> {
-  static enum PrimitiveType value() { return SMESH_UINT8; }
-};
+    template <>
+    struct TypeToEnum<i8> {
+        static enum PrimitiveType value() { return SMESH_INT8; }
+    };
 
-template <> struct TypeToEnum<u16> {
-  static enum PrimitiveType value() { return SMESH_UINT16; }
-};
+    template <>
+    struct TypeToEnum<u8> {
+        static enum PrimitiveType value() { return SMESH_UINT8; }
+    };
 
-template <> struct TypeToEnum<u32> {
-  static enum PrimitiveType value() { return SMESH_UINT32; }
-};
+    template <>
+    struct TypeToEnum<u16> {
+        static enum PrimitiveType value() { return SMESH_UINT16; }
+    };
+
+    template <>
+    struct TypeToEnum<u32> {
+        static enum PrimitiveType value() { return SMESH_UINT32; }
+    };
 
 inline size_t num_bytes(enum PrimitiveType type) {
   switch (type) {
@@ -255,11 +284,14 @@ inline PrimitiveType to_integer_type(std::string_view type) {
     return SMESH_INT64;
   }
   SMESH_ERROR("Invalid integer type: %s", type.data());
-  return SMESH_TYPE_UNDEFINED;
-}
+        return SMESH_TYPE_UNDEFINED;
+    }
 
-template <typename T> T invalid_idx() { return static_cast<T>(-1); }
+    template <typename T>
+    T invalid_idx() {
+        return static_cast<T>(-1);
+    }
 
-} // namespace smesh
+}  // namespace smesh
 
 #endif // SMESH_TYPES_HPP

@@ -6,6 +6,7 @@
 #include "smesh_device_buffer.hpp"
 
 #include <memory>
+#include <type_traits>
 
 namespace smesh {
 
@@ -120,7 +121,7 @@ template <typename T> SharedBuffer<T> to_host(const SharedBuffer<T> &in) {
 
   using NonConstT = typename std::remove_const<T>::type;
 
-  NonConstT *buff = static_cast<NonConstT *>(device::alloc<T>(in->size()));
+  NonConstT *buff = static_cast<NonConstT *>(device::alloc<NonConstT>(in->size()));
   device::device_to_host(in->size(), in->data(), buff);
   return std::make_shared<Buffer<T>>(in->size(), buff, &device::destroy,
                                      MEMORY_SPACE_HOST);
