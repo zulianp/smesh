@@ -822,7 +822,7 @@ int mesh_from_folder(
     int rank;
     MPI_Comm_rank(comm, &rank);
     if (!rank) {
-      printf("Using large index type\n");
+      printf("Found: %ld Nodes, Using large index type\n", (long)num_nodes);
       fflush(stdout);
     }
 
