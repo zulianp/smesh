@@ -8,40 +8,40 @@
 
 namespace smesh {
 
-using i8 = int8_t;
-using i16 = int16_t;
-using i32 = int32_t;
-using i64 = int64_t;
+    using i8  = int8_t;
+    using i16 = int16_t;
+    using i32 = int32_t;
+    using i64 = int64_t;
 
-using u8 = uint8_t;
-using u16 = uint16_t;
-using u32 = uint32_t;
-using u64 = uint64_t;
-// using mask_t = char;
-using block_idx_t = u16;
+    using u8  = uint8_t;
+    using u16 = uint16_t;
+    using u32 = uint32_t;
+    using u64 = uint64_t;
+    // using mask_t = char;
+    using block_idx_t = u16;
 
-// Used for mappings and reading large meshes
-using large_idx_t = i64;
-using large_count_t = i64;
+    // Used for mappings and reading large meshes
+    using large_idx_t   = i64;
+    using large_count_t = i64;
 
 #if defined(__APPLE__)
-using f16 = __fp16;
+    using f16 = __fp16;
 #else
-using f16 = _Float16;
+    using f16 = _Float16;
 #endif
 
-using f32 = float;
-using f64 = double;
+    using f32 = float;
+    using f64 = double;
 
-// using real_t = f64;
-// using geom_t = f32;
-// using idx_t = i32;
-// using element_idx_t = i32;
-// using count_t = i32;
+    // using real_t = f64;
+    // using geom_t = f32;
+    // using idx_t = i32;
+    // using element_idx_t = i32;
+    // using count_t = i32;
 
-// using idx_t = i64;
-// using element_idx_t = i64;
-// using count_t = i64;
+    // using idx_t = i64;
+    // using element_idx_t = i64;
+    // using count_t = i64;
 
     static const f16    F16_MAX           = (f16)65504.0f;
     static const size_t SIZE_LARGEST_TYPE = sizeof(i64);
@@ -81,35 +81,35 @@ using f64 = double;
         static const std::string_view value() { return "float64"; }
     };
 
-// template <> struct TypeToString<ptrdiff_t> {
-//   static const std::string_view value() {
-//     if constexpr (sizeof(ptrdiff_t) == 8) {
-//       return "int64";
-//     } else if constexpr (sizeof(ptrdiff_t) == 4) {
-//       return "int32";
-//     } else if constexpr (sizeof(ptrdiff_t) == 2) {
-//       return "int16";
-//     } else if constexpr (sizeof(ptrdiff_t) == 1) {
-//       return "int8";
-//     }
-//     return "int64"; }
-// };
+    // template <> struct TypeToString<ptrdiff_t> {
+    //   static const std::string_view value() {
+    //     if constexpr (sizeof(ptrdiff_t) == 8) {
+    //       return "int64";
+    //     } else if constexpr (sizeof(ptrdiff_t) == 4) {
+    //       return "int32";
+    //     } else if constexpr (sizeof(ptrdiff_t) == 2) {
+    //       return "int16";
+    //     } else if constexpr (sizeof(ptrdiff_t) == 1) {
+    //       return "int8";
+    //     }
+    //     return "int64"; }
+    // };
 
-enum PrimitiveType {
-  SMESH_DEFAULT = 0,
-  SMESH_FLOAT16 = 2,
-  SMESH_FLOAT32 = 4,
-  SMESH_FLOAT64 = 8,
-  SMESH_INT8 = 10,
-  SMESH_INT16 = 20,
-  SMESH_INT32 = 40,
-  SMESH_INT64 = 80,
-  SMESH_UINT8 = 110,
-  SMESH_UINT16 = 120,
-  SMESH_UINT32 = 140,
-  SMESH_UINT64 = 180,
-  SMESH_CHAR = 1,
-  SMESH_LONG = 160,
+    enum PrimitiveType {
+        SMESH_DEFAULT        = 0,
+        SMESH_FLOAT16        = 2,
+        SMESH_FLOAT32        = 4,
+        SMESH_FLOAT64        = 8,
+        SMESH_INT8           = 10,
+        SMESH_INT16          = 20,
+        SMESH_INT32          = 40,
+        SMESH_INT64          = 80,
+        SMESH_UINT8          = 110,
+        SMESH_UINT16         = 120,
+        SMESH_UINT32         = 140,
+        SMESH_UINT64         = 180,
+        SMESH_CHAR           = 1,
+        SMESH_LONG           = 160,
         SMESH_TYPE_UNDEFINED = -1
     };
 
@@ -122,15 +122,15 @@ enum PrimitiveType {
                 return SMESH_INT64;
             } else if constexpr (std::is_same_v<T, int> && sizeof(T) == 4) {
                 return SMESH_INT32;
-    } else if constexpr (std::is_same_v<T, short> && sizeof(T) == 2) {
-      return SMESH_INT16;
-    } else if constexpr (std::is_same_v<T, char> && sizeof(T) == 1) {
-      return SMESH_CHAR;
-    } else if constexpr (std::is_same_v<T, long> && sizeof(T) == 8) {
-      return SMESH_LONG;
-    }
-    SMESH_ERROR("Invalid type: %s", TypeToString<T>::value().data());
-    return SMESH_TYPE_UNDEFINED;
+            } else if constexpr (std::is_same_v<T, short> && sizeof(T) == 2) {
+                return SMESH_INT16;
+            } else if constexpr (std::is_same_v<T, char> && sizeof(T) == 1) {
+                return SMESH_CHAR;
+            } else if constexpr (std::is_same_v<T, long> && sizeof(T) == 8) {
+                return SMESH_LONG;
+            }
+            SMESH_ERROR("Invalid type: %s", TypeToString<T>::value().data());
+            return SMESH_TYPE_UNDEFINED;
         }
     };
 
@@ -196,94 +196,94 @@ enum PrimitiveType {
         static enum PrimitiveType value() { return SMESH_UINT32; }
     };
 
-inline size_t num_bytes(enum PrimitiveType type) {
-  switch (type) {
-  case SMESH_FLOAT16:
-    return sizeof(f16);
-  case SMESH_FLOAT32:
-    return sizeof(f32);
-  case SMESH_FLOAT64:
-    return sizeof(f64);
-  case SMESH_INT16:
-    return sizeof(i16);
-  case SMESH_INT32:
-    return sizeof(i32);
-  case SMESH_INT64:
-    return sizeof(i64);
-  case SMESH_INT8:
-    return sizeof(i8);
-  case SMESH_UINT8:
-    return sizeof(u8);
-  case SMESH_UINT16:
-    return sizeof(u16);
-  case SMESH_UINT32:
-    return sizeof(u32);
-  case SMESH_UINT64:
-    return sizeof(u64);
-  case SMESH_CHAR:
-    return sizeof(char);
-  case SMESH_LONG:
-    return sizeof(long);
-  default:
-    SMESH_ERROR("Invalid primitive type: %d", type);
-    return 0;
-  }
-}
+    inline size_t num_bytes(enum PrimitiveType type) {
+        switch (type) {
+            case SMESH_FLOAT16:
+                return sizeof(f16);
+            case SMESH_FLOAT32:
+                return sizeof(f32);
+            case SMESH_FLOAT64:
+                return sizeof(f64);
+            case SMESH_INT16:
+                return sizeof(i16);
+            case SMESH_INT32:
+                return sizeof(i32);
+            case SMESH_INT64:
+                return sizeof(i64);
+            case SMESH_INT8:
+                return sizeof(i8);
+            case SMESH_UINT8:
+                return sizeof(u8);
+            case SMESH_UINT16:
+                return sizeof(u16);
+            case SMESH_UINT32:
+                return sizeof(u32);
+            case SMESH_UINT64:
+                return sizeof(u64);
+            case SMESH_CHAR:
+                return sizeof(char);
+            case SMESH_LONG:
+                return sizeof(long);
+            default:
+                SMESH_ERROR("Invalid primitive type: %d", type);
+                return 0;
+        }
+    }
 
-inline std::string_view to_string(enum PrimitiveType type) {
-  switch (type) {
-  case SMESH_FLOAT16:
-    return "float16";
-  case SMESH_FLOAT32:
-    return "float32";
-  case SMESH_FLOAT64:
-    return "float64";
-  case SMESH_INT16:
-    return "int16";
-  case SMESH_INT32:
-    return "int32";
-  case SMESH_INT64:
-    return "int64";
-  case SMESH_UINT8:
-    return "uint8";
-  case SMESH_UINT16:
-    return "uint16";
-  case SMESH_UINT32:
-    return "uint32";
-  case SMESH_UINT64:
-    return "uint64";
-  case SMESH_CHAR:
-    return "char";
-  case SMESH_LONG:
-    return "long";
-  default:
-    SMESH_ERROR("Invalid primitive type: %d", type);
-    return "undefined";
-  }
-}
+    inline std::string_view to_string(enum PrimitiveType type) {
+        switch (type) {
+            case SMESH_FLOAT16:
+                return "float16";
+            case SMESH_FLOAT32:
+                return "float32";
+            case SMESH_FLOAT64:
+                return "float64";
+            case SMESH_INT16:
+                return "int16";
+            case SMESH_INT32:
+                return "int32";
+            case SMESH_INT64:
+                return "int64";
+            case SMESH_UINT8:
+                return "uint8";
+            case SMESH_UINT16:
+                return "uint16";
+            case SMESH_UINT32:
+                return "uint32";
+            case SMESH_UINT64:
+                return "uint64";
+            case SMESH_CHAR:
+                return "char";
+            case SMESH_LONG:
+                return "long";
+            default:
+                SMESH_ERROR("Invalid primitive type: %d", type);
+                return "undefined";
+        }
+    }
 
-inline PrimitiveType to_real_type(std::string_view type) {
-  if (type == "float16") {
-    return SMESH_FLOAT16;
-  } else if (type == "float32") {
-    return SMESH_FLOAT32;
-  } else if (type == "float64") {
-    return SMESH_FLOAT64;
-  }
+    inline PrimitiveType to_real_type(std::string_view type) {
+        if (type == "float16") {
+            return SMESH_FLOAT16;
+        } else if (type == "float32") {
+            return SMESH_FLOAT32;
+        } else if (type == "float64") {
+            return SMESH_FLOAT64;
+        }
 
-  SMESH_ERROR("Invalid real type: %s", type.data());
-  return SMESH_TYPE_UNDEFINED;
-}
+        SMESH_ERROR("Invalid real type: %s", type.data());
+        return SMESH_TYPE_UNDEFINED;
+    }
 
-inline PrimitiveType to_integer_type(std::string_view type) {
-  if (type == "int16") {
-    return SMESH_INT16;
-  } else if (type == "int32") {
-    return SMESH_INT32;
-  } else if (type == "int64") {
-    return SMESH_INT64;
-  }
-  SMESH_ERROR("Invalid integer type: %s", type.data());
+    inline PrimitiveType to_integer_type(std::string_view type) {
+        if (type == "int16") {
+            return SMESH_INT16;
+        } else if (type == "int32") {
+            return SMESH_INT32;
+        } else if (type == "int64") {
+            return SMESH_INT64;
+        }
+        SMESH_ERROR("Invalid integer type: %s", type.data());
         return SMESH_TYPE_UNDEFINED;
     }
 
@@ -294,4 +294,4 @@ inline PrimitiveType to_integer_type(std::string_view type) {
 
 }  // namespace smesh
 
-#endif // SMESH_TYPES_HPP
+#endif  // SMESH_TYPES_HPP
