@@ -17,6 +17,13 @@ namespace smesh {
       const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,         \
       const geom_t qx, const geom_t qy, const geom_t qz,                       \
       const ptrdiff_t stride,                                                  \
+      FFFType *const SMESH_RESTRICT *const SMESH_RESTRICT fff);                \
+  template int sshex8_macro_fff_fill<FFFType>(                                 \
+      const int level,                                                         \
+      const ptrdiff_t nelements,                                               \
+      const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,        \
+      const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,         \
+      const ptrdiff_t stride,                                                  \
       FFFType *const SMESH_RESTRICT *const SMESH_RESTRICT fff)
 
 SMESH_EXPLICIT_INSTANTIATE_FFF(f32);

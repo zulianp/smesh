@@ -758,6 +758,11 @@ inline int proteus_hex_micro_elements_per_dim(const enum ElemType type) {
   }
 }
 
+/// Semi-structured refinement level encoded in Proteus hex types (e.g. PROTEUS_HEX27 -> 2).
+inline int semistructured_level(const enum ElemType type) {
+  return proteus_hex_micro_elements_per_dim(type);
+}
+
 inline int proteus_quad_micro_elements_per_dim(const enum ElemType type) {
   switch (type) {
   case PROTEUS_QUAD4:

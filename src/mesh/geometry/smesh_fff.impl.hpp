@@ -4,6 +4,7 @@
 #include "smesh_jacobians.hpp"
 
 #include "smesh_hex8_inline.hpp"
+#include "smesh_sshex8.hpp"
 #include "smesh_tet4_inline.hpp"
 
 namespace smesh {
@@ -275,6 +276,51 @@ int hex8_fff_fill(
                &fff[4][idx], &fff[5][idx]);
     }
   }
+  return SMESH_SUCCESS;
+}
+
+template <typename FFFType>
+int sshex8_macro_fff_fill(
+    const int level,
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
+    const ptrdiff_t stride,
+    FFFType *const SMESH_RESTRICT *const SMESH_RESTRICT fff) {
+  const int corners[8] = {// Bottom
+                          sshex8_lidx(level, 0, 0, 0),
+                          sshex8_lidx(level, level, 0, 0),
+                          sshex8_lidx(level, level, level, 0),
+                          sshex8_lidx(level, 0, level, 0),
+                          // Top
+                          sshex8_lidx(level, 0, 0, level),
+                          sshex8_lidx(level, level, 0, level),
+                          sshex8_lidx(level, level, level, level),
+                          sshex8_lidx(level, 0, level, level)};
+
+  const geom_t *const SMESH_RESTRICT x = points[0];
+  const geom_t *const SMESH_RESTRICT y = points[1];
+  const geom_t *const SMESH_RESTRICT z = points[2];
+
+#pragma omp parallel for schedule(static)
+  for (ptrdiff_t e = 0; e < nelements; e++) {
+    geom_t lx[8], ly[8], lz[8];
+    for (int d = 0; d < 8; ++d) {
+      const idx_t nid = elements[corners[d]][e];
+      lx[d]             = x[nid];
+      ly[d]             = y[nid];
+      lz[d]             = z[nid];
+    }
+
+    const ptrdiff_t idx = e * stride;
+
+    hex8_fff(lx[0], lx[1], lx[2], lx[3], lx[4], lx[5], lx[6], lx[7], ly[0], ly[1],
+             ly[2], ly[3], ly[4], ly[5], ly[6], ly[7], lz[0], lz[1], lz[2], lz[3],
+             lz[4], lz[5], lz[6], lz[7], (geom_t)0.5, (geom_t)0.5, (geom_t)0.5,
+             &fff[0][idx], &fff[1][idx], &fff[2][idx], &fff[3][idx], &fff[4][idx],
+             &fff[5][idx]);
+  }
+
   return SMESH_SUCCESS;
 }
 

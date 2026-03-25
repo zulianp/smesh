@@ -51,10 +51,11 @@ namespace smesh {
     public:
         static std::shared_ptr<Jacobian> create_AoS(const std::shared_ptr<Mesh> &mesh,
                                                     const MemorySpace            space,
-                                                    const block_idx_t            block_id = 0);
+                                                    const block_idx_t            block_id);
+
         static std::shared_ptr<Jacobian> create_SoA(const std::shared_ptr<Mesh> &mesh,
                                                     const MemorySpace            space,
-                                                    const block_idx_t            block_id = 0);
+                                                    const block_idx_t            block_id);
 
         inline SharedBuffer<jacobian_t *> jacobians_SoA() const {
             SMESH_ASSERT(jacobians_SoA_);
@@ -75,11 +76,11 @@ namespace smesh {
     public:
         static std::shared_ptr<JacobianAdjugateAndDeterminant> create_AoS(const std::shared_ptr<Mesh> &mesh,
                                                                           const MemorySpace            space,
-                                                                          const block_idx_t            block_id = 0);
+                                                                          const block_idx_t            block_id);
 
         static std::shared_ptr<JacobianAdjugateAndDeterminant> create_SoA(const std::shared_ptr<Mesh> &mesh,
                                                                           const MemorySpace            space,
-                                                                          const block_idx_t            block_id = 0);
+                                                                          const block_idx_t            block_id);
 
         inline SharedBuffer<jacobian_t *> jacobian_adjugate_SoA() const {
             SMESH_ASSERT(jacobian_adjugate_SoA_);
@@ -106,10 +107,11 @@ namespace smesh {
     public:
         static std::shared_ptr<FFF> create_AoS(const std::shared_ptr<Mesh> &mesh,
                                                const MemorySpace            space,
-                                               const block_idx_t            block_id = 0);
+                                               const block_idx_t            block_id);
+
         static std::shared_ptr<FFF> create_SoA(const std::shared_ptr<Mesh> &mesh,
                                                const MemorySpace            space,
-                                               const block_idx_t            block_id = 0);
+                                               const block_idx_t            block_id);
 
         inline SharedBuffer<jacobian_t *> fff_SoA() const {
             SMESH_ASSERT(fff_SoA_);

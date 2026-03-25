@@ -8,6 +8,7 @@
 #include "smesh_buffer.hpp"
 #include "smesh_crs_graph.hpp"
 #include "smesh_forward_declarations.hpp"
+#include "smesh_elem_type.hpp"
 #include "smesh_mesh.hpp"
 
 #include <memory>
@@ -35,7 +36,7 @@ namespace smesh {
     std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex);
     std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh, const int to_level);
 
-    inline int semistructured_level(const Mesh &mesh) { return proteus_hex_micro_elements_per_dim(mesh.element_type(0)); }
+    inline int semistructured_level(const Mesh &mesh) { return semistructured_level(mesh.element_type(0)); }
 
 }  // namespace smesh
 

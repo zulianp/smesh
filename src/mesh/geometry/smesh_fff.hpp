@@ -36,6 +36,16 @@ int hex8_fff_fill(
     const geom_t qx, const geom_t qy, const geom_t qz, const ptrdiff_t stride,
     FFFType *const SMESH_RESTRICT *const SMESH_RESTRICT fff);
 
+/// Per-macro-element FFF from the eight SSHEX8 macro corners (isoparametric ref. point 1/2,1/2,1/2).
+template <typename FFFType>
+int sshex8_macro_fff_fill(
+    const int level,
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
+    const ptrdiff_t stride,
+    FFFType *const SMESH_RESTRICT *const SMESH_RESTRICT fff);
+
 } // namespace smesh
 
 #endif // SMESH_FFF_HPP
