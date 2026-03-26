@@ -44,26 +44,16 @@ namespace smesh {
                      const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
                      const ptrdiff_t                                          stride,
                      jacobian_t *const SMESH_RESTRICT *const SMESH_RESTRICT   fff) {
+            if (is_semistructured_type(element_type)) {
+                return sshex8_macro_fff_fill(
+                        proteus_hex_micro_elements_per_dim(element_type), nelements, elements, points, stride, fff);
+            }
+
             switch (element_type) {
                 case TET4:
                     return tet4_fff_fill(nelements, elements, points, stride, fff);
                 case HEX8:
-                case PROTEUS_HEX8:
                     return hex8_fff_fill(nelements, elements, points, 0.5, 0.5, 0.5, stride, fff);
-                case PROTEUS_HEX27:
-                case PROTEUS_HEX64:
-                case PROTEUS_HEX125:
-                case PROTEUS_HEX216:
-                case PROTEUS_HEX343:
-                case PROTEUS_HEX512:
-                case PROTEUS_HEX729:
-                case PROTEUS_HEX4913:
-                    return sshex8_macro_fff_fill(proteus_hex_micro_elements_per_dim(element_type),
-                                                 nelements,
-                                                 elements,
-                                                 points,
-                                                 stride,
-                                                 fff);
                 default:
                     SMESH_ERROR("fill_fff: Unsupported element type: %s\n", type_to_string(element_type));
                     return SMESH_FAILURE;
