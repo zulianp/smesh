@@ -126,6 +126,9 @@ namespace smesh {
             void      set_elements(SharedBuffer<idx_t *> elements);
             ptrdiff_t n_elements() const;
 
+            SharedBuffer<idx_t *> device_elements_SoA();
+            SharedBuffer<idx_t>   device_elements_AoS();
+
         private:
             class Impl;
             std::unique_ptr<Impl> impl_;

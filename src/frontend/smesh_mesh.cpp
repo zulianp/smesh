@@ -22,6 +22,7 @@
 #include "smesh_write.hpp"
 
 #include "smesh_jacobians.hpp"
+#include "smesh_kernel_data.hpp"
 
 #ifdef SMESH_ENABLE_MPI
 #include "smesh_alltoallv.impl.hpp"
@@ -287,9 +288,10 @@ namespace smesh {
 
     class Mesh::Block::Impl {
     public:
-        std::string           name;
-        enum ElemType         element_type;
-        SharedBuffer<idx_t *> elements;
+        std::string                      name;
+        enum ElemType                    element_type;
+        SharedBuffer<idx_t *>            elements;
+        std::shared_ptr<smesh::Elements> device_elements;
     };
 
     Mesh::Block::Block(const std::string &name, enum ElemType element_type, SharedBuffer<idx_t *> elements)
@@ -297,8 +299,36 @@ namespace smesh {
         impl_->name         = name;
         impl_->element_type = element_type;
         impl_->elements     = elements;
+        // Create empty buffer for device elements
+        impl_->device_elements = std::make_shared<smesh::Elements>();
     }
-    Mesh::Block::Block() : impl_(std::make_unique<Impl>()) {}
+
+    SharedBuffer<idx_t *> Mesh::Block::device_elements_SoA() {
+        if (!impl_->device_elements) {
+            impl_->device_elements = std::make_shared<smesh::Elements>();
+        }
+
+        if (!impl_->device_elements->has_elements_SoA()) {
+            impl_->device_elements->init_SoA(impl_->elements, MEMORY_SPACE_DEVICE);
+        }
+
+        return impl_->device_elements->elements_SoA();
+    }
+
+    SharedBuffer<idx_t> Mesh::Block::device_elements_AoS() {
+        if (!impl_->device_elements) {
+            impl_->device_elements = std::make_shared<smesh::Elements>();
+        }
+
+        if (!impl_->device_elements->has_elements_AoS()) {
+            impl_->device_elements->init_AoS(impl_->elements, MEMORY_SPACE_DEVICE);
+        }
+        return impl_->device_elements->elements_AoS();
+    }
+
+    Mesh::Block::Block() : impl_(std::make_unique<Impl>()) {
+        impl_->device_elements = std::make_shared<smesh::Elements>();
+    }
     Mesh::Block::~Block() = default;
 
     const std::string           &Mesh::Block::name() const { return impl_->name; }
@@ -308,7 +338,10 @@ namespace smesh {
 
     void Mesh::Block::set_name(const std::string &name) { impl_->name = name; }
     void Mesh::Block::set_element_type(enum ElemType element_type) { impl_->element_type = element_type; }
-    void Mesh::Block::set_elements(SharedBuffer<idx_t *> elements) { impl_->elements = elements; }
+    void Mesh::Block::set_elements(SharedBuffer<idx_t *> elements) {
+        impl_->elements        = elements;
+        impl_->device_elements = std::make_shared<smesh::Elements>();
+    }
 
     ptrdiff_t Mesh::Block::n_elements() const { return impl_->elements->extent(1); }
 

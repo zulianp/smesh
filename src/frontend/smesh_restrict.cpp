@@ -64,7 +64,7 @@ namespace smesh {
             if (EXECUTION_SPACE_DEVICE == es) {
                 auto dbuff = to_device(element_to_node_incidence_count);
 
-                auto elements = from_mesh->geometric_data()->elements_SoA(0);
+                auto elements = from_mesh->block(0)->device_elements_SoA();
                 if (elements->mem_space() != MEMORY_SPACE_DEVICE) {
                     SMESH_ERROR("Elements are not on the device");
                     return;
@@ -73,7 +73,7 @@ namespace smesh {
                 if (is_semistructured_type(from_element)) {
                     if (is_semistructured_type(to_element)) {
                         // FIXME make sure to reuse fine level elements and strides
-                        auto to_elements = to_mesh->geometric_data()->elements_SoA(0);
+                        auto to_elements = to_mesh->block(0)->device_elements_SoA();
                         if (to_elements->mem_space() != MEMORY_SPACE_DEVICE) {
                             SMESH_ERROR("To elements are not on the device");
                             return;

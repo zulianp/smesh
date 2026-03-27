@@ -91,7 +91,7 @@ foreach(_dir IN LISTS SMESH_LIBRARY_SCAN_DIRS)
         LIST_DIRECTORIES false
         CONFIGURE_DEPENDS
         "${_dir}/*.fallback.cpp")
-        message(STATUS "Fallback files: ${_dir_fallback_files}")
+        # message(STATUS "Fallback files: ${_dir_fallback_files}")
         list(APPEND _dir_files ${_dir_fallback_files})
     endif()
 

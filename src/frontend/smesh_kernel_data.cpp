@@ -66,10 +66,19 @@ namespace smesh {
             return nullptr;
         }
 
-        auto ret         = std::make_shared<Points>();
-        auto host_points = to_host(points);
-        ret->points_AoS_ = to_memory_space(soa_to_element_major_aos(host_points), space);
+        auto ret = std::make_shared<Points>();
+        ret->init_AoS(points, space);
         return ret;
+    }
+
+    int Points::init_AoS(const SharedBuffer<geom_t *> &points, const MemorySpace space) {
+        if (!points) {
+            return SMESH_FAILURE;
+        }
+
+        auto host_points = to_host(points);
+        points_AoS_      = to_memory_space(soa_to_element_major_aos(host_points), space);
+        return SMESH_SUCCESS;
     }
 
     std::shared_ptr<Points> Points::create_SoA(const SharedBuffer<geom_t *> &points, const MemorySpace space) {
@@ -77,9 +86,18 @@ namespace smesh {
             return nullptr;
         }
 
-        auto ret         = std::make_shared<Points>();
-        ret->points_SoA_ = to_memory_space(points, space);
+        auto ret = std::make_shared<Points>();
+        ret->init_SoA(points, space);
         return ret;
+    }
+
+    int Points::init_SoA(const SharedBuffer<geom_t *> &points, const MemorySpace space) {
+        if (!points) {
+            return SMESH_FAILURE;
+        }
+
+        points_SoA_ = to_memory_space(points, space);
+        return SMESH_SUCCESS;
     }
 
     std::shared_ptr<Elements> Elements::create_AoS(const SharedBuffer<idx_t *> &elements, const MemorySpace space) {
@@ -87,10 +105,19 @@ namespace smesh {
             return nullptr;
         }
 
-        auto ret           = std::make_shared<Elements>();
-        auto host_elements = to_host(elements);
-        ret->elements_AoS_ = to_memory_space(soa_to_element_major_aos(host_elements), space);
+        auto ret = std::make_shared<Elements>();
+        ret->init_AoS(elements, space);
         return ret;
+    }
+
+    int Elements::init_AoS(const SharedBuffer<idx_t *> &elements, const MemorySpace space) {
+        if (!elements) {
+            return SMESH_FAILURE;
+        }
+
+        auto host_elements = to_host(elements);
+        elements_AoS_      = to_memory_space(soa_to_element_major_aos(host_elements), space);
+        return SMESH_SUCCESS;
     }
 
     std::shared_ptr<Elements> Elements::create_SoA(const SharedBuffer<idx_t *> &elements, const MemorySpace space) {
@@ -98,9 +125,18 @@ namespace smesh {
             return nullptr;
         }
 
-        auto ret           = std::make_shared<Elements>();
-        ret->elements_SoA_ = to_memory_space(elements, space);
+        auto ret = std::make_shared<Elements>();
+        ret->init_SoA(elements, space);
         return ret;
+    }
+
+    int Elements::init_SoA(const SharedBuffer<idx_t *> &elements, const MemorySpace space) {
+        if (!elements) {
+            return SMESH_FAILURE;
+        }
+
+        elements_SoA_ = to_memory_space(elements, space);
+        return SMESH_SUCCESS;
     }
 
     std::shared_ptr<Jacobian> Jacobian::create_AoS(const std::shared_ptr<Mesh> & /*mesh*/,

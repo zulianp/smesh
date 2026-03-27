@@ -12,6 +12,9 @@ namespace smesh {
         static std::shared_ptr<Points> create_AoS(const SharedBuffer<geom_t *> &points, const MemorySpace space);
         static std::shared_ptr<Points> create_SoA(const SharedBuffer<geom_t *> &points, const MemorySpace space);
 
+        int init_AoS(const SharedBuffer<geom_t *> &points, const MemorySpace space);
+        int init_SoA(const SharedBuffer<geom_t *> &points, const MemorySpace space);
+
         inline SharedBuffer<geom_t *> points_SoA() const {
             SMESH_ASSERT(points_SoA_);
             return points_SoA_;
@@ -32,6 +35,9 @@ namespace smesh {
         static std::shared_ptr<Elements> create_AoS(const SharedBuffer<idx_t *> &elements, const MemorySpace space);
         static std::shared_ptr<Elements> create_SoA(const SharedBuffer<idx_t *> &elements, const MemorySpace space);
 
+        int init_AoS(const SharedBuffer<idx_t *> &elements, const MemorySpace space);
+        int init_SoA(const SharedBuffer<idx_t *> &elements, const MemorySpace space);
+
         inline SharedBuffer<idx_t *> elements_SoA() const {
             SMESH_ASSERT(elements_SoA_);
             return elements_SoA_;
@@ -41,6 +47,9 @@ namespace smesh {
             SMESH_ASSERT(elements_AoS_);
             return elements_AoS_;
         }
+
+        bool has_elements_SoA() const { return elements_SoA_ != nullptr; }
+        bool has_elements_AoS() const { return elements_AoS_ != nullptr; }
 
     private:
         SharedBuffer<idx_t *> elements_SoA_;
