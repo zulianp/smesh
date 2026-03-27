@@ -19,11 +19,13 @@ namespace smesh {
 
     template <typename T>
     T *Buffer<T>::data() {
+        SMESH_ASSERT(this->ptr_ != nullptr);
         return static_cast<T *>(this->ptr_);
     }
 
     template <typename T>
     const T *Buffer<T>::data() const {
+        SMESH_ASSERT(this->ptr_ != nullptr);
         return static_cast<const T *>(this->ptr_);
     }
 
@@ -94,10 +96,12 @@ namespace smesh {
 
     template <typename T>
     T **Buffer<T *>::data() {
+        SMESH_ASSERT(this->ptr_ != nullptr);
         return ptr_;
     }
     template <typename T>
     T *const *Buffer<T *>::data() const {
+        SMESH_ASSERT(this->ptr_ != nullptr);
         return ptr_;
     }
 

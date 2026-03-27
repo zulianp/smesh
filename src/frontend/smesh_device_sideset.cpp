@@ -4,6 +4,10 @@
 namespace smesh {
 
     std::shared_ptr<Sideset> to_device(const std::shared_ptr<Sideset> &sideset) {
+        if (!sideset) {
+            SMESH_ERROR("Input sideset is null");
+        }
+
         return std::make_shared<Sideset>(sideset->comm(), to_device(sideset->parent()), to_device(sideset->lfi()));
     }
 

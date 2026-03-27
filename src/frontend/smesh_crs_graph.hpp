@@ -29,6 +29,11 @@ namespace smesh {
 
     template <typename count_t, typename idx_t>
     inline std::shared_ptr<CRSGraph<count_t, idx_t>> to_device(const std::shared_ptr<CRSGraph<count_t, idx_t>> &in) {
+        if(!in) {
+            SMESH_ERROR("to_device(CRSGraph): grap is null!");
+            return nullptr;
+        }
+        
         if (in->rowptr()->mem_space() == MEMORY_SPACE_DEVICE) {
             return in;
         }
