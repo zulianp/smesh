@@ -7,9 +7,10 @@
 // C++ Includes
 #include "smesh_buffer.hpp"
 #include "smesh_crs_graph.hpp"
-#include "smesh_forward_declarations.hpp"
 #include "smesh_elem_type.hpp"
+#include "smesh_forward_declarations.hpp"
 #include "smesh_mesh.hpp"
+#include "smesh_sshex8_graph.hpp"
 
 #include <memory>
 #include <vector>
@@ -37,6 +38,29 @@ namespace smesh {
     std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh, const int to_level);
 
     inline int semistructured_level(const Mesh &mesh) { return semistructured_level(mesh.element_type(0)); }
+
+    inline ptrdiff_t semistructured_interior_start(const Mesh &mesh) {
+        const int       level                  = semistructured_level(mesh);
+        const ptrdiff_t n_interior_per_element = level > 1 ? static_cast<ptrdiff_t>(level - 1) * (level - 1) * (level - 1) : 0;
+        return mesh.n_nodes() - mesh.n_elements() * n_interior_per_element;
+    }
+
+    inline std::vector<int> derefinement_levels(const Mesh &mesh) {
+        const int        level   = semistructured_level(mesh);
+        const int        nlevels = smesh::sshex8_hierarchical_n_levels(level);
+        std::vector<int> levels(nlevels);
+        smesh::sshex8_hierarchical_mesh_levels(level, nlevels, levels.data());
+        return levels;
+    }
+
+    inline int semistructured_export_as_standard(const std::shared_ptr<Mesh> &mesh, const char *path) {
+        auto standard_mesh = smesh::sshex_to_hex8(mesh);
+        if (!standard_mesh) {
+            return SMESH_FAILURE;
+        }
+
+        return standard_mesh->write(smesh::Path(path));
+    }
 
 }  // namespace smesh
 
