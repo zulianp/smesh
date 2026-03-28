@@ -389,6 +389,8 @@ namespace smesh {
                 return 3;
             case TRISHELL3:
                 return 3;
+            case TRISHELL6:
+                return 6;
             case WEDGE6:
                 return 6;
             case QUAD4:
