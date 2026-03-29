@@ -6,7 +6,7 @@ import sys, getopt
 import os
 import glob
 import pdb
-from utils import dtype_to_extension
+from common.utils import dtype_to_extension
 
 
 try:

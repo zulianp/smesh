@@ -258,6 +258,17 @@ write_basic_package_version_file(
     COMPATIBILITY SameMajorVersion
 )
 
+set(_smesh_python_script_dir scripts/python/smesh)
+
+install(
+    DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/python/smesh/
+    DESTINATION ${_smesh_python_script_dir}
+    FILES_MATCHING
+        PATTERN "*.py"
+        PATTERN "__pycache__" EXCLUDE
+        PATTERN "__pycache__/*" EXCLUDE
+)
+
 install(
     FILES
         ${CMAKE_CURRENT_BINARY_DIR}/smeshConfig.cmake

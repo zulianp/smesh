@@ -5,7 +5,7 @@ import numpy as np
 import sys
 import os
 import getopt
-from utils import dtype_to_extension
+from common.utils import dtype_to_extension
 
 # import pdb
 

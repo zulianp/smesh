@@ -6,7 +6,7 @@ import sys, getopt
 import os
 import glob
 import pdb
-from utils import detect_files, extension_to_dtype, extension, extension_to_dtype
+from common.utils import detect_files, extension_to_dtype, extension
 
 import inspect
 

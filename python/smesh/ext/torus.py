@@ -8,7 +8,7 @@ import sys, getopt
 
 def main(argv):
     usage = (
-        f"usage: {argv[0]} <major_radius> <minor_radius> <output_db.vtk> "
+        f"usage: {argv[0]} <major_radius> <minor_radius> <output_db> "
         "[--refinements=N] [--order=N] "
         "[--mesh_size_min=S] [--mesh_size_max=S]"
     )
