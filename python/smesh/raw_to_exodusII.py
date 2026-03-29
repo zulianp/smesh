@@ -296,6 +296,13 @@ def load_nodesets(folder, sidesets):
     return nodesets
 
 
+def drop_empty_sets(blocks, sidesets, nodesets):
+    filtered_blocks = [block for block in blocks if block["end"] > block["begin"]]
+    filtered_sidesets = [sideset for sideset in sidesets if len(sideset["parent"]) > 0]
+    filtered_nodesets = [nodeset for nodeset in nodesets if len(nodeset["nodes"]) > 0]
+    return filtered_blocks, filtered_sidesets, filtered_nodesets
+
+
 def load_time_whole(folder):
     for entry in sorted(os.listdir(folder)):
         if not entry.startswith("time_whole."):
@@ -577,6 +584,7 @@ def raw_to_exodusII(input_folder, output_mesh, title=None):
     blocks = load_block_ranges(input_folder, connectivity.shape[0])
     sidesets = load_sidesets(input_folder)
     nodesets = load_nodesets(input_folder, sidesets)
+    blocks, sidesets, nodesets = drop_empty_sets(blocks, sidesets, nodesets)
 
     point_fields = load_field_series(os.path.join(input_folder, "point_data"), points.shape[1])
     cell_fields = load_field_series(os.path.join(input_folder, "cell_data"), connectivity.shape[0])
