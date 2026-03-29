@@ -87,6 +87,14 @@ int array_create_from_file_convert(MPI_Comm comm, const Path &path,
                                    ptrdiff_t *n_global_elements) {
   SMESH_TRACE_SCOPE("array_create_from_file_convert");
 
+  if (std::is_same_v<FileType, TargetType>) {
+    return array_create_from_file(comm, path.c_str(),
+                                  smesh::mpi_type<FileType>(), (void **)data,
+                                  n_local_elements, n_global_elements);
+
+    SMESH_TRACK_EXTERNAL_ALLOC(data, *n_local_elements * sizeof(FileType));
+  }
+
   FileType *temp = nullptr;
   if (array_create_from_file(comm, path.c_str(), smesh::mpi_type<FileType>(),
                              (void **)&temp, n_local_elements,

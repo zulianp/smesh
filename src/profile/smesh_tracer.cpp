@@ -55,14 +55,14 @@ public:
       cudaMemGetInfo(&free, &total);
 
       if (!rank) {
-        printf("-- LOG[%d]: %s (%g)\n"
+        printf("-- LOG[%d]: %s (%g [s])\n"
                "   MEMORY: free %g [GB] (total %g [GB])\n",
                rank, name.c_str(), duration, free * 1e-9, total * 1e-9);
       }
 
 #else
       if (!rank) {
-        printf("-- LOG: %s (%g)\n", name.c_str(), duration);
+        printf("-- LOG: %s (%g [s])\n", name.c_str(), duration);
       }
 #endif
       fflush(stdout);

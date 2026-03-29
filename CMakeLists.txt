@@ -154,29 +154,44 @@ target_include_directories(smesh
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
-set(_smesh_driver_scan_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers")
-file(GLOB_RECURSE _smesh_driver_sources
-    LIST_DIRECTORIES false
-    CONFIGURE_DEPENDS
-    "${_smesh_driver_scan_dir}/*.exe.cpp"
-)
-
 set(_smesh_driver_targets "")
-foreach(_driver_source IN LISTS _smesh_driver_sources)
-    file(RELATIVE_PATH _driver_rel "${_smesh_driver_scan_dir}" "${_driver_source}")
-
-    get_filename_component(_driver_target "${_driver_rel}" NAME_WE) # => foo.exe
-    string(REGEX REPLACE "\\.exe$" "" _driver_target "${_driver_target}")
-
-    if("${_driver_target}" IN_LIST _smesh_driver_targets)
-        string(REGEX REPLACE "\\.exe\\.cpp$" "" _driver_target "${_driver_rel}")
-        string(REPLACE "/" "_" _driver_target "${_driver_target}")
-        string(REPLACE "\\" "_" _driver_target "${_driver_target}")
+set(_smesh_driver_scan_dirs
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/benchmark/drivers"
+)
+foreach(_smesh_driver_scan_dir IN LISTS _smesh_driver_scan_dirs)
+    if(NOT EXISTS "${_smesh_driver_scan_dir}")
+        continue()
     endif()
 
-    add_executable("${_driver_target}" "${_driver_source}")
-    target_link_libraries("${_driver_target}" PRIVATE smesh)
-    list(APPEND _smesh_driver_targets "${_driver_target}")
+    file(GLOB_RECURSE _smesh_driver_sources
+        LIST_DIRECTORIES false
+        CONFIGURE_DEPENDS
+        "${_smesh_driver_scan_dir}/*.exe.cpp"
+    )
+
+    foreach(_driver_source IN LISTS _smesh_driver_sources)
+        file(RELATIVE_PATH _driver_rel "${_smesh_driver_scan_dir}" "${_driver_source}")
+
+        get_filename_component(_driver_target "${_driver_rel}" NAME_WE) # => foo.exe
+        string(REGEX REPLACE "\\.exe$" "" _driver_target "${_driver_target}")
+
+        if("${_driver_target}" IN_LIST _smesh_driver_targets)
+            string(REGEX REPLACE "\\.exe\\.cpp$" "" _driver_target "${_driver_rel}")
+            string(REPLACE "/" "_" _driver_target "${_driver_target}")
+            string(REPLACE "\\" "_" _driver_target "${_driver_target}")
+        endif()
+
+        add_executable("${_driver_target}" "${_driver_source}")
+        target_link_libraries("${_driver_target}" PRIVATE smesh)
+        if(TARGET matrixio::matrixio)
+            target_link_libraries("${_driver_target}" PRIVATE matrixio::matrixio)
+        endif()
+        if(SMESH_DEP_INCLUDES OR SMESH_BUILD_INCLUDES)
+            target_include_directories("${_driver_target}" PRIVATE ${SMESH_DEP_INCLUDES} ${SMESH_BUILD_INCLUDES})
+        endif()
+        list(APPEND _smesh_driver_targets "${_driver_target}")
+    endforeach()
 endforeach()
 
 set(_smesh_demo_scan_dir "${CMAKE_CURRENT_SOURCE_DIR}/demo")
@@ -203,6 +218,12 @@ if(EXISTS "${_smesh_demo_scan_dir}")
 
         add_executable("${_demo_target}" "${_demo_source}")
         target_link_libraries("${_demo_target}" PRIVATE smesh)
+        if(TARGET matrixio::matrixio)
+            target_link_libraries("${_demo_target}" PRIVATE matrixio::matrixio)
+        endif()
+        if(SMESH_DEP_INCLUDES OR SMESH_BUILD_INCLUDES)
+            target_include_directories("${_demo_target}" PRIVATE ${SMESH_DEP_INCLUDES} ${SMESH_BUILD_INCLUDES})
+        endif()
         list(APPEND _smesh_demo_targets "${_demo_target}")
     endforeach()
 endif()
