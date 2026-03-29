@@ -1,5 +1,6 @@
 #include "smesh_context.hpp"
 #include "smesh_communicator.hpp"
+#include "smesh_tracer.hpp"
 
 #include "smesh_base.hpp"
 
@@ -30,6 +31,8 @@ Context::Context(int argc, char *argv[]) : impl_(std::make_unique<Impl>()) {
   SMESH_UNUSED(argv);
   impl_->owns_mpi_context = true;
   impl_->communicator = Communicator::world();
+
+  Tracer::instance().set_rank(impl_->communicator->rank());
 }
 
 Context::~Context() {
@@ -55,6 +58,8 @@ Context::Context(int argc, char *argv[], MPI_Comm comm)
   SMESH_UNUSED(argc);
   SMESH_UNUSED(argv);
   impl_->communicator = Communicator::wrap(comm);
+
+  Tracer::instance().set_rank(impl_->communicator->rank());
 }
 
 std::shared_ptr<Context> initialize(int argc, char *argv[], MPI_Comm comm) {

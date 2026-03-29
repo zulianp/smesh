@@ -17,6 +17,8 @@ namespace smesh {
         Tracer();
         ~Tracer();
 
+        void set_rank(const int rank);
+
     private:
         class Impl;
         std::unique_ptr<Impl> impl_;

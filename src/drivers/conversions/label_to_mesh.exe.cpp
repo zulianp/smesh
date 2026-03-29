@@ -15,9 +15,9 @@
 using namespace smesh;
 
 int main(int argc, char **argv) {
+  auto ctx = smesh::initialize_serial(argc, argv);
   SMESH_TRACE_SCOPE("label_to_mesh.exe");
 
-  auto ctx = smesh::initialize_serial(argc, argv);
   SMESH_UNUSED(ctx);
   {
     if (argc != 6) {

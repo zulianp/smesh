@@ -12,10 +12,6 @@
 #include <nvToolsExt.h>
 #endif
 
-#ifdef SMESH_ENABLE_MPI
-#include <mpi.h>
-#endif
-
 // #define SMESH_ENABLE_BLOCK_KERNELS
 
 namespace smesh {
@@ -23,6 +19,7 @@ class Tracer::Impl {
 public:
   std::map<std::string, std::pair<int, double>> events;
   int rank{0};
+  bool log_mode{false};
 
   void dump() {
     if (rank)
@@ -47,20 +44,17 @@ public:
     os.close();
   }
 
-  Impl() {
-#ifdef SMESH_ENABLE_MPI
-    int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    this->rank = rank;
-#endif
-  }
-
-  bool log_mode{false};
+  Impl() {}
 };
 
 Tracer &Tracer::instance() {
   static Tracer instance_;
   return instance_;
+}
+
+void Tracer::set_rank(const int rank)
+{
+  impl_->rank = rank;
 }
 
 void Tracer::record_event(const char *name, const double duration) {
@@ -79,8 +73,7 @@ void Tracer::record_event(std::string &&name, const double duration) {
     size_t free, total;
     cudaMemGetInfo(&free, &total);
 
-    int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    int rank = impl_->rank;
     printf("-- LOG[%d]: %s (%g)\n"
            "   MEMORY: free %g [GB] (total %g [GB])\n",
            rank, name.c_str(), duration, free * 1e-9, total * 1e-9);
