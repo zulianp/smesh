@@ -6,6 +6,7 @@
 #include "smesh_distributed_base.hpp"
 #include "smesh_tracer.hpp"
 #include "smesh_types.hpp"
+#include "smesh_alloc.hpp"
 
 #include <string>
 #include <limits>
@@ -57,10 +58,10 @@ all_to_allv_64_b(const void *send_elements, const i64 *large_send_count,
 
   const i64 n_rounds = div_round_up(global_max_peer_count, max_chunk_size);
 
-  int *send_displs = (int *)calloc(size + 1, sizeof(int));
-  int *send_count = (int *)calloc(size, sizeof(int));
-  int *recv_displs = (int *)calloc((size + 1), sizeof(int));
-  int *recv_count = (int *)calloc(size, sizeof(int));
+  int *send_displs = (int *)SMESH_CALLOC(size + 1, sizeof(int));
+  int *send_count = (int *)SMESH_CALLOC(size, sizeof(int));
+  int *recv_displs = (int *)SMESH_CALLOC((size + 1), sizeof(int));
+  int *recv_count = (int *)SMESH_CALLOC(size, sizeof(int));
 
   if (global_fits_i32) {
     for (int r = 0; r < size; r++) {
@@ -77,8 +78,8 @@ all_to_allv_64_b(const void *send_elements, const i64 *large_send_count,
     SMESH_ASSERT(max_chunk_size <= i32_max);
     SMESH_ASSERT((i64)size * max_chunk_size <= i32_max);
 
-    i64 *send_offsets = (i64 *)calloc(size, sizeof(i64));
-    i64 *recv_offsets = (i64 *)calloc(size, sizeof(i64));
+    i64 *send_offsets = (i64 *)SMESH_CALLOC(size, sizeof(i64));
+    i64 *recv_offsets = (i64 *)SMESH_CALLOC(size, sizeof(i64));
 
     int send_type_size;
     int recv_type_size;
@@ -86,9 +87,9 @@ all_to_allv_64_b(const void *send_elements, const i64 *large_send_count,
     SMESH_MPI_CATCH(MPI_Type_size(recv_datatype, &recv_type_size));
 
     byte_t *send_buffer =
-        (byte_t *)malloc((size_t)local_send_buffer_size * send_type_size);
+        (byte_t *)SMESH_ALLOC((size_t)local_send_buffer_size * send_type_size);
     byte_t *recv_buffer =
-        (byte_t *)malloc((size_t)local_recv_buffer_size * recv_type_size);
+        (byte_t *)SMESH_ALLOC((size_t)local_recv_buffer_size * recv_type_size);
 
     for (i64 round = 0; round < n_rounds; round++) {
       send_displs[0] = 0;
@@ -135,16 +136,16 @@ all_to_allv_64_b(const void *send_elements, const i64 *large_send_count,
       }
     }
 
-    free(send_buffer);
-    free(recv_buffer);
-    free(send_offsets);
-    free(recv_offsets);
+    SMESH_FREE(send_buffer);
+    SMESH_FREE(recv_buffer);
+    SMESH_FREE(send_offsets);
+    SMESH_FREE(recv_offsets);
   }
 
-  free(send_displs);
-  free(send_count);
-  free(recv_displs);
-  free(recv_count);
+  SMESH_FREE(send_displs);
+  SMESH_FREE(send_count);
+  SMESH_FREE(recv_displs);
+  SMESH_FREE(recv_count);
   return SMESH_SUCCESS;
 }
 

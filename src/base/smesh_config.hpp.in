@@ -25,6 +25,7 @@
 #cmakedefine SMESH_ENABLE_RYAML
 #cmakedefine SMESH_USE_OCCUPANCY_MAX_POTENTIAL
 #cmakedefine SMESH_ENABLE_TRACE
+#cmakedefine SMESH_ENABLE_MEM_DIAGNOSTICS
 
 #cmakedefine SMESH_ENABLE_TESTING
 #cmakedefine SMESH_ENABLE_BENCHMARK
@@ -192,11 +193,10 @@ typedef char mask_t;
 #endif // SMESH_ENABLE_CUDA
 
 #if defined(__APPLE__)
-  typedef __fp16 half_t;
+typedef __fp16 half_t;
 #else
-  typedef _Float16 half_t;
+typedef _Float16 half_t;
 #endif
 }
 
-
-#endif  // SMESH_CONFIG_HPP
+#endif // SMESH_CONFIG_HPP

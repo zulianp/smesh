@@ -1,6 +1,7 @@
 #include "smesh_decompose.hpp"
 
 #include "smesh_base.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_communicator.hpp"
 #include "smesh_distributed_base.hpp"
 #include "smesh_distributed_n2e.impl.hpp"
@@ -40,11 +41,11 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
                      count_t **const SMESH_RESTRICT out_local_n2e_ptr,
                      element_idx_t **const SMESH_RESTRICT out_local_n2e_idx) {
   SMESH_TRACE_SCOPE("redistribute_n2e");
-  i64 *send_elements_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
-  i64 *send_elements_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
+  i64 *send_elements_displs = (i64 *)SMESH_CALLOC((size_t)comm_size + 1, sizeof(i64));
+  i64 *send_elements_count = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
 
-  i64 *send_nodes_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
-  i64 *send_nodes_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
+  i64 *send_nodes_count = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
+  i64 *send_nodes_displs = (i64 *)SMESH_CALLOC((size_t)comm_size + 1, sizeof(i64));
 
   ptrdiff_t max_adj_count = 0;
   for (ptrdiff_t i = 0; i < n_local2global; ++i) {
@@ -55,7 +56,7 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
 
   const ptrdiff_t connected_ranks_capacity =
       std::max<ptrdiff_t>(1, max_adj_count);
-  int *connected_ranks = (int *)malloc(
+  int *connected_ranks = (int *)SMESH_ALLOC(
       static_cast<size_t>(connected_ranks_capacity) * sizeof(int));
   const ptrdiff_t node_start = rank_start(n_global_nodes, comm_size, comm_rank);
   for (ptrdiff_t i = 0; i < n_local2global; ++i) {
@@ -94,14 +95,14 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
   }
 
   const i64 send_elements_size = send_elements_displs[comm_size];
-  element_idx_t *send_elements = (element_idx_t *)malloc(
+  element_idx_t *send_elements = (element_idx_t *)SMESH_ALLOC(
       (size_t)send_elements_size * sizeof(element_idx_t));
 
   const i64 send_nodes_size = send_nodes_displs[comm_size];
-  large_idx_t *send_nodes = (large_idx_t *)malloc(
+  large_idx_t *send_nodes = (large_idx_t *)SMESH_ALLOC(
       (size_t)send_nodes_size * sizeof(large_idx_t));
   count_t *send_n2e_count =
-      (count_t *)malloc((size_t)send_nodes_size * sizeof(count_t));
+      (count_t *)SMESH_ALLOC((size_t)send_nodes_size * sizeof(count_t));
 
   for (ptrdiff_t i = 0; i < n_local2global; ++i) {
     const count_t e_begin = n2eptr[i];
@@ -141,8 +142,8 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
     }
   }
 
-  i64 *recv_nodes_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
-  i64 *recv_elements_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
+  i64 *recv_nodes_count = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
+  i64 *recv_elements_count = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
   MPI_Alltoall(send_nodes_count, 1, mpi_type<i64>(), recv_nodes_count, 1,
                mpi_type<i64>(), comm);
 
@@ -150,9 +151,9 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
                mpi_type<i64>(), comm);
 
   i64 *recv_nodes_displs =
-      (i64 *)malloc(((size_t)comm_size + 1) * sizeof(i64));
+      (i64 *)SMESH_ALLOC(((size_t)comm_size + 1) * sizeof(i64));
   i64 *recv_elements_displs =
-      (i64 *)malloc(((size_t)comm_size + 1) * sizeof(i64));
+      (i64 *)SMESH_ALLOC(((size_t)comm_size + 1) * sizeof(i64));
   recv_nodes_displs[0] = 0;
   recv_elements_displs[0] = 0;
   for (int r = 0; r < comm_size; r++) {
@@ -162,15 +163,15 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
   }
 
   const ptrdiff_t local2global_size = (ptrdiff_t)recv_nodes_displs[comm_size];
-  large_idx_t *local2global = (large_idx_t *)malloc(
+  large_idx_t *local2global = (large_idx_t *)SMESH_ALLOC(
       (size_t)local2global_size * sizeof(large_idx_t));
 
   count_t *local_n2e_ptr =
-      (count_t *)malloc((local2global_size + 1) * sizeof(count_t));
+      (count_t *)SMESH_ALLOC((local2global_size + 1) * sizeof(count_t));
 
   const ptrdiff_t local_n2e_size =
       (ptrdiff_t)recv_elements_displs[comm_size];
-  element_idx_t *local_n2e_idx = (element_idx_t *)malloc(
+  element_idx_t *local_n2e_idx = (element_idx_t *)SMESH_ALLOC(
       (size_t)local_n2e_size * sizeof(element_idx_t));
 
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / comm_size;
@@ -194,18 +195,18 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
                                  comm, max_chunk_size));
 
   // Free internal send/recv buffers; keep only outputs.
-  free(connected_ranks);
-  free(send_elements_count);
-  free(send_elements_displs);
-  free(send_nodes_count);
-  free(send_nodes_displs);
-  free(send_elements);
-  free(send_nodes);
-  free(send_n2e_count);
-  free(recv_nodes_count);
-  free(recv_elements_count);
-  free(recv_nodes_displs);
-  free(recv_elements_displs);
+  SMESH_FREE(connected_ranks);
+  SMESH_FREE(send_elements_count);
+  SMESH_FREE(send_elements_displs);
+  SMESH_FREE(send_nodes_count);
+  SMESH_FREE(send_nodes_displs);
+  SMESH_FREE(send_elements);
+  SMESH_FREE(send_nodes);
+  SMESH_FREE(send_n2e_count);
+  SMESH_FREE(recv_nodes_count);
+  SMESH_FREE(recv_elements_count);
+  SMESH_FREE(recv_nodes_displs);
+  SMESH_FREE(recv_elements_displs);
 
   *out_local2global_size = local2global_size;
   *out_local2global = local2global;
@@ -317,7 +318,7 @@ int rearrange_local_nodes(const int comm_size, const int comm_rank,
   // const ptrdiff_t n_ghosts = local2global_size - n_owned;
   const ptrdiff_t n_owned_not_shared = n_owned - n_shared;
 
-  idx_t *index_map = (idx_t *)malloc(local2global_size * sizeof(idx_t));
+  idx_t *index_map = (idx_t *)SMESH_ALLOC(local2global_size * sizeof(idx_t));
 
   ptrdiff_t count_ghosts = 0;
   ptrdiff_t count_owned_not_shared = 0;
@@ -386,7 +387,7 @@ int rearrange_local_nodes(const int comm_size, const int comm_rank,
   const size_t n2e_bytes = idx_off + idx_bytes;
 
   const size_t scratch_bytes = std::max(primary_bytes, n2e_bytes);
-  char *scratch = (char *)malloc(scratch_bytes);
+  char *scratch = (char *)SMESH_ALLOC(scratch_bytes);
   idx_t *buff = (idx_t *)scratch;
 
   for (int d = 0; d < nnodesxelem; ++d) {
@@ -431,8 +432,8 @@ int rearrange_local_nodes(const int comm_size, const int comm_rank,
   memcpy(local_n2e_ptr, temp_local_n2e_ptr,
          (local2global_size + 1) * sizeof(count_t));
 
-  free(scratch);
-  free(index_map);
+  SMESH_FREE(scratch);
+  SMESH_FREE(index_map);
 
   *out_n_owned = n_owned;
   *out_n_shared = n_shared;
@@ -458,7 +459,7 @@ int rearrange_local_elements(
   SMESH_TRACE_SCOPE("rearrange_local_elements");
   const ptrdiff_t elements_start =
       rank_start(n_global_elements, comm_size, comm_rank);
-  idx_t *old_to_new_map = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
+  idx_t *old_to_new_map = (idx_t *)SMESH_ALLOC(n_local_elements * sizeof(idx_t));
   ptrdiff_t shared_count = 0;
 
   for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
@@ -489,7 +490,7 @@ int rearrange_local_elements(
     old_to_new_map[i] = is_shared ? shared_offset++ : local_offset++;
   }
 
-  idx_t *buff = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
+  idx_t *buff = (idx_t *)SMESH_ALLOC(n_local_elements * sizeof(idx_t));
   for (int d = 0; d < nnodesxelem; ++d) {
     memcpy(buff, local_elements[d], n_local_elements * sizeof(idx_t));
     for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
@@ -512,8 +513,8 @@ int rearrange_local_elements(
     element_local_to_global[old_to_new_map[i]] = i + elements_start;
   }
 
-  free(old_to_new_map);
-  free(buff);
+  SMESH_FREE(old_to_new_map);
+  SMESH_FREE(buff);
   return SMESH_SUCCESS;
 }
 
@@ -545,7 +546,7 @@ int expand_aura_elements_inconsistent(
   const ptrdiff_t n2e_nnz =
       static_cast<ptrdiff_t>(local_n2e_ptr[n_local_nodes]);
 
-  element_idx_t *remote_elements = (element_idx_t *)malloc(
+  element_idx_t *remote_elements = (element_idx_t *)SMESH_ALLOC(
       static_cast<size_t>(n2e_nnz) * sizeof(element_idx_t));
   ptrdiff_t n_remote = 0;
   for (ptrdiff_t i = 0; i < n_local_nodes; ++i) {
@@ -564,8 +565,8 @@ int expand_aura_elements_inconsistent(
   const ptrdiff_t n_unique_remote =
       static_cast<ptrdiff_t>(sort_and_unique(remote_elements, n_remote));
 
-  i64 *send_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
-  i64 *send_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
+  i64 *send_count = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
+  i64 *send_displs = (i64 *)SMESH_CALLOC((size_t)comm_size + 1, sizeof(i64));
   for (ptrdiff_t i = 0; i < n_unique_remote; ++i) {
     const int owner =
         rank_owner(n_global_elements, remote_elements[i], comm_size);
@@ -576,7 +577,7 @@ int expand_aura_elements_inconsistent(
     send_displs[r + 1] += send_displs[r];
   }
 
-  element_idx_t *send_elements = (element_idx_t *)malloc(
+  element_idx_t *send_elements = (element_idx_t *)SMESH_ALLOC(
       static_cast<size_t>(send_displs[comm_size]) * sizeof(element_idx_t));
 
   for (ptrdiff_t i = 0; i < n_unique_remote; ++i) {
@@ -585,10 +586,10 @@ int expand_aura_elements_inconsistent(
     send_elements[send_displs[owner] + send_count[owner]++] = element_idx;
   }
 
-  free(remote_elements);
+  SMESH_FREE(remote_elements);
 
-  i64 *recv_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
-  i64 *recv_displs = (i64 *)malloc(((size_t)comm_size + 1) * sizeof(i64));
+  i64 *recv_count = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
+  i64 *recv_displs = (i64 *)SMESH_ALLOC(((size_t)comm_size + 1) * sizeof(i64));
   SMESH_MPI_CATCH(
       MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1,
                    mpi_type<i64>(), comm));
@@ -599,7 +600,7 @@ int expand_aura_elements_inconsistent(
   }
 
   const i64 recv_size = recv_displs[comm_size];
-  element_idx_t *recv_elements = (element_idx_t *)malloc(
+  element_idx_t *recv_elements = (element_idx_t *)SMESH_ALLOC(
       static_cast<size_t>(recv_size) * sizeof(element_idx_t));
 
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / comm_size;
@@ -607,7 +608,7 @@ int expand_aura_elements_inconsistent(
                                  recv_elements, recv_count, recv_displs, comm,
                                  max_chunk_size));
 
-  element_idx_t *old_to_new = (element_idx_t *)malloc(
+  element_idx_t *old_to_new = (element_idx_t *)SMESH_ALLOC(
       static_cast<size_t>(n_local_elements) * sizeof(element_idx_t));
   for (ptrdiff_t new_idx = 0; new_idx < n_local_elements; ++new_idx) {
     const large_idx_t old_global = element_local_to_global[new_idx];
@@ -618,7 +619,7 @@ int expand_aura_elements_inconsistent(
 
   for (int d = 0; d < nnodesxelem; ++d) {
     idx_t *send_nodes =
-        (idx_t *)malloc(static_cast<size_t>(recv_size) * sizeof(idx_t));
+        (idx_t *)SMESH_ALLOC(static_cast<size_t>(recv_size) * sizeof(idx_t));
     for (i64 i = 0; i < recv_size; ++i) {
       const element_idx_t element_old = recv_elements[i];
       const ptrdiff_t old_off =
@@ -627,35 +628,35 @@ int expand_aura_elements_inconsistent(
       send_nodes[i] = static_cast<idx_t>(local2global[local_elements[d][local_e]]);
     }
 
-    idx_t *recv_nodes = (idx_t *)malloc(
+    idx_t *recv_nodes = (idx_t *)SMESH_ALLOC(
         static_cast<size_t>(send_displs[comm_size]) * sizeof(idx_t));
     SMESH_MPI_CATCH(all_to_allv_64(send_nodes, recv_count, recv_displs,
                                    recv_nodes, send_count, send_displs, comm,
                                    max_chunk_size));
 
     out_aura_element_nodes[d] = recv_nodes;
-    free(send_nodes);
+    SMESH_FREE(send_nodes);
   }
 
-  free(old_to_new);
-  free(recv_elements);
-  free(recv_count);
-  free(recv_displs);
+  SMESH_FREE(old_to_new);
+  SMESH_FREE(recv_elements);
+  SMESH_FREE(recv_count);
+  SMESH_FREE(recv_displs);
 
   const ptrdiff_t n_aura = static_cast<ptrdiff_t>(send_displs[comm_size]);
-  large_idx_t *aura_element_mapping = (large_idx_t *)malloc(
+  large_idx_t *aura_element_mapping = (large_idx_t *)SMESH_ALLOC(
       static_cast<size_t>(n_aura) * sizeof(large_idx_t));
   for (ptrdiff_t i = 0; i < n_aura; ++i) {
     aura_element_mapping[i] = static_cast<large_idx_t>(send_elements[i]);
   }
 
-  free(send_elements);
+  SMESH_FREE(send_elements);
 
   *out_aura_element_mapping = aura_element_mapping;
   *out_n_aura = static_cast<ptrdiff_t>(send_displs[comm_size]);
 
-  free(send_count);
-  free(send_displs);
+  SMESH_FREE(send_count);
+  SMESH_FREE(send_displs);
 
   return SMESH_SUCCESS;
 }
@@ -674,10 +675,10 @@ int prepare_node_renumbering(MPI_Comm comm, const ptrdiff_t n_global_nodes,
   const ptrdiff_t nodes_start =
       rank_start(n_global_nodes, comm_size, comm_rank);
 
-  i64 *send_nodes_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
-  i64 *send_nodes_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
-  i64 *recv_nodes_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
-  i64 *recv_nodes_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
+  i64 *send_nodes_count = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
+  i64 *send_nodes_displs = (i64 *)SMESH_CALLOC((size_t)comm_size + 1, sizeof(i64));
+  i64 *recv_nodes_count = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
+  i64 *recv_nodes_displs = (i64 *)SMESH_CALLOC((size_t)comm_size + 1, sizeof(i64));
 
   for (ptrdiff_t i = 0; i < n_owned_nodes; ++i) {
     const int owner = rank_owner(n_global_nodes, local2global[i], comm_size);
@@ -689,8 +690,8 @@ int prepare_node_renumbering(MPI_Comm comm, const ptrdiff_t n_global_nodes,
   }
 
   idx_t *send_nodes =
-      (idx_t *)malloc((size_t)send_nodes_displs[comm_size] * sizeof(idx_t));
-  large_idx_t *send_nodes_mapping = (large_idx_t *)malloc(
+      (idx_t *)SMESH_ALLOC((size_t)send_nodes_displs[comm_size] * sizeof(idx_t));
+  large_idx_t *send_nodes_mapping = (large_idx_t *)SMESH_ALLOC(
       (size_t)send_nodes_displs[comm_size] * sizeof(large_idx_t));
   for (ptrdiff_t i = 0; i < n_owned_nodes; ++i) {
     const int owner = rank_owner(n_global_nodes, local2global[i], comm_size);
@@ -710,12 +711,12 @@ int prepare_node_renumbering(MPI_Comm comm, const ptrdiff_t n_global_nodes,
 
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / comm_size;
   idx_t *recv_nodes =
-      (idx_t *)malloc((size_t)recv_nodes_displs[comm_size] * sizeof(idx_t));
+      (idx_t *)SMESH_ALLOC((size_t)recv_nodes_displs[comm_size] * sizeof(idx_t));
   SMESH_MPI_CATCH(all_to_allv_64(send_nodes, send_nodes_count, send_nodes_displs,
                                  recv_nodes, recv_nodes_count, recv_nodes_displs,
                                  comm, max_chunk_size));
 
-  large_idx_t *recv_nodes_mapping = (large_idx_t *)malloc(
+  large_idx_t *recv_nodes_mapping = (large_idx_t *)SMESH_ALLOC(
       (size_t)recv_nodes_displs[comm_size] * sizeof(large_idx_t));
   SMESH_MPI_CATCH(all_to_allv_64(send_nodes_mapping, send_nodes_count,
                                  send_nodes_displs, recv_nodes_mapping,
@@ -727,14 +728,14 @@ int prepare_node_renumbering(MPI_Comm comm, const ptrdiff_t n_global_nodes,
     global2owned[off] = recv_nodes[i];
   }
 
-  free(send_nodes_count);
-  free(send_nodes_displs);
-  free(recv_nodes_count);
-  free(recv_nodes_displs);
-  free(send_nodes);
-  free(send_nodes_mapping);
-  free(recv_nodes);
-  free(recv_nodes_mapping);
+  SMESH_FREE(send_nodes_count);
+  SMESH_FREE(send_nodes_displs);
+  SMESH_FREE(recv_nodes_count);
+  SMESH_FREE(recv_nodes_displs);
+  SMESH_FREE(send_nodes);
+  SMESH_FREE(send_nodes_mapping);
+  SMESH_FREE(recv_nodes);
+  SMESH_FREE(recv_nodes_mapping);
   return SMESH_SUCCESS;
 }
 
@@ -863,7 +864,7 @@ int stich_aura_elements(
   const large_idx_t *const ghost_end = local2global + n_local_nodes;
 
   const ptrdiff_t aura_flat_n = n_aura_elements * nnodesxelem;
-  large_idx_t *aura_nodes = (large_idx_t *)malloc(
+  large_idx_t *aura_nodes = (large_idx_t *)SMESH_ALLOC(
       static_cast<size_t>(std::max<ptrdiff_t>(1, aura_flat_n)) *
       sizeof(large_idx_t));
   for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
@@ -876,7 +877,7 @@ int stich_aura_elements(
   const ptrdiff_t n_unique_aura_nodes =
       static_cast<ptrdiff_t>(sort_and_unique(aura_nodes, aura_flat_n));
 
-  large_idx_t *aura_new = (large_idx_t *)malloc(
+  large_idx_t *aura_new = (large_idx_t *)SMESH_ALLOC(
       static_cast<size_t>(std::max<ptrdiff_t>(1, n_unique_aura_nodes)) *
       sizeof(large_idx_t));
 
@@ -903,7 +904,7 @@ int stich_aura_elements(
     }
   }
 
-  large_idx_t *n2n_local2global = (large_idx_t *)malloc(
+  large_idx_t *n2n_local2global = (large_idx_t *)SMESH_ALLOC(
       static_cast<size_t>(n_local_nodes + n_aura_nodes) *
       sizeof(large_idx_t));
   memcpy(n2n_local2global, local2global,
@@ -937,15 +938,15 @@ int stich_aura_elements(
           find_local(static_cast<large_idx_t>(e2n_aura[d][i]));
     }
 
-    e2n_local[d] = (idx_t *)realloc(
+    e2n_local[d] = (idx_t *)SMESH_REALLOC(
         e2n_local[d], static_cast<size_t>(n_local_elements + n_aura_elements) *
                           sizeof(idx_t));
     memcpy(e2n_local[d] + n_local_elements, e2n_aura[d],
            static_cast<size_t>(n_aura_elements) * sizeof(idx_t));
   }
 
-  free(aura_nodes);
-  free(aura_new);
+  SMESH_FREE(aura_nodes);
+  SMESH_FREE(aura_new);
 
   *n2n_local2global_out = n2n_local2global;
   *out_n_aura_nodes = n_aura_nodes;
@@ -970,10 +971,10 @@ int collect_ghost_and_aura_import_indices(
   const ptrdiff_t nodes_start =
       rank_start(n_global_nodes, comm_size, comm_rank);
 
-  i64 *send_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
-  i64 *send_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
-  i64 *recv_count = (i64 *)calloc((size_t)comm_size, sizeof(i64));
-  i64 *recv_displs = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
+  i64 *send_count = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
+  i64 *send_displs = (i64 *)SMESH_CALLOC((size_t)comm_size + 1, sizeof(i64));
+  i64 *recv_count = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
+  i64 *recv_displs = (i64 *)SMESH_CALLOC((size_t)comm_size + 1, sizeof(i64));
 
   for (ptrdiff_t i = 0; i < n_import; ++i) {
     const large_idx_t g = local2global[n_owned_nodes + i];
@@ -985,11 +986,11 @@ int collect_ghost_and_aura_import_indices(
     send_displs[r + 1] += send_displs[r];
   }
 
-  large_idx_t *send_nodes = (large_idx_t *)malloc(
+  large_idx_t *send_nodes = (large_idx_t *)SMESH_ALLOC(
       static_cast<size_t>(n_import) * sizeof(large_idx_t));
   idx_t *send_pos =
-      (idx_t *)malloc(static_cast<size_t>(n_import) * sizeof(idx_t));
-  i64 *cursor = (i64 *)calloc((size_t)comm_size, sizeof(i64));
+      (idx_t *)SMESH_ALLOC(static_cast<size_t>(n_import) * sizeof(idx_t));
+  i64 *cursor = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
 
   for (ptrdiff_t i = 0; i < n_import; ++i) {
     const large_idx_t g = local2global[n_owned_nodes + i];
@@ -1010,10 +1011,10 @@ int collect_ghost_and_aura_import_indices(
   }
 
   const ptrdiff_t recv_total = recv_displs[comm_size];
-  large_idx_t *recv_nodes = (large_idx_t *)malloc(
+  large_idx_t *recv_nodes = (large_idx_t *)SMESH_ALLOC(
       static_cast<size_t>(recv_total) * sizeof(large_idx_t));
   idx_t *recv_pos =
-      (idx_t *)malloc(static_cast<size_t>(recv_total) * sizeof(idx_t));
+      (idx_t *)SMESH_ALLOC(static_cast<size_t>(recv_total) * sizeof(idx_t));
 
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / comm_size;
   SMESH_MPI_CATCH(all_to_allv_64(send_nodes, send_count, send_displs, recv_nodes,
@@ -1035,15 +1036,15 @@ int collect_ghost_and_aura_import_indices(
     ghost_and_aura_to_owned[send_pos[i]] = static_cast<idx_t>(send_nodes[i]);
   }
 
-  free(send_count);
-  free(send_displs);
-  free(recv_count);
-  free(recv_displs);
-  free(send_nodes);
-  free(send_pos);
-  free(recv_nodes);
-  free(recv_pos);
-  free(cursor);
+  SMESH_FREE(send_count);
+  SMESH_FREE(send_displs);
+  SMESH_FREE(recv_count);
+  SMESH_FREE(recv_displs);
+  SMESH_FREE(send_nodes);
+  SMESH_FREE(send_pos);
+  SMESH_FREE(recv_nodes);
+  SMESH_FREE(recv_pos);
+  SMESH_FREE(cursor);
   return SMESH_SUCCESS;
 }
 
@@ -1061,13 +1062,13 @@ int group_ghost_and_aura_by_rank(
     const ptrdiff_t n_import = n_ghosts + n_aura_nodes;
     if (comm_size > 1 && n_import > 0) {
       ptrdiff_t *ghost_displs =
-          (ptrdiff_t *)calloc((size_t)comm_size + 1, sizeof(ptrdiff_t));
+          (ptrdiff_t *)SMESH_CALLOC((size_t)comm_size + 1, sizeof(ptrdiff_t));
       ptrdiff_t *aura_displs =
-          (ptrdiff_t *)calloc((size_t)comm_size + 1, sizeof(ptrdiff_t));
+          (ptrdiff_t *)SMESH_CALLOC((size_t)comm_size + 1, sizeof(ptrdiff_t));
       ptrdiff_t *ghost_cursor =
-          (ptrdiff_t *)calloc((size_t)comm_size, sizeof(ptrdiff_t));
+          (ptrdiff_t *)SMESH_CALLOC((size_t)comm_size, sizeof(ptrdiff_t));
       ptrdiff_t *aura_cursor =
-          (ptrdiff_t *)calloc((size_t)comm_size, sizeof(ptrdiff_t));
+          (ptrdiff_t *)SMESH_CALLOC((size_t)comm_size, sizeof(ptrdiff_t));
 
       for (ptrdiff_t i = 0; i < n_import; ++i) {
         const int r = owner[n_owned + i];
@@ -1085,11 +1086,11 @@ int group_ghost_and_aura_by_rank(
         aura_displs[(size_t)r] += n_ghosts;
       }
 
-      idx_t *old_to_new = (idx_t *)malloc((size_t)n_import * sizeof(idx_t));
-      idx_t *ghost_tmp = (idx_t *)malloc((size_t)n_import * sizeof(idx_t));
-      large_idx_t *l2g_tmp = (large_idx_t *)malloc(
+      idx_t *old_to_new = (idx_t *)SMESH_ALLOC((size_t)n_import * sizeof(idx_t));
+      idx_t *ghost_tmp = (idx_t *)SMESH_ALLOC((size_t)n_import * sizeof(idx_t));
+      large_idx_t *l2g_tmp = (large_idx_t *)SMESH_ALLOC(
           (size_t)n_import * sizeof(large_idx_t));
-      int *owner_tmp = (int *)malloc((size_t)n_import * sizeof(int));
+      int *owner_tmp = (int *)SMESH_ALLOC((size_t)n_import * sizeof(int));
 
       for (ptrdiff_t i = 0; i < n_import; ++i) {
         const int r = owner[n_owned + i];
@@ -1123,14 +1124,14 @@ int group_ghost_and_aura_by_rank(
         }
       }
 
-      free(owner_tmp);
-      free(l2g_tmp);
-      free(ghost_tmp);
-      free(old_to_new);
-      free(ghost_displs);
-      free(aura_displs);
-      free(ghost_cursor);
-      free(aura_cursor);
+      SMESH_FREE(owner_tmp);
+      SMESH_FREE(l2g_tmp);
+      SMESH_FREE(ghost_tmp);
+      SMESH_FREE(old_to_new);
+      SMESH_FREE(ghost_displs);
+      SMESH_FREE(aura_displs);
+      SMESH_FREE(ghost_cursor);
+      SMESH_FREE(aura_cursor);
     }
   }
   return SMESH_SUCCESS;

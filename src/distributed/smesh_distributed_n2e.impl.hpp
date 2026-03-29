@@ -4,6 +4,7 @@
 #include "smesh_distributed_base.hpp"
 #include "smesh_tracer.hpp"
 #include "smesh_alltoallv.impl.hpp"
+#include "smesh_alloc.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -24,10 +25,10 @@ int create_n2e(
   MPI_Comm_rank(comm, &rank);
   MPI_Comm_size(comm, &size);
 
-  i64 *send_displs = (i64 *)calloc(size + 1, sizeof(i64));
-  i64 *send_count = (i64 *)calloc(size, sizeof(i64));
-  i64 *recv_displs = (i64 *)calloc((size + 1), sizeof(i64));
-  i64 *recv_count = (i64 *)calloc(size, sizeof(i64));
+  i64 *send_displs = (i64 *)SMESH_CALLOC(size + 1, sizeof(i64));
+  i64 *send_count = (i64 *)SMESH_CALLOC(size, sizeof(i64));
+  i64 *recv_displs = (i64 *)SMESH_CALLOC((size + 1), sizeof(i64));
+  i64 *recv_count = (i64 *)SMESH_CALLOC(size, sizeof(i64));
 
   const ptrdiff_t nodes_start = rank_start(n_global_nodes, size, rank);
   const ptrdiff_t elements_start = rank_start(n_global_elements, size, rank);
@@ -63,14 +64,14 @@ int create_n2e(
   // (this saves repeating the element index in send_elements and send_nodes)
 
   element_idx_t *send_elements =
-      (element_idx_t *)malloc(send_size * sizeof(element_idx_t));
+      (element_idx_t *)SMESH_ALLOC(send_size * sizeof(element_idx_t));
 
-  idx_t *send_nodes = (idx_t *)malloc(send_size * sizeof(idx_t));
+  idx_t *send_nodes = (idx_t *)SMESH_ALLOC(send_size * sizeof(idx_t));
 
   element_idx_t *recv_elements =
-      (element_idx_t *)malloc(recv_size * sizeof(element_idx_t));
+      (element_idx_t *)SMESH_ALLOC(recv_size * sizeof(element_idx_t));
 
-  idx_t *recv_nodes = (idx_t *)malloc(recv_size * sizeof(idx_t));
+  idx_t *recv_nodes = (idx_t *)SMESH_ALLOC(recv_size * sizeof(idx_t));
 
   for (int d = 0; d < nnodesxelem; d++) {
     for (ptrdiff_t e = 0; e < n_local_elements; e++) {
@@ -91,7 +92,7 @@ int create_n2e(
                                  recv_nodes, recv_count, recv_displs, comm,
                                  max_chunk_size));
 
-  count_t *n2e_ptr = (count_t *)calloc((n_local_nodes + 1), sizeof(count_t));
+  count_t *n2e_ptr = (count_t *)SMESH_CALLOC((n_local_nodes + 1), sizeof(count_t));
 
   for (ptrdiff_t r = 0; r < size; r++) {
     i64 begin = recv_displs[r];
@@ -108,14 +109,14 @@ int create_n2e(
   }
 
   element_idx_t *n2e_idx =
-      (element_idx_t *)malloc(n2e_ptr[n_local_nodes] * sizeof(element_idx_t));
+      (element_idx_t *)SMESH_ALLOC(n2e_ptr[n_local_nodes] * sizeof(element_idx_t));
 
       if (n_local_nodes < 0) {
  SMESH_ERROR("n_local_nodes is negative");
  return SMESH_FAILURE;
       }
 
-  i64 *book_keeping = (i64 *)calloc(n_local_nodes, sizeof(i64));
+  i64 *book_keeping = (i64 *)SMESH_CALLOC(n_local_nodes, sizeof(i64));
 
   for (ptrdiff_t r = 0; r < size; r++) {
     i64 begin = recv_displs[r];
@@ -130,15 +131,15 @@ int create_n2e(
   *out_n2eptr = n2e_ptr;
   *out_n2e_idx = n2e_idx;
 
-  free(send_displs);
-  free(send_count);
-  free(recv_displs);
-  free(recv_count);
-  free(send_elements);
-  free(send_nodes);
-  free(recv_elements);
-  free(recv_nodes);
-  free(book_keeping);
+  SMESH_FREE(send_displs);
+  SMESH_FREE(send_count);
+  SMESH_FREE(recv_displs);
+  SMESH_FREE(recv_count);
+  SMESH_FREE(send_elements);
+  SMESH_FREE(send_nodes);
+  SMESH_FREE(recv_elements);
+  SMESH_FREE(recv_nodes);
+  SMESH_FREE(book_keeping);
   return SMESH_SUCCESS;
 }
 

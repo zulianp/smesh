@@ -20,6 +20,7 @@ option(SMESH_ENABLE_INSTALL_DOCS "Install generated API docs (Doxygen)" OFF)
 
 option(SMESH_USE_OCCUPANCY_MAX_POTENTIAL "Enable usage of cudaOccupancyMaxPotentialBlockSize" OFF)
 option(SMESH_ENABLE_TRACE "Eneable trace facilities and output sfem.trace.csv (Override with SMESH_TRACE_FILE in the env)" ON)
+option(SMESH_ENABLE_MEM_DIAGNOSTICS "Enable memory diagnostics" OFF)
 
 get_directory_property(HAS_PARENT PARENT_DIRECTORY)
 

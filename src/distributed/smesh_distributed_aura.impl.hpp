@@ -4,6 +4,7 @@
 #include "smesh_distributed_aura.hpp"
 
 #include "smesh_alltoallv.impl.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_decompose.hpp"
 
 #include <cstring>
@@ -56,26 +57,26 @@ int exchange_create(MPI_Comm comm, const ptrdiff_t n_local_nodes,
   }
 
   const ptrdiff_t n_import = n_local_nodes - n_owned_nodes;
-  idx_t *ordered_import_idx = (idx_t *)malloc((size_t)n_import * sizeof(idx_t));
-  idx_t *packed_ghosts = (idx_t *)malloc((size_t)n_import * sizeof(idx_t));
-  i64 *cursor = (i64 *)calloc((size_t)size, sizeof(i64));
+  idx_t *ordered_import_idx = (idx_t *)SMESH_ALLOC((size_t)n_import * sizeof(idx_t));
+  idx_t *packed_ghosts = (idx_t *)SMESH_ALLOC((size_t)n_import * sizeof(idx_t));
+  i64 *cursor = (i64 *)SMESH_CALLOC((size_t)size, sizeof(i64));
   for (ptrdiff_t i = 0; i < n_import; ++i) {
     const int owner = node_owner[n_owned_nodes + i];
     const i64 slot = send_displs[owner] + cursor[owner]++;
     ordered_import_idx[slot] = static_cast<idx_t>(n_owned_nodes + i);
     packed_ghosts[slot] = ghosts[i];
   }
-  free(cursor);
+  SMESH_FREE(cursor);
 
   idx_t *remote_ghosts =
-      (idx_t *)malloc((size_t)recv_displs[size] * sizeof(idx_t));
+      (idx_t *)SMESH_ALLOC((size_t)recv_displs[size] * sizeof(idx_t));
 
   // send slave nodes to process with master nodes
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
   SMESH_MPI_CATCH(all_to_allv_64(packed_ghosts, send_count, send_displs,
                                  remote_ghosts, recv_count, recv_displs, comm,
                                  max_chunk_size));
-  free(packed_ghosts);
+  SMESH_FREE(packed_ghosts);
 
   // Replace global indexing with local indexing for identifying master nodes
   for (int r = 0; r < size; r++) {
@@ -142,7 +143,7 @@ int exchange_create_ghosts(MPI_Comm comm, const ptrdiff_t n_local_nodes,
   }
 
   idx_t *remote_ghosts =
-      (idx_t *)malloc((size_t)recv_displs[size] * sizeof(idx_t));
+      (idx_t *)SMESH_ALLOC((size_t)recv_displs[size] * sizeof(idx_t));
 
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
   SMESH_MPI_CATCH(all_to_allv_64(ghosts, send_count, send_displs, remote_ghosts,
@@ -362,19 +363,19 @@ int gather_mapped_field(MPI_Comm comm, const ptrdiff_t n_local,
   const ptrdiff_t begin = rank_start(n_global, size, rank);
 
   // Build request counts: how many global indices we need from each rank
-  i64 *req_count = (i64 *)calloc((size_t)size, sizeof(i64));
+  i64 *req_count = (i64 *)SMESH_CALLOC((size_t)size, sizeof(i64));
   for (ptrdiff_t i = 0; i < n_local; ++i) {
     const idx_t idx = mapping[i];
     req_count[rank_owner(n_global, idx, size)]++;
   }
 
-  i64 *recv_req_count = (i64 *)malloc((size_t)size * sizeof(i64));
+  i64 *recv_req_count = (i64 *)SMESH_ALLOC((size_t)size * sizeof(i64));
   SMESH_MPI_CATCH(MPI_Alltoall(req_count, 1, smesh::mpi_type<i64>(),
                                recv_req_count, 1, smesh::mpi_type<i64>(),
                                comm));
 
-  i64 *req_displs = (i64 *)malloc(((size_t)size + 1) * sizeof(i64));
-  i64 *recv_displs = (i64 *)malloc(((size_t)size + 1) * sizeof(i64));
+  i64 *req_displs = (i64 *)SMESH_ALLOC(((size_t)size + 1) * sizeof(i64));
+  i64 *recv_displs = (i64 *)SMESH_ALLOC(((size_t)size + 1) * sizeof(i64));
 
   req_displs[0] = 0;
   recv_displs[0] = 0;
@@ -386,11 +387,11 @@ int gather_mapped_field(MPI_Comm comm, const ptrdiff_t n_local,
   const i64 total_recv_req = recv_displs[size];
 
   // Pack requests: global indices + local positions (for unpack)
-  idx_t *req_list = (idx_t *)malloc((size_t)n_local * sizeof(idx_t));
+  idx_t *req_list = (idx_t *)SMESH_ALLOC((size_t)n_local * sizeof(idx_t));
   ptrdiff_t *local_pos =
-      (ptrdiff_t *)malloc((size_t)n_local * sizeof(ptrdiff_t));
+      (ptrdiff_t *)SMESH_ALLOC((size_t)n_local * sizeof(ptrdiff_t));
   ptrdiff_t *book_keeping =
-      (ptrdiff_t *)calloc((size_t)size, sizeof(ptrdiff_t));
+      (ptrdiff_t *)SMESH_CALLOC((size_t)size, sizeof(ptrdiff_t));
 
   for (ptrdiff_t i = 0; i < n_local; ++i) {
     const idx_t idx = mapping[i];
@@ -404,7 +405,7 @@ int gather_mapped_field(MPI_Comm comm, const ptrdiff_t n_local,
   }
 
   idx_t *recv_req_list =
-      (idx_t *)malloc((size_t)total_recv_req * sizeof(idx_t));
+      (idx_t *)SMESH_ALLOC((size_t)total_recv_req * sizeof(idx_t));
 
   // Exchange requested indices
   const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / size;
@@ -415,7 +416,7 @@ int gather_mapped_field(MPI_Comm comm, const ptrdiff_t n_local,
   // Build response buffer for received requests (same ordering as
   // recv_req_list)
   uint8_t *send_resp =
-      (uint8_t *)malloc((size_t)total_recv_req * (size_t)type_size);
+      (uint8_t *)SMESH_ALLOC((size_t)total_recv_req * (size_t)type_size);
 
   for (i64 i = 0; i < total_recv_req; ++i) {
     const idx_t idx = recv_req_list[i];
@@ -427,7 +428,7 @@ int gather_mapped_field(MPI_Comm comm, const ptrdiff_t n_local,
   }
 
   // Exchange response data back to requesters
-  uint8_t *recv_resp = (uint8_t *)malloc((size_t)n_local * (size_t)type_size);
+  uint8_t *recv_resp = (uint8_t *)SMESH_ALLOC((size_t)n_local * (size_t)type_size);
 
   SMESH_MPI_CATCH(all_to_allv_64_b(send_resp, recv_req_count, recv_displs,
                                 data_type, recv_resp, req_count, req_displs,
@@ -440,16 +441,16 @@ int gather_mapped_field(MPI_Comm comm, const ptrdiff_t n_local,
            (const void *)(recv_resp + off * type_size), (size_t)type_size);
   }
 
-  free(recv_resp);
-  free(send_resp);
-  free(recv_req_list);
-  free(book_keeping);
-  free(local_pos);
-  free(req_list);
-  free(recv_displs);
-  free(req_displs);
-  free(recv_req_count);
-  free(req_count);
+  SMESH_FREE(recv_resp);
+  SMESH_FREE(send_resp);
+  SMESH_FREE(recv_req_list);
+  SMESH_FREE(book_keeping);
+  SMESH_FREE(local_pos);
+  SMESH_FREE(req_list);
+  SMESH_FREE(recv_displs);
+  SMESH_FREE(req_displs);
+  SMESH_FREE(recv_req_count);
+  SMESH_FREE(req_count);
   return SMESH_SUCCESS;
 }
 } // namespace smesh
