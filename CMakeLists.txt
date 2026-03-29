@@ -9,6 +9,7 @@ include(cmake/SMESHOptions.cmake)
 include(cmake/SMESHDependencies.cmake)
 include(cmake/SMESHSanitizer.cmake)
 include(cmake/SMESHNumbers.cmake)
+include(cmake/SMESHUtils.cmake)
 
 if(SMESH_ENABLE_PYTHON)
     include(cmake/SMESHPython.cmake)
@@ -258,16 +259,9 @@ write_basic_package_version_file(
     COMPATIBILITY SameMajorVersion
 )
 
-set(_smesh_python_script_dir scripts/python/smesh)
 
-install(
-    DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/python/smesh/
-    DESTINATION ${_smesh_python_script_dir}
-    FILES_MATCHING
-        PATTERN "*.py"
-        PATTERN "__pycache__" EXCLUDE
-        PATTERN "__pycache__/*" EXCLUDE
-)
+smesh_install_python_scripts(${CMAKE_CURRENT_SOURCE_DIR}/python)
+
 
 install(
     FILES

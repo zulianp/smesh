@@ -739,18 +739,31 @@ int mesh_from_folder_basic(
   MPI_Comm_rank(comm, &comm_rank);
   MPI_Comm_size(comm, &comm_size);
   int nnodesxelem;
-  idx_t **elems;
+  idx_t **elems = nullptr;
   ptrdiff_t n_local_elements;
   ptrdiff_t n_global_elements;
-  mesh_block_from_folder<idx_t>(comm, folder, &nnodesxelem, &elems,
-                                &n_local_elements, &n_global_elements);
+  if (mesh_block_from_folder<idx_t>(comm, folder, &nnodesxelem, &elems,
+                                    &n_local_elements,
+                                    &n_global_elements) != SMESH_SUCCESS) {
+    SMESH_ERROR("Failed to read mesh blocks\n");
+    return SMESH_FAILURE;
+  }
 
   int spatial_dim;
-  geom_t **points;
+  geom_t **points = nullptr;
   ptrdiff_t n_local2global;
   ptrdiff_t n_global_nodes;
-  mesh_coordinates_from_folder(comm, folder, &spatial_dim, &points,
-                               &n_local2global, &n_global_nodes);
+  if (mesh_coordinates_from_folder(comm, folder, &spatial_dim, &points,
+                                   &n_local2global,
+                                   &n_global_nodes) != SMESH_SUCCESS) {
+    for (int d = 0; d < nnodesxelem; ++d) {
+      free(elems[d]);
+    }
+    free(elems);
+
+    SMESH_ERROR("Failed to read coordinates\n");
+    return SMESH_FAILURE;
+  }
 
   return mesh_create_parallel<idx_t, geom_t, large_idx_t>(
       comm, comm_size, comm_rank, nnodesxelem, elems, n_local_elements,
@@ -845,6 +858,19 @@ int mesh_from_folder(
 
     const ptrdiff_t nnodesxelem = *nnodesxelem_out;
     const ptrdiff_t n_local_elements = *n_owned_elements_out;
+    const ptrdiff_t n_local_nodes =
+        *n_owned_nodes_out + *n_ghost_nodes_out + *n_aura_nodes_out;
+
+    if (static_cast<long double>(n_local_nodes) >
+        static_cast<long double>(std::numeric_limits<idx_t>::max())) {
+      SMESH_ERROR(
+          "Distributed read requires %ld local node indices on rank %d, "
+          "but idx_t can represent at most %lld. Rebuild with a wider "
+          "SMESH_IDX_TYPE.\n",
+          (long)n_local_nodes, rank,
+          (long long)std::numeric_limits<idx_t>::max());
+      return SMESH_FAILURE;
+    }
 
     idx_t **small_elements = (idx_t **)malloc(nnodesxelem * sizeof(idx_t *));
 
