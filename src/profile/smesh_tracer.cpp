@@ -44,6 +44,31 @@ public:
     os.close();
   }
 
+  void record_event(const std::string &name, const double duration) {
+    auto &e = events[name];
+    e.first++;
+    e.second += duration;
+
+    if (log_mode) {
+#ifdef SMESH_ENABLE_CUDA
+      size_t free, total;
+      cudaMemGetInfo(&free, &total);
+
+      if (!rank) {
+        printf("-- LOG[%d]: %s (%g)\n"
+               "   MEMORY: free %g [GB] (total %g [GB])\n",
+               rank, name.c_str(), duration, free * 1e-9, total * 1e-9);
+      }
+
+#else
+      if (!rank) {
+        printf("-- LOG: %s (%g)\n", name.c_str(), duration);
+      }
+#endif
+      fflush(stdout);
+    }
+  }
+
   Impl() {}
 };
 
@@ -52,37 +77,14 @@ Tracer &Tracer::instance() {
   return instance_;
 }
 
-void Tracer::set_rank(const int rank)
-{
-  impl_->rank = rank;
-}
+void Tracer::set_rank(const int rank) { impl_->rank = rank; }
 
 void Tracer::record_event(const char *name, const double duration) {
-  auto &e = impl_->events[name];
-  e.first++;
-  e.second += duration;
+  impl_->record_event(name, duration);
 }
 
 void Tracer::record_event(std::string &&name, const double duration) {
-  auto &e = impl_->events[name];
-  e.first++;
-  e.second += duration;
-
-  if (impl_->log_mode) {
-#ifdef SMESH_ENABLE_CUDA
-    size_t free, total;
-    cudaMemGetInfo(&free, &total);
-
-    int rank = impl_->rank;
-    printf("-- LOG[%d]: %s (%g)\n"
-           "   MEMORY: free %g [GB] (total %g [GB])\n",
-           rank, name.c_str(), duration, free * 1e-9, total * 1e-9);
-
-#else
-    printf("-- LOG: %s (%g)\n", name.c_str(), duration);
-#endif
-    fflush(stdout);
-  }
+  impl_->record_event(name, duration);
 }
 
 Tracer::Tracer() : impl_(std::make_unique<Impl>()) {
