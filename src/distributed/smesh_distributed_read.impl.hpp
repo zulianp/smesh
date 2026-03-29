@@ -23,9 +23,9 @@
 
 #include "matrixio_array.h"
 
+#include "smesh_alloc.hpp"
 #include "smesh_alltoallv.impl.hpp"
 #include "smesh_base.hpp"
-#include "smesh_alloc.hpp"
 #include "smesh_distributed_base.hpp"
 
 namespace smesh {
@@ -97,6 +97,8 @@ int array_create_from_file_convert(MPI_Comm comm, const Path &path,
     SMESH_ERROR("Failed to create array from file %s\n", path.c_str());
     return SMESH_FAILURE;
   }
+
+  SMESH_TRACK_EXTERNAL_ALLOC(temp, *n_local_elements * sizeof(FileType));
 
   *data = (TargetType *)SMESH_ALLOC(*n_local_elements * sizeof(TargetType));
   for (ptrdiff_t i = 0; i < *n_local_elements; i++) {
@@ -318,7 +320,8 @@ int read_mapped_field(MPI_Comm comm, const char *input_path,
   }
 
   // Exchange response data back to requesters
-  uint8_t *recv_resp = (uint8_t *)SMESH_ALLOC((size_t)n_local * (size_t)type_size);
+  uint8_t *recv_resp =
+      (uint8_t *)SMESH_ALLOC((size_t)n_local * (size_t)type_size);
   if (!recv_resp) {
     SMESH_FREE(send_resp);
     SMESH_FREE(recv_req_list);
@@ -605,7 +608,8 @@ int mesh_create_parallel(
                            n_owned, &n_owned_not_shared, element_mapping);
 
   large_idx_t *aura_element_mapping = nullptr;
-  idx_t **aura_element_nodes = (idx_t **)SMESH_ALLOC(nnodesxelem * sizeof(idx_t *));
+  idx_t **aura_element_nodes =
+      (idx_t **)SMESH_ALLOC(nnodesxelem * sizeof(idx_t *));
   for (int d = 0; d < nnodesxelem; ++d) {
     aura_element_nodes[d] = nullptr;
   }
@@ -660,7 +664,8 @@ int mesh_create_parallel(
       global2owned, owned_node_ranges, ghost_and_aura_to_owned);
 
   node_ownership_ranges(comm, n_owned, owned_node_ranges);
-  int *owner = (int *)SMESH_ALLOC((n_owned + n_ghosts + n_aura_nodes) * sizeof(int));
+  int *owner =
+      (int *)SMESH_ALLOC((n_owned + n_ghosts + n_aura_nodes) * sizeof(int));
   determine_ownership(comm_size, comm_rank, n_owned, n_ghosts, n_aura_nodes,
                       ghost_and_aura_to_owned, owned_node_ranges, owner);
 
@@ -670,7 +675,8 @@ int mesh_create_parallel(
                                local_elements);
 
   const ptrdiff_t n_local_nodes = n_owned + n_ghosts + n_aura_nodes;
-  geom_t **local_points = (geom_t **)SMESH_ALLOC(spatial_dim * sizeof(geom_t *));
+  geom_t **local_points =
+      (geom_t **)SMESH_ALLOC(spatial_dim * sizeof(geom_t *));
   for (int d = 0; d < spatial_dim; ++d) {
     local_points[d] = (geom_t *)SMESH_ALLOC(n_local_nodes * sizeof(geom_t));
     gather_mapped_field(comm, n_local_nodes, n_global_nodes, local2global,
@@ -873,10 +879,12 @@ int mesh_from_folder(
       return SMESH_FAILURE;
     }
 
-    idx_t **small_elements = (idx_t **)SMESH_ALLOC(nnodesxelem * sizeof(idx_t *));
+    idx_t **small_elements =
+        (idx_t **)SMESH_ALLOC(nnodesxelem * sizeof(idx_t *));
 
     for (int d = 0; d < nnodesxelem; ++d) {
-      small_elements[d] = (idx_t *)SMESH_ALLOC(n_local_elements * sizeof(idx_t));
+      small_elements[d] =
+          (idx_t *)SMESH_ALLOC(n_local_elements * sizeof(idx_t));
 
       for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
         small_elements[d][i] = (idx_t)elements[d][i];

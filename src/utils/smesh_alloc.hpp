@@ -19,7 +19,7 @@ void track_external_alloc(void *ptr, size_t nbytes, const char *file, int line);
 #define SMESH_FREE(_ptr) free(_ptr)
 #define SMESH_REALLOC(_ptr, _nbytes) realloc(_ptr, _nbytes)
 #define SMESH_CALLOC(_n, _size) calloc(_n, _size)
-#define SMESH_TRACK_EXTERNAL_ALLOC(_p, _size, file, line)
+#define SMESH_TRACK_EXTERNAL_ALLOC(_p, _size)
 
 #else // SMESH_ENABLE_MEM_DIAGNOSTICS
 
@@ -30,8 +30,8 @@ void track_external_alloc(void *ptr, size_t nbytes, const char *file, int line);
   smesh::internal_::track_realloc(_ptr, _nbytes, __FILE__, __LINE__)
 #define SMESH_CALLOC(_n, _size)                                                \
   smesh::internal_::track_calloc(_n, _size, __FILE__, __LINE__)
-#define SMESH_TRACK_EXTERNAL_ALLOC(_p, _size, file, line)                      \
-  smesh::internal_::track_external_alloc(_p, _size, file, line)
+#define SMESH_TRACK_EXTERNAL_ALLOC(_p, _size)                                  \
+  smesh::internal_::track_external_alloc(_p, _size, __FILE__, __LINE__)
 #endif // SMESH_ENABLE_MEM_DIAGNOSTICS
 
 #endif // SMESH_ALLOC_HPP

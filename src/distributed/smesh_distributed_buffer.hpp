@@ -19,8 +19,8 @@ create_buffer_from_file(const std::shared_ptr<Communicator> &comm,
                         const std::string_view &path) {
   T *data{nullptr};
   ptrdiff_t local_size{0}, global_size{0};
-  array_create_from_file(comm->get(), path.data(), mpi_type<T>(),
-                         (void **)&data, &local_size, &global_size);
+  array_create_from_file_convert_from_extension(
+      comm->get(), path.data(), (void **)&data, &local_size, &global_size);
   return manage_host_buffer<T>(local_size, data);
 }
 
