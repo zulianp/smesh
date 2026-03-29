@@ -2,6 +2,7 @@
 #define SMESH_DEVICE_BUFFER_IMPL_HPP
 
 #include "smesh_device_arrays.hpp"
+#include "smesh_alloc.hpp"
 
 #include "smesh_device_buffer.hpp"
 
@@ -140,7 +141,7 @@ namespace smesh {
 
         using NonConstT = typename std::remove_const<T>::type;
 
-        NonConstT *buff = static_cast<NonConstT *>(malloc(in->size() * sizeof(NonConstT)));
+        NonConstT *buff = static_cast<NonConstT *>(SMESH_ALLOC(in->size() * sizeof(NonConstT)));
         SMESH_ASSERT(buff != nullptr);
         device::device_to_host(in->size(), in->data(), buff);
         return std::make_shared<Buffer<T>>(in->size(), buff, &free, MEMORY_SPACE_HOST);
@@ -165,7 +166,7 @@ namespace smesh {
 
         auto buffer = create_host_buffer<T>(n0, n1);
 
-        T **dev_addr = static_cast<T **>(malloc(n0 * sizeof(T *)));
+        T **dev_addr = static_cast<T **>(SMESH_ALLOC(n0 * sizeof(T *)));
         SMESH_ASSERT(dev_addr != nullptr);
 
         device::device_to_host(n0, in->data(), dev_addr);
@@ -174,7 +175,7 @@ namespace smesh {
             device::device_to_host(n1, dev_addr[i], buffer->data()[i]);
         }
 
-        free(dev_addr);
+        SMESH_FREE(dev_addr);
 
         return buffer;
 #endif  // SMESH_ENABLE_CUDA

@@ -1,4 +1,5 @@
 #include "smesh_context.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_glob.hpp"
 #include "smesh_graph.hpp"
 #include "smesh_mesh.hpp"
@@ -126,10 +127,10 @@ int main(int argc, char **argv) {
     }
 
 #endif // SMESH_ENABLE_MPI
-    free(n2eptr);
-    free(n2e_idx);
-    free(elems);
-    free(points);
+    SMESH_FREE(n2eptr);
+    SMESH_FREE(n2e_idx);
+    SMESH_FREE(elems);
+    SMESH_FREE(points);
   }
 
   return SMESH_SUCCESS;

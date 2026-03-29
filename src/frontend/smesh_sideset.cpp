@@ -1,4 +1,5 @@
 #include "smesh_sideset.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_adjacency.hpp"
 #include "smesh_file_extensions.hpp"
 #include "smesh_glob.hpp"
@@ -476,8 +477,8 @@ int Sideset::redistribute(const std::shared_ptr<Mesh> &mesh) {
   auto lfi = impl_->lfi->data();
 
   int comm_size = mesh->comm()->size();
-  i64 *send_count = (i64 *)calloc(comm_size, sizeof(i64));
-  i64 *send_displs = (i64 *)calloc((comm_size + 1), sizeof(i64));
+  i64 *send_count = (i64 *)SMESH_CALLOC(comm_size, sizeof(i64));
+  i64 *send_displs = (i64 *)SMESH_CALLOC((comm_size + 1), sizeof(i64));
 
   for (int i = 0; i < n_sides; i++) {
     const element_idx_t e = parent[i];
@@ -490,8 +491,8 @@ int Sideset::redistribute(const std::shared_ptr<Mesh> &mesh) {
   }
 
   element_idx_t *send_elements =
-      (element_idx_t *)calloc(send_displs[comm_size], sizeof(element_idx_t));
-  i16 *send_lfi = (i16 *)calloc(send_displs[comm_size], sizeof(i16));
+      (element_idx_t *)SMESH_CALLOC(send_displs[comm_size], sizeof(element_idx_t));
+  i16 *send_lfi = (i16 *)SMESH_CALLOC(send_displs[comm_size], sizeof(i16));
 
   for (int i = 0; i < n_sides; i++) {
     const element_idx_t e = parent[i];
@@ -501,8 +502,8 @@ int Sideset::redistribute(const std::shared_ptr<Mesh> &mesh) {
     send_count[owner]++;
   }
 
-  i64 *recv_count = (i64 *)malloc(comm_size * sizeof(i64));
-  i64 *recv_displs = (i64 *)malloc((comm_size + 1) * sizeof(i64));
+  i64 *recv_count = (i64 *)SMESH_ALLOC(comm_size * sizeof(i64));
+  i64 *recv_displs = (i64 *)SMESH_ALLOC((comm_size + 1) * sizeof(i64));
 
   MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1, mpi_type<i64>(),
                mesh->comm()->get());
@@ -514,8 +515,8 @@ int Sideset::redistribute(const std::shared_ptr<Mesh> &mesh) {
   }
 
   element_idx_t *recv_elements =
-      (element_idx_t *)malloc(recv_displs[comm_size] * sizeof(element_idx_t));
-  i16 *recv_lfi = (i16 *)malloc(recv_displs[comm_size] * sizeof(i16));
+      (element_idx_t *)SMESH_ALLOC(recv_displs[comm_size] * sizeof(element_idx_t));
+  i16 *recv_lfi = (i16 *)SMESH_ALLOC(recv_displs[comm_size] * sizeof(i16));
 
   all_to_allv_64(send_elements, send_count, send_displs, recv_elements,
                  recv_count, recv_displs, mesh->comm()->get(),
@@ -529,12 +530,12 @@ int Sideset::redistribute(const std::shared_ptr<Mesh> &mesh) {
   impl_->lfi = smesh::manage_host_buffer(recv_displs[comm_size], recv_lfi);
   impl_->element_mapping = dist->element_mapping();
 
-  free(send_count);
-  free(send_displs);
-  free(recv_count);
-  free(recv_displs);
-  free(send_elements);
-  free(send_lfi);
+  SMESH_FREE(send_count);
+  SMESH_FREE(send_displs);
+  SMESH_FREE(recv_count);
+  SMESH_FREE(recv_displs);
+  SMESH_FREE(send_elements);
+  SMESH_FREE(send_lfi);
 
   return SMESH_SUCCESS;
 #endif

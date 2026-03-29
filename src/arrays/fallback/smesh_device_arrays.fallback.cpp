@@ -1,4 +1,5 @@
 #include "smesh_device_arrays.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_types.hpp"
 
 #include <stddef.h>
@@ -14,7 +15,7 @@ namespace smesh {
 
         template <typename T>
         T *alloc(const size_t n) {
-            auto ptr = (T *)malloc(n * sizeof(T));
+            auto ptr = (T *)SMESH_ALLOC(n * sizeof(T));
             SMESH_ASSERT(ptr);
             memset(ptr, 0, n * sizeof(T));
 
@@ -23,7 +24,7 @@ namespace smesh {
 
         template <typename T>
         void destroy(void *a) {
-            free(a);
+            SMESH_FREE(a);
         }
 
         template <typename T>

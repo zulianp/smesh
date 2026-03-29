@@ -1,4 +1,5 @@
 #include "smesh_context.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_graph.hpp"
 #include "smesh_mask.hpp"
 #include "smesh_mesh.hpp"
@@ -688,8 +689,8 @@ int main(int argc, char **argv) {
 //             }
 //         }
 
-//         free(n2e_ptr);
-//         free(n2e_el);
+//         SMESH_FREE(n2e_ptr);
+//         SMESH_FREE(n2e_el);
 
 //         ///////////////////////////////////////////////////////////////////////////////
 //         // Create sidesets

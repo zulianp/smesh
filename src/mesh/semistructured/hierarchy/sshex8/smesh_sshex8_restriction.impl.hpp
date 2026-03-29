@@ -2,6 +2,7 @@
 #define SMESH_SSHEX8_RESTRICTION_IMPL_HPP
 
 #include "smesh_sshex8.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_sshex8_restriction.hpp"
 
 #include <string.h>
@@ -20,16 +21,16 @@ namespace smesh {
 #pragma omp parallel
         {
             const int nxe    = sshex8_nxe(level);
-            real_t  **e_from = (real_t **)malloc(vec_size * sizeof(real_t *));
-            real_t  **e_to   = (real_t **)malloc(vec_size * sizeof(real_t *));
-            u16      *weight = (u16 *)malloc(nxe * sizeof(u16));
+            real_t  **e_from = (real_t **)SMESH_ALLOC(vec_size * sizeof(real_t *));
+            real_t  **e_to   = (real_t **)SMESH_ALLOC(vec_size * sizeof(real_t *));
+            u16      *weight = (u16 *)SMESH_ALLOC(nxe * sizeof(u16));
 
             for (int d = 0; d < vec_size; d++) {
-                e_from[d] = (real_t *)malloc(nxe * sizeof(real_t));
-                e_to[d]   = (real_t *)malloc(8 * sizeof(real_t));
+                e_from[d] = (real_t *)SMESH_ALLOC(nxe * sizeof(real_t));
+                e_to[d]   = (real_t *)SMESH_ALLOC(8 * sizeof(real_t));
             }
 
-            idx_t *ev = (idx_t *)malloc(nxe * sizeof(idx_t));
+            idx_t *ev = (idx_t *)SMESH_ALLOC(nxe * sizeof(idx_t));
 
             const int corners[8] = {// Bottom
                                     sshex8_lidx(level, 0, 0, 0),
@@ -114,14 +115,14 @@ namespace smesh {
             }
 
             for (int d = 0; d < vec_size; d++) {
-                free(e_to[d]);
-                free(e_from[d]);
+                SMESH_FREE(e_to[d]);
+                SMESH_FREE(e_from[d]);
             }
 
-            free(e_from);
-            free(e_to);
-            free(ev);
-            free(weight);
+            SMESH_FREE(e_from);
+            SMESH_FREE(e_to);
+            SMESH_FREE(ev);
+            SMESH_FREE(weight);
         }
 
         return SMESH_SUCCESS;
@@ -176,14 +177,14 @@ namespace smesh {
             const int to_nxe      = sshex8_nxe(to_level);
             const int step_factor = from_level / to_level;
 
-            scalar_t **from_coeffs = (scalar_t **)malloc(vec_size * sizeof(scalar_t *));
+            scalar_t **from_coeffs = (scalar_t **)SMESH_ALLOC(vec_size * sizeof(scalar_t *));
             for (int d = 0; d < vec_size; d++) {
-                from_coeffs[d] = (scalar_t *)malloc(from_nxe * sizeof(scalar_t));
+                from_coeffs[d] = (scalar_t *)SMESH_ALLOC(from_nxe * sizeof(scalar_t));
             }
 
-            scalar_t **to_coeffs = (scalar_t **)malloc(vec_size * sizeof(scalar_t *));
+            scalar_t **to_coeffs = (scalar_t **)SMESH_ALLOC(vec_size * sizeof(scalar_t *));
             for (int d = 0; d < vec_size; d++) {
-                to_coeffs[d] = (scalar_t *)malloc(to_nxe * sizeof(scalar_t));
+                to_coeffs[d] = (scalar_t *)SMESH_ALLOC(to_nxe * sizeof(scalar_t));
             }
 
 #pragma omp for
@@ -273,16 +274,16 @@ namespace smesh {
             }
 
             for (int d = 0; d < vec_size; d++) {
-                free(from_coeffs[d]);
+                SMESH_FREE(from_coeffs[d]);
             }
 
-            free(from_coeffs);
+            SMESH_FREE(from_coeffs);
 
             for (int d = 0; d < vec_size; d++) {
-                free(to_coeffs[d]);
+                SMESH_FREE(to_coeffs[d]);
             }
 
-            free(to_coeffs);
+            SMESH_FREE(to_coeffs);
         }
 
         return SMESH_SUCCESS;

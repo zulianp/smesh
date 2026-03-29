@@ -1,4 +1,5 @@
 // #include "smesh_base.hpp"
+#include "smesh_alloc.hpp"
 // #include "smesh_context.hpp"
 // #include "smesh_types.hpp"
 // #include "smesh_buffer.hpp"
@@ -42,7 +43,7 @@
 //     }
     
 //     ptrdiff_t n_bytes_soa = single_component_n_values * n_bytes_x_entry;
-//     char *soa_data = (char*)malloc(n_bytes_soa);
+//     char *soa_data = (char*)SMESH_ALLOC(n_bytes_soa);
 
 //     for (int b = 0; b < block_size; b++) {
 //         for (ptrdiff_t i = 0; i < single_component_n_values; i++) {
@@ -56,8 +57,8 @@
 //         array_write(comm, output_path, values_mpi_t, (void *)soa_data, n_bytes_soa, n_bytes_soa);
 //     }
 
-//     free(aos_data);
-//     free(soa_data);
+//     SMESH_FREE(aos_data);
+//     SMESH_FREE(soa_data);
 
 //     double tock = MPI_Wtime();
 

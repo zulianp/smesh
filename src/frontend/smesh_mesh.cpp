@@ -1,4 +1,5 @@
 #include "smesh_mesh.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_adjacency.hpp"
 #include "smesh_build.hpp"
 #include "smesh_conversion.hpp"
@@ -1941,10 +1942,10 @@ namespace smesh {
             auto view = std::make_shared<Buffer<idx_t *>>(
                     8,
                     block.n_elements(),
-                    (idx_t **)malloc(8 * sizeof(idx_t *)),
+                    (idx_t **)SMESH_ALLOC(8 * sizeof(idx_t *)),
                     [keep_alive = elements](int, void **v) {
                         (void)keep_alive;
-                        free(v);
+                        SMESH_FREE(v);
                     },
                     elements->mem_space());
 
@@ -2253,7 +2254,7 @@ namespace smesh {
             auto           element_mapping       = dist->element_mapping()->data();
             element_idx_t *owned_global_to_local = nullptr;
             if (n_owned_elements > 0) {
-                owned_global_to_local = (element_idx_t *)malloc((size_t)n_owned_elements * sizeof(element_idx_t));
+                owned_global_to_local = (element_idx_t *)SMESH_ALLOC((size_t)n_owned_elements * sizeof(element_idx_t));
                 for (ptrdiff_t i = 0; i < n_owned_elements; ++i) {
                     owned_global_to_local[element_mapping[i] - element_start] = static_cast<element_idx_t>(i);
                 }
@@ -2261,13 +2262,13 @@ namespace smesh {
 
             u8 *shared_face_mask = nullptr;
             if (n_shared_elements > 0) {
-                shared_face_mask = (u8 *)calloc((size_t)n_shared_elements, sizeof(u8));
+                shared_face_mask = (u8 *)SMESH_CALLOC((size_t)n_shared_elements, sizeof(u8));
             }
 
             const auto n_aura_elements = dist->n_elements_ghosts();
             u8        *aura_face_mask  = nullptr;
             if (n_aura_elements > 0) {
-                aura_face_mask = (u8 *)calloc((size_t)n_aura_elements, sizeof(u8));
+                aura_face_mask = (u8 *)SMESH_CALLOC((size_t)n_aura_elements, sizeof(u8));
             }
 
             for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
@@ -2285,8 +2286,8 @@ namespace smesh {
 
             {
                 const large_idx_t *aura_element_mapping = n_aura_elements > 0 ? dist->aura_element_mapping()->data() : nullptr;
-                i64               *send_count           = (i64 *)calloc((size_t)comm_size, sizeof(i64));
-                i64               *send_displs          = (i64 *)calloc((size_t)comm_size + 1, sizeof(i64));
+                i64               *send_count           = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
+                i64               *send_displs          = (i64 *)SMESH_CALLOC((size_t)comm_size + 1, sizeof(i64));
 
                 for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
                     const int owner = rank_owner(n_global_elements, aura_element_mapping[i], comm_size);
@@ -2297,8 +2298,8 @@ namespace smesh {
                     send_displs[r + 1] += send_displs[r];
                 }
 
-                auto send_global_ids = (large_idx_t *)malloc((size_t)send_displs[comm_size] * sizeof(large_idx_t));
-                auto send_face_mask  = (u8 *)malloc((size_t)send_displs[comm_size] * sizeof(u8));
+                auto send_global_ids = (large_idx_t *)SMESH_ALLOC((size_t)send_displs[comm_size] * sizeof(large_idx_t));
+                auto send_face_mask  = (u8 *)SMESH_ALLOC((size_t)send_displs[comm_size] * sizeof(u8));
 
                 memset(send_count, 0, (size_t)comm_size * sizeof(i64));
                 for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
@@ -2309,8 +2310,8 @@ namespace smesh {
                     send_face_mask[pos]         = aura_face_mask[i];
                 }
 
-                i64 *recv_count  = (i64 *)calloc((size_t)comm_size, sizeof(i64));
-                i64 *recv_displs = (i64 *)malloc(((size_t)comm_size + 1) * sizeof(i64));
+                i64 *recv_count  = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
+                i64 *recv_displs = (i64 *)SMESH_ALLOC(((size_t)comm_size + 1) * sizeof(i64));
                 SMESH_MPI_CATCH(
                         MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1, mpi_type<i64>(), mesh->comm()->get()));
 
@@ -2319,8 +2320,8 @@ namespace smesh {
                     recv_displs[r + 1] = recv_displs[r] + recv_count[r];
                 }
 
-                auto      recv_global_ids = (large_idx_t *)malloc((size_t)recv_displs[comm_size] * sizeof(large_idx_t));
-                auto      recv_face_mask  = (u8 *)malloc((size_t)recv_displs[comm_size] * sizeof(u8));
+                auto      recv_global_ids = (large_idx_t *)SMESH_ALLOC((size_t)recv_displs[comm_size] * sizeof(large_idx_t));
+                auto      recv_face_mask  = (u8 *)SMESH_ALLOC((size_t)recv_displs[comm_size] * sizeof(u8));
                 const i64 max_chunk_size  = (i64)std::numeric_limits<i32>::max() / comm_size;
 
                 SMESH_MPI_CATCH(all_to_allv_64(send_global_ids,
@@ -2349,14 +2350,14 @@ namespace smesh {
                     shared_face_mask[local_element - n_owned_not_shared] &= recv_face_mask[i];
                 }
 
-                free(send_count);
-                free(send_displs);
-                free(send_global_ids);
-                free(send_face_mask);
-                free(recv_count);
-                free(recv_displs);
-                free(recv_global_ids);
-                free(recv_face_mask);
+                SMESH_FREE(send_count);
+                SMESH_FREE(send_displs);
+                SMESH_FREE(send_global_ids);
+                SMESH_FREE(send_face_mask);
+                SMESH_FREE(recv_count);
+                SMESH_FREE(recv_displs);
+                SMESH_FREE(recv_global_ids);
+                SMESH_FREE(recv_face_mask);
             }
 #endif
 
@@ -2383,9 +2384,9 @@ namespace smesh {
             n_surf_elements = write_pos;
 
 #ifdef SMESH_ENABLE_MPI
-            free(owned_global_to_local);
-            free(shared_face_mask);
-            free(aura_face_mask);
+            SMESH_FREE(owned_global_to_local);
+            SMESH_FREE(shared_face_mask);
+            SMESH_FREE(aura_face_mask);
 #endif
         }
 

@@ -2,6 +2,7 @@
 #define SMESH_READ_IMPL_HPP
 
 #include "smesh_base.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_file_extensions.hpp"
 
 #include <string_view>
@@ -18,12 +19,12 @@ int array_read(const Path &path, T **data, ptrdiff_t *n_elements) {
   fseek(fp, 0, SEEK_END);
   *n_elements = ftell(fp) / sizeof(T);
   fseek(fp, 0, SEEK_SET);
-  *data = (T *)malloc(*n_elements * sizeof(T));
+  *data = (T *)SMESH_ALLOC(*n_elements * sizeof(T));
 
   int ret = SMESH_SUCCESS;
   const size_t n = static_cast<size_t>(*n_elements);
   if (fread(*data, sizeof(T), n, fp) != n) {
-    free(*data);
+    SMESH_FREE(*data);
     *data = nullptr;
     fprintf(stderr, "Failed to read file %s\n", path.c_str());
     ret = SMESH_FAILURE;
@@ -49,7 +50,7 @@ int array_read_convert(const Path &path, TargetType **data,
   *n_elements = ftell(fp) / sizeof(FileType);
   fseek(fp, 0, SEEK_SET);
 
-  *data = (TargetType *)malloc(*n_elements * sizeof(TargetType));
+  *data = (TargetType *)SMESH_ALLOC(*n_elements * sizeof(TargetType));
 
   int ret = SMESH_SUCCESS;
   const size_t n = static_cast<size_t>(*n_elements);
@@ -64,7 +65,7 @@ int array_read_convert(const Path &path, TargetType **data,
       }
     }
   } else {
-    FileType *temp = (FileType *)malloc(*n_elements * sizeof(FileType));
+    FileType *temp = (FileType *)SMESH_ALLOC(*n_elements * sizeof(FileType));
     if (fread(temp, sizeof(FileType), n, fp) != n) {
       fprintf(stderr, "Failed to read file %s\n", path.c_str());
       ret = SMESH_FAILURE;
@@ -73,12 +74,12 @@ int array_read_convert(const Path &path, TargetType **data,
         (*data)[i] = (TargetType)temp[i];
       }
     }
-    free(temp);
+    SMESH_FREE(temp);
   }
 
   fclose(fp);
   if (ret == SMESH_FAILURE) {
-    free(*data);
+    SMESH_FREE(*data);
     *data = nullptr;
   }
 
@@ -121,7 +122,7 @@ int mesh_block_from_folder(const Path &folder, int *nnodesxelem_out,
 
   int nnodesxelem = i_files.size();
 
-  idx_t **elems = (idx_t **)calloc(nnodesxelem, sizeof(idx_t *));
+  idx_t **elems = (idx_t **)SMESH_CALLOC(nnodesxelem, sizeof(idx_t *));
   for (int d = 0; d < nnodesxelem; d++) {
     elems[d] = nullptr;
   }
@@ -159,9 +160,9 @@ int mesh_block_from_folder(const Path &folder, int *nnodesxelem_out,
 
   if (ret == SMESH_FAILURE) {
     for (int d = 0; d < nnodesxelem; d++) {
-      free(elems[d]);
+      SMESH_FREE(elems[d]);
     }
-    free(elems);
+    SMESH_FREE(elems);
     *elems_out = nullptr;
     *nnodesxelem_out = 0;
     *nelements_out = 0;
@@ -211,7 +212,7 @@ int mesh_coordinates_from_folder(const Path &folder, int *spatial_dim_out,
     return SMESH_FAILURE;
   }
 
-  geom_t **points = (geom_t **)malloc(sizeof(geom_t *) * ndims);
+  geom_t **points = (geom_t **)SMESH_ALLOC(sizeof(geom_t *) * ndims);
   for (int d = 0; d < ndims; d++) {
     points[d] = 0;
   }
@@ -236,10 +237,10 @@ int mesh_coordinates_from_folder(const Path &folder, int *spatial_dim_out,
 
   if (ret == SMESH_FAILURE) {
     for (int d = 0; d < ndims; d++) {
-      free(points[d]);
+      SMESH_FREE(points[d]);
     }
 
-    free(points);
+    SMESH_FREE(points);
     *points_out = nullptr;
     *spatial_dim_out = 0;
     *nnodes_out = 0;

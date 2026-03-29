@@ -2,6 +2,7 @@
 #define SMESH_REORDER_IMPL_HPP
 
 #include "smesh_reorder.hpp"
+#include "smesh_alloc.hpp"
 
 #include <cstring>
 #include <cstdlib>
@@ -16,7 +17,7 @@ int mesh_block_reorder(
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT out_elements) {
   if (in_elements == out_elements) {
     // In place use temporary buffer
-    idx_t *temp = (idx_t *)malloc(n_elements * sizeof(idx_t));
+    idx_t *temp = (idx_t *)SMESH_ALLOC(n_elements * sizeof(idx_t));
     for (int d = 0; d < nxe; ++d) {
       memcpy(temp, out_elements[d], n_elements * sizeof(idx_t));
       for (ptrdiff_t i = 0; i < n_elements; i++) {
@@ -24,7 +25,7 @@ int mesh_block_reorder(
       }
     }
 
-    free(temp);
+    SMESH_FREE(temp);
   } else {
     for (int d = 0; d < nxe; ++d) {
       for (ptrdiff_t i = 0; i < n_elements; ++i) {

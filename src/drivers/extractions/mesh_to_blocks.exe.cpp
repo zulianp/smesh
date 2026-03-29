@@ -7,6 +7,7 @@
 // #include <sys/stat.h>
 
 // #include "array_dtof.h"
+#include "smesh_alloc.hpp"
 // #include "matrixio_array.h"
 // #include "matrixio_crs.h"
 // #include "mpi.h"
@@ -59,10 +60,10 @@
 
 //     int nnxe = elem_num_nodes(mesh->element_type(0));
 
-//     local_idx_t **lelements = (local_idx_t**)malloc(nnxe * sizeof(local_idx_t *));
+//     local_idx_t **lelements = (local_idx_t**)SMESH_ALLOC(nnxe * sizeof(local_idx_t *));
 
 //     for (int d = 0; d < nnxe; d++) {
-//         lelements[d] = (local_idx_t*)calloc(mesh->n_elements(), sizeof(local_idx_t));
+//         lelements[d] = (local_idx_t*)SMESH_CALLOC(mesh->n_elements(), sizeof(local_idx_t));
 //     }
 
 //     ptrdiff_t max_rep_limit = 1 << (8 * sizeof(local_idx_t) - 1);
@@ -73,8 +74,8 @@
 //     ptrdiff_t max_block_size = MIN(SFEM_ELEMENT_BLOCK_SIZE, mesh->n_elements());
 //     ptrdiff_t num_blocks = MAX((mesh->n_elements() + max_block_size - 1) / max_block_size, 1);
 
-//     local_idx_t *node_lidx = (local_idx_t*)malloc(mesh->n_nodes() * sizeof(local_idx_t));
-//     int *nodes_in_block = (int*)calloc(num_blocks, sizeof(int));
+//     local_idx_t *node_lidx = (local_idx_t*)SMESH_ALLOC(mesh->n_nodes() * sizeof(local_idx_t));
+//     int *nodes_in_block = (int*)SMESH_CALLOC(num_blocks, sizeof(int));
 
 //     for (ptrdiff_t i = 0; i < mesh->n_nodes(); i++) {
 //         node_lidx[i] = SFEM_LOCAL_IDX_INVALID;
@@ -126,7 +127,7 @@
 //         MPI_Abort(comm, SFEM_FAILURE);
 //     }
 
-//     idx_t *node_mapping = (idx_t *)calloc(new_num_nodes, sizeof(idx_t));
+//     idx_t *node_mapping = (idx_t *)SMESH_CALLOC(new_num_nodes, sizeof(idx_t));
 
 //     ptrdiff_t lnode_offset = 0;
 //     for (ptrdiff_t e_offset = 0, block_num = 0; e_offset < mesh->n_elements();
@@ -182,7 +183,7 @@
 //         }
 //     }
 
-//     // int * node_membership_count = calloc(mesh.nnodes, sizeof(int));
+//     // int * node_membership_count = SMESH_CALLOC(mesh.nnodes, sizeof(int));
 
 //     ///////////////////////////////////////////////////////////////////////////////
 
@@ -199,13 +200,13 @@
 //     // Clean up
 
 //     for (int d = 0; d < nnxe; d++) {
-//         free(lelements[d]);
+//         SMESH_FREE(lelements[d]);
 //     }
 
-//     free(lelements);
-//     // free(b_size);
-//     free(node_lidx);
-//     free(node_mapping);
+//     SMESH_FREE(lelements);
+//     // SMESH_FREE(b_size);
+//     SMESH_FREE(node_lidx);
+//     SMESH_FREE(node_mapping);
 
 //     double tock = MPI_Wtime();
 //     if (!rank) {

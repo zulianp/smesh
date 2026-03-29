@@ -1,4 +1,5 @@
 #include "smesh_semistructured.hpp"
+#include "smesh_alloc.hpp"
 
 // STL
 #include <fstream>
@@ -199,10 +200,10 @@ namespace smesh {
             auto view     = std::make_shared<Buffer<idx_t *>>(
                     nxe,
                     block->n_elements(),
-                    (idx_t **)malloc(nxe * sizeof(idx_t *)),
+                    (idx_t **)SMESH_ALLOC(nxe * sizeof(idx_t *)),
                     [keep_alive = elements](int, void **v) {
                         (void)keep_alive;
-                        free(v);
+                        SMESH_FREE(v);
                     },
                     elements->mem_space());
 

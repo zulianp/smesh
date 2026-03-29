@@ -2,6 +2,7 @@
 #define SMESH_PROMOTIONS_IMPL_HPP
 
 #include "smesh_common.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_elem_type.hpp"
 #include "smesh_promotions.hpp"
 #include "smesh_search.hpp"
@@ -22,7 +23,7 @@ void mesh_tet4_to_tet15(
   const ptrdiff_t id_offset = n_nodes + n2n_upper_triangular_ptr[n_nodes];
   ptrdiff_t n_unique_sides = 0;
 
-  idx_t *side_ids = (idx_t *)malloc(n_elements * nsxe * sizeof(idx_t));
+  idx_t *side_ids = (idx_t *)SMESH_ALLOC(n_elements * nsxe * sizeof(idx_t));
   {
 #ifndef NDEBUG
     for (ptrdiff_t e = 0; e < n_elements * 4; e++) {
@@ -120,7 +121,7 @@ void mesh_tet4_to_tet15(
   }
 
   *tet15_n_nodes = n_nodes + n_edges + n_unique_sides + n_elements;
-  free(side_ids);
+  SMESH_FREE(side_ids);
 }
 
 template <typename idx_t, typename count_t, typename geom_t>
@@ -207,9 +208,9 @@ void quad4_to_hex8_extrude(
     const ptrdiff_t nlayers, const geom_t height,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT hex8_elements,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT extruded_points) {
-  geom_t **pseudo_normals = (geom_t **)malloc(3 * sizeof(geom_t *));
+  geom_t **pseudo_normals = (geom_t **)SMESH_ALLOC(3 * sizeof(geom_t *));
   for (int d = 0; d < 3; d++) {
-    pseudo_normals[d] = (geom_t *)calloc(nnodes, sizeof(geom_t));
+    pseudo_normals[d] = (geom_t *)SMESH_CALLOC(nnodes, sizeof(geom_t));
   }
 
   for (ptrdiff_t i = 0; i < nsides; ++i) {
@@ -266,7 +267,7 @@ void quad4_to_hex8_extrude(
     }
   }
 
-  free(pseudo_normals);
+  SMESH_FREE(pseudo_normals);
 }
 
 template <typename idx_t, typename geom_t>
@@ -278,9 +279,9 @@ int tri3_to_wedge6_extrude(
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT wedge6_elements,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT extruded_points) {
 
-  geom_t **pseudo_normals = (geom_t **)malloc(3 * sizeof(geom_t *));
+  geom_t **pseudo_normals = (geom_t **)SMESH_ALLOC(3 * sizeof(geom_t *));
   for (int d = 0; d < 3; d++) {
-    pseudo_normals[d] = (geom_t *)calloc(nnodes, sizeof(geom_t));
+    pseudo_normals[d] = (geom_t *)SMESH_CALLOC(nnodes, sizeof(geom_t));
   }
 
   for (ptrdiff_t i = 0; i < nsides; ++i) {
@@ -335,7 +336,7 @@ int tri3_to_wedge6_extrude(
       }
     }
   }
-  free(pseudo_normals);
+  SMESH_FREE(pseudo_normals);
   return SMESH_SUCCESS;
 }
 
@@ -356,7 +357,7 @@ int p1_to_p2(const enum ElemType element_type, const ptrdiff_t n_elements,
   }
 
   ptrdiff_t nnz = n2n_ptr[p1_n_nodes];
-  idx_t *edge_idx = (idx_t *)calloc(nnz, sizeof(idx_t));
+  idx_t *edge_idx = (idx_t *)SMESH_CALLOC(nnz, sizeof(idx_t));
 
   idx_t next_id = p1_n_nodes;
   for (ptrdiff_t i = 0; i < p1_n_nodes; i++) {
@@ -457,7 +458,7 @@ int p1_to_p2(const enum ElemType element_type, const ptrdiff_t n_elements,
     }
   }
 
-  free(edge_idx);
+  SMESH_FREE(edge_idx);
   return SMESH_SUCCESS;
 }
 

@@ -8,6 +8,7 @@
 // // #include <unistd.h>
 
 // #include "matrixio_array.h"
+#include "smesh_alloc.hpp"
 // #include "matrixio_crs.h"
 // #include "utils.h"
 
@@ -26,7 +27,7 @@
 //     MPI_File file;
 //     MPI_CATCH_ERROR(MPI_File_open(comm, path, MPI_MODE_RDONLY, MPI_INFO_NULL, &file));
 //     MPI_CATCH_ERROR(MPI_File_get_size(file, &nbytes));
-//     *data = malloc(nbytes);
+//     *data = SMESH_ALLOC(nbytes);
 
 //     MPI_CATCH_ERROR(MPI_File_read_at_all(file, 0, *data, nbytes, MPI_CHAR, &status));
 //     return nbytes;
@@ -77,7 +78,7 @@
 //     idx_t *is_dirichlet = 0;
 //     ptrdiff_t new_nnodes = 0;
 //     {
-//         is_dirichlet = (idx_t *)malloc(nnodes * sizeof(idx_t));
+//         is_dirichlet = (idx_t *)SMESH_ALLOC(nnodes * sizeof(idx_t));
 //         memset(is_dirichlet, 0, nnodes * sizeof(idx_t));
 
 //         idx_t *dirichlet_nodes = 0;
@@ -94,7 +95,7 @@
 //             is_dirichlet[i] = 1;
 //         }
 
-//         free(dirichlet_nodes);
+//         SMESH_FREE(dirichlet_nodes);
 //     }
 
 //     const count_t *rowptr = (const count_t *)crs_in.rowptr;
@@ -103,7 +104,7 @@
 //     const idx_t nrows = crs_in.grows;
 //     const idx_t nnz = crs_in.gnnz;
 
-//     count_t *new_rowptr = (count_t *)malloc((new_nnodes + 1) * sizeof(count_t));
+//     count_t *new_rowptr = (count_t *)SMESH_ALLOC((new_nnodes + 1) * sizeof(count_t));
 //     new_rowptr[0] = 0;
 
 //     // change name for meaning but reuse memory by overwriting linearly
@@ -124,8 +125,8 @@
 //         }
 //     }
 
-//     idx_t *new_colidx = (idx_t *)malloc(overestimated_new_nnz * sizeof(idx_t));
-//     real_t *new_values = (real_t *)malloc(overestimated_new_nnz * sizeof(real_t));
+//     idx_t *new_colidx = (idx_t *)SMESH_ALLOC(overestimated_new_nnz * sizeof(idx_t));
+//     real_t *new_values = (real_t *)SMESH_ALLOC(overestimated_new_nnz * sizeof(real_t));
 
 //     ptrdiff_t new_nnz = 0;
 //     for (ptrdiff_t node = 0, new_node_idx = 0; node < nnodes; ++node) {
@@ -152,7 +153,7 @@
 //         new_rowptr[++new_node_idx] = new_nnz;
 //     }
 
-//     free(is_dirichlet);  // mapper is invalidated here!
+//     SMESH_FREE(is_dirichlet);  // mapper is invalidated here!
 
 //     // Free input CRS
 //     crs_free(&crs_in);

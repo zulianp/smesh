@@ -2,6 +2,7 @@
 #define SMESH_ADJACENCY_IMPL_HPP
 
 #include "smesh_graph.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_adjacency.hpp"
 #include "smesh_elem_type.hpp"
 #include "smesh_sort.hpp"
@@ -43,9 +44,9 @@ void create_element_adj_table_from_dual_graph(
 #pragma omp parallel
 {
 
-  idx_t *nodes1 = (idx_t *) malloc(LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
-  idx_t *nodes2 = (idx_t *) malloc(LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
-  int *assigned = (int *) malloc(LocalSideTable::MAX_NUM_SIDES * sizeof(int));
+  idx_t *nodes1 = (idx_t *) SMESH_ALLOC(LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
+  idx_t *nodes2 = (idx_t *) SMESH_ALLOC(LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
+  int *assigned = (int *) SMESH_ALLOC(LocalSideTable::MAX_NUM_SIDES * sizeof(int));
 
   #pragma omp for
   for (ptrdiff_t e = 0; e < n_elements; e++) {
@@ -94,9 +95,9 @@ void create_element_adj_table_from_dual_graph(
     }
   }
 
-  free(nodes1);
-  free(nodes2);
-  free(assigned);
+  SMESH_FREE(nodes1);
+  SMESH_FREE(nodes2);
+  SMESH_FREE(assigned);
 
 }
 }
@@ -119,9 +120,9 @@ void create_element_adj_table_from_dual_graph_soa(
   LocalSideTable lst;
   lst.fill(element_type_for_algo);
 
-  idx_t * nodes1 =(idx_t *) malloc(LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
-  idx_t * nodes2 =(idx_t *) malloc(LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
-  int * assigned =(int *) malloc(LocalSideTable::MAX_NUM_SIDES * sizeof(int));
+  idx_t * nodes1 =(idx_t *) SMESH_ALLOC(LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
+  idx_t * nodes2 =(idx_t *) SMESH_ALLOC(LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
+  int * assigned =(int *) SMESH_ALLOC(LocalSideTable::MAX_NUM_SIDES * sizeof(int));
 
   enum ElemType st = side_type(element_type_for_algo);
   const int nn = elem_num_nodes(st);
@@ -171,9 +172,9 @@ void create_element_adj_table_from_dual_graph_soa(
     }
   }
 
-  free(nodes1);
-  free(nodes2);
-  free(assigned);
+  SMESH_FREE(nodes1);
+  SMESH_FREE(nodes2);
+  SMESH_FREE(assigned);
 }
 
 template <typename idx_t, typename count_t, typename element_idx_t>
@@ -198,12 +199,12 @@ void create_element_adj_table(
 
   const int ns = elem_num_sides(element_type);
   element_idx_t *table =
-      (element_idx_t *)malloc(n_elements * ns * sizeof(element_idx_t));
+      (element_idx_t *)SMESH_ALLOC(n_elements * ns * sizeof(element_idx_t));
   create_element_adj_table_from_dual_graph(n_elements, element_type, elems,
                                            adj_ptr, adj_idx, table);
 
-  free(adj_ptr);
-  free(adj_idx);
+  SMESH_FREE(adj_ptr);
+  SMESH_FREE(adj_idx);
 
   *table_out = table;
 }
@@ -242,9 +243,9 @@ void extract_surface_connectivity_with_adj_table(
   }
 
   *parent_element =
-      (element_idx_t *)malloc((*n_surf_elements) * sizeof(element_idx_t));
+      (element_idx_t *)SMESH_ALLOC((*n_surf_elements) * sizeof(element_idx_t));
   for (int s = 0; s < nn; s++) {
-    surf_elems[s] = (idx_t *)malloc((*n_surf_elements) * sizeof(idx_t));
+    surf_elems[s] = (idx_t *)SMESH_ALLOC((*n_surf_elements) * sizeof(idx_t));
   }
 
   ptrdiff_t side_offset = 0;
@@ -264,7 +265,7 @@ void extract_surface_connectivity_with_adj_table(
     }
   }
 
-  free(table);
+  SMESH_FREE(table);
 }
 
 template <typename element_idx_t>
@@ -291,8 +292,8 @@ int extract_sideset_from_adj_table(
   }
 
   *parent_element =
-      (element_idx_t *)malloc((*n_surf_elements) * sizeof(element_idx_t));
-  *side_idx = (i16 *)malloc((*n_surf_elements) * sizeof(i16));
+      (element_idx_t *)SMESH_ALLOC((*n_surf_elements) * sizeof(element_idx_t));
+  *side_idx = (i16 *)SMESH_ALLOC((*n_surf_elements) * sizeof(i16));
 
   ptrdiff_t side_offset = 0;
   for (ptrdiff_t e = 0; e < n_elements; e++) {
@@ -325,7 +326,7 @@ int extract_skin_sideset(
   int err =
       extract_sideset_from_adj_table(element_type, n_elements, table,
                                      n_surf_elements, parent_element, side_idx);
-  free(table);
+  SMESH_FREE(table);
   return err;
 }
 

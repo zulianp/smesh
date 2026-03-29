@@ -2,6 +2,7 @@
 #define SMESH_GENCUBE_IMPL_HPP
 
 #include "smesh_gencube.hpp"
+#include "smesh_alloc.hpp"
 
 #include "smesh_base.hpp"
 #include "smesh_elem_type.hpp"
@@ -47,14 +48,14 @@ int mesh_hex8_cube_to_folder(const Path &folder, const ptrdiff_t nx,
   const ptrdiff_t iz[8] = {0, 0, 0, 0, 1, 1, 1, 1};
 
   idx_t *elements_chunk =
-      (idx_t *)malloc(z_chunk_size * ny * nx * sizeof(idx_t));
+      (idx_t *)SMESH_ALLOC(z_chunk_size * ny * nx * sizeof(idx_t));
 
   for (int v = 0; v < 8; v++) {
     Path path = folder / Path("i" + std::to_string(v) + "." +
                               std::string(TypeToString<idx_t>::value()));
     FILE *f = fopen(path.c_str(), "wb");
     if (!f) {
-      free(elements_chunk);
+      SMESH_FREE(elements_chunk);
       SMESH_ERROR("mesh_hex8_cube_to_folder: Failed to open file %s\n",
                   path.c_str());
       return SMESH_FAILURE;
@@ -82,10 +83,10 @@ int mesh_hex8_cube_to_folder(const Path &folder, const ptrdiff_t nx,
     fclose(f);
   }
 
-  free(elements_chunk);
+  SMESH_FREE(elements_chunk);
 
   geom_t *points_chunk =
-      (geom_t *)malloc(z_chunk_size * (ny + 1) * (nx + 1) * sizeof(geom_t));
+      (geom_t *)SMESH_ALLOC(z_chunk_size * (ny + 1) * (nx + 1) * sizeof(geom_t));
 
   auto write_points_chunk = [&](const std::string &coord, const geom_t shift,
                                 const geom_t hx, const geom_t hy,
@@ -123,7 +124,7 @@ int mesh_hex8_cube_to_folder(const Path &folder, const ptrdiff_t nx,
             write_points_chunk("y", ymin, 0, hy, 0) != SMESH_SUCCESS ||
             write_points_chunk("z", zmin, 0, 0, hz) != SMESH_SUCCESS;
 
-  free(points_chunk);
+  SMESH_FREE(points_chunk);
 
   return ret ? SMESH_FAILURE : SMESH_SUCCESS;
 }

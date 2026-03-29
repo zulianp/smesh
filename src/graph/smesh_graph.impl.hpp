@@ -2,6 +2,7 @@
 #define SMESH_GRAPH_IMPL_HPP
 
 #include "smesh_graph.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_tracer.hpp"
 
 #include "smesh_base.hpp"
@@ -53,10 +54,10 @@ int create_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
          (nnodes + 1) * sizeof(count_t) * 1e-9);
 #endif
 
-  count_t *n2eptr = (count_t *)malloc((nnodes + 1) * sizeof(count_t));
+  count_t *n2eptr = (count_t *)SMESH_ALLOC((nnodes + 1) * sizeof(count_t));
   memset(n2eptr, 0, (nnodes + 1) * sizeof(count_t));
 
-  int *book_keeping = (int *)malloc((nnodes) * sizeof(int));
+  int *book_keeping = (int *)SMESH_ALLOC((nnodes) * sizeof(int));
   memset(book_keeping, 0, (nnodes) * sizeof(int));
 
   for (int edof_i = 0; edof_i < nnodesxelem; ++edof_i) {
@@ -76,7 +77,7 @@ int create_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
   printf("build_n2e: allocating %g GB\n",
          n2eptr[nnodes] * sizeof(element_idx_t) * 1e-9);
 #endif
-  element_idx_t *elindex = (element_idx_t *)malloc(
+  element_idx_t *elindex = (element_idx_t *)SMESH_ALLOC(
       static_cast<size_t>(n2eptr[nnodes]) * sizeof(element_idx_t));
 
   for (int edof_i = 0; edof_i < nnodesxelem; ++edof_i) {
@@ -90,7 +91,7 @@ int create_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
     }
   }
 
-  free(book_keeping);
+  SMESH_FREE(book_keeping);
 
   *out_n2eptr = n2eptr;
   *out_elindex = elindex;
@@ -133,10 +134,10 @@ static int create_n2e_for_elem_type(
          (nnodes + 1) * sizeof(count_t) * 1e-9);
 #endif
 
-  count_t *n2eptr = (count_t *)malloc((nnodes + 1) * sizeof(count_t));
+  count_t *n2eptr = (count_t *)SMESH_ALLOC((nnodes + 1) * sizeof(count_t));
   memset(n2eptr, 0, (nnodes + 1) * sizeof(count_t));
 
-  int *book_keeping = (int *)malloc((nnodes) * sizeof(int));
+  int *book_keeping = (int *)SMESH_ALLOC((nnodes) * sizeof(int));
   memset(book_keeping, 0, (nnodes) * sizeof(int));
 
   if (element_type == MACRO_TET4) {
@@ -173,7 +174,7 @@ static int create_n2e_for_elem_type(
   printf("build_n2e: allocating %g GB\n",
          n2eptr[nnodes] * sizeof(element_idx_t) * 1e-9);
 #endif
-  element_idx_t *elindex = (element_idx_t *)malloc(
+  element_idx_t *elindex = (element_idx_t *)SMESH_ALLOC(
       static_cast<size_t>(n2eptr[nnodes]) * sizeof(element_idx_t));
 
   const int nnodesxelem = elem_num_nodes(element_type);
@@ -188,7 +189,7 @@ static int create_n2e_for_elem_type(
     }
   }
 
-  free(book_keeping);
+  SMESH_FREE(book_keeping);
 
   *out_n2eptr = n2eptr;
   *out_elindex = elindex;
@@ -204,7 +205,7 @@ int create_n2n_from_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
                  const element_idx_t *const SMESH_RESTRICT elindex,
                  count_t **out_rowptr, idx_t **out_colidx) {
   SMESH_UNUSED(nelements);
-  count_t *rowptr = (count_t *)malloc((nnodes + 1) * sizeof(count_t));
+  count_t *rowptr = (count_t *)SMESH_ALLOC((nnodes + 1) * sizeof(count_t));
   idx_t *colidx = 0;
 
   {
@@ -242,7 +243,7 @@ int create_n2n_from_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
     }
 
     const ptrdiff_t nnz = rowptr[nnodes];
-    colidx = (idx_t *)malloc(nnz * sizeof(idx_t));
+    colidx = (idx_t *)SMESH_ALLOC(nnz * sizeof(idx_t));
 
 #pragma omp parallel
     {
@@ -297,8 +298,8 @@ static int create_crs_graph_mem_conservative(
       nelements, nnodes, nnodesxelem, elems, n2eptr, elindex, out_rowptr,
       out_colidx);
 
-  free(n2eptr);
-  free(elindex);
+  SMESH_FREE(n2eptr);
+  SMESH_FREE(elindex);
 
   return err;
 }
@@ -312,7 +313,7 @@ static int create_crs_graph_faster(
   using element_idx_t_local = ptrdiff_t;
 
   ptrdiff_t nnz = 0;
-  count_t *rowptr = (count_t *)malloc((nnodes + 1) * sizeof(count_t));
+  count_t *rowptr = (count_t *)SMESH_ALLOC((nnodes + 1) * sizeof(count_t));
   idx_t *colidx = 0;
 
   {
@@ -332,7 +333,7 @@ static int create_crs_graph_faster(
       overestimated_nnz += nneighs;
     }
 
-    colidx = (idx_t *)malloc(overestimated_nnz * sizeof(idx_t));
+    colidx = (idx_t *)SMESH_ALLOC(overestimated_nnz * sizeof(idx_t));
 
     ptrdiff_t coloffset = 0;
     idx_t n2nbuff[2048];
@@ -364,8 +365,8 @@ static int create_crs_graph_faster(
       coloffset += nneighs;
     }
 
-    free(n2eptr);
-    free(elindex);
+    SMESH_FREE(n2eptr);
+    SMESH_FREE(elindex);
   }
 
   *out_rowptr = rowptr;
@@ -541,7 +542,7 @@ static int create_dual_graph_from_n2e(
          n_elements * sizeof(int) * 1e-9);
 #endif
 
-  int *connection_counter = (int *)malloc(n_elements * sizeof(int));
+  int *connection_counter = (int *)SMESH_ALLOC(n_elements * sizeof(int));
   memset(connection_counter, 0, n_elements * sizeof(int));
 
   const int n_sides = elem_num_sides(element_type);
@@ -563,7 +564,7 @@ static int create_dual_graph_from_n2e(
   printf("create_dual_graph_from_n2e: allocating %g GB\n",
          (n_elements + 1) * sizeof(count_t) * 1e-9);
 #endif
-  count_t *dual_e_ptr = (count_t *)calloc((n_elements + 1), sizeof(count_t));
+  count_t *dual_e_ptr = (count_t *)SMESH_CALLOC((n_elements + 1), sizeof(count_t));
 
   const ptrdiff_t n_overestimated_connections = n_elements * n_sides;
   // +1 more to avoid illegal access when counting self
@@ -575,7 +576,7 @@ static int create_dual_graph_from_n2e(
              sizeof(element_idx_t) * 1e-9);
 #endif
 
-  element_idx_t *dual_eidx = (element_idx_t *)calloc(
+  element_idx_t *dual_eidx = (element_idx_t *)SMESH_CALLOC(
       static_cast<size_t>(n_overestimated_connections + extra_buffer_space),
       sizeof(element_idx_t));
 
@@ -622,7 +623,7 @@ static int create_dual_graph_from_n2e(
     dual_e_ptr[e + 1] = actual_count + offset;
   }
 
-  free(connection_counter);
+  SMESH_FREE(connection_counter);
 
   *out_dual_eptr = dual_e_ptr;
   *out_dual_eidx = dual_eidx;
@@ -652,8 +653,8 @@ int create_dual_graph(const ptrdiff_t n_elements, const ptrdiff_t n_nodes,
       n_elements, n_nodes, element_type, elems, n2eptr, elindex, out_rowptr,
       out_colidx);
 
-  free(n2eptr);
-  free(elindex);
+  SMESH_FREE(n2eptr);
+  SMESH_FREE(elindex);
 
   return ret;
 }
@@ -666,7 +667,7 @@ static int create_crs_graph_upper_triangular_from_n2e(
     const element_idx_t *const SMESH_RESTRICT elindex, count_t **out_rowptr,
     idx_t **out_colidx) {
   SMESH_UNUSED(nelements);
-  count_t *rowptr = (count_t *)malloc((nnodes + 1) * sizeof(count_t));
+  count_t *rowptr = (count_t *)SMESH_ALLOC((nnodes + 1) * sizeof(count_t));
   idx_t *colidx = 0;
 
   {
@@ -705,7 +706,7 @@ static int create_crs_graph_upper_triangular_from_n2e(
       }
 
       const ptrdiff_t nnz = rowptr[nnodes];
-      colidx = (idx_t *)malloc(nnz * sizeof(idx_t));
+      colidx = (idx_t *)SMESH_ALLOC(nnz * sizeof(idx_t));
 
       {
 #pragma omp parallel for
@@ -761,8 +762,8 @@ int create_crs_graph_upper_triangular_from_element(
                                                        element_idx_t_local>(
       nelements, nnodes, nxe, elems, n2eptr, elindex, out_rowptr, out_colidx);
 
-  free(n2eptr);
-  free(elindex);
+  SMESH_FREE(n2eptr);
+  SMESH_FREE(elindex);
 
   return err;
 }

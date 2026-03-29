@@ -1,4 +1,5 @@
 #include "smesh_config.hpp"
+#include "smesh_alloc.hpp"
 
 #ifdef SMESH_ENABLE_MPI
 #include "smesh_context.hpp"
@@ -81,12 +82,12 @@ int main(int argc, char **argv) {
                      &local_n2e_idx);
 
     // We do not need them anymore
-    free(n2eptr);
-    free(n2e_idx);
+    SMESH_FREE(n2eptr);
+    SMESH_FREE(n2e_idx);
 
-    idx_t **local_elements = (idx_t **)malloc(nnodesxelem * sizeof(idx_t *));
+    idx_t **local_elements = (idx_t **)SMESH_ALLOC(nnodesxelem * sizeof(idx_t *));
     for (int d = 0; d < nnodesxelem; ++d) {
-      local_elements[d] = (idx_t *)malloc(n_local_elements * sizeof(idx_t));
+      local_elements[d] = (idx_t *)SMESH_ALLOC(n_local_elements * sizeof(idx_t));
     }
 
     localize_element_indices(comm_size, comm_rank, n_global_elements,
@@ -103,7 +104,7 @@ int main(int argc, char **argv) {
                           local_elements, &n_owned, &n_shared, &n_ghosts);
 
     element_idx_t *element_mapping =
-        (element_idx_t *)malloc(n_local_elements * sizeof(element_idx_t));
+        (element_idx_t *)SMESH_ALLOC(n_local_elements * sizeof(element_idx_t));
     ptrdiff_t n_owned_not_shared = 0;
     rearrange_local_elements(comm_size, comm_rank, n_global_elements,
                              n_local_elements, nnodesxelem, local2global_size,
@@ -112,7 +113,7 @@ int main(int argc, char **argv) {
 
     l2g_t *aura_element_mapping = nullptr;
     idx_t **aura_element_nodes =
-        (idx_t **)malloc(nnodesxelem * sizeof(idx_t *));
+        (idx_t **)SMESH_ALLOC(nnodesxelem * sizeof(idx_t *));
     for (int d = 0; d < nnodesxelem; ++d) {
       aura_element_nodes[d] = nullptr;
     }
@@ -133,13 +134,13 @@ int main(int argc, char **argv) {
     const ptrdiff_t owned_nodes_start =
         static_cast<ptrdiff_t>(owned_nodes_start_ll);
 
-    idx_t *global2owned = (idx_t *)calloc(
+    idx_t *global2owned = (idx_t *)SMESH_CALLOC(
         rank_split(n_global_nodes, comm_size, comm_rank), sizeof(idx_t));
     prepare_node_renumbering(comm->get(), n_global_nodes, owned_nodes_start,
                              n_owned, local2global, global2owned);
 
     ptrdiff_t *owned_node_ranges =
-        (ptrdiff_t *)malloc((comm_size + 1) * sizeof(ptrdiff_t));
+        (ptrdiff_t *)SMESH_ALLOC((comm_size + 1) * sizeof(ptrdiff_t));
     node_ownership_ranges(comm->get(), n_owned, owned_node_ranges);
 
     l2g_t *local2global_with_aura = nullptr;
@@ -148,20 +149,20 @@ int main(int argc, char **argv) {
                          nnodesxelem, n_aura_elements, aura_element_nodes,
                          n_local_elements, local_elements,
                          &local2global_with_aura, &n_aura_nodes);
-    free(local2global);
+    SMESH_FREE(local2global);
     local2global = local2global_with_aura;
     local2global_size = n_owned + n_ghosts + n_aura_nodes;
 
     SMESH_ASSERT(n_ghosts + n_aura_nodes > 0 || comm_size == 1);
     idx_t *ghost_and_aura_to_owned =
-        (idx_t *)malloc((n_ghosts + n_aura_nodes) * sizeof(idx_t));
+        (idx_t *)SMESH_ALLOC((n_ghosts + n_aura_nodes) * sizeof(idx_t));
     collect_ghost_and_aura_import_indices(
         comm->get(), n_owned, n_ghosts, n_aura_nodes, n_global_nodes,
         local2global, global2owned, owned_node_ranges, ghost_and_aura_to_owned);
 
     node_ownership_ranges(comm->get(), n_owned, owned_node_ranges);
     int *owner =
-        (int *)malloc((n_owned + n_ghosts + n_aura_nodes) * sizeof(int));
+        (int *)SMESH_ALLOC((n_owned + n_ghosts + n_aura_nodes) * sizeof(int));
     determine_ownership(comm_size, comm_rank, n_owned, n_ghosts, n_aura_nodes,
                         ghost_and_aura_to_owned, owned_node_ranges, owner);
 
@@ -171,9 +172,9 @@ int main(int argc, char **argv) {
                                  local_elements);
 
     const ptrdiff_t n_local_nodes = n_owned + n_ghosts + n_aura_nodes;
-    geom_t **local_points = (geom_t **)malloc(spatial_dim * sizeof(geom_t *));
+    geom_t **local_points = (geom_t **)SMESH_ALLOC(spatial_dim * sizeof(geom_t *));
     for (int d = 0; d < spatial_dim; ++d) {
-      local_points[d] = (geom_t *)malloc(n_local_nodes * sizeof(geom_t));
+      local_points[d] = (geom_t *)SMESH_ALLOC(n_local_nodes * sizeof(geom_t));
       gather_mapped_field(comm->get(), n_local_nodes, n_global_nodes,
                           local2global, smesh::mpi_type<geom_t>(), points[d],
                           local_points[d]);
@@ -191,10 +192,10 @@ int main(int argc, char **argv) {
     array_write(path_block / "owner.int32", owner, n_local_nodes);
 
     { // FIXME find better solution for coding this
-      i64 *send_count = (i64 *)malloc((size_t)comm_size * sizeof(i64));
-      i64 *send_displs = (i64 *)malloc(((size_t)comm_size + 1) * sizeof(i64));
-      i64 *recv_count = (i64 *)malloc((size_t)comm_size * sizeof(i64));
-      i64 *recv_displs = (i64 *)malloc(((size_t)comm_size + 1) * sizeof(i64));
+      i64 *send_count = (i64 *)SMESH_ALLOC((size_t)comm_size * sizeof(i64));
+      i64 *send_displs = (i64 *)SMESH_ALLOC(((size_t)comm_size + 1) * sizeof(i64));
+      i64 *recv_count = (i64 *)SMESH_ALLOC((size_t)comm_size * sizeof(i64));
+      i64 *recv_displs = (i64 *)SMESH_ALLOC(((size_t)comm_size + 1) * sizeof(i64));
       idx_t *scatter_idx = nullptr;
       idx_t *import_idx = nullptr;
 
@@ -203,7 +204,7 @@ int main(int argc, char **argv) {
                              send_count, send_displs, recv_count, recv_displs,
                              &scatter_idx, &import_idx);
 
-      idx_t *owner_global = (idx_t *)malloc(n_local_nodes * sizeof(idx_t));
+      idx_t *owner_global = (idx_t *)SMESH_ALLOC(n_local_nodes * sizeof(idx_t));
       for (ptrdiff_t i = 0; i < n_owned; ++i) {
         owner_global[i] = owned_node_ranges[comm_rank] + i;
       }
@@ -211,8 +212,8 @@ int main(int argc, char **argv) {
       const ptrdiff_t send_total = send_displs[comm_size];
       const ptrdiff_t recv_total = recv_displs[comm_size];
       const ptrdiff_t buffer_size = std::max(send_total, recv_total);
-      idx_t *send_buffer = (idx_t *)malloc((size_t)buffer_size * sizeof(idx_t));
-      idx_t *recv_buffer = (idx_t *)malloc((size_t)buffer_size * sizeof(idx_t));
+      idx_t *send_buffer = (idx_t *)SMESH_ALLOC((size_t)buffer_size * sizeof(idx_t));
+      idx_t *recv_buffer = (idx_t *)SMESH_ALLOC((size_t)buffer_size * sizeof(idx_t));
 
       exchange_gather(comm->get(), n_owned, send_count, send_displs, recv_count,
                       recv_displs, scatter_idx, import_idx, owner_global,
@@ -221,15 +222,15 @@ int main(int argc, char **argv) {
       array_write(path_block / "owner_global.int32", owner_global,
                   n_local_nodes);
 
-      free(send_count);
-      free(send_displs);
-      free(recv_count);
-      free(recv_displs);
-      free(scatter_idx);
-      free(import_idx);
-      free(send_buffer);
-      free(recv_buffer);
-      free(owner_global);
+      SMESH_FREE(send_count);
+      SMESH_FREE(send_displs);
+      SMESH_FREE(recv_count);
+      SMESH_FREE(recv_displs);
+      SMESH_FREE(scatter_idx);
+      SMESH_FREE(import_idx);
+      SMESH_FREE(send_buffer);
+      SMESH_FREE(recv_buffer);
+      SMESH_FREE(owner_global);
     }
 
     for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
@@ -250,32 +251,32 @@ int main(int argc, char **argv) {
              n_global_nodes);
     }
 
-    free(ghost_and_aura_to_owned);
-    free(global2owned);
-    free(owned_node_ranges);
-    free(aura_element_mapping);
+    SMESH_FREE(ghost_and_aura_to_owned);
+    SMESH_FREE(global2owned);
+    SMESH_FREE(owned_node_ranges);
+    SMESH_FREE(aura_element_mapping);
     for (int d = 0; d < nnodesxelem; ++d) {
-      free(aura_element_nodes[d]);
+      SMESH_FREE(aura_element_nodes[d]);
     }
-    free(aura_element_nodes);
+    SMESH_FREE(aura_element_nodes);
 
-    free(elems);
-    free(points);
+    SMESH_FREE(elems);
+    SMESH_FREE(points);
 
-    free(local2global);
-    free(local_n2e_ptr);
-    free(local_n2e_idx);
-    free(element_mapping);
+    SMESH_FREE(local2global);
+    SMESH_FREE(local_n2e_ptr);
+    SMESH_FREE(local_n2e_idx);
+    SMESH_FREE(element_mapping);
     for (int d = 0; d < nnodesxelem; ++d) {
-      free(local_elements[d]);
+      SMESH_FREE(local_elements[d]);
     }
-    free(local_elements);
-    free(owner);
+    SMESH_FREE(local_elements);
+    SMESH_FREE(owner);
 
     for (int d = 0; d < spatial_dim; ++d) {
-      free(local_points[d]);
+      SMESH_FREE(local_points[d]);
     }
-    free(local_points);
+    SMESH_FREE(local_points);
   }
 
   return SMESH_SUCCESS;

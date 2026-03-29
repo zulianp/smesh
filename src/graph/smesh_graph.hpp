@@ -2,6 +2,7 @@
 #define SMESH_GRAPH_HPP
 
 #include "smesh_base.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_elem_type.hpp"
 
 namespace smesh {
@@ -28,7 +29,7 @@ namespace smesh {
  *
  * @return `SMESH_SUCCESS` on success.
  *
- * @note The caller owns `*out_n2eptr` and `*out_elindex` and must `free()`
+ * @note The caller owns `*out_n2eptr` and `*out_elindex` and must `SMESH_FREE()`
  * them.
  * @note Preconditions: all `elems[*][e]` satisfy `0 <= node < nnodes`.
  */
@@ -72,7 +73,7 @@ create_n2n_from_n2e(const ptrdiff_t nelements, const ptrdiff_t nnodes,
      *
      * @return `SMESH_SUCCESS` on success.
      *
-     * @note The caller owns `*out_rowptr` and `*out_colidx` and must `free()`
+     * @note The caller owns `*out_rowptr` and `*out_colidx` and must `SMESH_FREE()`
      * them.
      * @note Implementation may use OpenMP.
      * @note Setting environment variable `SMESH_CRS_FAST_SERIAL=1` selects an
@@ -239,7 +240,7 @@ idx_t find_idx(const idx_t key, const idx_t *const SMESH_RESTRICT arr,
  *
  * @return `SMESH_SUCCESS` on success.
  *
- * @note The caller owns `*out_rowptr` and `*out_colidx` and must `free()` them.
+ * @note The caller owns `*out_rowptr` and `*out_colidx` and must `SMESH_FREE()` them.
  */
 template <typename idx_t, typename count_t, typename element_idx_t>
 int create_dual_graph(const ptrdiff_t n_elements, const ptrdiff_t n_nodes,

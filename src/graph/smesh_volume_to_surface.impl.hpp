@@ -2,6 +2,7 @@
 #define SMESH_VOLUME_TO_SURFACE_IMPL_HPP
 
 #include "smesh_adjacency.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_volume_to_surface.hpp"
 
 namespace smesh {
@@ -25,7 +26,7 @@ int extract_skin_sideset_from_n2e(
     const int nnxe = elem_num_nodes(element_type);
     const int nnxs = elem_num_nodes(side_type(element_type));
     unsigned char *const is_boundary =
-        (unsigned char *)malloc((size_t)n_elements * (size_t)ns * sizeof(unsigned char));
+        (unsigned char *)SMESH_ALLOC((size_t)n_elements * (size_t)ns * sizeof(unsigned char));
 
     ptrdiff_t surf_count = 0;
 
@@ -98,8 +99,8 @@ int extract_skin_sideset_from_n2e(
     }
 
     *n_surf_elements = surf_count;
-    *parent_element = (element_idx_t *)malloc((size_t)surf_count * sizeof(element_idx_t));
-    *side_idx = (i16 *)malloc((size_t)surf_count * sizeof(i16));
+    *parent_element = (element_idx_t *)SMESH_ALLOC((size_t)surf_count * sizeof(element_idx_t));
+    *side_idx = (i16 *)SMESH_ALLOC((size_t)surf_count * sizeof(i16));
 
     ptrdiff_t side_offset = 0;
     for (ptrdiff_t e = 0; e < n_elements; ++e) {
@@ -114,7 +115,7 @@ int extract_skin_sideset_from_n2e(
         }
     }
 
-    free(is_boundary);
+    SMESH_FREE(is_boundary);
     return SMESH_SUCCESS;
 }
 

@@ -1,4 +1,5 @@
 #include "smesh_mesh_reorder.hpp"
+#include "smesh_alloc.hpp"
 
 #include "smesh_env.hpp"
 #include "smesh_mesh.hpp"
@@ -83,7 +84,7 @@ int SFC::reorder(Mesh &mesh) {
                            encoding->data()));
 
   auto buff =
-      malloc(std::max(n_elements * sizeof(idx_t), n_nodes * sizeof(geom_t)));
+      SMESH_ALLOC(std::max(n_elements * sizeof(idx_t), n_nodes * sizeof(geom_t)));
   auto idx = (idx_t *)buff;
   for (ptrdiff_t i = 0; i < n_elements; i++) {
     idx[i] = i;
@@ -125,7 +126,7 @@ int SFC::reorder(Mesh &mesh) {
                                 mesh.points()->data()[2]));
   }
 
-  free(buff);
+  SMESH_FREE(buff);
   return SMESH_SUCCESS;
 }
 } // namespace smesh

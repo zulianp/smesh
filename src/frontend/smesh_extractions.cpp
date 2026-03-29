@@ -1,4 +1,5 @@
 #include "smesh_extractions.hpp"
+#include "smesh_alloc.hpp"
 
 #include "smesh_mesh.hpp"
 
@@ -23,7 +24,7 @@ SharedBuffer<idx_t *> extract_sharp_edges(Mesh &mesh,
                       n2n->colidx()->data(), cos_angle_threshold,
                       &out_n_sharp_edges, &out_e0, &out_e1);
 
-  idx_t **edges = (idx_t **)malloc(2 * sizeof(idx_t *));
+  idx_t **edges = (idx_t **)SMESH_ALLOC(2 * sizeof(idx_t *));
   edges[0] = out_e0;
   edges[1] = out_e1;
   return manage_host_buffer<idx_t>(2, out_n_sharp_edges, edges);

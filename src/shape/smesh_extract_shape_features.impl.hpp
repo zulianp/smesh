@@ -2,6 +2,7 @@
 #define SMESH_EXTRACT_SHAP_FEATURES_IMPL_HPP
 
 #include "smesh_base.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_extract_shape_features.hpp"
 
 #include "smesh_common.hpp"
@@ -24,11 +25,11 @@ int extract_sharp_edges(
 
   geom_t *normal[3];
   for (int d = 0; d < 3; d++) {
-    normal[d] = (geom_t *)calloc(nedges, sizeof(geom_t));
+    normal[d] = (geom_t *)SMESH_CALLOC(nedges, sizeof(geom_t));
   }
 
   const int nxe = elem_num_nodes(element_type);
-  count_t *opposite = (count_t *)malloc(nedges * sizeof(count_t));
+  count_t *opposite = (count_t *)SMESH_ALLOC(nedges * sizeof(count_t));
   {
     // Opposite edge index
     // #pragma omp parallel for
@@ -108,11 +109,11 @@ int extract_sharp_edges(
   }
 
   ptrdiff_t n_sharp_edges = 0;
-  idx_t *e0 = (idx_t *)malloc(nedges * sizeof(idx_t));
-  idx_t *e1 = (idx_t *)malloc(nedges * sizeof(idx_t));
+  idx_t *e0 = (idx_t *)SMESH_ALLOC(nedges * sizeof(idx_t));
+  idx_t *e1 = (idx_t *)SMESH_ALLOC(nedges * sizeof(idx_t));
 
   {
-    geom_t *dihedral_angle = (geom_t *)calloc(nedges, sizeof(geom_t));
+    geom_t *dihedral_angle = (geom_t *)SMESH_CALLOC(nedges, sizeof(geom_t));
     ptrdiff_t edge_count = 0;
     {
       for (ptrdiff_t i = 0; i < nnodes; i++) {
@@ -159,16 +160,16 @@ int extract_sharp_edges(
       }
     }
 
-    free(dihedral_angle);
+    SMESH_FREE(dihedral_angle);
   }
 
   *out_n_sharp_edges = n_sharp_edges;
   *out_e0 = e0;
   *out_e1 = e1;
 
-  free(opposite);
+  SMESH_FREE(opposite);
   for (int d = 0; d < 3; d++) {
-    free(normal[d]);
+    SMESH_FREE(normal[d]);
   }
 
   return SMESH_SUCCESS;
@@ -185,7 +186,7 @@ int extract_sharp_corners(const ptrdiff_t nnodes, const ptrdiff_t n_sharp_edges,
 
   ptrdiff_t out_n_sharp_edges = n_sharp_edges;
   {
-    int *incidence_count = (int *)calloc(nnodes, sizeof(int));
+    int *incidence_count = (int *)SMESH_CALLOC(nnodes, sizeof(int));
 
     for (ptrdiff_t i = 0; i < n_sharp_edges; i++) {
       incidence_count[e0[i]]++;
@@ -198,7 +199,7 @@ int extract_sharp_corners(const ptrdiff_t nnodes, const ptrdiff_t n_sharp_edges,
       }
     }
 
-    corners = (idx_t *)malloc(n_corners * sizeof(idx_t));
+    corners = (idx_t *)SMESH_ALLOC(n_corners * sizeof(idx_t));
     for (ptrdiff_t i = 0, n_corners = 0; i < nnodes; i++) {
       if (incidence_count[i] >= 3) {
         corners[n_corners] = i;
@@ -218,7 +219,7 @@ int extract_sharp_corners(const ptrdiff_t nnodes, const ptrdiff_t n_sharp_edges,
       }
     }
 
-    free(incidence_count);
+    SMESH_FREE(incidence_count);
   }
 
   *out_ncorners = n_corners;
@@ -240,7 +241,7 @@ int extract_disconnected_faces(
   element_idx_t *disconnected_elements = 0;
   {
     // Select unconnected faces
-    short *checked = (short *)calloc(nnodes, sizeof(short));
+    short *checked = (short *)SMESH_CALLOC(nnodes, sizeof(short));
 
     const int nxe = elem_num_nodes(element_type);
     for (ptrdiff_t i = 0; i < n_sharp_edges; i++) {
@@ -257,7 +258,7 @@ int extract_disconnected_faces(
       n_disconnected_elements += connected_to_sharp_edge == 0;
     }
 
-    disconnected_elements = (element_idx_t *)malloc(n_disconnected_elements *
+    disconnected_elements = (element_idx_t *)SMESH_ALLOC(n_disconnected_elements *
                                                     sizeof(element_idx_t));
 
     ptrdiff_t eidx = 0;
@@ -272,7 +273,7 @@ int extract_disconnected_faces(
       }
     }
 
-    free(checked);
+    SMESH_FREE(checked);
   }
 
   *out_n_disconnected_elements = n_disconnected_elements;

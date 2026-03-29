@@ -7,6 +7,7 @@
 #include <type_traits>
 
 #include "smesh_buffer.hpp"
+#include "smesh_alloc.hpp"
 
 namespace smesh {
 
@@ -168,15 +169,15 @@ namespace smesh {
 
     template <typename T>
     std::shared_ptr<Buffer<T>> create_host_buffer(const size_t n) {
-        auto ret = std::make_shared<Buffer<T>>(n, static_cast<T *>(calloc(n, sizeof(T))), &free, MEMORY_SPACE_HOST);
+        auto ret = std::make_shared<Buffer<T>>(n, static_cast<T *>(SMESH_CALLOC(n, sizeof(T))), &free, MEMORY_SPACE_HOST);
         return ret;
     }
 
     template <typename T>
     std::shared_ptr<Buffer<T *>> create_host_buffer(const size_t n0, const size_t n1) {
-        T **data = static_cast<T **>(malloc(n0 * sizeof(T *)));
+        T **data = static_cast<T **>(SMESH_ALLOC(n0 * sizeof(T *)));
         for (size_t i = 0; i < n0; ++i) {
-            data[i] = static_cast<T *>(calloc(n1, sizeof(T)));
+            data[i] = static_cast<T *>(SMESH_CALLOC(n1, sizeof(T)));
         }
 
         auto ret = std::make_shared<Buffer<T *>>(
@@ -185,9 +186,9 @@ namespace smesh {
                 data,
                 [=](int n, void **x) {
                     for (int i = 0; i < n; ++i) {
-                        free(x[i]);
+                        SMESH_FREE(x[i]);
                     }
-                    free(x);
+                    SMESH_FREE(x);
                 },
                 MEMORY_SPACE_HOST);
         return ret;
@@ -195,9 +196,9 @@ namespace smesh {
 
     template <typename T>
     std::shared_ptr<Buffer<T *>> create_host_buffer_fake_SoA(const size_t n0, const size_t n1) {
-        T *allocated = static_cast<T *>(calloc(n0 * n1, sizeof(T)));
+        T *allocated = static_cast<T *>(SMESH_CALLOC(n0 * n1, sizeof(T)));
 
-        T **data = static_cast<T **>(malloc(n0 * sizeof(T *)));
+        T **data = static_cast<T **>(SMESH_ALLOC(n0 * sizeof(T *)));
         for (size_t i = 0; i < n0; ++i) {
             data[i] = &allocated[i * n1];
         }
@@ -207,8 +208,8 @@ namespace smesh {
                 n1,
                 data,
                 [=](int, void **x) {
-                    free(x[0]);
-                    free(x);
+                    SMESH_FREE(x[0]);
+                    SMESH_FREE(x);
                 },
                 MEMORY_SPACE_HOST);
         return ret;
@@ -220,12 +221,12 @@ namespace smesh {
         assert(in->size() % n0 == 0);
         const size_t n1 = in->size() / n0;
 
-        T **data = static_cast<T **>(malloc(n0 * sizeof(T *)));
+        T **data = static_cast<T **>(SMESH_ALLOC(n0 * sizeof(T *)));
         for (size_t i = 0; i < n0; ++i) {
             data[i] = const_cast<T *>(&in->data()[i]);
         }
 
-        auto ret = std::make_shared<Buffer<T *>>(n0, n1, data, [lifetime = in](int, void **x) { free(x); }, MEMORY_SPACE_HOST);
+        auto ret = std::make_shared<Buffer<T *>>(n0, n1, data, [lifetime = in](int, void **x) { SMESH_FREE(x); }, MEMORY_SPACE_HOST);
         return ret;
     }
 
@@ -263,9 +264,9 @@ namespace smesh {
                 data,
                 [=](int n, void **x) {
                     for (int i = 0; i < n; ++i) {
-                        free(x[i]);
+                        SMESH_FREE(x[i]);
                     }
-                    free(x);
+                    SMESH_FREE(x);
                 },
                 MEMORY_SPACE_HOST);
         return ret;
@@ -289,13 +290,13 @@ namespace smesh {
         const size_t extent0 = end0 - begin0;
         const size_t extent1 = end1 - begin1;
 
-        T **new_buffer = static_cast<T **>(malloc(extent0 * sizeof(T *)));
+        T **new_buffer = static_cast<T **>(SMESH_ALLOC(extent0 * sizeof(T *)));
         for (size_t i0 = 0; i0 < extent0; i0++) {
             new_buffer[i0] = &(buffer->data()[begin0 + i0][begin1]);
         }
 
         return std::make_shared<Buffer<T *>>(
-                extent0, extent1, new_buffer, [keep_alive = buffer](int, void **buff) { free(buff); }, buffer->mem_space());
+                extent0, extent1, new_buffer, [keep_alive = buffer](int, void **buff) { SMESH_FREE(buff); }, buffer->mem_space());
     }
 
     template <typename T>
@@ -348,9 +349,9 @@ namespace smesh {
             SMESH_IMPLEMENT_ME();
         }
 
-        auto data = static_cast<T **>(malloc(buffer->extent(0) * sizeof(T *)));
+        auto data = static_cast<T **>(SMESH_ALLOC(buffer->extent(0) * sizeof(T *)));
         for (size_t i = 0; i < buffer->extent(0); i++) {
-            data[i] = static_cast<T *>(malloc(buffer->extent(1) * sizeof(T)));
+            data[i] = static_cast<T *>(SMESH_ALLOC(buffer->extent(1) * sizeof(T)));
             std::memcpy(data[i], buffer->data()[i], buffer->extent(1) * sizeof(T));
         }
 
@@ -363,9 +364,9 @@ namespace smesh {
             SMESH_IMPLEMENT_ME();
         }
 
-        auto data = static_cast<T **>(malloc(buffer->extent(0) * sizeof(T *)));
+        auto data = static_cast<T **>(SMESH_ALLOC(buffer->extent(0) * sizeof(T *)));
         for (size_t i = 0; i < buffer->extent(0); i++) {
-            data[i] = static_cast<T *>(calloc(buffer->extent(1), sizeof(T)));
+            data[i] = static_cast<T *>(SMESH_CALLOC(buffer->extent(1), sizeof(T)));
         }
 
         return manage_host_buffer<T>(buffer->extent(0), buffer->extent(1), data);

@@ -2,6 +2,7 @@
 #define SMESH_WRITE_IMPL_HPP
 
 #include "smesh_glob.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_write.hpp"
 
 #include <string_view>
@@ -36,7 +37,7 @@ int array_write_convert(const Path &path, const T *const SMESH_RESTRICT data,
   }
 
   const ptrdiff_t buffer_size = std::min(ptrdiff_t(4096), n_elements);
-  FileType *buffer = (FileType *)malloc(buffer_size * sizeof(FileType));
+  FileType *buffer = (FileType *)SMESH_ALLOC(buffer_size * sizeof(FileType));
 
   for (ptrdiff_t i = 0; i < n_elements; i += buffer_size) {
     ptrdiff_t n = std::min(buffer_size, n_elements - i);
@@ -46,7 +47,7 @@ int array_write_convert(const Path &path, const T *const SMESH_RESTRICT data,
     fwrite(buffer, sizeof(FileType), n, fp);
   }
 
-  free(buffer);
+  SMESH_FREE(buffer);
   fclose(fp);
   return SMESH_SUCCESS;
 }

@@ -1,6 +1,7 @@
 #define SMESH_DISTRIBUTED_WRITE_IMPL_HPP
 
 #include "matrixio_array.h"
+#include "smesh_alloc.hpp"
 #include "smesh_alltoallv.impl.hpp"
 #include "smesh_distributed_base.hpp"
 #include "smesh_distributed_write.hpp"
@@ -22,14 +23,14 @@ int array_write_convert(MPI_Comm comm, const Path &path,
                        n_local_elements, n_global_elements);
   }
 
-  FileType *buffer = (FileType *)malloc(n_local_elements * sizeof(FileType));
+  FileType *buffer = (FileType *)SMESH_ALLOC(n_local_elements * sizeof(FileType));
   for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
     buffer[i] = static_cast<FileType>(data[i]);
   }
   int ret = array_write(comm, path.c_str(), smesh::mpi_type<FileType>(), buffer,
                         n_local_elements, n_global_elements);
 
-  free(buffer);
+  SMESH_FREE(buffer);
   return ret;
 }
 
@@ -94,7 +95,7 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
     local_output_size = n_global - begin;
   }
 
-  i64 *send_count = (i64 *)malloc((size) * sizeof(i64));
+  i64 *send_count = (i64 *)SMESH_ALLOC((size) * sizeof(i64));
   memset(send_count, 0, (size) * sizeof(i64));
 
   for (ptrdiff_t i = 0; i < n_local; ++i) {
@@ -103,13 +104,13 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
     send_count[dest_rank]++;
   }
 
-  i64 *recv_count = (i64 *)malloc((size) * sizeof(i64));
+  i64 *recv_count = (i64 *)SMESH_ALLOC((size) * sizeof(i64));
   SMESH_MPI_CATCH(MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1,
                                mpi_type<i64>(), comm));
 
-  i64 *send_displs = (i64 *)malloc(size * sizeof(i64));
-  i64 *recv_displs = (i64 *)malloc(size * sizeof(i64));
-  i64 *book_keeping = (i64 *)calloc(size, sizeof(i64));
+  i64 *send_displs = (i64 *)SMESH_ALLOC(size * sizeof(i64));
+  i64 *recv_displs = (i64 *)SMESH_ALLOC(size * sizeof(i64));
+  i64 *book_keeping = (i64 *)SMESH_CALLOC(size, sizeof(i64));
 
   send_displs[0] = 0;
   recv_displs[0] = 0;
@@ -124,10 +125,10 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
     recv_displs[i + 1] = recv_displs[i] + recv_count[i];
   }
 
-  large_idx_t *send_list = (large_idx_t *)malloc(n_local * sizeof(large_idx_t));
+  large_idx_t *send_list = (large_idx_t *)SMESH_ALLOC(n_local * sizeof(large_idx_t));
 
   ptrdiff_t n_buff = std::max(n_local, local_output_size);
-  uint8_t *send_data_and_final_storage = (uint8_t *)malloc(n_buff * type_size);
+  uint8_t *send_data_and_final_storage = (uint8_t *)SMESH_ALLOC(n_buff * type_size);
 
   // Pack data and indices
   for (ptrdiff_t i = 0; i < n_local; ++i) {
@@ -144,8 +145,8 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
     book_keeping[dest_rank]++;
   }
 
-  large_idx_t *recv_list = (large_idx_t *)malloc(local_output_size * sizeof(large_idx_t));
-  uint8_t *recv_data = (uint8_t *)malloc(local_output_size * type_size);
+  large_idx_t *recv_list = (large_idx_t *)SMESH_ALLOC(local_output_size * sizeof(large_idx_t));
+  uint8_t *recv_data = (uint8_t *)SMESH_ALLOC(local_output_size * type_size);
 
   ///////////////////////////////////
   // Send indices
@@ -182,15 +183,15 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
   ///////////////////////////////////
   // Clean-up
   ///////////////////////////////////
-  free(send_count);
-  free(send_displs);
-  free(recv_count);
-  free(recv_displs);
-  free(book_keeping);
-  free(send_list);
-  free(recv_list);
-  free(recv_data);
-  free(send_data_and_final_storage);
+  SMESH_FREE(send_count);
+  SMESH_FREE(send_displs);
+  SMESH_FREE(recv_count);
+  SMESH_FREE(recv_displs);
+  SMESH_FREE(book_keeping);
+  SMESH_FREE(send_list);
+  SMESH_FREE(recv_list);
+  SMESH_FREE(recv_data);
+  SMESH_FREE(send_data_and_final_storage);
   return 0;
 }
 
@@ -228,7 +229,7 @@ int write_distributed_mesh_topology(
     Path conn_path = path / fname;
 
     idx_t *buffer =
-        (idx_t *)malloc((size_t)n_owned_elements * sizeof(idx_t));
+        (idx_t *)SMESH_ALLOC((size_t)n_owned_elements * sizeof(idx_t));
     if (!buffer) {
       return SMESH_FAILURE;
     }
@@ -243,7 +244,7 @@ int write_distributed_mesh_topology(
                               n_global_elements, element_mapping,
                               smesh::mpi_type<idx_t>(), buffer);
 
-    free(buffer);
+    SMESH_FREE(buffer);
   }
 
   return err == SMESH_SUCCESS ? SMESH_SUCCESS : SMESH_FAILURE;

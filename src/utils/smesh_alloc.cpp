@@ -51,5 +51,14 @@ void *track_calloc(size_t n, size_t size, const char *file, int line) {
   return ptr;
 }
 
+void track_external_alloc(void *ptr, size_t nbytes, const char *file,
+                          int line) {
+  if (!ptr) {
+    SMESH_ERROR("Failed to allocate %zu bytes (%zu total allocated) at %s:%d\n",
+                nbytes, allocated_bytes, file, line);
+  }
+  allocated_bytes += nbytes;
+}
+
 } // namespace internal_
 } // namespace smesh

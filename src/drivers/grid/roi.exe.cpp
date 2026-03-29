@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <stddef.h>
 
+#include "smesh_alloc.hpp"
+
 int main(int argc, const char *argv[]) {
     if (argc != 7) {
         printf("usage %s <nx> <ny> <nz> <data.float32.raw> <xslice> <output.float32.raw>\n",
@@ -15,7 +17,7 @@ int main(int argc, const char *argv[]) {
     ptrdiff_t xslice = atol(argv[5]);
     ptrdiff_t n = nx * ny * nz;
 
-    float *sdt = (float*)malloc(n * sizeof(float));
+    float *sdt = (float*)SMESH_ALLOC(n * sizeof(float));
 
     {
         FILE *f_sdt = fopen(argv[4], "r");
@@ -23,14 +25,14 @@ int main(int argc, const char *argv[]) {
         fclose(f_sdt);
 
         if (nread != n) {
-        	free(sdt);
+        	SMESH_FREE(sdt);
             return EXIT_FAILURE;
         }
     }
 
     // Code to extract slice
     ptrdiff_t nslice = ny * nz;
-    float *slice = (float*)malloc(nslice * sizeof(float));
+    float *slice = (float*)SMESH_ALLOC(nslice * sizeof(float));
 
     for (ptrdiff_t z = 0; z < nz; z++) {
         ptrdiff_t z_offset = z * (ny * nx);
@@ -46,7 +48,7 @@ int main(int argc, const char *argv[]) {
         fclose(f_slice);
     }
 
-    free(sdt);
-    free(slice);
+    SMESH_FREE(sdt);
+    SMESH_FREE(slice);
     return EXIT_SUCCESS;
 }

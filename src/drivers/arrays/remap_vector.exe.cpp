@@ -4,6 +4,7 @@
 // #include <string.h>
 
 // #include "smesh_base.hpp"
+#include "smesh_alloc.hpp"
 // #include "smesh_context.hpp"
 // #include "smesh_types.hpp"
 // #include "smesh_buffer.hpp"
@@ -55,7 +56,7 @@
 
 //         new_nnodes = nnodes + ndirichlet;
 
-//         is_dirichlet = (idx_t *)malloc(new_nnodes * sizeof(idx_t));
+//         is_dirichlet = (idx_t *)SMESH_ALLOC(new_nnodes * sizeof(idx_t));
 //         memset(is_dirichlet, 0, new_nnodes * sizeof(idx_t));
 
 //         for (ptrdiff_t node = 0; node < ndirichlet; ++node) {
@@ -63,10 +64,10 @@
 //             is_dirichlet[i] = 1;
 //         }
 
-//         free(dirichlet_nodes);
+//         SMESH_FREE(dirichlet_nodes);
 //     }
 
-//     real_t *new_values = (real_t *)malloc(new_nnodes * sizeof(real_t));
+//     real_t *new_values = (real_t *)SMESH_ALLOC(new_nnodes * sizeof(real_t));
 //     memset(new_values, 0, new_nnodes * sizeof(real_t));
 
 //     for (ptrdiff_t node = 0, old_node_idx = 0; node < new_nnodes; ++node) {
@@ -77,9 +78,9 @@
 
 //     array_write(comm, output_path, values_mpi_t, (void *)new_values, new_nnodes, new_nnodes);
 
-//     free(is_dirichlet);
-//     free(values);
-//     free(new_values);
+//     SMESH_FREE(is_dirichlet);
+//     SMESH_FREE(values);
+//     SMESH_FREE(new_values);
 
 //     double tock = MPI_Wtime();
 

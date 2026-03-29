@@ -2,6 +2,7 @@
 #define SMESH_REFINE_IMPL_HPP
 
 #include "smesh_elem_type.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_refine.hpp"
 #include "smesh_search.hpp"
 
@@ -44,7 +45,7 @@ int mesh_refine(
   }
 
   const count_t nnz = n2n_ptr[n_coarse_nodes];
-  idx_t *edge_idx = (idx_t *)malloc(nnz * sizeof(idx_t));
+  idx_t *edge_idx = (idx_t *)SMESH_ALLOC(nnz * sizeof(idx_t));
   memset(edge_idx, 0, nnz * sizeof(idx_t));
 
   idx_t next_id = n_coarse_nodes;
@@ -178,7 +179,7 @@ int mesh_refine(
       }
   }
 
-  free(edge_idx);
+  SMESH_FREE(edge_idx);
   return SMESH_SUCCESS;
 }
 } // namespace smesh

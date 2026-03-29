@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <algorithm>
 #include "smesh_base.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_elem_type.hpp"
 #include "smesh_types.hpp"
 
@@ -34,7 +35,7 @@ namespace smesh {
         }
 
         *n_coarse_indices = count;
-        *coarse_indices   = (idx_t *)malloc(count * sizeof(idx_t));
+        *coarse_indices   = (idx_t *)SMESH_ALLOC(count * sizeof(idx_t));
 
         count = 0;
         for (ptrdiff_t i = 0; i < n_indices; i++) {

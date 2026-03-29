@@ -1,4 +1,5 @@
 #include "smesh_dual_graph.hpp"
+#include "smesh_alloc.hpp"
 
 #include "smesh_graph.hpp"
 #include "smesh_mesh.hpp"
@@ -51,9 +52,9 @@ DualGraph::create(const std::shared_ptr<Mesh> &mesh) {
         elements.data(), n2e_ptr, n2e_idx, n2e_block, &adj_ptr, &adj_idx,
         &adj_block);
 
-    free(n2e_ptr);
-    free(n2e_idx);
-    free(n2e_block);
+    SMESH_FREE(n2e_ptr);
+    SMESH_FREE(n2e_idx);
+    SMESH_FREE(n2e_block);
 
     const ptrdiff_t n_total_elements = mesh->n_elements();
 

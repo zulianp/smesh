@@ -6,6 +6,7 @@
 // #include <sys/stat.h>
 
 // #include "array_dtof.h"
+#include "smesh_alloc.hpp"
 // #include "matrixio_array.h"
 // #include "matrixio_crs.h"
 // #include "utils.h"
@@ -157,11 +158,11 @@
 //     smesh::create_dual_graph(
 //         mesh->n_elements(), mesh->n_nodes(), static_cast<smesh::ElemType>(element_type_hack), elements, &adj_ptr, &adj_idx);
 
-//     uint8_t *selected = (uint8_t *)malloc(mesh->n_elements() * sizeof(uint8_t));
+//     uint8_t *selected = (uint8_t *)SMESH_ALLOC(mesh->n_elements() * sizeof(uint8_t));
 //     memset(selected, 0, mesh->n_elements() * sizeof(uint8_t));
 
 //     ptrdiff_t size_queue = (mesh->n_elements() + 1);
-//     ptrdiff_t *elem_queue = (ptrdiff_t *)malloc(size_queue * sizeof(ptrdiff_t));
+//     ptrdiff_t *elem_queue = (ptrdiff_t *)SMESH_ALLOC(size_queue * sizeof(ptrdiff_t));
 
 //     elem_queue[0] = closest_element;
 //     for (ptrdiff_t e = 1; e < size_queue; ++e) {
@@ -319,7 +320,7 @@
 //         n_selected += selected[i] == 1;
 //     }
 
-//     idx_t *indices = (idx_t *)malloc(n_selected * sizeof(idx_t));
+//     idx_t *indices = (idx_t *)SMESH_ALLOC(n_selected * sizeof(idx_t));
 //     for (ptrdiff_t i = 0, n_inserted = 0; i < mesh->n_elements(); i++) {
 //         if (selected[i]) {
 //             indices[n_inserted++] = i;
@@ -328,8 +329,8 @@
 
 //     array_write(comm, path_selection, SFEM_MPI_IDX_T, indices, n_selected, n_selected);
 
-//     free(selected);
-//     free(indices);
+//     SMESH_FREE(selected);
+//     SMESH_FREE(indices);
 
 //     double tock = MPI_Wtime();
 

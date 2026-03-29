@@ -2,6 +2,7 @@
 #define SMESH_SIDESETS_IMPL_HPP
 
 #include "smesh_adjacency.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_elem_type.hpp"
 #include "smesh_mask.hpp"
 #include "smesh_sidesets.hpp"
@@ -40,14 +41,14 @@ int sideset_to_e2s_fill(const ptrdiff_t n_sides, const ptrdiff_t n_elements,
                           }
 
   element_idx_t *bk =
-      (element_idx_t *)calloc(n_elements, sizeof(element_idx_t));
+      (element_idx_t *)SMESH_CALLOC(n_elements, sizeof(element_idx_t));
 
   for (ptrdiff_t i = 0; i < n_sides; i++) {
     element_idx_t e = parent_element[i];
     e2s_idx[e2s_ptr[e] + bk[e]++] = i;
   }
 
-  free(bk);
+  SMESH_FREE(bk);
   return SMESH_SUCCESS;
 }
 
@@ -67,19 +68,19 @@ int sideset_select_propagate(
     const element_idx_t sideset_seed, mask_t *const SMESH_RESTRICT selected,
     selector_t &&selector) {
 
-  mask_t *visited = (mask_t *)calloc(mask_count(n_sides), sizeof(mask_t));
+  mask_t *visited = (mask_t *)SMESH_CALLOC(mask_count(n_sides), sizeof(mask_t));
 
   memset(selected, 0, mask_count(n_sides) * sizeof(mask_t));
   element_idx_t *e2s_ptr =
-      (element_idx_t *)malloc((n_elements + 1) * sizeof(element_idx_t));
+      (element_idx_t *)SMESH_ALLOC((n_elements + 1) * sizeof(element_idx_t));
   sideset_to_e2s_count(n_sides, n_elements, parent_element, e2s_ptr);
 
   element_idx_t *e2s_idx =
-      (element_idx_t *)malloc(e2s_ptr[n_elements] * sizeof(element_idx_t));
+      (element_idx_t *)SMESH_ALLOC(e2s_ptr[n_elements] * sizeof(element_idx_t));
   sideset_to_e2s_fill(n_sides, n_elements, parent_element, e2s_ptr, e2s_idx);
 
   element_idx_t *queue =
-      (element_idx_t *)malloc(n_sides * sizeof(element_idx_t));
+      (element_idx_t *)SMESH_ALLOC(n_sides * sizeof(element_idx_t));
   ptrdiff_t queue_size = 0;
   queue[queue_size++] = sideset_seed;
 
@@ -133,10 +134,10 @@ int sideset_select_propagate(
     }
   }
 
-  free(queue);
-  free(e2s_ptr);
-  free(e2s_idx);
-  free(visited);
+  SMESH_FREE(queue);
+  SMESH_FREE(e2s_ptr);
+  SMESH_FREE(e2s_idx);
+  SMESH_FREE(visited);
   return SMESH_SUCCESS;
 }
 
@@ -152,7 +153,7 @@ int extract_nodeset_from_sideset(
   const int nn = elem_num_nodes(st);
 
   const ptrdiff_t n = nn * n_surf_elements;
-  idx_t *nodes = (idx_t *)malloc(n * sizeof(idx_t));
+  idx_t *nodes = (idx_t *)SMESH_ALLOC(n * sizeof(idx_t));
   LocalSideTable lst;
   lst.fill(element_type);
 
@@ -168,7 +169,7 @@ int extract_nodeset_from_sideset(
   }
 
   *n_nodes_out = (ptrdiff_t)sort_and_unique(nodes, (size_t)n);
-  *nodes_out = (idx_t *)realloc(nodes, (size_t)(*n_nodes_out) * sizeof(idx_t));
+  *nodes_out = (idx_t *)SMESH_REALLOC(nodes, (size_t)(*n_nodes_out) * sizeof(idx_t));
 
   return SMESH_SUCCESS;
 }
@@ -187,7 +188,7 @@ int extract_nodeset_from_sidesets(
     n_nodes += n_surf_elements[ss] * nn;
   }
 
-  idx_t *nodes = (idx_t *)malloc((size_t)n_nodes * sizeof(idx_t));
+  idx_t *nodes = (idx_t *)SMESH_ALLOC((size_t)n_nodes * sizeof(idx_t));
   ptrdiff_t node_offset = 0;
 
   for (ptrdiff_t ss = 0; ss < n_sidesets; ss++) {
@@ -213,7 +214,7 @@ int extract_nodeset_from_sidesets(
   }
 
   *n_nodes_out = (ptrdiff_t)sort_and_unique(nodes, (size_t)n_nodes);
-  *nodes_out = (idx_t *)realloc(nodes, (size_t)(*n_nodes_out) * sizeof(idx_t));
+  *nodes_out = (idx_t *)SMESH_REALLOC(nodes, (size_t)(*n_nodes_out) * sizeof(idx_t));
 
   return SMESH_SUCCESS;
 }

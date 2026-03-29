@@ -2,6 +2,7 @@
 #define SMESH_SSQUAD4_PROLONGATION_IMPL_HPP
 
 #include "smesh_ssquad4_prolongation.hpp"
+#include "smesh_alloc.hpp"
 
 #include "smesh_base.hpp"
 #include "smesh_sort.hpp"
@@ -46,16 +47,16 @@ namespace smesh {
 #pragma omp parallel
         {
             const int nxe    = ssquad4_nxe(level);
-            T       **e_from = (T **)malloc(vec_size * sizeof(T *));
-            T       **e_to   = (T **)malloc(vec_size * sizeof(T *));
-            uint16_t *weight = (uint16_t *)malloc(nxe * sizeof(uint16_t));
+            T       **e_from = (T **)SMESH_ALLOC(vec_size * sizeof(T *));
+            T       **e_to   = (T **)SMESH_ALLOC(vec_size * sizeof(T *));
+            uint16_t *weight = (uint16_t *)SMESH_ALLOC(nxe * sizeof(uint16_t));
 
             for (int d = 0; d < vec_size; d++) {
-                e_from[d] = (T *)malloc(nxe * sizeof(T));
-                e_to[d]   = (T *)malloc(4 * sizeof(T));
+                e_from[d] = (T *)SMESH_ALLOC(nxe * sizeof(T));
+                e_to[d]   = (T *)SMESH_ALLOC(4 * sizeof(T));
             }
 
-            idx_t *ev = (idx_t *)malloc(nxe * sizeof(idx_t));
+            idx_t *ev = (idx_t *)SMESH_ALLOC(nxe * sizeof(idx_t));
 
             const int corners[4] = {ssquad4_lidx(level, 0, 0),
                                     ssquad4_lidx(level, level, 0),
@@ -127,14 +128,14 @@ namespace smesh {
             }
 
             for (int d = 0; d < vec_size; d++) {
-                free(e_to[d]);
-                free(e_from[d]);
+                SMESH_FREE(e_to[d]);
+                SMESH_FREE(e_from[d]);
             }
 
-            free(e_from);
-            free(e_to);
-            free(ev);
-            free(weight);
+            SMESH_FREE(e_from);
+            SMESH_FREE(e_to);
+            SMESH_FREE(ev);
+            SMESH_FREE(weight);
         }
 
         return SMESH_SUCCESS;
@@ -150,15 +151,15 @@ namespace smesh {
 #pragma omp parallel
         {
             const int nxe    = ssquad4_nxe(level);
-            T       **e_from = (T **)malloc(vec_size * sizeof(T *));
-            T       **e_to   = (T **)malloc(vec_size * sizeof(T *));
+            T       **e_from = (T **)SMESH_ALLOC(vec_size * sizeof(T *));
+            T       **e_to   = (T **)SMESH_ALLOC(vec_size * sizeof(T *));
 
             for (int d = 0; d < vec_size; d++) {
-                e_from[d] = (T *)malloc(4 * sizeof(T));
-                e_to[d]   = (T *)malloc(nxe * sizeof(T));
+                e_from[d] = (T *)SMESH_ALLOC(4 * sizeof(T));
+                e_to[d]   = (T *)SMESH_ALLOC(nxe * sizeof(T));
             }
 
-            idx_t *ev = (idx_t *)malloc(nxe * sizeof(idx_t));
+            idx_t *ev = (idx_t *)SMESH_ALLOC(nxe * sizeof(idx_t));
 
             const int corners[4] = {ssquad4_lidx(level, 0, 0),
                                     ssquad4_lidx(level, level, 0),
@@ -223,13 +224,13 @@ namespace smesh {
             }
 
             for (int d = 0; d < vec_size; d++) {
-                free(e_to[d]);
-                free(e_from[d]);
+                SMESH_FREE(e_to[d]);
+                SMESH_FREE(e_from[d]);
             }
 
-            free(e_from);
-            free(e_to);
-            free(ev);
+            SMESH_FREE(e_from);
+            SMESH_FREE(e_to);
+            SMESH_FREE(ev);
         }
 
         return SMESH_SUCCESS;
@@ -263,9 +264,9 @@ namespace smesh {
             const int to_nxe       = ssquad4_nxe(to_level);
             const int from_to_step = to_level / from_level;
 
-            T **to_coeffs = (T **)malloc(vec_size * sizeof(T *));
+            T **to_coeffs = (T **)SMESH_ALLOC(vec_size * sizeof(T *));
             for (int d = 0; d < vec_size; d++) {
-                to_coeffs[d] = (T *)malloc(to_nxe * sizeof(T));
+                to_coeffs[d] = (T *)SMESH_ALLOC(to_nxe * sizeof(T));
             }
 
 #pragma omp for
@@ -400,10 +401,10 @@ namespace smesh {
             }
 
             for (int d = 0; d < vec_size; d++) {
-                free(to_coeffs[d]);
+                SMESH_FREE(to_coeffs[d]);
             }
 
-            free(to_coeffs);
+            SMESH_FREE(to_coeffs);
         }
 
         return SMESH_SUCCESS;

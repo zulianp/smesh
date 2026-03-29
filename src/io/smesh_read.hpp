@@ -2,6 +2,7 @@
 #define SMESH_READ_HPP
 
 #include "smesh_base.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_path.hpp"
 #include <string_view>
 
@@ -16,8 +17,8 @@ namespace smesh {
  * @tparam T Element type stored in the file.
  * @param[in]  path       Path to the input file.
  * @param[out] data       On success, set to a newly allocated buffer holding
- *                        @p *n_elements elements. Allocation uses `malloc()`;
- *                        the caller owns the buffer and must `free()` it.
+ *                        @p *n_elements elements. Allocation uses `SMESH_ALLOC()`;
+ *                        the caller owns the buffer and must `SMESH_FREE()` it.
  *                        Set to `nullptr` on failure.
  * @param[out] n_elements On success, number of elements read. Set to 0 on
  *                        failure.
@@ -41,8 +42,8 @@ int array_read(const Path &path, T **data, ptrdiff_t *n_elements);
  * @tparam TargetType Element type to return.
  * @param[in]  path       Path to the input file.
  * @param[out] data       On success, set to a newly allocated buffer holding
- *                        @p *n_elements elements (allocated with `malloc()`).
- *                        Caller must `free()` it. Set to `nullptr` on failure.
+ *                        @p *n_elements elements (allocated with `SMESH_ALLOC()`).
+ *                        Caller must `SMESH_FREE()` it. Set to `nullptr` on failure.
  * @param[out] n_elements On success, number of elements read (in FileType, and
  *                        also number of returned TargetType elements). Set to 0
  *                        on failure.
@@ -66,8 +67,8 @@ int array_read_convert(const Path &path, TargetType **data,
  *
  * @tparam T Element type to return.
  * @param[in]  path       Input file path.
- * @param[out] data       Newly allocated buffer on success (via `malloc()`),
- *                        `nullptr` on failure. Caller must `free()` it.
+ * @param[out] data       Newly allocated buffer on success (via `SMESH_ALLOC()`),
+ *                        `nullptr` on failure. Caller must `SMESH_FREE()` it.
  * @param[out] n_elements Number of elements read/returned on success, 0 on
  *                        failure.
  *
@@ -94,8 +95,8 @@ int array_read_convert_from_extension(const Path &path, T **data,
  * @param[out] elems_out       On success, `(*elems_out)[k]` points to the index
  *                             array for local node k, with length
  *                             @p *nelements_out. The outer array and each inner
- *                             array are allocated with `calloc()`/`malloc()`;
- *                             caller must `free()` each inner array and then
+ *                             array are allocated with `SMESH_CALLOC()`/`SMESH_ALLOC()`;
+ *                             caller must `SMESH_FREE()` each inner array and then
  *                             the outer pointer array.
  *
  * @return `SMESH_SUCCESS` on success, `SMESH_FAILURE` on error.
@@ -120,8 +121,8 @@ int mesh_block_from_folder(const Path &folder, int *nnodesxelem_out,
  * @param[out] points_out      On success, an array of length
  *                             @p *spatial_dim_out where each entry points to a
  *                             coordinate array of length @p *nnodes_out.
- *                             All allocations use `malloc()`; caller must
- *                             `free()` each coordinate array and then the outer
+ *                             All allocations use `SMESH_ALLOC()`; caller must
+ *                             `SMESH_FREE()` each coordinate array and then the outer
  *                             pointer array.
  * @param[out] nnodes_out      Number of nodes.
  *

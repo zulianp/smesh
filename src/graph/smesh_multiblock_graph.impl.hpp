@@ -2,6 +2,7 @@
 #define SMESH_MULTIBLOCK_GRAPH_IMPL_HPP
 
 #include "smesh_multiblock_graph.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_sort.hpp"
 
 #include <cstring>
@@ -16,10 +17,10 @@ int create_multiblock_n2e(const block_idx_t n_blocks,
                          const ptrdiff_t n_nodes,
                          block_idx_t **out_block_number, count_t **out_n2eptr,
                          element_idx_t **out_elindex) {
-  count_t *n2eptr = (count_t *)malloc((n_nodes + 1) * sizeof(count_t));
+  count_t *n2eptr = (count_t *)SMESH_ALLOC((n_nodes + 1) * sizeof(count_t));
   std::memset(n2eptr, 0, (n_nodes + 1) * sizeof(count_t));
 
-  int *book_keeping = (int *)malloc((n_nodes) * sizeof(int));
+  int *book_keeping = (int *)SMESH_ALLOC((n_nodes) * sizeof(int));
   std::memset(book_keeping, 0, (n_nodes) * sizeof(int));
 
   const bool write_block_number = (out_block_number != nullptr);
@@ -41,10 +42,10 @@ int create_multiblock_n2e(const block_idx_t n_blocks,
   }
 
   element_idx_t *elindex =
-      (element_idx_t *)malloc(n2eptr[n_nodes] * sizeof(element_idx_t));
+      (element_idx_t *)SMESH_ALLOC(n2eptr[n_nodes] * sizeof(element_idx_t));
   block_idx_t *block_number = nullptr;
   if (write_block_number) {
-    block_number = (block_idx_t *)malloc(n2eptr[n_nodes] * sizeof(block_idx_t));
+    block_number = (block_idx_t *)SMESH_ALLOC(n2eptr[n_nodes] * sizeof(block_idx_t));
   }
 
   element_idx_t global_element_base = 0;
@@ -74,7 +75,7 @@ int create_multiblock_n2e(const block_idx_t n_blocks,
     global_element_base += static_cast<element_idx_t>(n_elements[i]);
   }
 
-  free(book_keeping);
+  SMESH_FREE(book_keeping);
 
   *out_n2eptr = n2eptr;
   *out_elindex = elindex;
@@ -96,7 +97,7 @@ int create_multiblock_crs_graph_from_n2e(
     idx_t **out_colidx) {
   SMESH_UNUSED(n_blocks);
   SMESH_UNUSED(n_elements);
-  count_t *rowptr = (count_t *)malloc((n_nodes + 1) * sizeof(count_t));
+  count_t *rowptr = (count_t *)SMESH_ALLOC((n_nodes + 1) * sizeof(count_t));
   idx_t *colidx = 0;
 
   {
@@ -140,7 +141,7 @@ int create_multiblock_crs_graph_from_n2e(
     }
 
     const ptrdiff_t nnz = rowptr[n_nodes];
-    colidx = (idx_t *)malloc(nnz * sizeof(idx_t));
+    colidx = (idx_t *)SMESH_ALLOC(nnz * sizeof(idx_t));
 
 #pragma omp parallel
     {
@@ -198,9 +199,9 @@ int create_multiblock_crs_graph(const block_idx_t n_blocks,
                                       n_nodes, elems, n2eptr, elindex,
                                       block_number, out_rowptr, out_colidx);
 
-  free(block_number);
-  free(n2eptr);
-  free(elindex);
+  SMESH_FREE(block_number);
+  SMESH_FREE(n2eptr);
+  SMESH_FREE(elindex);
 
   return SMESH_SUCCESS;
 }
@@ -217,7 +218,7 @@ int create_multiblock_crs_graph_upper_triangular_from_n2e(
   SMESH_UNUSED(n_blocks);
   SMESH_UNUSED(n_elements);
 
-  count_t *rowptr = (count_t *)malloc((n_nodes + 1) * sizeof(count_t));
+  count_t *rowptr = (count_t *)SMESH_ALLOC((n_nodes + 1) * sizeof(count_t));
   idx_t *colidx = 0;
 
   {
@@ -261,7 +262,7 @@ int create_multiblock_crs_graph_upper_triangular_from_n2e(
       }
 
       const ptrdiff_t nnz = rowptr[n_nodes];
-      colidx = (idx_t *)malloc(nnz * sizeof(idx_t));
+      colidx = (idx_t *)SMESH_ALLOC(nnz * sizeof(idx_t));
 
       {
 #pragma omp parallel for
@@ -319,9 +320,9 @@ int create_multiblock_crs_graph_upper_triangular(
       n_blocks, element_types, n_elements, n_nodes, elems, n2eptr, elindex,
       block_number, out_rowptr, out_colidx);
 
-  free(block_number);
-  free(n2eptr);
-  free(elindex);
+  SMESH_FREE(block_number);
+  SMESH_FREE(n2eptr);
+  SMESH_FREE(elindex);
 
   return SMESH_SUCCESS;
 }
@@ -339,7 +340,7 @@ int create_multiblock_dual_graph_from_n2e(
   SMESH_UNUSED(n_nodes);
 
   element_idx_t *block_base =
-      (element_idx_t *)malloc((n_blocks + 1) * sizeof(element_idx_t));
+      (element_idx_t *)SMESH_ALLOC((n_blocks + 1) * sizeof(element_idx_t));
 
   ptrdiff_t total_elements = 0;
   element_idx_t global_base = 0;
@@ -350,9 +351,9 @@ int create_multiblock_dual_graph_from_n2e(
   }
   block_base[n_blocks] = global_base;
 
-  int *nnodesxelem = (int *)malloc(n_blocks * sizeof(int));
-  int *nnodesxside = (int *)malloc(n_blocks * sizeof(int));
-  int *nsides = (int *)malloc(n_blocks * sizeof(int));
+  int *nnodesxelem = (int *)SMESH_ALLOC(n_blocks * sizeof(int));
+  int *nnodesxside = (int *)SMESH_ALLOC(n_blocks * sizeof(int));
+  int *nsides = (int *)SMESH_ALLOC(n_blocks * sizeof(int));
 
   ptrdiff_t n_overestimated_connections = 0;
   for (block_idx_t b = 0; b < n_blocks; ++b) {
@@ -372,17 +373,17 @@ int create_multiblock_dual_graph_from_n2e(
 
   const ptrdiff_t extra_buffer_space = 1000;
 
-  int *connection_counter = (int *)calloc(
+  int *connection_counter = (int *)SMESH_CALLOC(
       static_cast<size_t>(total_elements), sizeof(int));
 
   count_t *dual_e_ptr =
-      (count_t *)malloc(static_cast<size_t>(total_elements + 1) * sizeof(count_t));
+      (count_t *)SMESH_ALLOC(static_cast<size_t>(total_elements + 1) * sizeof(count_t));
   dual_e_ptr[0] = 0;
 
-  element_idx_t *dual_eidx = (element_idx_t *)malloc(
+  element_idx_t *dual_eidx = (element_idx_t *)SMESH_ALLOC(
       static_cast<size_t>(n_overestimated_connections + extra_buffer_space) *
       sizeof(element_idx_t));
-  block_idx_t *dual_eblock = (block_idx_t *)malloc(
+  block_idx_t *dual_eblock = (block_idx_t *)SMESH_ALLOC(
       static_cast<size_t>(n_overestimated_connections + extra_buffer_space) *
       sizeof(block_idx_t));
 
@@ -449,11 +450,11 @@ int create_multiblock_dual_graph_from_n2e(
     }
   }
 
-  free(block_base);
-  free(nnodesxelem);
-  free(nnodesxside);
-  free(nsides);
-  free(connection_counter);
+  SMESH_FREE(block_base);
+  SMESH_FREE(nnodesxelem);
+  SMESH_FREE(nnodesxside);
+  SMESH_FREE(nsides);
+  SMESH_FREE(connection_counter);
 
   *out_dual_eptr = dual_e_ptr;
   *out_dual_eidx = dual_eidx;

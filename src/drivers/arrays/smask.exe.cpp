@@ -4,6 +4,7 @@
 // #include <string.h>
 
 // #include "matrixio_array.h"
+#include "smesh_alloc.hpp"
 // #include "matrixio_crs.h"
 // #include "utils.h"
 
@@ -55,12 +56,12 @@
 //             input[idx] = mask_value;
 //         }
 
-//         free(indices);
+//         SMESH_FREE(indices);
 //     }
 
 //     array_write(comm, output_path, SFEM_MPI_REAL_T, (void*)input, ndofs, ndofs);
 
-//     free(input);
+//     SMESH_FREE(input);
 
 //     double tock = MPI_Wtime();
 

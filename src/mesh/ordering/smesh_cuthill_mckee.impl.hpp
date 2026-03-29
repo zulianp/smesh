@@ -2,6 +2,7 @@
 #define SMESH_CUTHILL_MCKEE_IMPL_HPP
 
 #include "smesh_cuthill_mckee.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_types.hpp"
 
 #include <algorithm>
@@ -57,11 +58,11 @@ int cuthill_mckee(const ptrdiff_t n_nodes,
   const idx_t invalid = invalid_idx<idx_t>();
   const idx_t queued = invalid - idx_t(1);
 
-  idx_t *queue = (idx_t *)malloc((size_t)n_nodes * sizeof(idx_t));
-  count_t *degrees = (count_t *)malloc((size_t)n_nodes * sizeof(count_t));
+  idx_t *queue = (idx_t *)SMESH_ALLOC((size_t)n_nodes * sizeof(idx_t));
+  count_t *degrees = (count_t *)SMESH_ALLOC((size_t)n_nodes * sizeof(count_t));
   if (!queue || !degrees) {
-    free(queue);
-    free(degrees);
+    SMESH_FREE(queue);
+    SMESH_FREE(degrees);
     SMESH_ERROR("Out of memory");
     return SMESH_FAILURE;
   }
@@ -133,8 +134,8 @@ int cuthill_mckee(const ptrdiff_t n_nodes,
     }
   }
 
-  free(degrees);
-  free(queue);
+  SMESH_FREE(degrees);
+  SMESH_FREE(queue);
   return SMESH_SUCCESS;
 }
 
