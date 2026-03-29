@@ -6,7 +6,7 @@
 namespace smesh {
 namespace internal_ {
 void *track_malloc(size_t nbytes, const char *file, int line);
-void *track_free(void *ptr, const char *file, int line);
+void track_free(void *ptr, const char *file, int line);
 void *track_realloc(void *ptr, size_t nbytes, const char *file, int line);
 void *track_calloc(size_t n, size_t size, const char *file, int line);
 } // namespace internal_

@@ -21,11 +21,10 @@ void *track_malloc(size_t nbytes, const char *file, int line) {
   return ptr;
 }
 
-void *track_free(void *ptr, const char *file, int line) {
+void track_free(void *ptr, const char *file, int line) {
   SMESH_UNUSED(file);
   SMESH_UNUSED(line);
   std::free(ptr);
-  return ptr;
 }
 
 void *track_realloc(void *ptr, size_t nbytes, const char *file, int line) {
