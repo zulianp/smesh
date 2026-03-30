@@ -2012,7 +2012,7 @@ namespace smesh {
                 if (it != cmap.end()) {
                     it->second(*block, *new_block);
                 } else {
-                    SMESH_ERROR("Conversion from %d to %d is not supported\n", block->element_type(), element_type);
+                    SMESH_ERROR("Conversion from %s to %s is not supported\n", smesh::type_to_string(block->element_type()), smesh::type_to_string(element_type));
                     return nullptr;
                 }
             }
