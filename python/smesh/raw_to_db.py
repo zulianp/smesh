@@ -36,9 +36,11 @@ class Field:
         self.data = np.fromfile(path, dtype=self.type)
 
         if self.type == np.int32 or self.type == np.uint8:
-                print(f"Warning converting field from {self.type} to float32 to work with Paraview")
-                self.data = self.data.astype(np.float32)
-                self.type = np.float32
+            print(
+                f"Warning converting field from {self.type} to float32 to work with Paraview"
+            )
+            self.data = self.data.astype(np.float32)
+            self.type = np.float32
 
         self.name = os.path.splitext(os.path.basename(path))[0]
 
@@ -188,7 +190,7 @@ def add_fields(field_data, storage, check_len):
     if field_data:
         paths = field_data.split(",")
 
-        n_paths = len(paths)    
+        n_paths = len(paths)
         for i in range(0, n_paths):
             p = paths[i]
             files = glob.glob(p, recursive=False)
@@ -288,7 +290,9 @@ def raw_to_db(argv):
 
     points = []
     for pfn in ["x", "y", "z"]:
-        path = detect_files(f"{raw_xyz_folder}/{pfn}.*", ["float16", "float32", "float64"])
+        path = detect_files(
+            f"{raw_xyz_folder}/{pfn}.*", ["float16", "float32", "float64"]
+        )
 
         if len(path) == 0:
             break
@@ -303,7 +307,9 @@ def raw_to_db(argv):
     # Attempt format x0, x1, x2
     if len(points) == 0:
         for d in range(0, 3):
-            path = detect_files(f"{raw_xyz_folder}/x{d}.*", ["float16", "float32", "float64"])
+            path = detect_files(
+                f"{raw_xyz_folder}/x{d}.*", ["float16", "float32", "float64"]
+            )
             if len(path) == 0:
                 break
 
@@ -317,7 +323,9 @@ def raw_to_db(argv):
 
     idx = []
     for i in range(0, max_nodes_x_element):
-        path = detect_files(f"{raw_mesh_folder}/i{i}.*", ["raw", "int16", "int32", "int64"])
+        path = detect_files(
+            f"{raw_mesh_folder}/i{i}.*", ["raw", "int16", "int32", "int64"]
+        )
         if len(path) == 0:
             break
 
@@ -328,7 +336,6 @@ def raw_to_db(argv):
                 print(f"Reading {path}")
             ii = np.fromfile(path, dtype=dtype)
             idx.append(ii)
-    
 
     if cell_type in quad4_names:
         cell_type = "quad"
@@ -391,9 +398,7 @@ def raw_to_db(argv):
             points,
             cells,
             point_data,
-            point_data_type,
             cell_data,
-            cell_data_type,
             n_time_steps,
             time_whole,
             time_step_format,
