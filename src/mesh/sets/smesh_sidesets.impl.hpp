@@ -113,7 +113,6 @@ int sideset_select_propagate(
             continue;
 
           const i16 ns = side_idx[nside];
-          mask_set(nside, visited);
 
           // count shared nodes (edge adjacency requires >=2)
           int shared = 0;
@@ -127,6 +126,7 @@ int sideset_select_propagate(
 
           
           if (selector(side, nside)) {
+            mask_set(nside, visited);
             queue[queue_size++] = nside;
           }
         }

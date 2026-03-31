@@ -1,9 +1,14 @@
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <utility>
+#include <vector>
 
+#include "smesh_mask.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_sideset.hpp"
+#include "smesh_sidesets.impl.hpp"
 #include "smesh_test.hpp"
 
 using namespace smesh;
@@ -29,6 +34,39 @@ make_left_boundary_sideset(const std::shared_ptr<Mesh> &mesh) {
   }
 
   return sidesets[0];
+}
+
+std::vector<std::pair<element_idx_t, i16>>
+sorted_side_keys(const std::shared_ptr<Sideset> &sideset) {
+  std::vector<std::pair<element_idx_t, i16>> keys(sideset->size());
+  const auto *parent = sideset->parent()->data();
+  const auto *lfi = sideset->lfi()->data();
+
+  for (ptrdiff_t i = 0; i < sideset->size(); ++i) {
+    keys[static_cast<size_t>(i)] = std::make_pair(parent[i], lfi[i]);
+  }
+
+  std::sort(keys.begin(), keys.end());
+  return keys;
+}
+
+geom_t side_centroid_x(const std::shared_ptr<Mesh> &mesh,
+                       const std::shared_ptr<Sideset> &sideset,
+                       const ptrdiff_t side) {
+  LocalSideTable lst;
+  lst.fill(mesh->element_type(0));
+
+  const auto *const *elements = mesh->elements(0)->data();
+  const auto *const *points = mesh->points()->data();
+  const element_idx_t e = sideset->parent()->data()[side];
+  const i16 s = sideset->lfi()->data()[side];
+
+  geom_t x = 0;
+  for (int i = 0; i < lst.nnxs; ++i) {
+    x += points[0][elements[lst(s, i)][e]];
+  }
+
+  return x / static_cast<geom_t>(lst.nnxs);
 }
 
 } // namespace
@@ -98,7 +136,68 @@ int test_sideset_io_write_read_identity() {
   return SMESH_TEST_SUCCESS;
 }
 
-// TODO: create a test for sideset_select_propagate on the cube mesh
+int test_sideset_select_propagate_cube_mesh() {
+  auto mesh = make_test_mesh();
+  SMESH_TEST_ASSERT(mesh != nullptr);
+
+  auto skin = skin_sideset(mesh);
+  auto left = make_left_boundary_sideset(mesh);
+  SMESH_TEST_ASSERT(skin != nullptr);
+  SMESH_TEST_ASSERT(left != nullptr);
+
+  const auto expected = sorted_side_keys(left);
+  SMESH_TEST_EQ(expected.size(), static_cast<size_t>(kNy * kNz));
+
+  const element_idx_t seed_parent = left->parent()->data()[0];
+
+  ptrdiff_t seed_side = -1;
+  for (ptrdiff_t i = 0; i < skin->size(); ++i) {
+    if (skin->parent()->data()[i] == seed_parent &&
+        skin->lfi()->data()[i] == left->lfi()->data()[0]) {
+      seed_side = i;
+      break;
+    }
+  }
+
+  SMESH_TEST_ASSERT(seed_side >= 0);
+  SMESH_TEST_APPROXEQ(side_centroid_x(mesh, skin, seed_side), 0.0, 1e-12);
+
+  auto n2e = mesh->node_to_element_graph();
+  SMESH_TEST_ASSERT(n2e != nullptr);
+
+  auto selected = create_host_buffer<mask_t>(mask_count(skin->size()));
+  SMESH_TEST_ASSERT(selected != nullptr);
+
+  const int err = sideset_select_propagate(
+      skin->size(), skin->parent()->data(), skin->lfi()->data(),
+      n2e->rowptr()->data(), n2e->colidx()->data(), mesh->element_type(0),
+      mesh->n_elements(), mesh->elements(0)->data(),
+      static_cast<element_idx_t>(seed_side), selected->data(),
+      [&mesh, &skin](const ptrdiff_t, const ptrdiff_t next_side) {
+        return std::abs(side_centroid_x(mesh, skin, next_side)) < 1e-12;
+      });
+
+  SMESH_TEST_EQ(err, SMESH_SUCCESS);
+
+  std::vector<std::pair<element_idx_t, i16>> actual;
+  actual.reserve(expected.size());
+  for (ptrdiff_t i = 0; i < skin->size(); ++i) {
+    if (!mask_get(i, selected->data())) {
+      continue;
+    }
+
+    actual.emplace_back(skin->parent()->data()[i], skin->lfi()->data()[i]);
+  }
+
+  std::sort(actual.begin(), actual.end());
+  SMESH_TEST_EQ(actual.size(), expected.size());
+  for (size_t i = 0; i < expected.size(); ++i) {
+    SMESH_TEST_EQ(actual[i].first, expected[i].first);
+    SMESH_TEST_EQ(actual[i].second, expected[i].second);
+  }
+
+  return SMESH_TEST_SUCCESS;
+}
 
 int main(int argc, char *argv[]) {
   SMESH_UNIT_TEST_INIT(argc, argv);
@@ -106,6 +205,7 @@ int main(int argc, char *argv[]) {
   SMESH_RUN_TEST(test_sideset_creation);
   SMESH_RUN_TEST(test_sideset_to_nodeset_conversion);
   SMESH_RUN_TEST(test_sideset_io_write_read_identity);
+  SMESH_RUN_TEST(test_sideset_select_propagate_cube_mesh);
 
   SMESH_UNIT_TEST_FINALIZE();
   return SMESH_UNIT_TEST_ERR();
