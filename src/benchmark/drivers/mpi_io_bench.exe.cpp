@@ -12,6 +12,13 @@
 #include <string>
 #include <vector>
 
+
+// MPI_Info info;
+// MPI_Info_create(&info);
+// MPI_Info_set(info, "romio_cb_read", "enable");
+// MPI_Info_set(info, "cb_nodes", "64");          // start with one aggregator per node
+// MPI_Info_set(info, "cb_buffer_size", "16777216"); // 16 MiB, benchmark 16–64 MiB too
+
 namespace {
 
 struct ReadBuffer {

@@ -1,0 +1,16 @@
+gmsh
+gmsh-interop
+h5
+h5py
+matplotlib
+matplotlib-inline
+meshio
+netCDF4
+numba
+numpy
+rich
+scipy
+sympy
+taichi
+nanobind
+pyyaml
