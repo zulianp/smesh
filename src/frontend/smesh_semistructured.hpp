@@ -53,13 +53,13 @@ namespace smesh {
         return levels;
     }
 
-    inline int semistructured_export_as_standard(const std::shared_ptr<Mesh> &mesh, const char *path) {
+    inline int semistructured_export_as_standard(const std::shared_ptr<Mesh> &mesh, const smesh::Path &path) {
         auto standard_mesh = smesh::sshex_to_hex8(mesh);
         if (!standard_mesh) {
             return SMESH_FAILURE;
         }
 
-        return standard_mesh->write(smesh::Path(path));
+        return standard_mesh->write(path);
     }
 
 }  // namespace smesh
