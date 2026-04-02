@@ -339,7 +339,7 @@ std::vector<std::shared_ptr<Sideset>> Sideset::create_from_batch_selector(
             geom_t p[3] = {0, 0, 0};
 
             for (int ln = 0; ln < nnxs; ln++) {
-              const idx_t node = elements[lst(s, ln)][e];
+              const idx_t node = elements[lst(s, ln)][e + b];
 
               for (int d = 0; d < dim; d++) {
                 p[d] += points[d][node];
@@ -358,13 +358,13 @@ std::vector<std::shared_ptr<Sideset>> Sideset::create_from_batch_selector(
           }
         }
 
-        selector(batch_size, b_fx, b_fy, b_fz, b_fselected);
+        selector(batch_size * ns, b_fx, b_fy, b_fz, b_fselected);
 
         for (ptrdiff_t b = 0; b < batch_size; b++) {
           for (int s = 0; s < ns; s++) {
             const ptrdiff_t idx = b * ns + s;
             if (b_fselected[idx]) {
-              b_selected[e * ns + s] = 1;
+              b_selected[(e + b) * ns + s] = 1;
               nparents++;
             }
           }
