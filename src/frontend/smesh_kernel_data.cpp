@@ -51,6 +51,7 @@ namespace smesh {
 
             switch (element_type) {
                 case TET4:
+                case TET10:
                     return tet4_fff_fill(nelements, elements, points, stride, fff);
                 case HEX8:
                     return hex8_fff_fill(nelements, elements, points, 0.5, 0.5, 0.5, stride, fff);

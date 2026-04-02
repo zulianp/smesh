@@ -23,13 +23,16 @@ int extract_sharp_edges(
     ptrdiff_t *out_n_sharp_edges, idx_t **out_e0, idx_t **out_e1) {
   const count_t nedges = rowptr[nnodes];
 
-  geom_t *normal[3];
+  geom_t *normal0[3];
+  geom_t *normal1[3];
   for (int d = 0; d < 3; d++) {
-    normal[d] = (geom_t *)SMESH_CALLOC(nedges, sizeof(geom_t));
+    normal0[d] = (geom_t *)SMESH_CALLOC(nedges, sizeof(geom_t));
+    normal1[d] = (geom_t *)SMESH_CALLOC(nedges, sizeof(geom_t));
   }
 
   const int nxe = elem_num_nodes(element_type);
   count_t *opposite = (count_t *)SMESH_ALLOC(nedges * sizeof(count_t));
+  short *face_count = (short *)SMESH_CALLOC(nedges, sizeof(short));
   {
     // Opposite edge index
     // #pragma omp parallel for
@@ -101,9 +104,20 @@ int extract_sharp_edges(
         }
 
         SMESH_ASSERT(edge_id != invalid_idx<ptrdiff_t>());
-        normal[0][edge_id] = nx;
-        normal[1][edge_id] = ny;
-        normal[2][edge_id] = nz;
+        const count_t o_edge_id = opposite[edge_id];
+        const count_t base_edge_id = edge_id < o_edge_id ? edge_id : o_edge_id;
+
+        if (face_count[base_edge_id] == 0) {
+          normal0[0][base_edge_id] = nx;
+          normal0[1][base_edge_id] = ny;
+          normal0[2][base_edge_id] = nz;
+          face_count[base_edge_id] = 1;
+        } else if (face_count[base_edge_id] == 1) {
+          normal1[0][base_edge_id] = nx;
+          normal1[1][base_edge_id] = ny;
+          normal1[2][base_edge_id] = nz;
+          face_count[base_edge_id] = 2;
+        }
       }
     }
   }
@@ -127,12 +141,18 @@ int extract_sharp_edges(
 
           ptrdiff_t edge_id = begin + k;
           ptrdiff_t o_edge_id = opposite[edge_id];
+          ptrdiff_t base_edge_id = edge_id < o_edge_id ? edge_id : o_edge_id;
 
           SMESH_ASSERT(edge_id != o_edge_id);
+          if (face_count[base_edge_id] != 2)
+            continue;
 
-          double da = dot3<double>(normal[0][edge_id], normal[1][edge_id],
-                                   normal[2][edge_id], normal[0][o_edge_id],
-                                   normal[1][o_edge_id], normal[2][o_edge_id]);
+          double da = dot3<double>(normal0[0][base_edge_id],
+                                   normal0[1][base_edge_id],
+                                   normal0[2][base_edge_id],
+                                   normal1[0][base_edge_id],
+                                   normal1[1][base_edge_id],
+                                   normal1[2][base_edge_id]);
 
           // Store for minimum edge for exporting data
           dihedral_angle[edge_count] = (geom_t)da;
@@ -168,8 +188,10 @@ int extract_sharp_edges(
   *out_e1 = e1;
 
   SMESH_FREE(opposite);
+  SMESH_FREE(face_count);
   for (int d = 0; d < 3; d++) {
-    SMESH_FREE(normal[d]);
+    SMESH_FREE(normal0[d]);
+    SMESH_FREE(normal1[d]);
   }
 
   return SMESH_SUCCESS;
