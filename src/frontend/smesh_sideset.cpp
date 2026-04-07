@@ -1,6 +1,6 @@
 #include "smesh_sideset.hpp"
-#include "smesh_alloc.hpp"
 #include "smesh_adjacency.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_file_extensions.hpp"
 #include "smesh_glob.hpp"
 #include "smesh_mesh.hpp"
@@ -27,149 +27,139 @@
 
 namespace smesh {
 
-class Sideset::Impl final {
-public:
-  std::shared_ptr<Communicator> comm;
-  std::shared_ptr<Buffer<element_idx_t>> parent;
-  std::shared_ptr<Buffer<i16>> lfi;
-  block_idx_t block_id{0};
-  SharedBuffer<large_idx_t> element_mapping;
-};
+    class Sideset::Impl final {
+    public:
+        std::shared_ptr<Communicator>          comm;
+        std::shared_ptr<Buffer<element_idx_t>> parent;
+        std::shared_ptr<Buffer<i16>>           lfi;
+        block_idx_t                            block_id{0};
+        SharedBuffer<large_idx_t>              element_mapping;
+    };
 
-Sideset::Sideset(const std::shared_ptr<Communicator> &comm,
-                 const std::shared_ptr<Buffer<element_idx_t>> &parent,
-                 const std::shared_ptr<Buffer<i16>> &lfi, block_idx_t block_id,
-                 const SharedBuffer<large_idx_t> &element_mapping)
-    : impl_(std::make_unique<Impl>()) {
-  impl_->comm = comm;
-  impl_->parent = parent;
-  impl_->lfi = lfi;
-  impl_->block_id = block_id;
-  impl_->element_mapping = element_mapping;
-}
+    Sideset::Sideset(const std::shared_ptr<Communicator>          &comm,
+                     const std::shared_ptr<Buffer<element_idx_t>> &parent,
+                     const std::shared_ptr<Buffer<i16>>           &lfi,
+                     block_idx_t                                   block_id,
+                     const SharedBuffer<large_idx_t>              &element_mapping)
+        : impl_(std::make_unique<Impl>()) {
+        impl_->comm            = comm;
+        impl_->parent          = parent;
+        impl_->lfi             = lfi;
+        impl_->block_id        = block_id;
+        impl_->element_mapping = element_mapping;
+    }
 
-Sideset::Sideset() : impl_(std::make_unique<Impl>()) {}
-Sideset::~Sideset() = default;
+    Sideset::Sideset() : impl_(std::make_unique<Impl>()) {}
+    Sideset::~Sideset() = default;
 
-ptrdiff_t Sideset::size() const { return impl_->parent->size(); }
+    ptrdiff_t Sideset::size() const { return impl_->parent->size(); }
 
-std::shared_ptr<Communicator> Sideset::comm() const { return impl_->comm; }
+    std::shared_ptr<Communicator> Sideset::comm() const { return impl_->comm; }
 
-std::shared_ptr<Sideset>
-Sideset::create(const std::shared_ptr<Communicator> &comm,
-                const std::shared_ptr<Buffer<element_idx_t>> &parent,
-                const std::shared_ptr<Buffer<i16>> &lfi, block_idx_t block_id,
-                const SharedBuffer<large_idx_t> &element_mapping) {
-  return std::make_shared<Sideset>(comm, parent, lfi, block_id,
-                                   element_mapping);
-}
+    std::shared_ptr<Sideset> Sideset::create(const std::shared_ptr<Communicator>          &comm,
+                                             const std::shared_ptr<Buffer<element_idx_t>> &parent,
+                                             const std::shared_ptr<Buffer<i16>>           &lfi,
+                                             block_idx_t                                   block_id,
+                                             const SharedBuffer<large_idx_t>              &element_mapping) {
+        return std::make_shared<Sideset>(comm, parent, lfi, block_id, element_mapping);
+    }
 
-std::shared_ptr<Sideset>
-Sideset::create_from_file(const std::shared_ptr<Communicator> &comm,
-                          const Path &path, block_idx_t block_id) {
-  auto ret = std::make_shared<Sideset>();
-  if (ret->read(comm, path, block_id) != SMESH_SUCCESS)
-    return nullptr;
-  return ret;
-}
+    std::shared_ptr<Sideset> Sideset::create_from_file(const std::shared_ptr<Communicator> &comm,
+                                                       const Path                          &path,
+                                                       block_idx_t                          block_id) {
+        auto ret = std::make_shared<Sideset>();
+        if (ret->read(comm, path, block_id) != SMESH_SUCCESS) return nullptr;
+        return ret;
+    }
 
-int Sideset::write(const Path &path) const {
+    int Sideset::write(const Path &path) const {
+        if (!comm()->rank()) {
+            smesh::create_directory(path.to_string());
+        }
 
-  if (!comm()->rank()) {
-    smesh::create_directory(path.to_string());
-  }
-
-  Path parent_path =
-      path / ("parent." + std::string(TypeToString<element_idx_t>::value()));
-  Path lfi_path = path / ("lfi." + std::string(TypeToString<i16>::value()));
+        Path parent_path = path / ("parent." + std::string(TypeToString<element_idx_t>::value()));
+        Path lfi_path    = path / ("lfi." + std::string(TypeToString<i16>::value()));
 
 #ifdef SMESH_ENABLE_MPI
-  comm()->barrier();
-  if (comm()->size() > 1) {
-    u64 n_sides_local = impl_->parent->size();
-    u64 n_sides_global = n_sides_local;
-    MPI_Allreduce(MPI_IN_PLACE, &n_sides_global, 1, mpi_type<u64>(), MPI_SUM,
-                  comm()->get());
+        comm()->barrier();
+        if (comm()->size() > 1) {
+            u64 n_sides_local  = impl_->parent->size();
+            u64 n_sides_global = n_sides_local;
+            MPI_Allreduce(MPI_IN_PLACE, &n_sides_global, 1, mpi_type<u64>(), MPI_SUM, comm()->get());
 
-    if (impl_->element_mapping) {
-      auto parent = create_host_buffer<element_idx_t>(n_sides_local);
-      auto b_parent = parent->data();
-      for (u64 i = 0; i < n_sides_local; i++) {
-        b_parent[i] = impl_->element_mapping->data()[impl_->parent->data()[i]];
-      }
-      array_write_convert_from_extension(comm()->get(), parent_path, b_parent,
-                                         n_sides_local, n_sides_global);
-    } else {
-      array_write_convert_from_extension(comm()->get(), parent_path,
-                                         impl_->parent->data(),
-                                         impl_->parent->size(), n_sides_global);
-    }
-    array_write_convert_from_extension(comm()->get(), lfi_path,
-                                       impl_->lfi->data(), impl_->lfi->size(),
-                                       n_sides_global);
-  } else
-#endif // SMESH_ENABLE_MPI
-  {
-    array_write(parent_path, impl_->parent->data(), impl_->parent->size());
-    array_write(lfi_path, impl_->lfi->data(), impl_->lfi->size());
-  }
+            if (impl_->element_mapping) {
+                auto parent   = create_host_buffer<element_idx_t>(n_sides_local);
+                auto b_parent = parent->data();
+                for (u64 i = 0; i < n_sides_local; i++) {
+                    b_parent[i] = impl_->element_mapping->data()[impl_->parent->data()[i]];
+                }
+                array_write_convert_from_extension(comm()->get(), parent_path, b_parent, n_sides_local, n_sides_global);
+            } else {
+                array_write_convert_from_extension(
+                        comm()->get(), parent_path, impl_->parent->data(), impl_->parent->size(), n_sides_global);
+            }
+            array_write_convert_from_extension(comm()->get(), lfi_path, impl_->lfi->data(), impl_->lfi->size(), n_sides_global);
+        } else
+#endif  // SMESH_ENABLE_MPI
+        {
+            array_write(parent_path, impl_->parent->data(), impl_->parent->size());
+            array_write(lfi_path, impl_->lfi->data(), impl_->lfi->size());
+        }
 
-  if (!comm()->rank()) {
-    std::ofstream os((path / "meta.yaml").to_string());
+        if (!comm()->rank()) {
+            std::ofstream os((path / "meta.yaml").to_string());
 
-    if (os.good()) {
-      os << "# Automatically generated by smesh_Sideset.cpp\n";
-      os << "size: " << impl_->parent->size() << "\n";
-      os << "parent: parent.raw\n";
-      os << "lfi: lfi.int16.raw\n";
-      os << "rpath: true\n";
-    } else {
-      SMESH_ERROR("Unable to open sideset meta.yaml file\n");
-      return SMESH_FAILURE;
-    }
+            if (os.good()) {
+                os << "# Automatically generated by smesh_Sideset.cpp\n";
+                os << "size: " << impl_->parent->size() << "\n";
+                os << "parent: parent.raw\n";
+                os << "lfi: lfi.int16.raw\n";
+                os << "rpath: true\n";
+            } else {
+                SMESH_ERROR("Unable to open sideset meta.yaml file\n");
+                return SMESH_FAILURE;
+            }
 
-    os.close();
-  }
+            os.close();
+        }
 
-  return SMESH_SUCCESS;
-}
-
-std::vector<std::shared_ptr<Sideset>> Sideset::create_from_selector(
-    const std::shared_ptr<Mesh> &mesh,
-    const std::function<bool(const geom_t, const geom_t, const geom_t)>
-        &selector,
-    const std::vector<std::string> &block_names) {
-  SMESH_TRACE_SCOPE("Sideset::create_from_selector");
-
-  if (is_semistructured_type(mesh->element_type(0))) {
-    auto coarse = sshex_to_hex8(derefine(mesh, 1));
-    return create_from_selector(coarse, selector, block_names);
-  }
-
-  const int dim = mesh->spatial_dimension();
-  auto points = mesh->points()->data();
-  enum ElemType element_type = mesh->element_type(0);
-
-  const enum ElemType st = side_type(element_type);
-  const int nnxs = elem_num_nodes(st);
-  const int ns = elem_num_sides(element_type);
-
-  LocalSideTable lst;
-  lst.fill(element_type);
-
-  size_t n_blocks = mesh->n_blocks();
-  std::vector<std::shared_ptr<Sideset>> sidesets;
-
-  for (size_t b = 0; b < n_blocks; b++) {
-    auto block = mesh->block(b);
-    if (!block_names.empty() && //
-        std::find(block_names.begin(), block_names.end(), block->name()) ==
-            block_names.end()) {
-      continue;
+        return SMESH_SUCCESS;
     }
 
-    const ptrdiff_t nelements = block->n_elements();
-    auto elements = block->elements()->data();
+    std::vector<std::shared_ptr<Sideset>> Sideset::create_from_selector(
+            const std::shared_ptr<Mesh>                                         &mesh,
+            const std::function<bool(const geom_t, const geom_t, const geom_t)> &selector,
+            const std::vector<std::string>                                      &block_names) {
+        SMESH_TRACE_SCOPE("Sideset::create_from_selector");
+
+        if (is_semistructured_type(mesh->element_type(0))) {
+            auto coarse = sshex_to_hex8(derefine(mesh, 1));
+            return create_from_selector(coarse, selector, block_names);
+        }
+
+        const int     dim          = mesh->spatial_dimension();
+        auto          points       = mesh->points()->data();
+        enum ElemType element_type = mesh->element_type(0);
+
+        const enum ElemType st   = side_type(element_type);
+        const int           nnxs = elem_num_nodes(st);
+        const int           ns   = elem_num_sides(element_type);
+
+        LocalSideTable lst;
+        lst.fill(element_type);
+
+        size_t                                n_blocks = mesh->n_blocks();
+        std::vector<std::shared_ptr<Sideset>> sidesets;
+
+        for (size_t b = 0; b < n_blocks; b++) {
+            auto block = mesh->block(b);
+            if (!block_names.empty() &&  //
+                std::find(block_names.begin(), block_names.end(), block->name()) == block_names.end()) {
+                continue;
+            }
+
+            const ptrdiff_t nelements = block->n_elements();
+            auto            elements  = block->elements()->data();
 
 #if 0
     std::list<element_idx_t> parent_list;
@@ -217,551 +207,554 @@ std::vector<std::shared_ptr<Sideset>> Sideset::create_from_selector(
     }
 
 #else
-    auto selected = create_host_buffer<u8>(nelements * ns);
-    auto b_selected = selected->data();
-    ptrdiff_t nparents = 0;
+            auto      selected   = create_host_buffer<u8>(nelements * ns);
+            auto      b_selected = selected->data();
+            ptrdiff_t nparents   = 0;
 #pragma omp parallel for reduction(+ : nparents)
-    for (ptrdiff_t e = 0; e < nelements; e++) {
-      for (int s = 0; s < ns; s++) {
-        // Barycenter of face
-        double p[3] = {0, 0, 0};
+            for (ptrdiff_t e = 0; e < nelements; e++) {
+                for (int s = 0; s < ns; s++) {
+                    // Barycenter of face
+                    double p[3] = {0, 0, 0};
 
-        for (int ln = 0; ln < nnxs; ln++) {
-          const idx_t node = elements[lst(s, ln)][e];
+                    for (int ln = 0; ln < nnxs; ln++) {
+                        const idx_t node = elements[lst(s, ln)][e];
 
-          for (int d = 0; d < dim; d++) {
-            p[d] += points[d][node];
-          }
-        }
+                        for (int d = 0; d < dim; d++) {
+                            p[d] += points[d][node];
+                        }
+                    }
 
-        for (int d = 0; d < dim; d++) {
-          p[d] /= nnxs;
-        }
+                    for (int d = 0; d < dim; d++) {
+                        p[d] /= nnxs;
+                    }
 
-        if (selector(p[0], p[1], p[2])) {
-          b_selected[e * ns + s] = 1;
-          nparents++;
-        }
-      }
-    }
+                    if (selector(p[0], p[1], p[2])) {
+                        b_selected[e * ns + s] = 1;
+                        nparents++;
+                    }
+                }
+            }
 
-    auto parent = create_host_buffer<element_idx_t>(nparents);
-    auto lfi = create_host_buffer<i16>(nparents);
+            auto parent = create_host_buffer<element_idx_t>(nparents);
+            auto lfi    = create_host_buffer<i16>(nparents);
 
-    auto b_parent = parent->data();
-    auto b_lfi = lfi->data();
+            auto b_parent = parent->data();
+            auto b_lfi    = lfi->data();
 
-    ptrdiff_t offset = 0;
-    // #pragma omp parallel for
-    for (ptrdiff_t e = 0; e < nelements; e++) {
-      for (int s = 0; s < ns; s++) {
-
-        if (b_selected[e * ns + s]) {
-          b_parent[offset] = e;
-          b_lfi[offset] = s;
-          offset++;
-        }
-      }
-    }
+            ptrdiff_t offset = 0;
+            // #pragma omp parallel for
+            for (ptrdiff_t e = 0; e < nelements; e++) {
+                for (int s = 0; s < ns; s++) {
+                    if (b_selected[e * ns + s]) {
+                        b_parent[offset] = e;
+                        b_lfi[offset]    = s;
+                        offset++;
+                    }
+                }
+            }
 
 #endif
 
-    sidesets.push_back(std::make_shared<Sideset>(mesh->comm(), parent, lfi, b));
-  }
+            sidesets.push_back(std::make_shared<Sideset>(mesh->comm(), parent, lfi, b));
+        }
 
-  return sidesets;
-}
-
-std::vector<std::shared_ptr<Sideset>> Sideset::create_from_batch_selector(
-    const std::shared_ptr<Mesh> &mesh,
-    const std::function<void(const ptrdiff_t, const geom_t *const,
-                             const geom_t *const, const geom_t *const,
-                             u8 *const selected)> &selector,
-    const std::vector<std::string> &block_names) {
-  SMESH_TRACE_SCOPE("Sideset::create_from_batch_selector");
-
-  if (is_semistructured_type(mesh->element_type(0))) {
-    auto coarse = sshex_to_hex8(derefine(mesh, 1));
-    return create_from_batch_selector(coarse, selector, block_names);
-  }
-
-  const int dim = mesh->spatial_dimension();
-  auto points = mesh->points()->data();
-  enum ElemType element_type = mesh->element_type(0);
-
-  const enum ElemType st = side_type(element_type);
-  const int nnxs = elem_num_nodes(st);
-  const int ns = elem_num_sides(element_type);
-
-  LocalSideTable lst;
-  lst.fill(element_type);
-
-  size_t n_blocks = mesh->n_blocks();
-  std::vector<std::shared_ptr<Sideset>> sidesets;
-
-  for (size_t b = 0; b < n_blocks; b++) {
-    auto block = mesh->block(b);
-    if (!block_names.empty() && //
-        std::find(block_names.begin(), block_names.end(), block->name()) ==
-            block_names.end()) {
-      continue;
+        return sidesets;
     }
 
-    const ptrdiff_t nelements = block->n_elements();
-    auto elements = block->elements()->data();
+    std::vector<std::shared_ptr<Sideset>> Sideset::create_from_batch_selector(
+            const std::shared_ptr<Mesh> &mesh,
+            const std::function<
+                    void(const ptrdiff_t, const geom_t *const, const geom_t *const, const geom_t *const, u8 *const selected)>
+                                           &selector,
+            const std::vector<std::string> &block_names) {
+        SMESH_TRACE_SCOPE("Sideset::create_from_batch_selector");
 
-    auto selected = create_host_buffer<u8>(nelements * ns);
-    auto b_selected = selected->data();
-    ptrdiff_t nparents = 0;
+        if (is_semistructured_type(mesh->element_type(0))) {
+            auto coarse = sshex_to_hex8(derefine(mesh, 1));
+            return create_from_batch_selector(coarse, selector, block_names);
+        }
 
-    const ptrdiff_t nelements_per_batch = 16;
-    const ptrdiff_t ns_per_batch = nelements_per_batch * ns;
+        const int     dim          = mesh->spatial_dimension();
+        auto          points       = mesh->points()->data();
+        enum ElemType element_type = mesh->element_type(0);
+
+        const enum ElemType st   = side_type(element_type);
+        const int           nnxs = elem_num_nodes(st);
+        const int           ns   = elem_num_sides(element_type);
+
+        LocalSideTable lst;
+        lst.fill(element_type);
+
+        size_t                                n_blocks = mesh->n_blocks();
+        std::vector<std::shared_ptr<Sideset>> sidesets;
+
+        for (size_t b = 0; b < n_blocks; b++) {
+            auto block = mesh->block(b);
+            if (!block_names.empty() &&  //
+                std::find(block_names.begin(), block_names.end(), block->name()) == block_names.end()) {
+                continue;
+            }
+
+            const ptrdiff_t nelements = block->n_elements();
+            auto            elements  = block->elements()->data();
+
+            auto      selected   = create_host_buffer<u8>(nelements * ns);
+            auto      b_selected = selected->data();
+            ptrdiff_t nparents   = 0;
+
+            const ptrdiff_t nelements_per_batch = 16;
+            const ptrdiff_t ns_per_batch        = nelements_per_batch * ns;
 
 #pragma omp parallel
-    {
-      auto fx = create_host_buffer<geom_t>(ns_per_batch);
-      auto fy = create_host_buffer<geom_t>(ns_per_batch);
-      auto fz = create_host_buffer<geom_t>(ns_per_batch);
-      auto fselected = create_host_buffer<u8>(ns_per_batch);
+            {
+                auto fx        = create_host_buffer<geom_t>(ns_per_batch);
+                auto fy        = create_host_buffer<geom_t>(ns_per_batch);
+                auto fz        = create_host_buffer<geom_t>(ns_per_batch);
+                auto fselected = create_host_buffer<u8>(ns_per_batch);
 
-      auto b_fx = fx->data();
-      auto b_fy = fy->data();
-      auto b_fz = fz->data();
-      auto b_fselected = fselected->data();
+                auto b_fx        = fx->data();
+                auto b_fy        = fy->data();
+                auto b_fz        = fz->data();
+                auto b_fselected = fselected->data();
 
 #pragma omp for schedule(static) reduction(+ : nparents)
-      for (ptrdiff_t e = 0; e < nelements; e += nelements_per_batch) {
-        const ptrdiff_t batch_size =
-            std::min(nelements_per_batch, (nelements - e));
+                for (ptrdiff_t e = 0; e < nelements; e += nelements_per_batch) {
+                    const ptrdiff_t batch_size = std::min(nelements_per_batch, (nelements - e));
 
-        for (ptrdiff_t b = 0; b < batch_size; b++) {
-          for (int s = 0; s < ns; s++) {
-            geom_t p[3] = {0, 0, 0};
+                    for (ptrdiff_t b = 0; b < batch_size; b++) {
+                        for (int s = 0; s < ns; s++) {
+                            geom_t p[3] = {0, 0, 0};
 
-            for (int ln = 0; ln < nnxs; ln++) {
-              const idx_t node = elements[lst(s, ln)][e + b];
+                            for (int ln = 0; ln < nnxs; ln++) {
+                                const idx_t node = elements[lst(s, ln)][e + b];
 
-              for (int d = 0; d < dim; d++) {
-                p[d] += points[d][node];
-              }
+                                for (int d = 0; d < dim; d++) {
+                                    p[d] += points[d][node];
+                                }
+                            }
+
+                            for (int d = 0; d < dim; d++) {
+                                p[d] /= nnxs;
+                            }
+
+                            const ptrdiff_t idx = b * ns + s;
+                            b_fx[idx]           = p[0];
+                            b_fy[idx]           = p[1];
+                            b_fz[idx]           = p[2];
+                            b_fselected[idx]    = 0;
+                        }
+                    }
+
+                    selector(batch_size * ns, b_fx, b_fy, b_fz, b_fselected);
+
+                    for (ptrdiff_t b = 0; b < batch_size; b++) {
+                        for (int s = 0; s < ns; s++) {
+                            const ptrdiff_t idx = b * ns + s;
+                            if (b_fselected[idx]) {
+                                b_selected[(e + b) * ns + s] = 1;
+                                nparents++;
+                            }
+                        }
+                    }
+                }
             }
 
-            for (int d = 0; d < dim; d++) {
-              p[d] /= nnxs;
+            auto parent = create_host_buffer<element_idx_t>(nparents);
+            auto lfi    = create_host_buffer<i16>(nparents);
+
+            auto b_parent = parent->data();
+            auto b_lfi    = lfi->data();
+
+            ptrdiff_t offset = 0;
+            for (ptrdiff_t e = 0; e < nelements; e++) {
+                for (int s = 0; s < ns; s++) {
+                    if (b_selected[e * ns + s]) {
+                        b_parent[offset] = e;
+                        b_lfi[offset]    = s;
+                        offset++;
+                    }
+                }
             }
 
-            const ptrdiff_t idx = b * ns + s;
-            b_fx[idx] = p[0];
-            b_fy[idx] = p[1];
-            b_fz[idx] = p[2];
-            b_fselected[idx] = 0;
-          }
+            sidesets.push_back(std::make_shared<Sideset>(mesh->comm(), parent, lfi, b));
         }
 
-        selector(batch_size * ns, b_fx, b_fy, b_fz, b_fselected);
-
-        for (ptrdiff_t b = 0; b < batch_size; b++) {
-          for (int s = 0; s < ns; s++) {
-            const ptrdiff_t idx = b * ns + s;
-            if (b_fselected[idx]) {
-              b_selected[(e + b) * ns + s] = 1;
-              nparents++;
-            }
-          }
-        }
-      }
+        return sidesets;
     }
 
-    auto parent = create_host_buffer<element_idx_t>(nparents);
-    auto lfi = create_host_buffer<i16>(nparents);
-
-    auto b_parent = parent->data();
-    auto b_lfi = lfi->data();
-
-    ptrdiff_t offset = 0;
-    for (ptrdiff_t e = 0; e < nelements; e++) {
-      for (int s = 0; s < ns; s++) {
-        if (b_selected[e * ns + s]) {
-          b_parent[offset] = e;
-          b_lfi[offset] = s;
-          offset++;
-        }
-      }
-    }
-
-    sidesets.push_back(std::make_shared<Sideset>(mesh->comm(), parent, lfi, b));
-  }
-
-  return sidesets;
-}
-
-std::vector<std::shared_ptr<Sideset>> Sideset::create_from_plane(
-    const std::shared_ptr<Mesh> &mesh, const geom_t normal_x,
-    const geom_t normal_y, const geom_t normal_z, const geom_t distance,
-    const geom_t tol, const std::vector<std::string> &block_names) {
-  SMESH_TRACE_SCOPE("Sideset::create_from_plane");
-  return create_from_batch_selector(
-      mesh,
-      [=](const ptrdiff_t batch_size, const geom_t *const SMESH_RESTRICT x,
-          const geom_t *const SMESH_RESTRICT y,
-          const geom_t *const SMESH_RESTRICT z,
-          u8 *const SMESH_RESTRICT selected) {
+    std::vector<std::shared_ptr<Sideset>> Sideset::create_from_plane(const std::shared_ptr<Mesh>    &mesh,
+                                                                     const geom_t                    normal_x,
+                                                                     const geom_t                    normal_y,
+                                                                     const geom_t                    normal_z,
+                                                                     const geom_t                    distance,
+                                                                     const geom_t                    tol,
+                                                                     const std::vector<std::string> &block_names) {
+        SMESH_TRACE_SCOPE("Sideset::create_from_plane");
+        return create_from_batch_selector(
+                mesh,
+                [=](const ptrdiff_t                    batch_size,
+                    const geom_t *const SMESH_RESTRICT x,
+                    const geom_t *const SMESH_RESTRICT y,
+                    const geom_t *const SMESH_RESTRICT z,
+                    u8 *const SMESH_RESTRICT           selected) {
 #pragma omp simd
-        for (ptrdiff_t i = 0; i < batch_size; i++) {
-          selected[i] = std::abs(normal_x * x[i] + normal_y * y[i] +
-                                 normal_z * z[i] - distance) < tol;
+                    for (ptrdiff_t i = 0; i < batch_size; i++) {
+                        selected[i] = std::abs(normal_x * x[i] + normal_y * y[i] + normal_z * z[i] - distance) < tol;
+                    }
+                },
+                block_names);
+    }
+
+    int Sideset::read(const std::shared_ptr<Communicator> &comm, const Path &folder, block_idx_t block_id) {
+        SMESH_TRACE_SCOPE("Sideset::read");
+        if (comm->size() > 1) {
+            SMESH_ERROR("Sideset::read is not supported for distributed runs\n");
+            return SMESH_FAILURE;
         }
-      },
-      block_names);
-}
 
-int Sideset::read(const std::shared_ptr<Communicator> &comm, const Path &folder,
-                  block_idx_t block_id) {
-  SMESH_TRACE_SCOPE("Sideset::read");
-  if (comm->size() > 1) {
-    SMESH_ERROR("Sideset::read is not supported for distributed runs\n");
-    return SMESH_FAILURE;
-  }
+        impl_->comm = comm;
+        ptrdiff_t      nlocal{0}, ncheck{0};
+        element_idx_t *parent{nullptr};
+        i16           *lfi{nullptr};
 
-  impl_->comm = comm;
-  ptrdiff_t nlocal{0}, ncheck{0};
-  element_idx_t *parent{nullptr};
-  i16 *lfi{nullptr};
+        auto parent_file = detect_files(folder / "parent.*", {"raw", "int16", "int32", "int64"});
+        auto lfi_file    = detect_files(folder / "lfi.*", {"raw", "int16", "int32", "int64"});
 
-  auto parent_file =
-      detect_files(folder / "parent.*", {"raw", "int16", "int32", "int64"});
-  auto lfi_file =
-      detect_files(folder / "lfi.*", {"raw", "int16", "int32", "int64"});
+        if (parent_file.empty() || lfi_file.empty()) {
+            SMESH_ERROR("Unable to find parent or lfi file in sideset at %s\n", folder.c_str());
+            return SMESH_FAILURE;
+        }
 
-  if (parent_file.empty() || lfi_file.empty()) {
-    SMESH_ERROR("Unable to find parent or lfi file in sideset at %s\n",
-                folder.c_str());
-    return SMESH_FAILURE;
-  }
+        int ret = SMESH_SUCCESS;
+        ret |= array_read_convert_from_extension(parent_file[0], &parent, &nlocal);
+        ret |= array_read_convert_from_extension(lfi_file[0], &lfi, &ncheck);
 
-  int ret = SMESH_SUCCESS;
-  ret |= array_read_convert_from_extension(parent_file[0], &parent, &nlocal);
-  ret |= array_read_convert_from_extension(lfi_file[0], &lfi, &ncheck);
+        impl_->parent = smesh::manage_host_buffer(nlocal, parent);
+        impl_->lfi    = smesh::manage_host_buffer(nlocal, lfi);
 
-  impl_->parent = smesh::manage_host_buffer(nlocal, parent);
-  impl_->lfi = smesh::manage_host_buffer(nlocal, lfi);
+        if (ncheck != nlocal) {
+            SMESH_ERROR("Inconsistent array sizes in sideset at %s\n", folder.c_str());
+            ret = SMESH_FAILURE;
+        }
 
-  if (ncheck != nlocal) {
-    SMESH_ERROR("Inconsistent array sizes in sideset at %s\n", folder.c_str());
-    ret = SMESH_FAILURE;
-  }
+        impl_->block_id = block_id;
+        return ret;
+    }
 
-  impl_->block_id = block_id;
-  return ret;
-}
+    int Sideset::read_and_redistibute(const std::shared_ptr<Mesh> &mesh, const Path &path, block_idx_t block_id) {
+        if (read(mesh->comm(), path, block_id) != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+        return redistribute(mesh);
+    }
 
-int Sideset::read_and_redistibute(const std::shared_ptr<Mesh> &mesh,
-                                  const Path &path, block_idx_t block_id) {
-  if (read(mesh->comm(), path, block_id) != SMESH_SUCCESS) {
-    return SMESH_FAILURE;
-  }
-  return redistribute(mesh);
-}
-
-int Sideset::redistribute(const std::shared_ptr<Mesh> &mesh) {
-  if (mesh->comm()->size() == 1) {
-    return SMESH_SUCCESS;
-  }
+    int Sideset::redistribute(const std::shared_ptr<Mesh> &mesh) {
+        if (mesh->comm()->size() == 1) {
+            return SMESH_SUCCESS;
+        }
 
 #ifdef SMESH_ENABLE_MPI
-  auto dist = mesh->distributed();
-  auto n_elements = dist->n_elements_global();
+        auto dist       = mesh->distributed();
+        auto n_elements = dist->n_elements_global();
 
-  const ptrdiff_t n_sides = size();
-  auto parent = impl_->parent->data();
-  auto lfi = impl_->lfi->data();
+        const ptrdiff_t n_sides = size();
+        auto            parent  = impl_->parent->data();
+        auto            lfi     = impl_->lfi->data();
 
-  int comm_size = mesh->comm()->size();
-  i64 *send_count = (i64 *)SMESH_CALLOC(comm_size, sizeof(i64));
-  i64 *send_displs = (i64 *)SMESH_CALLOC((comm_size + 1), sizeof(i64));
+        int  comm_size   = mesh->comm()->size();
+        i64 *send_count  = (i64 *)SMESH_CALLOC(comm_size, sizeof(i64));
+        i64 *send_displs = (i64 *)SMESH_CALLOC((comm_size + 1), sizeof(i64));
 
-  for (int i = 0; i < n_sides; i++) {
-    const element_idx_t e = parent[i];
-    const int owner = rank_owner(n_elements, e, comm_size);
-    send_count[owner + 1]++;
-  }
+        for (int i = 0; i < n_sides; i++) {
+            const element_idx_t e     = parent[i];
+            const int           owner = rank_owner(n_elements, e, comm_size);
+            send_count[owner + 1]++;
+        }
 
-  for (int i = 0; i < comm_size; i++) {
-    send_displs[i + 1] += send_count[i];
-  }
+        for (int i = 0; i < comm_size; i++) {
+            send_displs[i + 1] += send_count[i];
+        }
 
-  element_idx_t *send_elements =
-      (element_idx_t *)SMESH_CALLOC(send_displs[comm_size], sizeof(element_idx_t));
-  i16 *send_lfi = (i16 *)SMESH_CALLOC(send_displs[comm_size], sizeof(i16));
+        element_idx_t *send_elements = (element_idx_t *)SMESH_CALLOC(send_displs[comm_size], sizeof(element_idx_t));
+        i16           *send_lfi      = (i16 *)SMESH_CALLOC(send_displs[comm_size], sizeof(i16));
 
-  for (int i = 0; i < n_sides; i++) {
-    const element_idx_t e = parent[i];
-    const int owner = rank_owner(n_elements, e, comm_size);
-    send_elements[send_displs[owner] + send_count[owner]] = e;
-    send_lfi[send_displs[owner] + send_count[owner]] = lfi[i];
-    send_count[owner]++;
-  }
+        for (int i = 0; i < n_sides; i++) {
+            const element_idx_t e                                 = parent[i];
+            const int           owner                             = rank_owner(n_elements, e, comm_size);
+            send_elements[send_displs[owner] + send_count[owner]] = e;
+            send_lfi[send_displs[owner] + send_count[owner]]      = lfi[i];
+            send_count[owner]++;
+        }
 
-  i64 *recv_count = (i64 *)SMESH_ALLOC(comm_size * sizeof(i64));
-  i64 *recv_displs = (i64 *)SMESH_ALLOC((comm_size + 1) * sizeof(i64));
+        i64 *recv_count  = (i64 *)SMESH_ALLOC(comm_size * sizeof(i64));
+        i64 *recv_displs = (i64 *)SMESH_ALLOC((comm_size + 1) * sizeof(i64));
 
-  MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1, mpi_type<i64>(),
-               mesh->comm()->get());
+        MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1, mpi_type<i64>(), mesh->comm()->get());
 
-  recv_displs[0] = 0;
-  for (int i = 0; i < comm_size; i++) {
-    recv_count[i] = send_count[i];
-    recv_displs[i + 1] += recv_count[i];
-  }
+        recv_displs[0] = 0;
+        for (int i = 0; i < comm_size; i++) {
+            recv_count[i] = send_count[i];
+            recv_displs[i + 1] += recv_count[i];
+        }
 
-  element_idx_t *recv_elements =
-      (element_idx_t *)SMESH_ALLOC(recv_displs[comm_size] * sizeof(element_idx_t));
-  i16 *recv_lfi = (i16 *)SMESH_ALLOC(recv_displs[comm_size] * sizeof(i16));
+        element_idx_t *recv_elements = (element_idx_t *)SMESH_ALLOC(recv_displs[comm_size] * sizeof(element_idx_t));
+        i16           *recv_lfi      = (i16 *)SMESH_ALLOC(recv_displs[comm_size] * sizeof(i16));
 
-  all_to_allv_64(send_elements, send_count, send_displs, recv_elements,
-                 recv_count, recv_displs, mesh->comm()->get(),
-                 std::numeric_limits<i32>::max());
-  all_to_allv_64(send_lfi, send_count, send_displs, recv_lfi, recv_count,
-                 recv_displs, mesh->comm()->get(),
-                 std::numeric_limits<i32>::max());
+        all_to_allv_64(send_elements,
+                       send_count,
+                       send_displs,
+                       recv_elements,
+                       recv_count,
+                       recv_displs,
+                       mesh->comm()->get(),
+                       std::numeric_limits<i32>::max());
+        all_to_allv_64(send_lfi,
+                       send_count,
+                       send_displs,
+                       recv_lfi,
+                       recv_count,
+                       recv_displs,
+                       mesh->comm()->get(),
+                       std::numeric_limits<i32>::max());
 
-  impl_->parent =
-      smesh::manage_host_buffer(recv_displs[comm_size], recv_elements);
-  impl_->lfi = smesh::manage_host_buffer(recv_displs[comm_size], recv_lfi);
-  impl_->element_mapping = dist->element_mapping();
+        impl_->parent          = smesh::manage_host_buffer(recv_displs[comm_size], recv_elements);
+        impl_->lfi             = smesh::manage_host_buffer(recv_displs[comm_size], recv_lfi);
+        impl_->element_mapping = dist->element_mapping();
 
-  SMESH_FREE(send_count);
-  SMESH_FREE(send_displs);
-  SMESH_FREE(recv_count);
-  SMESH_FREE(recv_displs);
-  SMESH_FREE(send_elements);
-  SMESH_FREE(send_lfi);
+        SMESH_FREE(send_count);
+        SMESH_FREE(send_displs);
+        SMESH_FREE(recv_count);
+        SMESH_FREE(recv_displs);
+        SMESH_FREE(send_elements);
+        SMESH_FREE(send_lfi);
 
-  return SMESH_SUCCESS;
+        return SMESH_SUCCESS;
 #endif
 
-  SMESH_ERROR("Sideset::redistribute is not supported for distributed runs\n");
-  return SMESH_FAILURE;
+        SMESH_ERROR("Sideset::redistribute is not supported for distributed runs\n");
+        return SMESH_FAILURE;
 
-  // 1) Use rank_owner to redistribute the sideset to the owned elements
-  // 2) Distribute the sideset to the aura elements?
-  // return redistribute_sideset(mesh->comm(),
-  // mesh->n_elements(impl_->block_id), impl_->parent->data(),
-  // impl_->lfi->data(), impl_->block_id);
-}
+        // 1) Use rank_owner to redistribute the sideset to the owned elements
+        // 2) Distribute the sideset to the aura elements?
+        // return redistribute_sideset(mesh->comm(),
+        // mesh->n_elements(impl_->block_id), impl_->parent->data(),
+        // impl_->lfi->data(), impl_->block_id);
+    }
 
-std::shared_ptr<Buffer<element_idx_t>> Sideset::parent() const {
-  return impl_->parent;
-}
-std::shared_ptr<Buffer<i16>> Sideset::lfi() const { return impl_->lfi; }
-block_idx_t Sideset::block_id() const { return impl_->block_id; }
+    std::shared_ptr<Buffer<element_idx_t>> Sideset::parent() const { return impl_->parent; }
+    std::shared_ptr<Buffer<i16>>           Sideset::lfi() const { return impl_->lfi; }
+    block_idx_t                            Sideset::block_id() const { return impl_->block_id; }
 
-std::shared_ptr<Buffer<idx_t>> create_nodeset_from_sidesets(
-    const std::shared_ptr<Mesh> &mesh,
-    const std::vector<std::shared_ptr<Sideset>> &sidesets) {
-  if (sidesets.empty()) {
-    return nullptr;
-  }
+    std::shared_ptr<Buffer<idx_t>> create_nodeset_from_sidesets(const std::shared_ptr<Mesh>                 &mesh,
+                                                                const std::vector<std::shared_ptr<Sideset>> &sidesets) {
+        if (sidesets.empty()) {
+            return nullptr;
+        }
 
-  if (sidesets.size() == 1) {
-    return create_nodeset_from_sideset(mesh, sidesets[0]);
-  }
+        if (sidesets.size() == 1) {
+            return create_nodeset_from_sideset(mesh, sidesets[0]);
+        }
 
-  block_idx_t n_sidesets = sidesets.size();
-  std::vector<enum ElemType> element_type(n_sidesets);
-  std::vector<idx_t **> elems(n_sidesets);
-  std::vector<ptrdiff_t> n_surf_elements(n_sidesets);
-  std::vector<element_idx_t *> parent_element(n_sidesets);
-  std::vector<i16 *> side_idx(n_sidesets);
+        block_idx_t                  n_sidesets = sidesets.size();
+        std::vector<enum ElemType>   element_type(n_sidesets);
+        std::vector<idx_t **>        elems(n_sidesets);
+        std::vector<ptrdiff_t>       n_surf_elements(n_sidesets);
+        std::vector<element_idx_t *> parent_element(n_sidesets);
+        std::vector<i16 *>           side_idx(n_sidesets);
 
-  for (block_idx_t k = 0; k < n_sidesets; k++) {
-    auto ss = sidesets[k];
-    auto block = mesh->block(ss->block_id());
+        for (block_idx_t k = 0; k < n_sidesets; k++) {
+            auto ss    = sidesets[k];
+            auto block = mesh->block(ss->block_id());
 
-    element_type[k] = block->element_type();
-    elems[k] = block->elements()->data();
-    n_surf_elements[k] = ss->parent()->size();
-    parent_element[k] = ss->parent()->data();
-    side_idx[k] = ss->lfi()->data();
-  }
+            element_type[k]    = block->element_type();
+            elems[k]           = block->elements()->data();
+            n_surf_elements[k] = ss->parent()->size();
+            parent_element[k]  = ss->parent()->data();
+            side_idx[k]        = ss->lfi()->data();
+        }
 
-  ptrdiff_t n_nodes_out{0};
-  idx_t *nodes_out{nullptr};
+        ptrdiff_t n_nodes_out{0};
+        idx_t    *nodes_out{nullptr};
 
-  extract_nodeset_from_sidesets(n_sidesets, element_type.data(), elems.data(),
-                                n_surf_elements.data(), parent_element.data(),
-                                side_idx.data(), &n_nodes_out, &nodes_out);
+        extract_nodeset_from_sidesets(n_sidesets,
+                                      element_type.data(),
+                                      elems.data(),
+                                      n_surf_elements.data(),
+                                      parent_element.data(),
+                                      side_idx.data(),
+                                      &n_nodes_out,
+                                      &nodes_out);
 
-  return smesh::manage_host_buffer(n_nodes_out, nodes_out);
-}
+        return smesh::manage_host_buffer(n_nodes_out, nodes_out);
+    }
 
-// std::shared_ptr<Buffer<idx_t>>
-// create_nodeset_from_sideset(const std::shared_ptr<Mesh> &mesh,
-//                             const std::shared_ptr<Sideset> &sideset) {
+    // std::shared_ptr<Buffer<idx_t>>
+    // create_nodeset_from_sideset(const std::shared_ptr<Mesh> &mesh,
+    //                             const std::shared_ptr<Sideset> &sideset) {
 
-// ptrdiff_t n_nodes{0};
-// idx_t *nodes{nullptr};
-//   if (extract_nodeset_from_sideset(
-//           mesh->element_type(), mesh->elements()->data(),
-//           sideset->parent()->size(), sideset->parent()->data(),
-//           sideset->lfi()->data(), &n_nodes, &nodes) != SMESH_SUCCESS) {
-//     SMESH_ERROR("Unable to extract nodeset from sideset!\n");
-//   }
+    // ptrdiff_t n_nodes{0};
+    // idx_t *nodes{nullptr};
+    //   if (extract_nodeset_from_sideset(
+    //           mesh->element_type(), mesh->elements()->data(),
+    //           sideset->parent()->size(), sideset->parent()->data(),
+    //           sideset->lfi()->data(), &n_nodes, &nodes) != SMESH_SUCCESS) {
+    //     SMESH_ERROR("Unable to extract nodeset from sideset!\n");
+    //   }
 
-//   return smesh::manage_host_buffer(n_nodes, nodes);
-// }
+    //   return smesh::manage_host_buffer(n_nodes, nodes);
+    // }
 
-std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>>
-create_surface_from_sideset_semistructured(
-    const std::shared_ptr<Mesh> &ssmesh,
-    const std::shared_ptr<Sideset> &sideset) {
+    std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>> create_surface_from_sideset_semistructured(
+            const std::shared_ptr<Mesh>    &ssmesh,
+            const std::shared_ptr<Sideset> &sideset) {
+        if (ssmesh->n_blocks() != 1) {
+            SMESH_ERROR("Mesh must have exactly one block to extract surface from sideset!\n");
+            return {INVALID, nullptr};
+        }
 
-  if (ssmesh->n_blocks() != 1) {
-    SMESH_ERROR(
-        "Mesh must have exactly one block to extract surface from sideset!\n");
-    return {INVALID, nullptr};
-  }
+        if (!is_semistructured_type(ssmesh->element_type(0))) {
+            SMESH_ERROR("Mesh is not a semistructured mesh!\n");
+            return {INVALID, nullptr};
+        }
 
-  if (!is_semistructured_type(ssmesh->element_type(0))) {
-    SMESH_ERROR("Mesh is not a semistructured mesh!\n");
-    return {INVALID, nullptr};
-  }
+        int  level    = proteus_hex_micro_elements_per_dim(ssmesh->element_type(0));
+        auto ss_sides = smesh::create_host_buffer<idx_t>((level + 1) * (level + 1), sideset->parent()->size());
 
-  int level = proteus_hex_micro_elements_per_dim(ssmesh->element_type(0));
-  auto ss_sides = smesh::create_host_buffer<idx_t>((level + 1) * (level + 1),
-                                                   sideset->parent()->size());
+        if (sshex8_extract_surface_from_sideset(level,
+                                                ssmesh->elements(0)->data(),
+                                                sideset->parent()->size(),
+                                                sideset->parent()->data(),
+                                                sideset->lfi()->data(),
+                                                ss_sides->data()) != SMESH_SUCCESS) {
+            SMESH_ERROR("Unable to extract surface from sideset!\n");
+        }
 
-  if (sshex8_extract_surface_from_sideset(
-          level, ssmesh->elements(0)->data(), sideset->parent()->size(),
-          sideset->parent()->data(), sideset->lfi()->data(),
-          ss_sides->data()) != SMESH_SUCCESS) {
-    SMESH_ERROR("Unable to extract surface from sideset!\n");
-  }
+        return {shell_type(side_type(ssmesh->element_type(0))), ss_sides};
 
-  return {shell_type(side_type(ssmesh->element_type(0))), ss_sides};
+        //   idx_t *idx = nullptr;
+        //   ptrdiff_t n_contiguous = invalid_idx<ptrdiff_t>();
+        // std::vector<int> levels(sshex8_hierarchical_n_levels(level));
 
-  //   idx_t *idx = nullptr;
-  //   ptrdiff_t n_contiguous = invalid_idx<ptrdiff_t>();
-  // std::vector<int> levels(sshex8_hierarchical_n_levels(level));
+        // FiXME harcoded for sshex8
+        // sshex8_hierarchical_mesh_levels(level, levels.size(), levels.data());
 
-  // FiXME harcoded for sshex8
-  // sshex8_hierarchical_mesh_levels(level, levels.size(), levels.data());
+        // const int nnxs = 4;
+        // const int nexs = level * level;
+        // auto surface =
+        //     smesh::create_host_buffer<idx_t>(nnxs, sideset->parent()->size() *
+        //     nexs);
 
-  // const int nnxs = 4;
-  // const int nexs = level * level;
-  // auto surface =
-  //     smesh::create_host_buffer<idx_t>(nnxs, sideset->parent()->size() *
-  //     nexs);
+        // ssquad4_to_standard_quad4_mesh(level, sideset->parent()->size(),
+        //                                ss_sides->data(), surface->data());
+        // return {QUADSHELL4, surface};
+    }
 
-  // ssquad4_to_standard_quad4_mesh(level, sideset->parent()->size(),
-  //                                ss_sides->data(), surface->data());
-  // return {QUADSHELL4, surface};
-}
+    std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>> create_surface_from_sideset(
+            const std::shared_ptr<Mesh>    &mesh,
+            const std::shared_ptr<Sideset> &sideset) {
+        if (is_semistructured_type(mesh->element_type(sideset->block_id()))) {
+            return create_surface_from_sideset_semistructured(mesh, sideset);
+        }
 
-std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>>
-create_surface_from_sideset(const std::shared_ptr<Mesh> &mesh,
-                            const std::shared_ptr<Sideset> &sideset) {
-  if (is_semistructured_type(mesh->element_type(sideset->block_id()))) {
-    return create_surface_from_sideset_semistructured(mesh, sideset);
-  }
+        auto block = mesh->block(sideset->block_id());
+        auto st    = shell_type(side_type(block->element_type()));
+        int  nnxs  = elem_num_nodes(st);
 
-  auto block = mesh->block(sideset->block_id());
-  auto st = shell_type(side_type(block->element_type()));
-  int nnxs = elem_num_nodes(st);
+        auto surface = smesh::create_host_buffer<idx_t>(nnxs, sideset->parent()->size());
 
-  auto surface =
-      smesh::create_host_buffer<idx_t>(nnxs, sideset->parent()->size());
+        if (extract_surface_from_sideset(block->element_type(),
+                                         block->elements()->data(),
+                                         sideset->parent()->size(),
+                                         sideset->parent()->data(),
+                                         sideset->lfi()->data(),
+                                         surface->data()) != SMESH_SUCCESS) {
+            SMESH_ERROR("Unable to create surface from sideset!");
+        }
 
-  if (extract_surface_from_sideset(
-          block->element_type(), block->elements()->data(),
-          sideset->parent()->size(), sideset->parent()->data(),
-          sideset->lfi()->data(), surface->data()) != SMESH_SUCCESS) {
-    SMESH_ERROR("Unable to create surface from sideset!");
-  }
+        // printf("Type: %s->%s\n", type_to_string(block->element_type()),
+        // type_to_string(st)); surface->print();
 
-  // printf("Type: %s->%s\n", type_to_string(block->element_type()),
-  // type_to_string(st)); surface->print();
+        return {st, surface};
+    }
 
-  return {st, surface};
-}
+    std::shared_ptr<Buffer<idx_t>> create_nodeset_from_sideset_semistructured(const std::shared_ptr<Mesh>    &ss,
+                                                                              const std::shared_ptr<Sideset> &sideset) {
+        if (ss->n_blocks() != 1) {
+            SMESH_ERROR("Mesh must have exactly one block to extract nodeset from sideset!\n");
+            return nullptr;
+        }
+        if (!is_semistructured_type(ss->element_type(0))) {
+            SMESH_ERROR("Mesh is not a semistructured mesh!\n");
+            return nullptr;
+        }
 
-std::shared_ptr<Buffer<idx_t>> create_nodeset_from_sideset_semistructured(
-    const std::shared_ptr<Mesh> &ss, const std::shared_ptr<Sideset> &sideset) {
-  if (ss->n_blocks() != 1) {
-    SMESH_ERROR(
-        "Mesh must have exactly one block to extract nodeset from sideset!\n");
-    return nullptr;
-  }
-  if (!is_semistructured_type(ss->element_type(0))) {
-    SMESH_ERROR("Mesh is not a semistructured mesh!\n");
-    return nullptr;
-  }
+        ptrdiff_t n_nodes{0};
+        idx_t    *nodes{nullptr};
 
-  ptrdiff_t n_nodes{0};
-  idx_t *nodes{nullptr};
+        SMESH_TRACE_SCOPE("sshex8_extract_nodeset_from_sideset");
+        if (sshex8_extract_nodeset_from_sideset(proteus_hex_micro_elements_per_dim(ss->element_type(0)),
+                                                ss->elements(0)->data(),
+                                                sideset->parent()->size(),
+                                                sideset->parent()->data(),
+                                                sideset->lfi()->data(),
+                                                &n_nodes,
+                                                &nodes) != SMESH_SUCCESS) {
+            SMESH_ERROR("Unable to extract nodeset from sideset!\n");
+        }
 
-  SMESH_TRACE_SCOPE("sshex8_extract_nodeset_from_sideset");
-  if (sshex8_extract_nodeset_from_sideset(
-          proteus_hex_micro_elements_per_dim(ss->element_type(0)),
-          ss->elements(0)->data(), sideset->parent()->size(),
-          sideset->parent()->data(), sideset->lfi()->data(), &n_nodes,
-          &nodes) != SMESH_SUCCESS) {
-    SMESH_ERROR("Unable to extract nodeset from sideset!\n");
-  }
+        return smesh::manage_host_buffer(n_nodes, nodes);
+    }
 
-  return smesh::manage_host_buffer(n_nodes, nodes);
-}
+    std::shared_ptr<Buffer<idx_t>> create_nodeset_from_sideset(const std::shared_ptr<Mesh>    &mesh,
+                                                               const std::shared_ptr<Sideset> &sideset) {
+        if (is_semistructured_type(mesh->element_type(sideset->block_id()))) {
+            return create_nodeset_from_sideset_semistructured(mesh, sideset);
+        }
 
-std::shared_ptr<Buffer<idx_t>>
-create_nodeset_from_sideset(const std::shared_ptr<Mesh> &mesh,
-                            const std::shared_ptr<Sideset> &sideset) {
+        auto block = mesh->block(sideset->block_id());
 
-  if (is_semistructured_type(mesh->element_type(sideset->block_id()))) {
-    return create_nodeset_from_sideset_semistructured(mesh, sideset);
-  }
+        ptrdiff_t n_nodes{0};
+        idx_t    *nodes{nullptr};
+        if (extract_nodeset_from_sideset(block->element_type(),
+                                         block->elements()->data(),
+                                         sideset->parent()->size(),
+                                         sideset->parent()->data(),
+                                         sideset->lfi()->data(),
+                                         &n_nodes,
+                                         &nodes) != SMESH_SUCCESS) {
+            SMESH_ERROR("Unable to extract nodeset from sideset!\n");
+        }
 
-  auto block = mesh->block(sideset->block_id());
+        return smesh::manage_host_buffer(n_nodes, nodes);
+    }
 
-  ptrdiff_t n_nodes{0};
-  idx_t *nodes{nullptr};
-  if (extract_nodeset_from_sideset(
-          block->element_type(), block->elements()->data(),
-          sideset->parent()->size(), sideset->parent()->data(),
-          sideset->lfi()->data(), &n_nodes, &nodes) != SMESH_SUCCESS) {
-    SMESH_ERROR("Unable to extract nodeset from sideset!\n");
-  }
+    std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>> create_surface_from_sidesets(
+            const std::shared_ptr<Mesh>                 &mesh,
+            const std::vector<std::shared_ptr<Sideset>> &sidesets) {
+        if (sidesets.empty()) {
+            return {INVALID, nullptr};
+        }
 
-  return smesh::manage_host_buffer(n_nodes, nodes);
-}
+        if (sidesets.size() != 1) {
+            SMESH_ERROR(
+                    "create_surface_from_sidesets is not supported for multiple "
+                    "sidesets!\n");
+            return {INVALID, nullptr};
+        }
 
-std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>>
-create_surface_from_sidesets(
-    const std::shared_ptr<Mesh> &mesh,
-    const std::vector<std::shared_ptr<Sideset>> &sidesets) {
+        if (is_semistructured_type(mesh->element_type(sidesets[0]->block_id()))) {
+            return create_surface_from_sideset_semistructured(mesh, sidesets[0]);
+        } else {
+            return create_surface_from_sideset(mesh, sidesets[0]);
+        }
+    }
 
-  if (sidesets.empty()) {
-    return {INVALID, nullptr};
-  }
+    void Sideset::print(std::ostream &os) const {
+        os << "Sideset: " << block_id() << "\n";
+        os << "Size: " << parent()->size() << "\n";
 
-  if (sidesets.size() != 1) {
-    SMESH_ERROR("create_surface_from_sidesets is not supported for multiple "
-                "sidesets!\n");
-    return {INVALID, nullptr};
-  }
+        parent()->print(os);
+        lfi()->print(os);
+    }
 
-  if (is_semistructured_type(mesh->element_type(sidesets[0]->block_id()))) {
-    return create_surface_from_sideset_semistructured(mesh, sidesets[0]);
-  } else {
-    return create_surface_from_sideset(mesh, sidesets[0]);
-  }
-}
-
-void Sideset::print(std::ostream &os) const {
-  os << "Sideset: " << block_id() << "\n";
-  os << "Size: " << parent()->size() << "\n";
-
-  parent()->print(os);
-  lfi()->print(os);
-}
-
-} // namespace smesh
+}  // namespace smesh

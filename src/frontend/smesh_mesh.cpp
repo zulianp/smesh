@@ -1,6 +1,6 @@
 #include "smesh_mesh.hpp"
-#include "smesh_alloc.hpp"
 #include "smesh_adjacency.hpp"
+#include "smesh_alloc.hpp"
 #include "smesh_build.hpp"
 #include "smesh_conversion.hpp"
 #include "smesh_device_buffer.hpp"
@@ -327,9 +327,7 @@ namespace smesh {
         return impl_->device_elements->elements_AoS();
     }
 
-    Mesh::Block::Block() : impl_(std::make_unique<Impl>()) {
-        impl_->device_elements = std::make_shared<smesh::Elements>();
-    }
+    Mesh::Block::Block() : impl_(std::make_unique<Impl>()) { impl_->device_elements = std::make_shared<smesh::Elements>(); }
     Mesh::Block::~Block() = default;
 
     const std::string           &Mesh::Block::name() const { return impl_->name; }
@@ -2012,7 +2010,9 @@ namespace smesh {
                 if (it != cmap.end()) {
                     it->second(*block, *new_block);
                 } else {
-                    SMESH_ERROR("Conversion from %s to %s is not supported\n", smesh::type_to_string(block->element_type()), smesh::type_to_string(element_type));
+                    SMESH_ERROR("Conversion from %s to %s is not supported\n",
+                                smesh::type_to_string(block->element_type()),
+                                smesh::type_to_string(element_type));
                     return nullptr;
                 }
             }
@@ -2795,6 +2795,65 @@ namespace smesh {
             return nullptr;
         }
     }
+
+    std::shared_ptr<Mesh> concatenate(const std::shared_ptr<Mesh> &mesh1, const std::shared_ptr<Mesh> &mesh2) {
+        auto new_points = create_host_buffer<geom_t>(mesh1->spatial_dimension(), mesh1->n_nodes() + mesh2->n_nodes());
+
+        auto p1    = mesh1->points()->data();
+        auto p2    = mesh2->points()->data();
+        auto p_new = new_points->data();
+
+        const int       spatial_dim = mesh1->spatial_dimension();
+        const ptrdiff_t n_nodes1    = mesh1->n_nodes();
+        const ptrdiff_t n_nodes2    = mesh2->n_nodes();
+
+        for (int d = 0; d < spatial_dim; d++) {
+            for (ptrdiff_t i = 0; i < n_nodes1; i++) {
+                p_new[d][i] = p1[d][i];
+            }
+
+            for (ptrdiff_t i = 0; i < n_nodes2; i++) {
+                p_new[d][n_nodes1 + i] = p2[d][i];
+            }
+        }
+
+        std::vector<std::shared_ptr<Mesh::Block>> new_blocks;
+
+        if (mesh1->n_blocks() == 1 && mesh2->n_blocks() == 1) {
+            auto new_elements =
+                    create_host_buffer<idx_t>(mesh1->n_nodes_per_element(0), mesh1->n_elements(0) + mesh2->n_elements(0));
+
+            const int nxe = mesh1->n_nodes_per_element(0);
+
+            auto e1    = mesh1->elements(0)->data();
+            auto e2    = mesh2->elements(0)->data();
+            auto e_new = new_elements->data();
+
+            for (int v = 0; v < nxe; v++) {
+                const ptrdiff_t ne1 = mesh1->n_elements(0);
+                const ptrdiff_t ne2 = mesh2->n_elements(0);
+                for (int i = 0; i < ne1; ++i) {
+                    e_new[v][i] = e1[v][i];
+                }
+                for (int i = 0; i < ne2; ++i) {
+                    e_new[v][ne1 + i] = n_nodes1 + e2[v][i];
+                }
+            }
+
+            auto new_block = std::make_shared<Mesh::Block>();
+            new_block->set_name("concatenated");
+            new_block->set_element_type(mesh1->element_type(0));
+            new_block->set_elements(new_elements);
+            new_blocks.push_back(new_block);
+        } else {
+            SMESH_ERROR("Concatenation is not supported for multiblock meshes\n");
+            return nullptr;
+        }
+
+        return std::make_shared<Mesh>(mesh1->comm(), new_blocks, new_points);
+    }
+
+    SharedBuffer<idx_t> Mesh::node_mapping() const { return impl_->node_mapping; }
 
     void Mesh::print(std::ostream &os) const {
         os << "n_blocks: " << n_blocks() << "\n";

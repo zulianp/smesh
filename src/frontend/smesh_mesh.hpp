@@ -348,6 +348,8 @@ namespace smesh {
     std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh);
     std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh, const geom_t height, const ptrdiff_t nlayers);
 
+    std::shared_ptr<Mesh> concatenate(const std::shared_ptr<Mesh> &mesh1, const std::shared_ptr<Mesh> &mesh2);
+
 }  // namespace smesh
 
 #endif  // SMESH_MESH_HPP
