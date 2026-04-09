@@ -182,6 +182,7 @@ namespace smesh {
 
         std::shared_ptr<NodeToNodeGraph>    node_to_node_graph();
         std::shared_ptr<NodeToNodeGraph>    node_to_node_graph_upper_triangular();
+        std::shared_ptr<NodeToNodeGraph>    edge_graph() { return node_to_node_graph_upper_triangular(); }
         std::shared_ptr<NodeToElementGraph> node_to_element_graph();
         SharedBuffer<element_idx_t>         half_face_table();
         std::shared_ptr<NodeToNodeGraph>    create_node_to_node_graph(const enum ElemType element_type);
