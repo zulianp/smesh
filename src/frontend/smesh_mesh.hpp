@@ -182,6 +182,7 @@ namespace smesh {
 
         std::shared_ptr<NodeToNodeGraph>    node_to_node_graph();
         std::shared_ptr<NodeToNodeGraph>    node_to_node_graph_upper_triangular();
+        std::shared_ptr<NodeToNodeGraph>    edge_graph() { return node_to_node_graph_upper_triangular(); }
         std::shared_ptr<NodeToElementGraph> node_to_element_graph();
         SharedBuffer<element_idx_t>         half_face_table();
         std::shared_ptr<NodeToNodeGraph>    create_node_to_node_graph(const enum ElemType element_type);
@@ -347,6 +348,8 @@ namespace smesh {
     std::shared_ptr<Mesh> mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh, const std::shared_ptr<Sideset> &sideset);
     std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh);
     std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh, const geom_t height, const ptrdiff_t nlayers);
+
+    std::shared_ptr<Mesh> concatenate(const std::shared_ptr<Mesh> &mesh1, const std::shared_ptr<Mesh> &mesh2);
 
 }  // namespace smesh
 

@@ -35,9 +35,20 @@ SharedBuffer<idx_t> extract_sharp_corners(const ptrdiff_t n_nodes,
                                           const bool edge_clean_up) {
   idx_t *out_corners = nullptr;
   ptrdiff_t out_ncorners = 0;
-  extract_sharp_corners(n_nodes, sharp_edges->extent(1),
-                        sharp_edges->data()[0], sharp_edges->data()[1],
-                        &out_ncorners, &out_corners, edge_clean_up);
+  ptrdiff_t out_n_sharp_edges =
+      extract_sharp_corners(n_nodes, sharp_edges->extent(1),
+                            sharp_edges->data()[0], sharp_edges->data()[1],
+                            &out_ncorners, &out_corners, edge_clean_up);
+
+  if (edge_clean_up && out_n_sharp_edges != sharp_edges->extent(1)) {
+    auto cleaned_edges = create_host_buffer<idx_t>(2, out_n_sharp_edges);
+    for (ptrdiff_t i = 0; i < out_n_sharp_edges; ++i) {
+      cleaned_edges->data()[0][i] = sharp_edges->data()[0][i];
+      cleaned_edges->data()[1][i] = sharp_edges->data()[1][i];
+    }
+
+    sharp_edges = cleaned_edges;
+  }
 
   return manage_host_buffer<idx_t>(out_ncorners, out_corners);
 }

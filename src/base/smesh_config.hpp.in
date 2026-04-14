@@ -58,14 +58,9 @@
 #define SMESH_CUDA_ARCH @SMESH_CUDA_ARCH@
 #endif
 
-// It will be removed in the future (i.e., always true)
-#cmakedefine SMESH_ENABLE_CUSTOM_NUMBERS
-
 #define CUDA_UNIFIED_MEMORY 0
 #define CUDA_MANAGED_MEMORY 1
 #define CUDA_HOST_MEMORY 2
-
-#ifdef SMESH_ENABLE_CUSTOM_NUMBERS
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -171,8 +166,6 @@ typedef @SMESH_LOCAL_IDX_C_TYPE@ local_idx_t;
 #define SMESH_CUDA_MEMORY_MODEL @SMESH_CUDA_MEMORY_MODEL@
 
 #define SMESH_LOG_LEVEL @SMESH_LOG_LEVEL@
-
-#endif  // SMESH_ENABLE_CUSTOM_NUMBERS
 
 #define SMESH_WARP_SIZE 32
 #define SMESH_WARP_FULL_MASK 0xffffffff

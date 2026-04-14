@@ -2,8 +2,6 @@
 # XSDK_PRECISION
 # ##############################################################################
 
-option(SMESH_ENABLE_CUSTOM_NUMBERS "Enable custom numbers support. (this option will be removed in the future)" ON)
-
 set(SMESH_REAL_TYPE          "float64"           CACHE STRING "Set SMESH real_t type. Used for solution vectors.")
 set(SMESH_SCALAR_TYPE        ${SMESH_REAL_TYPE}   CACHE STRING "Set SMESH scalar_t type. Used for local kernel computations")
 set(SMESH_GEOM_TYPE          "float32"           CACHE STRING "Set SMESH geom_t type")
