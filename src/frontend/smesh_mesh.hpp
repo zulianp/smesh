@@ -327,6 +327,9 @@ namespace smesh {
 
         void print(std::ostream &os = std::cout) const;
 
+        SharedBuffer<geom_t *> device_points_SoA();
+        SharedBuffer<geom_t>   device_points_AoS();
+
     private:
         friend std::shared_ptr<Mesh> mesh_from_sideset(const std::shared_ptr<Mesh>    &mesh,
                                                        const std::shared_ptr<Sideset> &sideset);

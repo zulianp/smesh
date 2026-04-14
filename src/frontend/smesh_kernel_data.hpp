@@ -25,6 +25,10 @@ namespace smesh {
             return points_AoS_;
         }
 
+        bool has_SoA() const { return points_SoA_ != nullptr; }
+        bool has_AoS() const { return points_AoS_ != nullptr; }
+
+
     private:
         SharedBuffer<geom_t *> points_SoA_;
         SharedBuffer<geom_t>   points_AoS_;
@@ -48,8 +52,8 @@ namespace smesh {
             return elements_AoS_;
         }
 
-        bool has_elements_SoA() const { return elements_SoA_ != nullptr; }
-        bool has_elements_AoS() const { return elements_AoS_ != nullptr; }
+        bool has_SoA() const { return elements_SoA_ != nullptr; }
+        bool has_AoS() const { return elements_AoS_ != nullptr; }
 
     private:
         SharedBuffer<idx_t *> elements_SoA_;
