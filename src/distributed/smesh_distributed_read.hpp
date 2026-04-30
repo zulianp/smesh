@@ -48,6 +48,26 @@ int mesh_from_folder(const MPI_Comm comm, const Path &folder,
                      // Distributed connectivities
                      int **node_owner_out, ptrdiff_t **node_offsets_out,
                      idx_t **ghosts_out);
+
+template <typename idx_t, typename geom_t, typename large_idx_t>
+int mesh_create_parallel(
+    const MPI_Comm comm, const int comm_size, const int comm_rank,
+    const int nnodesxelem, idx_t **elems, const ptrdiff_t n_local_elements,
+    const ptrdiff_t n_global_elements, const int spatial_dim, geom_t **points,
+    const ptrdiff_t n_local2global, const ptrdiff_t n_global_nodes,
+    const large_idx_t *const SMESH_RESTRICT input_element_mapping,
+    // Elements
+    int *nnodesxelem_out, ptrdiff_t *n_global_elements_out,
+    ptrdiff_t *n_owned_elements_out, ptrdiff_t *n_shared_elements_out,
+    ptrdiff_t *n_ghost_elements_out, large_idx_t **element_mapping_out,
+    large_idx_t **aura_element_mapping_out, idx_t ***elements_out,
+    // Nodes
+    int *spatial_dim_out, ptrdiff_t *n_global_nodes_out,
+    ptrdiff_t *n_owned_nodes_out, ptrdiff_t *n_shared_nodes_out,
+    ptrdiff_t *n_ghost_nodes_out, ptrdiff_t *n_aura_nodes_out,
+    large_idx_t **node_mapping_out, geom_t ***points_out,
+    // Distributed connectivities
+    int **node_owner_out, ptrdiff_t **node_offsets_out, idx_t **ghosts_out);
 } // namespace smesh
 
 #endif // SMESH_DISTRIBUTED_READ_HPP

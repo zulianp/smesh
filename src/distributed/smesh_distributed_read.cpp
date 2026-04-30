@@ -6,16 +6,32 @@
   template int mesh_from_folder<IDX_T, GEOM_T, LARGE_IDX_T>(                   \
       const MPI_Comm comm, const Path &folder, int *nnodesxelem_out,           \
       ptrdiff_t *n_global_elements_out, ptrdiff_t *n_owned_elements_out,       \
-      ptrdiff_t *n_shared_elements_out,                                         \
-      ptrdiff_t *n_ghost_elements_out, LARGE_IDX_T **element_mapping_out,      \
+      ptrdiff_t *n_shared_elements_out, ptrdiff_t *n_ghost_elements_out,       \
+      LARGE_IDX_T **element_mapping_out,                                       \
       LARGE_IDX_T **aura_element_mapping_out, IDX_T ***elements_out,           \
-      int *spatial_dim_out,                                                    \
-      ptrdiff_t *n_global_nodes_out, ptrdiff_t *n_owned_nodes_out,             \
-      ptrdiff_t *n_shared_nodes_out,                                            \
+      int *spatial_dim_out, ptrdiff_t *n_global_nodes_out,                     \
+      ptrdiff_t *n_owned_nodes_out, ptrdiff_t *n_shared_nodes_out,             \
       ptrdiff_t *n_ghost_nodes_out, ptrdiff_t *n_aura_nodes_out,               \
-      LARGE_IDX_T **node_mapping_out,                                           \
-      GEOM_T ***points_out, int **node_owner_out,                              \
-      ptrdiff_t **node_offsets_out, IDX_T **ghosts_out)
+      LARGE_IDX_T **node_mapping_out, GEOM_T ***points_out,                    \
+      int **node_owner_out, ptrdiff_t **node_offsets_out, IDX_T **ghosts_out)
+
+#define SMESH_EXPLICIT_INSTANTIATE_MESH_CREATE_PARALLEL(IDX_T, GEOM_T,          \
+                                                        LARGE_IDX_T)            \
+  template int mesh_create_parallel<IDX_T, GEOM_T, LARGE_IDX_T>(                \
+      const MPI_Comm comm, const int comm_size, const int comm_rank,            \
+      const int nnodesxelem, IDX_T **elems, const ptrdiff_t n_local_elements,   \
+      const ptrdiff_t n_global_elements, const int spatial_dim, GEOM_T **points, \
+      const ptrdiff_t n_local2global, const ptrdiff_t n_global_nodes,            \
+      const LARGE_IDX_T *const SMESH_RESTRICT input_element_mapping,             \
+      int *nnodesxelem_out, ptrdiff_t *n_global_elements_out,                    \
+      ptrdiff_t *n_owned_elements_out, ptrdiff_t *n_shared_elements_out,         \
+      ptrdiff_t *n_ghost_elements_out, LARGE_IDX_T **element_mapping_out,        \
+      LARGE_IDX_T **aura_element_mapping_out, IDX_T ***elements_out,             \
+      int *spatial_dim_out, ptrdiff_t *n_global_nodes_out,                       \
+      ptrdiff_t *n_owned_nodes_out, ptrdiff_t *n_shared_nodes_out,               \
+      ptrdiff_t *n_ghost_nodes_out, ptrdiff_t *n_aura_nodes_out,                 \
+      LARGE_IDX_T **node_mapping_out, GEOM_T ***points_out,                      \
+      int **node_owner_out, ptrdiff_t **node_offsets_out, IDX_T **ghosts_out)
 
 namespace smesh {
 // Explicit instantiation
@@ -47,6 +63,10 @@ template int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
 SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i32, f32, i32);
 SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i32, f32, i64);
 SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i64, f32, i64);
+SMESH_EXPLICIT_INSTANTIATE_MESH_CREATE_PARALLEL(i32, f32, i32);
+SMESH_EXPLICIT_INSTANTIATE_MESH_CREATE_PARALLEL(i32, f32, i64);
+SMESH_EXPLICIT_INSTANTIATE_MESH_CREATE_PARALLEL(i64, f32, i64);
 } // namespace smesh
 
+#undef SMESH_EXPLICIT_INSTANTIATE_MESH_CREATE_PARALLEL
 #undef SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER

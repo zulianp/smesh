@@ -24,7 +24,8 @@
       const ptrdiff_t, COUNT_T *const SMESH_RESTRICT,                          \
       ELEM_IDX_T *const SMESH_RESTRICT, IDX_T **const SMESH_RESTRICT,          \
       const ptrdiff_t, ptrdiff_t *const SMESH_RESTRICT,                        \
-      LARGE_IDX_T *const SMESH_RESTRICT)
+      LARGE_IDX_T *const SMESH_RESTRICT,                                       \
+      const LARGE_IDX_T *const SMESH_RESTRICT)
 
 #define SMESH_EXPLICIT_INSTANTIATE_REDISTRIBUTE(COUNT_T, ELEM_IDX_T, LARGE_IDX_T) \
   template int redistribute_n2e<COUNT_T, ELEM_IDX_T, LARGE_IDX_T>(               \
@@ -96,7 +97,7 @@ template int rearrange_local_elements<i32, i32, i32, i32>(
     const int, const int, const ptrdiff_t, const ptrdiff_t, const int,
     const ptrdiff_t, i32 *const SMESH_RESTRICT, i32 *const SMESH_RESTRICT,
     i32 **const SMESH_RESTRICT, const ptrdiff_t, ptrdiff_t *const SMESH_RESTRICT,
-    i32 *const SMESH_RESTRICT);
+    i32 *const SMESH_RESTRICT, const i32 *const SMESH_RESTRICT);
 template int localize_element_indices<i32, i32, i32, i32>(
     const int, const int, const ptrdiff_t, const ptrdiff_t, const int,
     i32 *const *const SMESH_RESTRICT, const ptrdiff_t,
@@ -123,7 +124,7 @@ template int rearrange_local_elements<i32, i64, i64, i32>(
     const int, const int, const ptrdiff_t, const ptrdiff_t, const int,
     const ptrdiff_t, i64 *const SMESH_RESTRICT, i64 *const SMESH_RESTRICT,
     i32 **const SMESH_RESTRICT, const ptrdiff_t, ptrdiff_t *const SMESH_RESTRICT,
-    i32 *const SMESH_RESTRICT);
+    i32 *const SMESH_RESTRICT, const i32 *const SMESH_RESTRICT);
 
 SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE_IDX(i32, i32);
 SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE_IDX(i32, i64);
