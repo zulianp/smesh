@@ -20,17 +20,6 @@ extern "C" {
 
 namespace smesh {
 
-template <typename geom_t>
-int Hilbert3ElementOrdering<geom_t>::operator()(
-    const ptrdiff_t n_points, const geom_t *const SMESH_RESTRICT x,
-    const geom_t *const SMESH_RESTRICT y, const geom_t *const SMESH_RESTRICT z,
-    const geom_t x_min, const geom_t x_max, const geom_t y_min,
-    const geom_t y_max, const geom_t z_min, const geom_t z_max,
-    u32 *const SMESH_RESTRICT encoding) const {
-  return encode_hilbert3(n_points, x, y, z, x_min, x_max, y_min, y_max, z_min,
-                         z_max, encoding);
-}
-
 template <typename idx_t, typename geom_t, typename Ordering>
 int distributed_reorder_elements(
     MPI_Comm comm, const int nnodesxelem, const ptrdiff_t n_local_elements,
@@ -38,8 +27,7 @@ int distributed_reorder_elements(
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const ptrdiff_t n_global_nodes,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
-    large_idx_t *const SMESH_RESTRICT sorted_ids,
-    Ordering ordering) {
+    large_idx_t *const SMESH_RESTRICT sorted_ids, Ordering ordering) {
   if (n_local_elements == 0) {
     return SMESH_SUCCESS;
   }
@@ -144,8 +132,8 @@ int distributed_reorder_elements(
   std::vector<u32> sorted_keys((size_t)n_sorted_elements);
   if (MPI_Sort_bykey(send_keys.data(), send_ids.data(),
                      static_cast<int>(n_local_elements), mpi_type<u32>(),
-                     mpi_type<large_idx_t>(), sorted_keys.data(),
-                     sorted_ids, static_cast<int>(n_sorted_elements),
+                     mpi_type<large_idx_t>(), sorted_keys.data(), sorted_ids,
+                     static_cast<int>(n_sorted_elements),
                      comm) != MPI_SUCCESS) {
     return SMESH_FAILURE;
   }
@@ -257,13 +245,12 @@ int mesh_from_folder_reordered_basic(
   const int ret = mesh_create_parallel<idx_t, geom_t, global_idx_t>(
       comm, comm_size, comm_rank, nnodesxelem, elems, n_local_elements,
       n_global_elements, spatial_dim, points, n_local2global, n_global_nodes,
-      nullptr, nnodesxelem_out, n_global_elements_out,
-      n_owned_elements_out, n_shared_elements_out, n_ghost_elements_out,
-      element_mapping_out, aura_element_mapping_out, elements_out,
-      spatial_dim_out, n_global_nodes_out, n_owned_nodes_out,
-      n_shared_nodes_out, n_ghost_nodes_out, n_aura_nodes_out,
-      node_mapping_out, points_out, node_owner_out, node_offsets_out,
-      ghosts_out);
+      nullptr, nnodesxelem_out, n_global_elements_out, n_owned_elements_out,
+      n_shared_elements_out, n_ghost_elements_out, element_mapping_out,
+      aura_element_mapping_out, elements_out, spatial_dim_out,
+      n_global_nodes_out, n_owned_nodes_out, n_shared_nodes_out,
+      n_ghost_nodes_out, n_aura_nodes_out, node_mapping_out, points_out,
+      node_owner_out, node_offsets_out, ghosts_out);
   if (ret == SMESH_SUCCESS) {
     global_idx_t *const element_mapping = *element_mapping_out;
     for (ptrdiff_t i = 0; i < *n_owned_elements_out; ++i) {
@@ -276,10 +263,9 @@ int mesh_from_folder_reordered_basic(
     const ptrdiff_t n_aura_elements = *n_ghost_elements_out;
     global_idx_t *const aura_element_mapping = *aura_element_mapping_out;
     smesh::large_idx_t *aura_element_mapping_large =
-        n_aura_elements > 0
-            ? (smesh::large_idx_t *)SMESH_ALLOC(
-                  n_aura_elements * sizeof(smesh::large_idx_t))
-            : nullptr;
+        n_aura_elements > 0 ? (smesh::large_idx_t *)SMESH_ALLOC(
+                                  n_aura_elements * sizeof(smesh::large_idx_t))
+                            : nullptr;
     gather_mapped_field(comm, n_aura_elements, n_global_elements,
                         aura_element_mapping,
                         smesh::mpi_type<smesh::large_idx_t>(), sorted_ids,

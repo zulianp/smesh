@@ -1,4 +1,5 @@
 #include "smesh_context.hpp"
+#include "smesh_distributed_base.hpp"
 #include "smesh_output.hpp"
 #include "smesh_packed_mesh.hpp"
 #include "smesh_path.hpp"
@@ -68,8 +69,24 @@ int main(int argc, char **argv) {
                               TypeToEnum<large_idx_t>::value(),
                               dist->element_mapping()->data(), 1);
 
-      // TODO create buffer with current global numbering of elements and output
-      // it as elemental_data_global
+      ptrdiff_t element_offset = 0;
+      const ptrdiff_t n_owned_elements = dist->n_elements_owned();
+      SMESH_MPI_CATCH(MPI_Exscan(&n_owned_elements, &element_offset, 1,
+                                 mpi_type<ptrdiff_t>(), MPI_SUM, comm->get()));
+      if (comm->rank() == 0) {
+        element_offset = 0;
+      }
+
+      auto element_global_numbering =
+          create_host_buffer<large_idx_t>(n_owned_elements);
+      auto element_global_numbering_data = element_global_numbering->data();
+      for (ptrdiff_t i = 0; i < n_owned_elements; ++i) {
+        element_global_numbering_data[i] =
+            static_cast<large_idx_t>(element_offset + i);
+      }
+
+      output->write_elemental("sorted_ids", TypeToEnum<large_idx_t>::value(),
+                              element_global_numbering_data, 1);
 
       comm->barrier();
 
