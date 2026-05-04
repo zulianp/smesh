@@ -12,7 +12,7 @@
 namespace smesh {
 
 template <typename geom_t>
-using ElementOrdering = int (*)(const ptrdiff_t n_points,
+using OrderEncoder = int (*)(const ptrdiff_t n_points,
                                 const geom_t *const SMESH_RESTRICT x,
                                 const geom_t *const SMESH_RESTRICT y,
                                 const geom_t *const SMESH_RESTRICT z,
@@ -22,7 +22,7 @@ using ElementOrdering = int (*)(const ptrdiff_t n_points,
                                 u32 *const SMESH_RESTRICT encoding);
 
 template <typename idx_t, typename geom_t,
-          typename Ordering = ElementOrdering<geom_t>>
+          typename Ordering = OrderEncoder<geom_t>>
 int distributed_reorder_elements(
     MPI_Comm comm, const int nnodesxelem, const ptrdiff_t n_local_elements,
     const ptrdiff_t n_global_elements,
@@ -33,7 +33,7 @@ int distributed_reorder_elements(
     Ordering ordering = encode_hilbert3<geom_t>);
 
 template <typename idx_t, typename geom_t, typename global_idx_t,
-          typename Ordering = ElementOrdering<geom_t>>
+          typename Ordering = OrderEncoder<geom_t>>
 int mesh_from_folder_reordered(
     const MPI_Comm comm, const Path &folder,
     // Elements

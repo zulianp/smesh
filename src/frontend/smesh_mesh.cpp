@@ -53,6 +53,33 @@
 
 namespace smesh {
 
+#ifdef SMESH_ENABLE_MPI
+template <typename T>
+static int encode_cartesian3_default(
+    const ptrdiff_t n_points, const T *const SMESH_RESTRICT x,
+    const T *const SMESH_RESTRICT y, const T *const SMESH_RESTRICT z,
+    const T x_min, const T x_max, const T y_min, const T y_max, const T z_min,
+    const T z_max, u32 *const SMESH_RESTRICT encoding) {
+  return encode_cartesian3<T>(n_points, x, y, z, x_min, x_max, y_min, y_max,
+                              z_min, z_max, 0, 1, 2, encoding);
+}
+
+template <typename T>
+static int encode_random3_bounded(
+    const ptrdiff_t n_points, const T *const SMESH_RESTRICT x,
+    const T *const SMESH_RESTRICT y, const T *const SMESH_RESTRICT z,
+    const T x_min, const T x_max, const T y_min, const T y_max, const T z_min,
+    const T z_max, u32 *const SMESH_RESTRICT encoding) {
+  SMESH_UNUSED(x_min);
+  SMESH_UNUSED(x_max);
+  SMESH_UNUSED(y_min);
+  SMESH_UNUSED(y_max);
+  SMESH_UNUSED(z_min);
+  SMESH_UNUSED(z_max);
+  return encode_random3<T>(n_points, x, y, z, encoding);
+}
+#endif
+
 class Distributed::Impl {
 public:
   ptrdiff_t n_nodes_global = 0;
@@ -921,7 +948,17 @@ int Mesh::read(const Path &path) {
     const char *const reorder = std::getenv("SMESH_REORDER");
     int read_status = SMESH_FAILURE;
     if (reorder && reorder[0] != '\0') {
-      if (std::strcmp(reorder, "hilbert3") != 0) {
+      OrderEncoder<geom_t> ordering = nullptr;
+
+      if (std::strcmp(reorder, "hilbert3") == 0) {
+        ordering = encode_hilbert3<geom_t>;
+      } else if (std::strcmp(reorder, "morton3") == 0) {
+        ordering = encode_morton3<geom_t>;
+      } else if (std::strcmp(reorder, "cartesian3") == 0) {
+        ordering = encode_cartesian3_default<geom_t>;
+      } else if (std::strcmp(reorder, "random3") == 0) {
+        ordering = encode_random3_bounded<geom_t>;
+      } else {
         SMESH_ERROR("Unsupported SMESH_REORDER=%s\n", reorder);
         return SMESH_FAILURE;
       }
@@ -938,7 +975,7 @@ int Mesh::read(const Path &path) {
           &dist->impl_->n_nodes_owned, &dist->impl_->n_nodes_shared,
           &dist->impl_->n_nodes_ghosts, &n_nodes_aura, &node_mapping, &points,
           // Distributed connectivities
-          &node_owner, &node_offsets, &ghosts);
+          &node_owner, &node_offsets, &ghosts, ordering);
     } else {
       read_status = mesh_from_folder(
           impl_->comm->get(), path,
