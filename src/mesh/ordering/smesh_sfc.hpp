@@ -12,6 +12,16 @@ int encode_morton3(const ptrdiff_t n_points,
                    u32 *const SMESH_RESTRICT encoding);
 
 template <typename geom_t>
+int encode_morton3(const ptrdiff_t n_points,
+                   const geom_t *const SMESH_RESTRICT x,
+                   const geom_t *const SMESH_RESTRICT y,
+                   const geom_t *const SMESH_RESTRICT z,
+                   const geom_t x_min, const geom_t x_max,
+                   const geom_t y_min, const geom_t y_max,
+                   const geom_t z_min, const geom_t z_max,
+                   u32 *const SMESH_RESTRICT encoding);
+
+template <typename geom_t>
 int encode_hilbert3(const ptrdiff_t n_points,
                     const geom_t *const SMESH_RESTRICT x,
                     const geom_t *const SMESH_RESTRICT y,
@@ -19,10 +29,30 @@ int encode_hilbert3(const ptrdiff_t n_points,
                     u32 *const SMESH_RESTRICT encoding);
 
 template <typename geom_t>
+int encode_hilbert3(const ptrdiff_t n_points,
+                    const geom_t *const SMESH_RESTRICT x,
+                    const geom_t *const SMESH_RESTRICT y,
+                    const geom_t *const SMESH_RESTRICT z,
+                    const geom_t x_min, const geom_t x_max,
+                    const geom_t y_min, const geom_t y_max,
+                    const geom_t z_min, const geom_t z_max,
+                    u32 *const SMESH_RESTRICT encoding);
+
+template <typename geom_t>
 int encode_cartesian3(const ptrdiff_t n_points,
                       const geom_t *const SMESH_RESTRICT x,
                       const geom_t *const SMESH_RESTRICT y,
                       const geom_t *const SMESH_RESTRICT z, int fast, int mid,
+                      int slow, u32 *const SMESH_RESTRICT encoding);
+
+template <typename geom_t>
+int encode_cartesian3(const ptrdiff_t n_points,
+                      const geom_t *const SMESH_RESTRICT x,
+                      const geom_t *const SMESH_RESTRICT y,
+                      const geom_t *const SMESH_RESTRICT z,
+                      const geom_t x_min, const geom_t x_max,
+                      const geom_t y_min, const geom_t y_max,
+                      const geom_t z_min, const geom_t z_max, int fast, int mid,
                       int slow, u32 *const SMESH_RESTRICT encoding);
 
 template <typename geom_t>

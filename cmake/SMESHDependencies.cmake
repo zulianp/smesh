@@ -197,6 +197,58 @@ if(SMESH_ENABLE_MPI)
     FetchContent_MakeAvailable(matrixio)
     # matrixio exports matrixio::matrixio (alias of target "matrixio")
     list(APPEND SMESH_SUBMODULES matrixio::matrixio)
+
+    set(_smesh_mpi_sort_dir "${CMAKE_CURRENT_SOURCE_DIR}/external/mpi-sort")
+    if(EXISTS "${_smesh_mpi_sort_dir}/include/mpi-sort.h" AND NOT SMESH_ENABLE_MPISORT)
+        foreach(_mpi_sort_obj IN ITEMS
+            smesh_mpi_sort_radix_uint8
+            smesh_mpi_sort_radix_uint16
+            smesh_mpi_sort_sparse_uint16
+            smesh_mpi_sort_sparse_uint32
+            smesh_mpi_sort_sparse_uint64)
+            add_library("${_mpi_sort_obj}" OBJECT)
+            target_include_directories("${_mpi_sort_obj}" PRIVATE
+                "${_smesh_mpi_sort_dir}/include"
+                "${_smesh_mpi_sort_dir}/lib")
+            target_compile_options("${_mpi_sort_obj}" PRIVATE
+                -Wno-error -Wno-unused-variable -Wno-unknown-pragmas)
+            target_link_libraries("${_mpi_sort_obj}" PRIVATE MPI::MPI_C MPI::MPI_CXX)
+        endforeach()
+
+        target_sources(smesh_mpi_sort_radix_uint8 PRIVATE "${_smesh_mpi_sort_dir}/lib/radix.cxx")
+        target_compile_definitions(smesh_mpi_sort_radix_uint8 PRIVATE _TUNED_ KEY_T=uint8_t _BITCOUNT_=8)
+
+        target_sources(smesh_mpi_sort_radix_uint16 PRIVATE "${_smesh_mpi_sort_dir}/lib/radix.cxx")
+        target_compile_definitions(smesh_mpi_sort_radix_uint16 PRIVATE _TUNED_ KEY_T=uint16_t _BITCOUNT_=16)
+
+        target_sources(smesh_mpi_sort_sparse_uint16 PRIVATE "${_smesh_mpi_sort_dir}/lib/sparse.c")
+        target_compile_definitions(smesh_mpi_sort_sparse_uint16 PRIVATE _KEYBITS_=16)
+
+        target_sources(smesh_mpi_sort_sparse_uint32 PRIVATE "${_smesh_mpi_sort_dir}/lib/sparse.c")
+        target_compile_definitions(smesh_mpi_sort_sparse_uint32 PRIVATE _KEYBITS_=32)
+
+        target_sources(smesh_mpi_sort_sparse_uint64 PRIVATE "${_smesh_mpi_sort_dir}/lib/sparse.c")
+        target_compile_definitions(smesh_mpi_sort_sparse_uint64 PRIVATE _KEYBITS_=64)
+
+        add_library(smesh_mpi_sort STATIC
+            "${_smesh_mpi_sort_dir}/lib/dispatch.c"
+            "${_smesh_mpi_sort_dir}/lib/common.c"
+            "${_smesh_mpi_sort_dir}/lib/drange.c"
+            "${_smesh_mpi_sort_dir}/lib/xtract.c"
+            "${_smesh_mpi_sort_dir}/lib/lsort.cxx"
+            "${_smesh_mpi_sort_dir}/lib/a2av.c"
+            $<TARGET_OBJECTS:smesh_mpi_sort_radix_uint8>
+            $<TARGET_OBJECTS:smesh_mpi_sort_radix_uint16>
+            $<TARGET_OBJECTS:smesh_mpi_sort_sparse_uint16>
+            $<TARGET_OBJECTS:smesh_mpi_sort_sparse_uint32>
+            $<TARGET_OBJECTS:smesh_mpi_sort_sparse_uint64>)
+        target_include_directories(smesh_mpi_sort PUBLIC "${_smesh_mpi_sort_dir}/include")
+        target_include_directories(smesh_mpi_sort PRIVATE "${_smesh_mpi_sort_dir}/lib")
+        target_compile_options(smesh_mpi_sort PRIVATE
+            -Wno-error -Wno-unused-variable -Wno-unknown-pragmas)
+        target_link_libraries(smesh_mpi_sort PUBLIC MPI::MPI_C MPI::MPI_CXX)
+        list(APPEND SMESH_TEST_SUBMODULES smesh_mpi_sort)
+    endif()
 endif()
 
 
@@ -263,4 +315,77 @@ endif()
 
 if(SMESH_ENABLE_INSTALL_DOCS AND NOT DOXYGEN_FOUND)
     message(FATAL_ERROR "SMESH_ENABLE_INSTALL_DOCS requires Doxygen, but it was not found.")
+endif()
+
+
+if(SMESH_ENABLE_MPISORT)
+if(NOT SMESH_ENABLE_MPI)
+    message(FATAL_ERROR "SMESH_ENABLE_MPISORT requires SMESH_ENABLE_MPI")
+endif()
+
+set(_SMESH_MPISORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/mpi-sort")
+if(EXISTS "${_SMESH_MPISORT_DIR}/include/mpi-sort.h")
+    foreach(_mpi_sort_obj IN ITEMS
+        smesh_mpi_sort_radix_uint8
+        smesh_mpi_sort_radix_uint16
+        smesh_mpi_sort_sparse_uint16
+        smesh_mpi_sort_sparse_uint32
+        smesh_mpi_sort_sparse_uint64)
+        add_library("${_mpi_sort_obj}" OBJECT)
+        target_include_directories("${_mpi_sort_obj}" PRIVATE
+            "${_SMESH_MPISORT_DIR}/include"
+            "${_SMESH_MPISORT_DIR}/lib")
+        target_compile_options("${_mpi_sort_obj}" PRIVATE
+            -Wno-error -Wno-unused-variable -Wno-unknown-pragmas)
+        target_link_libraries("${_mpi_sort_obj}" PRIVATE MPI::MPI_C MPI::MPI_CXX)
+        set_target_properties("${_mpi_sort_obj}" PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    endforeach()
+
+    target_sources(smesh_mpi_sort_radix_uint8 PRIVATE "${_SMESH_MPISORT_DIR}/lib/radix.cxx")
+    target_compile_definitions(smesh_mpi_sort_radix_uint8 PRIVATE _TUNED_ KEY_T=uint8_t _BITCOUNT_=8)
+
+    target_sources(smesh_mpi_sort_radix_uint16 PRIVATE "${_SMESH_MPISORT_DIR}/lib/radix.cxx")
+    target_compile_definitions(smesh_mpi_sort_radix_uint16 PRIVATE _TUNED_ KEY_T=uint16_t _BITCOUNT_=16)
+
+    target_sources(smesh_mpi_sort_sparse_uint16 PRIVATE "${_SMESH_MPISORT_DIR}/lib/sparse.c")
+    target_compile_definitions(smesh_mpi_sort_sparse_uint16 PRIVATE _KEYBITS_=16)
+
+    target_sources(smesh_mpi_sort_sparse_uint32 PRIVATE "${_SMESH_MPISORT_DIR}/lib/sparse.c")
+    target_compile_definitions(smesh_mpi_sort_sparse_uint32 PRIVATE _KEYBITS_=32)
+
+    target_sources(smesh_mpi_sort_sparse_uint64 PRIVATE "${_SMESH_MPISORT_DIR}/lib/sparse.c")
+    target_compile_definitions(smesh_mpi_sort_sparse_uint64 PRIVATE _KEYBITS_=64)
+
+    add_library(smesh_mpi_sort STATIC
+        "${_SMESH_MPISORT_DIR}/lib/dispatch.c"
+        "${_SMESH_MPISORT_DIR}/lib/common.c"
+        "${_SMESH_MPISORT_DIR}/lib/drange.c"
+        "${_SMESH_MPISORT_DIR}/lib/xtract.c"
+        "${_SMESH_MPISORT_DIR}/lib/lsort.cxx"
+        "${_SMESH_MPISORT_DIR}/lib/a2av.c"
+        $<TARGET_OBJECTS:smesh_mpi_sort_radix_uint8>
+        $<TARGET_OBJECTS:smesh_mpi_sort_radix_uint16>
+        $<TARGET_OBJECTS:smesh_mpi_sort_sparse_uint16>
+        $<TARGET_OBJECTS:smesh_mpi_sort_sparse_uint32>
+        $<TARGET_OBJECTS:smesh_mpi_sort_sparse_uint64>)
+    target_include_directories(smesh_mpi_sort PUBLIC
+        $<BUILD_INTERFACE:${_SMESH_MPISORT_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+    target_include_directories(smesh_mpi_sort PRIVATE "${_SMESH_MPISORT_DIR}/lib")
+    target_compile_options(smesh_mpi_sort PRIVATE
+        -Wno-error -Wno-unused-variable -Wno-unknown-pragmas)
+    target_link_libraries(smesh_mpi_sort PUBLIC MPI::MPI_C MPI::MPI_CXX)
+    set_target_properties(smesh_mpi_sort PROPERTIES POSITION_INDEPENDENT_CODE ON)
+else()
+    add_library(smesh_mpi_sort INTERFACE)
+    if(IS_DIRECTORY "${_SMESH_MPISORT_DIR}")
+        target_include_directories(smesh_mpi_sort INTERFACE
+            $<BUILD_INTERFACE:${_SMESH_MPISORT_DIR}/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+    endif()
+    target_link_libraries(smesh_mpi_sort INTERFACE MPI::MPI_C MPI::MPI_CXX)
+endif()
+
+list(APPEND SMESH_SUBMODULES smesh_mpi_sort)
+
 endif()

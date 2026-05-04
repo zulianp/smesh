@@ -228,14 +228,26 @@ if(EXISTS "${_smesh_demo_scan_dir}")
     endforeach()
 endif()
 
+set(_smesh_install_dependency_targets "")
+if(SMESH_ENABLE_MPISORT AND TARGET smesh_mpi_sort)
+    list(APPEND _smesh_install_dependency_targets smesh_mpi_sort)
+endif()
+
 install(
-    TARGETS smesh ${_smesh_driver_targets} ${_smesh_demo_targets}
+    TARGETS smesh ${_smesh_driver_targets} ${_smesh_demo_targets} ${_smesh_install_dependency_targets}
     EXPORT smeshTargets
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
+
+if(SMESH_ENABLE_MPISORT AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/mpi-sort/include/mpi-sort.h")
+    install(
+        FILES "${CMAKE_CURRENT_SOURCE_DIR}/external/mpi-sort/include/mpi-sort.h"
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
+endif()
 
 
 install(
@@ -317,7 +329,7 @@ if(SMESH_ENABLE_TESTING)
         get_filename_component(_test_target "${_test_source}" NAME_WE)
 
         add_executable("${_test_target}" "${_test_source}")
-        target_link_libraries("${_test_target}" PRIVATE smesh ${SMESH_DEP_LIBRARIES} ${SMESH_SUBMODULES})
+        target_link_libraries("${_test_target}" PRIVATE smesh ${SMESH_DEP_LIBRARIES} ${SMESH_SUBMODULES} ${SMESH_TEST_SUBMODULES})
         add_test(NAME "${_test_target}" COMMAND "${_test_target}")
     endforeach()
 endif()

@@ -49,8 +49,20 @@ int SFC::reorder(Mesh &mesh) {
                const geom_t *const SMESH_RESTRICT,
                const geom_t *const SMESH_RESTRICT, u32 *const SMESH_RESTRICT)>>
       encode_functions = {
-          {"morton3", encode_morton3<geom_t>},
-          {"hilbert3", encode_hilbert3<geom_t>},
+          {"morton3",
+           [](const ptrdiff_t n_points, const geom_t *const SMESH_RESTRICT x,
+              const geom_t *const SMESH_RESTRICT y,
+              const geom_t *const SMESH_RESTRICT z,
+              u32 *const SMESH_RESTRICT encoding) {
+             return encode_morton3<geom_t>(n_points, x, y, z, encoding);
+           }},
+          {"hilbert3",
+           [](const ptrdiff_t n_points, const geom_t *const SMESH_RESTRICT x,
+              const geom_t *const SMESH_RESTRICT y,
+              const geom_t *const SMESH_RESTRICT z,
+              u32 *const SMESH_RESTRICT encoding) {
+             return encode_hilbert3<geom_t>(n_points, x, y, z, encoding);
+           }},
           {"cartesian3",
            [&](const ptrdiff_t n_points, const geom_t *const SMESH_RESTRICT x,
                const geom_t *const SMESH_RESTRICT y,

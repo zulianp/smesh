@@ -48,6 +48,9 @@ int encode_morton3(const ptrdiff_t n_points,
                    const geom_t *const SMESH_RESTRICT x,
                    const geom_t *const SMESH_RESTRICT y,
                    const geom_t *const SMESH_RESTRICT z,
+                   const geom_t x_min, const geom_t x_max,
+                   const geom_t y_min, const geom_t y_max,
+                   const geom_t z_min, const geom_t z_max,
                    u32 *const SMESH_RESTRICT encoding) {
   if (n_points <= 0)
     return 0;
@@ -57,11 +60,6 @@ int encode_morton3(const ptrdiff_t n_points,
   constexpr int DIG = std::numeric_limits<u32>::digits;
   constexpr int BITS_PER_AXIS = (DIG / 3 > 21) ? 21 : (DIG / 3);
   constexpr u32 Q = (u32(1) << BITS_PER_AXIS) - 1u;
-
-  geom_t x_min, x_max, y_min, y_max, z_min, z_max;
-  minmax(n_points, x, &x_min, &x_max);
-  minmax(n_points, y, &y_min, &y_max);
-  minmax(n_points, z, &z_min, &z_max);
 
   const geom_t x_range = x_max - x_min;
   const geom_t y_range = y_max - y_min;
@@ -83,6 +81,26 @@ int encode_morton3(const ptrdiff_t n_points,
   }
 
   return SMESH_SUCCESS;
+}
+
+template <typename geom_t>
+int encode_morton3(const ptrdiff_t n_points,
+                   const geom_t *const SMESH_RESTRICT x,
+                   const geom_t *const SMESH_RESTRICT y,
+                   const geom_t *const SMESH_RESTRICT z,
+                   u32 *const SMESH_RESTRICT encoding) {
+  if (n_points <= 0)
+    return 0;
+  if (!x || !y || !z || !encoding)
+    return SMESH_FAILURE;
+
+  geom_t x_min, x_max, y_min, y_max, z_min, z_max;
+  minmax(n_points, x, &x_min, &x_max);
+  minmax(n_points, y, &y_min, &y_max);
+  minmax(n_points, z, &z_min, &z_max);
+
+  return encode_morton3(n_points, x, y, z, x_min, x_max, y_min, y_max, z_min,
+                        z_max, encoding);
 }
 
 // Convert 3D axes -> Hilbert transpose (in-place).
@@ -147,6 +165,9 @@ int encode_hilbert3(const ptrdiff_t n_points,
                     const geom_t *const SMESH_RESTRICT x,
                     const geom_t *const SMESH_RESTRICT y,
                     const geom_t *const SMESH_RESTRICT z,
+                    const geom_t x_min, const geom_t x_max,
+                    const geom_t y_min, const geom_t y_max,
+                    const geom_t z_min, const geom_t z_max,
                     u32 *const SMESH_RESTRICT encoding) {
   if (n_points <= 0)
     return 0;
@@ -160,11 +181,6 @@ int encode_hilbert3(const ptrdiff_t n_points,
   static_assert(BITS_PER_AXIS >= 1, "u32 too small for 3D Hilbert encoding");
 
   constexpr u32 Q = (u32(1) << BITS_PER_AXIS) - 1u;
-
-  geom_t x_min, x_max, y_min, y_max, z_min, z_max;
-  minmax(n_points, x, &x_min, &x_max);
-  minmax(n_points, y, &y_min, &y_max);
-  minmax(n_points, z, &z_min, &z_max);
 
   const geom_t x_range = x_max - x_min;
   const geom_t y_range = y_max - y_min;
@@ -186,6 +202,26 @@ int encode_hilbert3(const ptrdiff_t n_points,
   return SMESH_SUCCESS;
 }
 
+template <typename geom_t>
+int encode_hilbert3(const ptrdiff_t n_points,
+                    const geom_t *const SMESH_RESTRICT x,
+                    const geom_t *const SMESH_RESTRICT y,
+                    const geom_t *const SMESH_RESTRICT z,
+                    u32 *const SMESH_RESTRICT encoding) {
+  if (n_points <= 0)
+    return 0;
+  if (!x || !y || !z || !encoding)
+    return SMESH_FAILURE;
+
+  geom_t x_min, x_max, y_min, y_max, z_min, z_max;
+  minmax(n_points, x, &x_min, &x_max);
+  minmax(n_points, y, &y_min, &y_max);
+  minmax(n_points, z, &z_min, &z_max);
+
+  return encode_hilbert3(n_points, x, y, z, x_min, x_max, y_min, y_max, z_min,
+                         z_max, encoding);
+}
+
 static inline bool valid_perm3(int a, int b, int c) {
   if ((unsigned)a > 2u || (unsigned)b > 2u || (unsigned)c > 2u)
     return false;
@@ -199,6 +235,29 @@ int encode_cartesian3(const ptrdiff_t n_points,
                       const geom_t *const SMESH_RESTRICT x,
                       const geom_t *const SMESH_RESTRICT y,
                       const geom_t *const SMESH_RESTRICT z, int fast, int mid,
+                      int slow, u32 *const SMESH_RESTRICT encoding) {
+  if (n_points <= 0)
+    return 0;
+  if (!x || !y || !z || !encoding)
+    return SMESH_FAILURE;
+
+  geom_t x_min, x_max, y_min, y_max, z_min, z_max;
+  minmax(n_points, x, &x_min, &x_max);
+  minmax(n_points, y, &y_min, &y_max);
+  minmax(n_points, z, &z_min, &z_max);
+
+  return encode_cartesian3(n_points, x, y, z, x_min, x_max, y_min, y_max, z_min,
+                           z_max, fast, mid, slow, encoding);
+}
+
+template <typename geom_t>
+int encode_cartesian3(const ptrdiff_t n_points,
+                      const geom_t *const SMESH_RESTRICT x,
+                      const geom_t *const SMESH_RESTRICT y,
+                      const geom_t *const SMESH_RESTRICT z,
+                      const geom_t x_min, const geom_t x_max,
+                      const geom_t y_min, const geom_t y_max,
+                      const geom_t z_min, const geom_t z_max, int fast, int mid,
                       int slow, u32 *const SMESH_RESTRICT encoding) {
   if (n_points <= 0)
     return 0;
@@ -222,12 +281,6 @@ int encode_cartesian3(const ptrdiff_t n_points,
   static_assert(BITS_PER_AXIS >= 1, "u32 too small for 3D cartesian encoding");
 
   constexpr u32 Q = (u32(1) << BITS_PER_AXIS) - 1u; // per-axis max
-
-  // bounding box
-  geom_t x_min, x_max, y_min, y_max, z_min, z_max;
-  minmax(n_points, x, &x_min, &x_max);
-  minmax(n_points, y, &y_min, &y_max);
-  minmax(n_points, z, &z_min, &z_max);
 
   const geom_t x_range = x_max - x_min;
   const geom_t y_range = y_max - y_min;
