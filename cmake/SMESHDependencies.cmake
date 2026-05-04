@@ -242,11 +242,14 @@ if(SMESH_ENABLE_MPI)
             $<TARGET_OBJECTS:smesh_mpi_sort_sparse_uint16>
             $<TARGET_OBJECTS:smesh_mpi_sort_sparse_uint32>
             $<TARGET_OBJECTS:smesh_mpi_sort_sparse_uint64>)
-        target_include_directories(smesh_mpi_sort PUBLIC "${_smesh_mpi_sort_dir}/include")
+        target_include_directories(smesh_mpi_sort PUBLIC
+            $<BUILD_INTERFACE:${_smesh_mpi_sort_dir}/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
         target_include_directories(smesh_mpi_sort PRIVATE "${_smesh_mpi_sort_dir}/lib")
         target_compile_options(smesh_mpi_sort PRIVATE
             -Wno-error -Wno-unused-variable -Wno-unknown-pragmas)
         target_link_libraries(smesh_mpi_sort PUBLIC MPI::MPI_C MPI::MPI_CXX)
+        list(APPEND SMESH_SUBMODULES smesh_mpi_sort)
         list(APPEND SMESH_TEST_SUBMODULES smesh_mpi_sort)
     endif()
 endif()

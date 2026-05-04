@@ -48,6 +48,7 @@ set(SMESH_LIBRARY_SCAN_DIRS
 
 if(SMESH_ENABLE_MPI)
     list(APPEND SMESH_LIBRARY_SCAN_DIRS "src/distributed")
+    list(APPEND SMESH_LIBRARY_SCAN_DIRS "src/distributed/sorting")
 endif()
 
 set(_smesh_library_files "")
@@ -229,7 +230,7 @@ if(EXISTS "${_smesh_demo_scan_dir}")
 endif()
 
 set(_smesh_install_dependency_targets "")
-if(SMESH_ENABLE_MPISORT AND TARGET smesh_mpi_sort)
+if(TARGET smesh_mpi_sort)
     list(APPEND _smesh_install_dependency_targets smesh_mpi_sort)
 endif()
 
@@ -242,7 +243,7 @@ install(
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
-if(SMESH_ENABLE_MPISORT AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/mpi-sort/include/mpi-sort.h")
+if(TARGET smesh_mpi_sort AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/mpi-sort/include/mpi-sort.h")
     install(
         FILES "${CMAKE_CURRENT_SOURCE_DIR}/external/mpi-sort/include/mpi-sort.h"
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
