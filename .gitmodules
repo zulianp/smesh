@@ -1,0 +1,3 @@
+[submodule "external/mpi-sort"]
+	path = external/mpi-sort
+	url = https://gitlab.com/rossinelli/mpi-sort.git
