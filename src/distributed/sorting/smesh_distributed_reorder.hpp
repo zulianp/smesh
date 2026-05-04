@@ -2,6 +2,7 @@
 #define SMESH_DISTRIBUTED_REORDER_HPP
 
 #include "smesh_distributed_base.hpp"
+#include "smesh_path.hpp"
 #include "smesh_types.hpp"
 
 #include <cstddef>
@@ -29,6 +30,23 @@ int distributed_reorder_elements(
     large_idx_t *const SMESH_RESTRICT sorted_ids,
     Ordering ordering = Ordering());
 
+template <typename idx_t, typename geom_t, typename global_idx_t,
+          typename Ordering = Hilbert3ElementOrdering<geom_t>>
+int mesh_from_folder_reordered(
+    const MPI_Comm comm, const Path &folder,
+    // Elements
+    int *nnodesxelem_out, ptrdiff_t *n_global_elements_out,
+    ptrdiff_t *n_owned_elements_out, ptrdiff_t *n_shared_elements_out,
+    ptrdiff_t *n_ghost_elements_out, global_idx_t **element_mapping_out,
+    global_idx_t **aura_element_mapping_out, idx_t ***elements_out,
+    // Nodes
+    int *spatial_dim_out, ptrdiff_t *n_global_nodes_out,
+    ptrdiff_t *n_owned_nodes_out, ptrdiff_t *n_shared_nodes_out,
+    ptrdiff_t *n_ghost_nodes_out, ptrdiff_t *n_aura_nodes_out,
+    global_idx_t **node_mapping_out, geom_t ***points_out,
+    // Distributed connectivities
+    int **node_owner_out, ptrdiff_t **node_offsets_out, idx_t **ghosts_out,
+    Ordering ordering = Ordering());
 } // namespace smesh
 
 #endif // SMESH_DISTRIBUTED_REORDER_HPP

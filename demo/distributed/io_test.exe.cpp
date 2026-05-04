@@ -64,8 +64,12 @@ int main(int argc, char **argv) {
       comm->barrier();
 
       output->write_nodal("nodal_data", node_mapping);
-      //   output->write_elemental("elemental_data", element_idx_type,
-      //   mesh->element_mapping()->data(), 1);
+      output->write_elemental("elemental_data",
+                              TypeToEnum<large_idx_t>::value(),
+                              dist->element_mapping()->data(), 1);
+
+      // TODO create buffer with current global numbering of elements and output
+      // it as elemental_data_global
 
       comm->barrier();
 
