@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
+#include <vector>
 
 #include "smesh_alloc.hpp"
 #include "smesh_distributed_read.hpp"
@@ -60,9 +61,10 @@ int test_parallel_sfc_sort_and_gather() {
   SMESH_TEST_EQ(nnodesxelem, 4);
   SMESH_TEST_EQ(spatial_dim, 3);
 
+  std::vector<large_idx_t> sorted_ids((size_t)n_local_elements);
   const int reorder_status = distributed_reorder_elements<idx_t, geom_t>(
       comm->get(), nnodesxelem, n_local_elements, n_global_elements, elements,
-      n_global_nodes, points);
+      n_global_nodes, points, sorted_ids.data());
   SMESH_TEST_ASSERT(reorder_status == SMESH_SUCCESS);
 
   for (int d = 0; d < nnodesxelem; ++d) {

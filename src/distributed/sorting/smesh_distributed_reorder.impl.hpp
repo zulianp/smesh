@@ -36,9 +36,13 @@ int distributed_reorder_elements(
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const ptrdiff_t n_global_nodes,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
+    large_idx_t *const SMESH_RESTRICT sorted_ids,
     Ordering ordering) {
   if (n_local_elements == 0) {
     return SMESH_SUCCESS;
+  }
+  if (!sorted_ids) {
+    return SMESH_FAILURE;
   }
 
   int rank = 0;
@@ -136,11 +140,10 @@ int distributed_reorder_elements(
   }
 
   std::vector<u32> sorted_keys((size_t)n_sorted_elements);
-  std::vector<large_idx_t> sorted_ids((size_t)n_sorted_elements);
   if (MPI_Sort_bykey(send_keys.data(), send_ids.data(),
                      static_cast<int>(n_local_elements), mpi_type<u32>(),
                      mpi_type<large_idx_t>(), sorted_keys.data(),
-                     sorted_ids.data(), static_cast<int>(n_sorted_elements),
+                     sorted_ids, static_cast<int>(n_sorted_elements),
                      comm) != MPI_SUCCESS) {
     return SMESH_FAILURE;
   }
@@ -172,7 +175,7 @@ int distributed_reorder_elements(
   std::vector<idx_t> sorted_elements((size_t)n_sorted_elements);
   for (int d = 0; d < nnodesxelem; ++d) {
     if (gather_mapped_field(comm, n_sorted_elements, n_global_elements,
-                            sorted_ids.data(), mpi_type<idx_t>(), elements[d],
+                            sorted_ids, mpi_type<idx_t>(), elements[d],
                             sorted_elements.data()) != SMESH_SUCCESS) {
       return SMESH_FAILURE;
     }

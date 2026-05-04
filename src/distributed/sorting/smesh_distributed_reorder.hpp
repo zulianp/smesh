@@ -26,6 +26,7 @@ int distributed_reorder_elements(
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const ptrdiff_t n_global_nodes,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
+    large_idx_t *const SMESH_RESTRICT sorted_ids,
     Ordering ordering = Ordering());
 
 } // namespace smesh

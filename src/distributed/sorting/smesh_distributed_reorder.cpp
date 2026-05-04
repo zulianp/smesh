@@ -13,6 +13,7 @@ namespace smesh {
       MPI_Comm, const int, const ptrdiff_t, const ptrdiff_t,                   \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, const ptrdiff_t,      \
       GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                      \
+      large_idx_t *const SMESH_RESTRICT,                                       \
       Hilbert3ElementOrdering<GEOM_T>)
 
 SMESH_EXPLICIT_INSTANTIATE_DISTRIBUTED_ORDERING(f32);
