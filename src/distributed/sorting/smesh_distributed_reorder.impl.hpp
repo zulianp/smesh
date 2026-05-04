@@ -21,17 +21,16 @@ namespace smesh {
 template <typename geom_t>
 int Hilbert3ElementOrdering<geom_t>::operator()(
     const ptrdiff_t n_points, const geom_t *const SMESH_RESTRICT x,
-    const geom_t *const SMESH_RESTRICT y,
-    const geom_t *const SMESH_RESTRICT z, const geom_t x_min,
-    const geom_t x_max, const geom_t y_min, const geom_t y_max,
-    const geom_t z_min, const geom_t z_max,
+    const geom_t *const SMESH_RESTRICT y, const geom_t *const SMESH_RESTRICT z,
+    const geom_t x_min, const geom_t x_max, const geom_t y_min,
+    const geom_t y_max, const geom_t z_min, const geom_t z_max,
     u32 *const SMESH_RESTRICT encoding) const {
   return encode_hilbert3(n_points, x, y, z, x_min, x_max, y_min, y_max, z_min,
                          z_max, encoding);
 }
 
 template <typename idx_t, typename geom_t, typename Ordering>
-int distributed_sort_elements(
+int distributed_reorder_elements(
     MPI_Comm comm, const int nnodesxelem, const ptrdiff_t n_local_elements,
     const ptrdiff_t n_global_elements,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
@@ -146,6 +145,30 @@ int distributed_sort_elements(
     return SMESH_FAILURE;
   }
 
+#ifndef NDEBUG
+  for (ptrdiff_t e = 1; e < n_sorted_elements; ++e) {
+    SMESH_ASSERT(sorted_keys[(size_t)(e - 1)] <= sorted_keys[(size_t)e]);
+  }
+
+  if (rank + 1 < size && n_sorted_elements > 0) {
+    const u32 local_last = sorted_keys.back();
+    u32 next_first = 0;
+    SMESH_MPI_CATCH(MPI_Sendrecv(&local_last, 1, mpi_type<u32>(), rank + 1, 0,
+                                 &next_first, 1, mpi_type<u32>(), rank + 1, 1,
+                                 comm, MPI_STATUS_IGNORE));
+    SMESH_ASSERT(local_last <= next_first);
+  }
+
+  if (rank > 0 && n_sorted_elements > 0) {
+    const u32 local_first = sorted_keys.front();
+    u32 prev_last = 0;
+    SMESH_MPI_CATCH(MPI_Sendrecv(&local_first, 1, mpi_type<u32>(), rank - 1, 1,
+                                 &prev_last, 1, mpi_type<u32>(), rank - 1, 0,
+                                 comm, MPI_STATUS_IGNORE));
+    SMESH_ASSERT(prev_last <= local_first);
+  }
+#endif
+
   std::vector<idx_t> sorted_elements((size_t)n_sorted_elements);
   for (int d = 0; d < nnodesxelem; ++d) {
     if (gather_mapped_field(comm, n_sorted_elements, n_global_elements,
@@ -159,19 +182,6 @@ int distributed_sort_elements(
   }
 
   return SMESH_SUCCESS;
-}
-
-template <typename idx_t, typename geom_t, typename Ordering>
-int distributed_reorder_elements(
-    MPI_Comm comm, const int nnodesxelem, const ptrdiff_t n_local_elements,
-    const ptrdiff_t n_global_elements,
-    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
-    const ptrdiff_t n_global_nodes,
-    geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
-    Ordering ordering) {
-  return distributed_sort_elements(comm, nnodesxelem, n_local_elements,
-                                   n_global_elements, elements, n_global_nodes,
-                                   points, ordering);
 }
 
 } // namespace smesh
