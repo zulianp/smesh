@@ -143,7 +143,8 @@ int rearrange_local_elements(
     element_idx_t *const SMESH_RESTRICT local_n2e_idx,
     idx_t **const SMESH_RESTRICT local_elements, const ptrdiff_t n_owned_nodes,
     ptrdiff_t *const SMESH_RESTRICT n_owned_not_shared,
-    large_idx_t *const SMESH_RESTRICT element_local_to_global);
+    large_idx_t *const SMESH_RESTRICT element_local_to_global,
+    const large_idx_t *const SMESH_RESTRICT input_element_mapping = nullptr);
 
 template <typename idx_t, typename count_t, typename element_idx_t,
           typename large_idx_t>

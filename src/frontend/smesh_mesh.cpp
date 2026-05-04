@@ -309,7 +309,7 @@ namespace smesh {
             impl_->device_elements = std::make_shared<smesh::Elements>();
         }
 
-        if (!impl_->device_elements->has_elements_SoA()) {
+        if (!impl_->device_elements->has_SoA()) {
             impl_->device_elements->init_SoA(impl_->elements, MEMORY_SPACE_DEVICE);
         }
 
@@ -321,7 +321,7 @@ namespace smesh {
             impl_->device_elements = std::make_shared<smesh::Elements>();
         }
 
-        if (!impl_->device_elements->has_elements_AoS()) {
+        if (!impl_->device_elements->has_AoS()) {
             impl_->device_elements->init_AoS(impl_->elements, MEMORY_SPACE_DEVICE);
         }
         return impl_->device_elements->elements_AoS();
@@ -356,7 +356,9 @@ namespace smesh {
         std::shared_ptr<NodeToNodeGraph>    crs_graph_upper_triangular;
         std::shared_ptr<NodeToElementGraph> node_to_element_graph;
 
-        // std::shared_ptr<KernelData> kernel_data;
+        std::shared_ptr<Points> device_points;
+
+        Impl() : device_points(std::make_shared<Points>()) {}
 
         ~Impl() {}
 
@@ -369,6 +371,7 @@ namespace smesh {
             crs_graph_upper_triangular = nullptr;
             distributed                = nullptr;
             node_to_element_graph      = nullptr;
+            device_points = std::make_shared<Points>();
             // kernel_data                = nullptr;
         }
 
@@ -587,7 +590,7 @@ namespace smesh {
         : impl_(std::make_unique<Impl>()) {
         impl_->comm   = comm;
         impl_->points = points;
-
+        
         // Create default block
         auto default_block = std::make_shared<Block>();
         default_block->set_name("default");
@@ -2240,6 +2243,7 @@ namespace smesh {
             return nullptr;
         }
 
+#ifdef SMESH_ENABLE_MPI
         if (mesh->comm()->size() > 1) {
             const auto dist               = mesh->distributed();
             const auto n_global_elements  = dist->n_elements_global();
@@ -2247,7 +2251,6 @@ namespace smesh {
             const auto n_shared_elements  = dist->n_elements_shared();
             const auto n_owned_not_shared = dist->n_elements_owned_not_shared();
 
-#ifdef SMESH_ENABLE_MPI
             const int comm_size = mesh->comm()->size();
             SMESH_ASSERT(elem_num_sides(mesh->element_type(0)) <= 8);
             const auto     element_start         = rank_start(n_global_elements, comm_size, mesh->comm()->rank());
@@ -2359,8 +2362,7 @@ namespace smesh {
                 SMESH_FREE(recv_global_ids);
                 SMESH_FREE(recv_face_mask);
             }
-#endif
-
+            
             ptrdiff_t write_pos = 0;
             for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
                 const element_idx_t parent = parent_element[i];
@@ -2369,12 +2371,10 @@ namespace smesh {
                 }
 
                 if (parent >= n_owned_not_shared) {
-#ifdef SMESH_ENABLE_MPI
                     const u8 side_mask = static_cast<u8>(1u << side_idx[i]);
                     if ((shared_face_mask[parent - n_owned_not_shared] & side_mask) == 0) {
                         continue;
                     }
-#endif
                 }
 
                 parent_element[write_pos] = parent;
@@ -2383,12 +2383,11 @@ namespace smesh {
             }
             n_surf_elements = write_pos;
 
-#ifdef SMESH_ENABLE_MPI
             SMESH_FREE(owned_global_to_local);
             SMESH_FREE(shared_face_mask);
             SMESH_FREE(aura_face_mask);
-#endif
         }
+#endif 
 
         return std::make_shared<Sideset>(mesh->comm(),
                                          manage_host_buffer<element_idx_t>(n_surf_elements, parent_element),
@@ -2854,6 +2853,26 @@ namespace smesh {
     }
 
     SharedBuffer<idx_t> Mesh::node_mapping() const { return impl_->node_mapping; }
+
+
+    SharedBuffer<geom_t *> Mesh::device_points_SoA()
+    {
+        if(!impl_->device_points->has_SoA()) {
+            impl_->device_points->init_SoA(points(), MEMORY_SPACE_DEVICE);
+        }
+
+        return impl_->device_points->points_SoA();
+    }
+
+
+    SharedBuffer<geom_t>   Mesh::device_points_AoS()
+    {
+        if(!impl_->device_points->has_AoS()) {
+            impl_->device_points->init_AoS(points(), MEMORY_SPACE_DEVICE);
+        }
+
+        return impl_->device_points->points_AoS();
+    }
 
     void Mesh::print(std::ostream &os) const {
         os << "n_blocks: " << n_blocks() << "\n";

@@ -455,7 +455,8 @@ int rearrange_local_elements(
     element_idx_t *const SMESH_RESTRICT local_n2e_idx,
     idx_t **const SMESH_RESTRICT local_elements, const ptrdiff_t n_owned_nodes,
     ptrdiff_t *const SMESH_RESTRICT n_owned_not_shared,
-    large_idx_t *const SMESH_RESTRICT element_local_to_global) {
+    large_idx_t *const SMESH_RESTRICT element_local_to_global,
+    const large_idx_t *const SMESH_RESTRICT input_element_mapping) {
   SMESH_TRACE_SCOPE("rearrange_local_elements");
   const ptrdiff_t elements_start =
       rank_start(n_global_elements, comm_size, comm_rank);
@@ -509,8 +510,14 @@ int rearrange_local_elements(
   }
 
   *n_owned_not_shared = n_local_elements - shared_count;
-  for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
-    element_local_to_global[old_to_new_map[i]] = i + elements_start;
+  if (input_element_mapping) {
+    for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
+      element_local_to_global[old_to_new_map[i]] = input_element_mapping[i];
+    }
+  } else {
+    for (ptrdiff_t i = 0; i < n_local_elements; ++i) {
+      element_local_to_global[old_to_new_map[i]] = i + elements_start;
+    }
   }
 
   SMESH_FREE(old_to_new_map);

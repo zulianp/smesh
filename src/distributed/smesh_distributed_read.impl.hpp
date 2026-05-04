@@ -550,6 +550,7 @@ int mesh_create_parallel(
     const int nnodesxelem, idx_t **elems, const ptrdiff_t n_local_elements,
     const ptrdiff_t n_global_elements, const int spatial_dim, geom_t **points,
     const ptrdiff_t n_local2global, const ptrdiff_t n_global_nodes,
+    const large_idx_t *const SMESH_RESTRICT input_element_mapping,
     // Elements
     int *nnodesxelem_out, ptrdiff_t *n_global_elements_out,
     ptrdiff_t *n_owned_elements_out, ptrdiff_t *n_shared_elements_out,
@@ -610,10 +611,10 @@ int mesh_create_parallel(
   large_idx_t *element_mapping =
       (large_idx_t *)SMESH_ALLOC(n_local_elements * sizeof(large_idx_t));
   ptrdiff_t n_owned_not_shared = 0;
-  rearrange_local_elements(comm_size, comm_rank, n_global_elements,
-                           n_local_elements, nnodesxelem, local2global_size,
-                           local_n2e_ptr, local_n2e_idx, local_elements,
-                           n_owned, &n_owned_not_shared, element_mapping);
+  rearrange_local_elements(
+      comm_size, comm_rank, n_global_elements, n_local_elements, nnodesxelem,
+      local2global_size, local_n2e_ptr, local_n2e_idx, local_elements, n_owned,
+      &n_owned_not_shared, element_mapping, input_element_mapping);
 
   large_idx_t *aura_element_mapping = nullptr;
   idx_t **aura_element_nodes =
@@ -626,6 +627,15 @@ int mesh_create_parallel(
       comm, n_global_elements, n_local_elements, nnodesxelem, local_n2e_ptr,
       local_n2e_idx, local2global, local_elements, element_mapping, n_owned,
       n_ghosts, &aura_element_mapping, aura_element_nodes, &n_aura_elements);
+  if (input_element_mapping) {
+    large_idx_t *aura_element_mapping_user =
+        (large_idx_t *)SMESH_ALLOC(n_aura_elements * sizeof(large_idx_t));
+    gather_mapped_field(comm, n_aura_elements, n_global_elements,
+                        aura_element_mapping, smesh::mpi_type<large_idx_t>(),
+                        input_element_mapping, aura_element_mapping_user);
+    SMESH_FREE(aura_element_mapping);
+    aura_element_mapping = aura_element_mapping_user;
+  }
   SMESH_FREE(local_n2e_ptr);
   SMESH_FREE(local_n2e_idx);
 
@@ -783,7 +793,7 @@ int mesh_from_folder_basic(
   return mesh_create_parallel<idx_t, geom_t, large_idx_t>(
       comm, comm_size, comm_rank, nnodesxelem, elems, n_local_elements,
       n_global_elements, spatial_dim, points, n_local2global, n_global_nodes,
-      nnodesxelem_out, n_global_elements_out, n_owned_elements_out,
+      nullptr, nnodesxelem_out, n_global_elements_out, n_owned_elements_out,
       n_shared_elements_out, n_ghost_elements_out, element_mapping_out,
       aura_element_mapping_out, elements_out, spatial_dim_out,
       n_global_nodes_out, n_owned_nodes_out, n_shared_nodes_out,
