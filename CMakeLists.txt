@@ -195,38 +195,42 @@ foreach(_smesh_driver_scan_dir IN LISTS _smesh_driver_scan_dirs)
     endforeach()
 endforeach()
 
-set(_smesh_demo_scan_dir "${CMAKE_CURRENT_SOURCE_DIR}/demo")
-set(_smesh_demo_targets "")
-if(EXISTS "${_smesh_demo_scan_dir}")
-    file(GLOB_RECURSE _smesh_demo_sources
-        LIST_DIRECTORIES false
-        CONFIGURE_DEPENDS
-        "${_smesh_demo_scan_dir}/*.exe.cpp"
-    )
 
-    foreach(_demo_source IN LISTS _smesh_demo_sources)
-        file(RELATIVE_PATH _demo_rel "${_smesh_demo_scan_dir}" "${_demo_source}")
+if(SMESH_ENABLE_MPI)
+    set(_smesh_demo_scan_dir "${CMAKE_CURRENT_SOURCE_DIR}/demo")
+    set(_smesh_demo_targets "")
+    if(EXISTS "${_smesh_demo_scan_dir}")
+        file(GLOB_RECURSE _smesh_demo_sources
+            LIST_DIRECTORIES false
+            CONFIGURE_DEPENDS
+            "${_smesh_demo_scan_dir}/*.exe.cpp"
+        )
 
-        get_filename_component(_demo_target "${_demo_rel}" NAME_WE) # => foo.exe
-        string(REGEX REPLACE "\\.exe$" "" _demo_target "${_demo_target}")
+        foreach(_demo_source IN LISTS _smesh_demo_sources)
+            file(RELATIVE_PATH _demo_rel "${_smesh_demo_scan_dir}" "${_demo_source}")
 
-        if("${_demo_target}" IN_LIST _smesh_demo_targets
-           OR "${_demo_target}" IN_LIST _smesh_driver_targets)
-            string(REGEX REPLACE "\\.exe\\.cpp$" "" _demo_target "${_demo_rel}")
-            string(REPLACE "/" "_" _demo_target "${_demo_target}")
-            string(REPLACE "\\" "_" _demo_target "${_demo_target}")
-        endif()
+            get_filename_component(_demo_target "${_demo_rel}" NAME_WE) # => foo.exe
+            string(REGEX REPLACE "\\.exe$" "" _demo_target "${_demo_target}")
 
-        add_executable("${_demo_target}" "${_demo_source}")
-        target_link_libraries("${_demo_target}" PRIVATE smesh)
-        if(TARGET matrixio::matrixio)
-            target_link_libraries("${_demo_target}" PRIVATE matrixio::matrixio)
-        endif()
-        if(SMESH_DEP_INCLUDES OR SMESH_BUILD_INCLUDES)
-            target_include_directories("${_demo_target}" PRIVATE ${SMESH_DEP_INCLUDES} ${SMESH_BUILD_INCLUDES})
-        endif()
-        list(APPEND _smesh_demo_targets "${_demo_target}")
-    endforeach()
+            if("${_demo_target}" IN_LIST _smesh_demo_targets
+            OR "${_demo_target}" IN_LIST _smesh_driver_targets)
+                string(REGEX REPLACE "\\.exe\\.cpp$" "" _demo_target "${_demo_rel}")
+                string(REPLACE "/" "_" _demo_target "${_demo_target}")
+                string(REPLACE "\\" "_" _demo_target "${_demo_target}")
+            endif()
+
+            add_executable("${_demo_target}" "${_demo_source}")
+            target_link_libraries("${_demo_target}" PRIVATE smesh)
+            if(TARGET matrixio::matrixio)
+                target_link_libraries("${_demo_target}" PRIVATE matrixio::matrixio)
+            endif()
+            if(SMESH_DEP_INCLUDES OR SMESH_BUILD_INCLUDES)
+                target_include_directories("${_demo_target}" PRIVATE ${SMESH_DEP_INCLUDES} ${SMESH_BUILD_INCLUDES})
+            endif()
+            list(APPEND _smesh_demo_targets "${_demo_target}")
+        endforeach()
+    endif()
+
 endif()
 
 set(_smesh_install_dependency_targets "")

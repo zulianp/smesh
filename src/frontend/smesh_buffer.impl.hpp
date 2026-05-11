@@ -325,6 +325,11 @@ namespace smesh {
         return out;
     }
 
+    template <typename O>
+    std::shared_ptr<Buffer<O*>> astype(const std::shared_ptr<Buffer<O*>> &in) {
+        return in;
+    }
+
     template <typename O, typename I>
     std::shared_ptr<Buffer<O *>> astype(const std::shared_ptr<Buffer<I *>> &in) {
         const size_t n0  = in->extent(0);

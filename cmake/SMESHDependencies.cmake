@@ -213,6 +213,7 @@ if(SMESH_ENABLE_MPI)
             target_compile_options("${_mpi_sort_obj}" PRIVATE
                 -Wno-error -Wno-unused-variable -Wno-unknown-pragmas)
             target_link_libraries("${_mpi_sort_obj}" PRIVATE MPI::MPI_C MPI::MPI_CXX)
+            set_target_properties("${_mpi_sort_obj}" PROPERTIES POSITION_INDEPENDENT_CODE ON)
         endforeach()
 
         target_sources(smesh_mpi_sort_radix_uint8 PRIVATE "${_smesh_mpi_sort_dir}/lib/radix.cxx")
@@ -249,6 +250,7 @@ if(SMESH_ENABLE_MPI)
         target_compile_options(smesh_mpi_sort PRIVATE
             -Wno-error -Wno-unused-variable -Wno-unknown-pragmas)
         target_link_libraries(smesh_mpi_sort PUBLIC MPI::MPI_C MPI::MPI_CXX)
+        set_target_properties(smesh_mpi_sort PROPERTIES POSITION_INDEPENDENT_CODE ON)
         list(APPEND SMESH_SUBMODULES smesh_mpi_sort)
         list(APPEND SMESH_TEST_SUBMODULES smesh_mpi_sort)
     endif()
