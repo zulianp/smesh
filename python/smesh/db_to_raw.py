@@ -12,7 +12,7 @@ from common.utils import dtype_to_extension
 try:
     geom_t
 except NameError:
-    print("db_to_raw: self contained mode")
+    # print("db_to_raw: self contained mode")
     geom_t = np.float32
     idx_t = np.int32
     real_t = np.float64
@@ -116,9 +116,9 @@ def db_to_raw(argv):
     if not os.path.exists(point_data_dir):
         os.makedirs(point_data_dir)
 
-    print("Point data:")
+    # print("Point data:")
     for key in mesh.point_data:
-        print(f"\t- {key}")
+        # print(f"\t- {key}")
         data = mesh.point_data[key]
         d = data[:].astype(np.float64)
         d.tofile(f"{point_data_dir}/{key}.float64")
@@ -132,9 +132,9 @@ def db_to_raw(argv):
     if not os.path.exists(cell_data):
         os.makedirs(cell_data)
 
-    print("Cell data:")
+    # print("Cell data:")
     for key in mesh.cell_data:
-        print(f"\t- {key}")
+        # print(f"\t- {key}")
         data = mesh.cell_data[key]
         # pdb.set_trace()
         try:
