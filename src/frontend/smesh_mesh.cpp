@@ -65,11 +65,13 @@ static int encode_cartesian3_default(
 }
 
 template <typename T>
-static int encode_random3_bounded(
-    const ptrdiff_t n_points, const T *const SMESH_RESTRICT x,
-    const T *const SMESH_RESTRICT y, const T *const SMESH_RESTRICT z,
-    const T x_min, const T x_max, const T y_min, const T y_max, const T z_min,
-    const T z_max, u32 *const SMESH_RESTRICT encoding) {
+static int encode_random3_bounded(const ptrdiff_t n_points,
+                                  const T *const SMESH_RESTRICT x,
+                                  const T *const SMESH_RESTRICT y,
+                                  const T *const SMESH_RESTRICT z,
+                                  const T x_min, const T x_max, const T y_min,
+                                  const T y_max, const T z_min, const T z_max,
+                                  u32 *const SMESH_RESTRICT encoding) {
   SMESH_UNUSED(x_min);
   SMESH_UNUSED(x_max);
   SMESH_UNUSED(y_min);
@@ -436,6 +438,7 @@ public:
   std::shared_ptr<NodeToNodeGraph> crs_graph;
   std::shared_ptr<NodeToNodeGraph> crs_graph_upper_triangular;
   std::shared_ptr<NodeToElementGraph> node_to_element_graph;
+  std::shared_ptr<NodeToNodeGraph> edge_graph;
 
   std::shared_ptr<Points> device_points;
 
@@ -1249,6 +1252,39 @@ int Mesh::initialize_node_to_node_graph() {
                          MEMORY_SPACE_HOST));
 
   return SMESH_SUCCESS;
+}
+
+std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::edge_graph() {
+  if (impl_->edge_graph) {
+    return impl_->edge_graph;
+  }
+
+  if (n_blocks() == 1 &&
+      (block(0)->element_type() == TET4 || block(0)->element_type() == TRI3 ||
+       block(0)->element_type() == TRISHELL3)) {
+    impl_->edge_graph = node_to_node_graph_upper_triangular();
+    return impl_->edge_graph;
+  } else if (n_blocks() != 1) {
+    SMESH_ERROR("Edge graph is not supported for multiblock meshes");
+    return nullptr;
+  }
+
+  count_t *rowptr{nullptr};
+  idx_t *colidx{nullptr};
+
+  auto n2e = node_to_element_graph();
+  create_edge_graph_for_element_from_n2e(
+      block(0)->element_type(), block(0)->n_elements(), this->n_nodes(),
+      block(0)->elements()->data(), n2e->rowptr()->data(),
+      n2e->colidx()->data(), &rowptr, &colidx);
+
+  impl_->edge_graph = std::make_shared<Mesh::NodeToNodeGraph>(
+      Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free,
+                           MEMORY_SPACE_HOST),
+      Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free,
+                         MEMORY_SPACE_HOST));
+
+  return impl_->edge_graph;
 }
 
 std::shared_ptr<Mesh::NodeToNodeGraph>

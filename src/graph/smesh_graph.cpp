@@ -45,7 +45,12 @@
       const T *const SMESH_RESTRICT *const SMESH_RESTRICT, T **, T **);        \
   template int create_crs_graph_upper_triangular_from_element<T, T>(           \
       ptrdiff_t, ptrdiff_t, int,                                               \
-      const T *const SMESH_RESTRICT *const SMESH_RESTRICT, T **, T **)
+      const T *const SMESH_RESTRICT *const SMESH_RESTRICT, T **, T **);        \
+  template int create_edge_graph_for_element_from_n2e<T, T>(                   \
+      enum ElemType, ptrdiff_t, ptrdiff_t,                                     \
+      const T *const SMESH_RESTRICT *const SMESH_RESTRICT,                     \
+      const T *const SMESH_RESTRICT n2eptr,                                    \
+      const element_idx_t *const SMESH_RESTRICT elindex, T **, T **);
 
 namespace smesh {
 SMESH_EXPLICIT_INSTANTIATE_CRS_GRAPH(i32);
@@ -61,12 +66,14 @@ template int crs_graph_block_to_scalar<i64, i32>(
     ptrdiff_t, int, const i32 *const SMESH_RESTRICT,
     const i64 *const SMESH_RESTRICT, i32 *const SMESH_RESTRICT,
     i64 *const SMESH_RESTRICT);
-template int create_n2e<i32, i64, i32>(
-    ptrdiff_t, ptrdiff_t, int,
-    const i32 *const SMESH_RESTRICT *const SMESH_RESTRICT, i64 **, i32 **);
-template int create_n2e<i64, i32, i64>(
-    ptrdiff_t, ptrdiff_t, int,
-    const i64 *const SMESH_RESTRICT *const SMESH_RESTRICT, i32 **, i64 **);
+template int
+create_n2e<i32, i64, i32>(ptrdiff_t, ptrdiff_t, int,
+                          const i32 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+                          i64 **, i32 **);
+template int
+create_n2e<i64, i32, i64>(ptrdiff_t, ptrdiff_t, int,
+                          const i64 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+                          i32 **, i64 **);
 template int sort_n2e<i64, i32>(ptrdiff_t, const i64 *const SMESH_RESTRICT,
                                 i32 *);
 template int create_dual_graph<i32, i64, i32>(
