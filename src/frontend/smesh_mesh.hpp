@@ -229,6 +229,13 @@ namespace smesh {
                                                  const geom_t                         ymax = 1,
                                                  const geom_t                         zmax = 1);
 
+        static std::shared_ptr<Mesh> create_half_sphere(const std::shared_ptr<Communicator> &comm,
+                                                        const enum ElemType                  element_type,
+                                                        const geom_t                         radius,
+                                                        const ptrdiff_t                      nx = 8,
+                                                        const ptrdiff_t                      ny = 8,
+                                                        const ptrdiff_t                      nz = 4);
+
         static std::shared_ptr<Mesh> create_hex8_cube(const std::shared_ptr<Communicator> &comm,
                                                       const ptrdiff_t                      nx   = 1,
                                                       const ptrdiff_t                      ny   = 1,
@@ -293,6 +300,12 @@ namespace smesh {
                                                        const geom_t                         outer_radius,
                                                        const ptrdiff_t                      nlayers,
                                                        const ptrdiff_t                      nelements);
+
+        static std::shared_ptr<Mesh> create_tet4_half_sphere(const std::shared_ptr<Communicator> &comm,
+                                                             const geom_t                         radius,
+                                                             const ptrdiff_t                      nx = 8,
+                                                             const ptrdiff_t                      ny = 8,
+                                                             const ptrdiff_t                      nz = 4);
 
         static std::shared_ptr<Mesh> create_hex8_half_sphere(const std::shared_ptr<Communicator> &comm,
                                                              const geom_t                         radius,

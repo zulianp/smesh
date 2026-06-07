@@ -1506,6 +1506,208 @@ namespace smesh {
         return ret;
     }
 
+    std::shared_ptr<Mesh> Mesh::create_half_sphere(const std::shared_ptr<Communicator> &comm,
+                                                   const enum ElemType                  element_type,
+                                                   const geom_t                         radius,
+                                                   const ptrdiff_t                      nx,
+                                                   const ptrdiff_t                      ny,
+                                                   const ptrdiff_t                      nz) {
+        SMESH_TRACE_SCOPE("Mesh::create_half_sphere");
+        switch (element_type) {
+            case HEX8:
+                return create_hex8_half_sphere(comm, radius, nx, ny, nz);
+            case TET4:
+                return create_tet4_half_sphere(comm, radius, nx, ny, nz);
+            default:
+                SMESH_ERROR("Invalid element type: %d\n", element_type);
+                return nullptr;
+        }
+    }
+
+    std::shared_ptr<Mesh> Mesh::create_tet4_half_sphere(const std::shared_ptr<Communicator> &comm,
+                                                        const geom_t                         radius,
+                                                        const ptrdiff_t                      nx,
+                                                        const ptrdiff_t                      ny,
+                                                        const ptrdiff_t                      nz) {
+        auto ret = std::make_shared<Mesh>(comm);
+
+        const ptrdiff_t ncells     = nx * ny * nz;
+        const ptrdiff_t nvertices  = (nx + 1) * (ny + 1) * (nz + 1);
+        const ptrdiff_t nfaces_x   = (nx + 1) * ny * nz;
+        const ptrdiff_t nfaces_y   = nx * (ny + 1) * nz;
+        const ptrdiff_t nfaces_z   = nx * ny * (nz + 1);
+        const ptrdiff_t faces_x0   = nvertices;
+        const ptrdiff_t faces_y0   = faces_x0 + nfaces_x;
+        const ptrdiff_t faces_z0   = faces_y0 + nfaces_y;
+        const ptrdiff_t cell0      = faces_z0 + nfaces_z;
+        const ptrdiff_t nnodes     = cell0 + ncells;
+        const ptrdiff_t nelements  = ncells * 24;
+        const ptrdiff_t vertex_ldz = (ny + 1) * (nx + 1);
+        const ptrdiff_t vertex_ldy = nx + 1;
+
+        ret->impl_->points   = create_host_buffer<geom_t>(3, nnodes);
+        auto elements_buffer = create_host_buffer<idx_t>(4, nelements);
+
+        auto points   = ret->impl_->points->data();
+        auto elements = elements_buffer->data();
+
+        const double inv_nx = 1. / nx;
+        const double inv_ny = 1. / ny;
+        const double inv_nz = 1. / nz;
+        const double r      = radius;
+
+        auto set_point = [points, r](const ptrdiff_t n, const double x, const double y, const double z) {
+            const double abs_x = x < 0. ? -x : x;
+            const double abs_y = y < 0. ? -y : y;
+            const double mxy   = abs_x > abs_y ? abs_x : abs_y;
+            const double m     = mxy > z ? mxy : z;
+
+            if (m > 0.) {
+                const double inv_m = 1. / m;
+                const double qx    = x * inv_m;
+                const double qy    = y * inv_m;
+                const double qz    = z * inv_m;
+                const double qx2   = qx * qx;
+                const double qy2   = qy * qy;
+                const double qz2   = qz * qz;
+
+                const double sx = qx * sqrt(1. - (qy2 + qz2) * 0.5 + qy2 * qz2 / 3.);
+                const double sy = qy * sqrt(1. - (qx2 + qz2) * 0.5 + qx2 * qz2 / 3.);
+                const double sz = qz * sqrt(1. - (qx2 + qy2) * 0.5 + qx2 * qy2 / 3.);
+
+                points[0][n] = (geom_t)(r * m * sx);
+                points[1][n] = (geom_t)(r * m * sy);
+                points[2][n] = (geom_t)(r * m * sz);
+            } else {
+                points[0][n] = 0;
+                points[1][n] = 0;
+                points[2][n] = 0;
+            }
+        };
+
+        auto vertex = [vertex_ldy, vertex_ldz](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
+            return xi + yi * vertex_ldy + zi * vertex_ldz;
+        };
+
+        auto face_x = [faces_x0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
+            return faces_x0 + zi * ((nx + 1) * ny) + yi * (nx + 1) + xi;
+        };
+
+        auto face_y = [faces_y0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
+            return faces_y0 + zi * (nx * (ny + 1)) + yi * nx + xi;
+        };
+
+        auto face_z = [faces_z0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
+            return faces_z0 + zi * (nx * ny) + yi * nx + xi;
+        };
+
+        auto cell = [cell0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
+            return cell0 + zi * (nx * ny) + yi * nx + xi;
+        };
+
+        for (ptrdiff_t zi = 0; zi <= nz; zi++) {
+            const double z = zi * inv_nz;
+            for (ptrdiff_t yi = 0; yi <= ny; yi++) {
+                const double y = 2. * yi * inv_ny - 1.;
+                for (ptrdiff_t xi = 0; xi <= nx; xi++) {
+                    const double x = 2. * xi * inv_nx - 1.;
+                    set_point(vertex(xi, yi, zi), x, y, z);
+                }
+            }
+        }
+
+        for (ptrdiff_t zi = 0; zi < nz; zi++) {
+            const double z = (zi + 0.5) * inv_nz;
+            for (ptrdiff_t yi = 0; yi < ny; yi++) {
+                const double y = 2. * (yi + 0.5) * inv_ny - 1.;
+                for (ptrdiff_t xi = 0; xi <= nx; xi++) {
+                    const double x = 2. * xi * inv_nx - 1.;
+                    set_point(face_x(xi, yi, zi), x, y, z);
+                }
+            }
+        }
+
+        for (ptrdiff_t zi = 0; zi < nz; zi++) {
+            const double z = (zi + 0.5) * inv_nz;
+            for (ptrdiff_t yi = 0; yi <= ny; yi++) {
+                const double y = 2. * yi * inv_ny - 1.;
+                for (ptrdiff_t xi = 0; xi < nx; xi++) {
+                    const double x = 2. * (xi + 0.5) * inv_nx - 1.;
+                    set_point(face_y(xi, yi, zi), x, y, z);
+                }
+            }
+        }
+
+        for (ptrdiff_t zi = 0; zi <= nz; zi++) {
+            const double z = zi * inv_nz;
+            for (ptrdiff_t yi = 0; yi < ny; yi++) {
+                const double y = 2. * (yi + 0.5) * inv_ny - 1.;
+                for (ptrdiff_t xi = 0; xi < nx; xi++) {
+                    const double x = 2. * (xi + 0.5) * inv_nx - 1.;
+                    set_point(face_z(xi, yi, zi), x, y, z);
+                }
+            }
+        }
+
+        for (ptrdiff_t zi = 0; zi < nz; zi++) {
+            const double z = (zi + 0.5) * inv_nz;
+            for (ptrdiff_t yi = 0; yi < ny; yi++) {
+                const double y = 2. * (yi + 0.5) * inv_ny - 1.;
+                for (ptrdiff_t xi = 0; xi < nx; xi++) {
+                    const double x = 2. * (xi + 0.5) * inv_nx - 1.;
+                    set_point(cell(xi, yi, zi), x, y, z);
+                }
+            }
+        }
+
+        static const int face_nodes[6][4] = {{0, 1, 2, 3}, {4, 7, 6, 5}, {0, 4, 5, 1},
+                                             {3, 2, 6, 7}, {0, 3, 7, 4}, {1, 5, 6, 2}};
+
+        for (ptrdiff_t zi = 0; zi < nz; zi++) {
+            for (ptrdiff_t yi = 0; yi < ny; yi++) {
+                for (ptrdiff_t xi = 0; xi < nx; xi++) {
+                    const idx_t cube_nodes[8] = {(idx_t)vertex(xi, yi, zi),
+                                                 (idx_t)vertex(xi + 1, yi, zi),
+                                                 (idx_t)vertex(xi + 1, yi + 1, zi),
+                                                 (idx_t)vertex(xi, yi + 1, zi),
+                                                 (idx_t)vertex(xi, yi, zi + 1),
+                                                 (idx_t)vertex(xi + 1, yi, zi + 1),
+                                                 (idx_t)vertex(xi + 1, yi + 1, zi + 1),
+                                                 (idx_t)vertex(xi, yi + 1, zi + 1)};
+                    const idx_t face_centers[6] = {(idx_t)face_z(xi, yi, zi),
+                                                   (idx_t)face_z(xi, yi, zi + 1),
+                                                   (idx_t)face_y(xi, yi, zi),
+                                                   (idx_t)face_y(xi, yi + 1, zi),
+                                                   (idx_t)face_x(xi, yi, zi),
+                                                   (idx_t)face_x(xi + 1, yi, zi)};
+                    const idx_t    cell_center = (idx_t)cell(xi, yi, zi);
+                    const ptrdiff_t base        = (zi * ny * nx + yi * nx + xi) * 24;
+
+                    for (int face = 0; face < 6; face++) {
+                        const int *fn          = face_nodes[face];
+                        const idx_t face_center = face_centers[face];
+
+                        for (int edge = 0; edge < 4; edge++) {
+                            const ptrdiff_t t = base + face * 4 + edge;
+                            elements[0][t]    = cube_nodes[fn[edge]];
+                            elements[1][t]    = cube_nodes[fn[(edge + 1) & 3]];
+                            elements[2][t]    = face_center;
+                            elements[3][t]    = cell_center;
+                        }
+                    }
+                }
+            }
+        }
+
+        auto default_block = std::make_shared<Block>();
+        default_block->set_name("default");
+        default_block->set_element_type(TET4);
+        default_block->set_elements(elements_buffer);
+        ret->add_block(default_block);
+
+        return ret;
+    }
+
     std::shared_ptr<Mesh> Mesh::create_hex8_half_sphere(const std::shared_ptr<Communicator> &comm,
                                                         const geom_t                         radius,
                                                         const ptrdiff_t                      nx,
@@ -1558,14 +1760,14 @@ namespace smesh {
         for (ptrdiff_t zi = 0; zi <= nz; zi++) {
             const double z = zi * inv_nz;
             for (ptrdiff_t yi = 0; yi <= ny; yi++) {
-                const double y    = 2. * yi * inv_ny - 1.;
+                const double y     = 2. * yi * inv_ny - 1.;
                 const double abs_y = y < 0. ? -y : y;
                 for (ptrdiff_t xi = 0; xi <= nx; xi++) {
-                    const double x    = 2. * xi * inv_nx - 1.;
-                    const double abs_x = x < 0. ? -x : x;
-                    const double mxy   = abs_x > abs_y ? abs_x : abs_y;
-                    const double m     = mxy > z ? mxy : z;
-                    const ptrdiff_t n = xi + yi * ldy + zi * ldz;
+                    const double    x     = 2. * xi * inv_nx - 1.;
+                    const double    abs_x = x < 0. ? -x : x;
+                    const double    mxy   = abs_x > abs_y ? abs_x : abs_y;
+                    const double    m     = mxy > z ? mxy : z;
+                    const ptrdiff_t n     = xi + yi * ldy + zi * ldz;
 
                     if (m > 0.) {
                         const double inv_m = 1. / m;

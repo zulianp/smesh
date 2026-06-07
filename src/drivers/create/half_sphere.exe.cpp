@@ -11,18 +11,19 @@ int main(int argc, char **argv) {
 
     auto ctx = smesh::initialize_serial(argc, argv);
 
-    if (argc != 6) {
+    if (argc != 7) {
         fprintf(stderr,
-                "usage: %s <radius> <nx> <ny> <nz> "
+                "usage: %s <element_type> <radius> <nx> <ny> <nz> "
                 "<output_folder>\n",
                 argv[0]);
         return SMESH_FAILURE;
     }
 
     {
-        auto mesh = Mesh::create_hex8_half_sphere(
-                ctx->communicator(), std::atof(argv[1]), std::atoi(argv[2]), std::atoi(argv[3]), std::atoi(argv[4]));
-        mesh->write(Path(argv[5]));
+        const enum ElemType element_type = type_from_string(argv[1]);
+        auto mesh = Mesh::create_half_sphere(
+                ctx->communicator(), element_type, std::atof(argv[2]), std::atoi(argv[3]), std::atoi(argv[4]), std::atoi(argv[5]));
+        mesh->write(Path(argv[6]));
     }
 
     return SMESH_SUCCESS;
