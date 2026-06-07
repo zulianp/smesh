@@ -1556,19 +1556,38 @@ namespace smesh {
         const double r      = radius;
 
         for (ptrdiff_t zi = 0; zi <= nz; zi++) {
-            const double z  = zi * inv_nz;
-            const double z2 = z * z;
+            const double z = zi * inv_nz;
             for (ptrdiff_t yi = 0; yi <= ny; yi++) {
-                const double y  = 2. * yi * inv_ny - 1.;
-                const double y2 = y * y;
+                const double y    = 2. * yi * inv_ny - 1.;
+                const double abs_y = y < 0. ? -y : y;
                 for (ptrdiff_t xi = 0; xi <= nx; xi++) {
                     const double x    = 2. * xi * inv_nx - 1.;
-                    const double x2   = x * x;
+                    const double abs_x = x < 0. ? -x : x;
+                    const double mxy   = abs_x > abs_y ? abs_x : abs_y;
+                    const double m     = mxy > z ? mxy : z;
                     const ptrdiff_t n = xi + yi * ldy + zi * ldz;
 
-                    points[0][n] = (geom_t)(r * x * sqrt(1. - (y2 + z2) * 0.5 + y2 * z2 / 3.));
-                    points[1][n] = (geom_t)(r * y * sqrt(1. - (x2 + z2) * 0.5 + x2 * z2 / 3.));
-                    points[2][n] = (geom_t)(r * z * sqrt(1. - (x2 + y2) * 0.5 + x2 * y2 / 3.));
+                    if (m > 0.) {
+                        const double inv_m = 1. / m;
+                        const double qx    = x * inv_m;
+                        const double qy    = y * inv_m;
+                        const double qz    = z * inv_m;
+                        const double qx2   = qx * qx;
+                        const double qy2   = qy * qy;
+                        const double qz2   = qz * qz;
+
+                        const double sx = qx * sqrt(1. - (qy2 + qz2) * 0.5 + qy2 * qz2 / 3.);
+                        const double sy = qy * sqrt(1. - (qx2 + qz2) * 0.5 + qx2 * qz2 / 3.);
+                        const double sz = qz * sqrt(1. - (qx2 + qy2) * 0.5 + qx2 * qy2 / 3.);
+
+                        points[0][n] = (geom_t)(r * m * sx);
+                        points[1][n] = (geom_t)(r * m * sy);
+                        points[2][n] = (geom_t)(r * m * sz);
+                    } else {
+                        points[0][n] = 0;
+                        points[1][n] = 0;
+                        points[2][n] = 0;
+                    }
                 }
             }
         }
