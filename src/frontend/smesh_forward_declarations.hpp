@@ -18,12 +18,14 @@ namespace smesh {
 namespace c4 {
     namespace yml {
         class NodeRef;
-    }
+        class ConstNodeRef;
+    }  // namespace yml
 }  // namespace c4
 
 namespace ryml {
+    using c4::yml::ConstNodeRef;
     using c4::yml::NodeRef;
-}
+}  // namespace ryml
 #endif  // SMESH_ENABLE_RYAML
 
 #endif  // SMESH_FORWARD_DECLARATIONS_HPP
