@@ -13,8 +13,6 @@
 #include <memory>
 #include <string>
 
-// TODO: FIXME! Do not assume naming conventions, read the actual nodes and paths from the yaml files.
-
 namespace smesh {
     static std::string yaml_scalar_to_string(const ryml::ConstNodeRef &node) {
         auto v = node.val();
@@ -29,6 +27,55 @@ namespace smesh {
 
         node[key] >> value;
         return true;
+    }
+
+    template <typename T>
+    static T yaml_read_or(const ryml::ConstNodeRef &node, const char *key, const T value) {
+        T ret = value;
+        yaml_read(node, key, ret);
+        return ret;
+    }
+
+    static ElemType yaml_read_element_type_or(const ryml::ConstNodeRef &node, const ElemType value) {
+        if (!node.has_child("element_type")) {
+            return value;
+        }
+
+        return type_from_string(yaml_scalar_to_string(node["element_type"]).c_str());
+    }
+
+    static std::shared_ptr<Mesh> yaml_create_cube(const std::shared_ptr<Communicator> &comm, const ryml::ConstNodeRef &node) {
+        const ptrdiff_t n  = yaml_read_or<ptrdiff_t>(node, "n", 1);
+        const ptrdiff_t nx = yaml_read_or<ptrdiff_t>(node, "nx", n);
+        const ptrdiff_t ny = yaml_read_or<ptrdiff_t>(node, "ny", n);
+        const ptrdiff_t nz = yaml_read_or<ptrdiff_t>(node, "nz", n);
+
+        return Mesh::create_cube(comm,
+                                 yaml_read_element_type_or(node, HEX8),
+                                 nx,
+                                 ny,
+                                 nz,
+                                 yaml_read_or<geom_t>(node, "xmin", 0),
+                                 yaml_read_or<geom_t>(node, "ymin", 0),
+                                 yaml_read_or<geom_t>(node, "zmin", 0),
+                                 yaml_read_or<geom_t>(node, "xmax", 1),
+                                 yaml_read_or<geom_t>(node, "ymax", 1),
+                                 yaml_read_or<geom_t>(node, "zmax", 1));
+    }
+
+    static std::shared_ptr<Mesh> yaml_create_square(const std::shared_ptr<Communicator> &comm, const ryml::ConstNodeRef &node) {
+        const ptrdiff_t n  = yaml_read_or<ptrdiff_t>(node, "n", 1);
+        const ptrdiff_t nx = yaml_read_or<ptrdiff_t>(node, "nx", n);
+        const ptrdiff_t ny = yaml_read_or<ptrdiff_t>(node, "ny", n);
+
+        return Mesh::create_square(comm,
+                                   yaml_read_element_type_or(node, QUAD4),
+                                   nx,
+                                   ny,
+                                   yaml_read_or<geom_t>(node, "xmin", 0),
+                                   yaml_read_or<geom_t>(node, "ymin", 0),
+                                   yaml_read_or<geom_t>(node, "xmax", 1),
+                                   yaml_read_or<geom_t>(node, "ymax", 1));
     }
 
     static Path yaml_resolve_path(const ryml::ConstNodeRef &node, const std::string &path) {
@@ -140,6 +187,20 @@ namespace smesh {
     }
 
     std::shared_ptr<Mesh> mesh_from_yaml(const std::shared_ptr<Communicator> &comm, const ryml::NodeRef &node) {
+        if (node.has_child("type")) {
+            const std::string type = yaml_scalar_to_string(node["type"]);
+            if (type == "cube") {
+                return yaml_create_cube(comm, node);
+            }
+            if (type == "square" || type == "sqare") {
+                return yaml_create_square(comm, node);
+            }
+            if (type != "file") {
+                SMESH_ERROR("Mesh::create_from_yaml: Unsupported mesh type %s\n", type.c_str());
+                return nullptr;
+            }
+        }
+
         auto ret = std::make_shared<Mesh>(comm);
 
         ret->set_points(yaml_read_points(node));
