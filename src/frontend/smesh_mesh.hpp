@@ -215,6 +215,10 @@ namespace smesh {
             return ret;
         }
 
+#ifdef SMESH_ENABLE_RYAML
+        static std::shared_ptr<Mesh> create_from_yaml(const std::shared_ptr<Communicator> &comm, const ryml::NodeRef &node);
+#endif
+
         static std::shared_ptr<Mesh> create_hex8_reference_cube();
 
         static std::shared_ptr<Mesh> create_cube(const std::shared_ptr<Communicator> &comm,

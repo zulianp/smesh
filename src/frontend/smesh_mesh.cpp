@@ -37,6 +37,7 @@
 #ifdef SMESH_ENABLE_RYAML
 #include <ryml.hpp>
 #include <ryml_std.hpp>
+#include "smesh_io_yaml.hpp"
 #endif
 
 #include <math.h>
@@ -1660,31 +1661,30 @@ namespace smesh {
             }
         }
 
-        static const int face_nodes[6][4] = {{0, 1, 2, 3}, {4, 7, 6, 5}, {0, 4, 5, 1},
-                                             {3, 2, 6, 7}, {0, 3, 7, 4}, {1, 5, 6, 2}};
+        static const int face_nodes[6][4] = {{0, 1, 2, 3}, {4, 7, 6, 5}, {0, 4, 5, 1}, {3, 2, 6, 7}, {0, 3, 7, 4}, {1, 5, 6, 2}};
 
         for (ptrdiff_t zi = 0; zi < nz; zi++) {
             for (ptrdiff_t yi = 0; yi < ny; yi++) {
                 for (ptrdiff_t xi = 0; xi < nx; xi++) {
-                    const idx_t cube_nodes[8] = {(idx_t)vertex(xi, yi, zi),
-                                                 (idx_t)vertex(xi + 1, yi, zi),
-                                                 (idx_t)vertex(xi + 1, yi + 1, zi),
-                                                 (idx_t)vertex(xi, yi + 1, zi),
-                                                 (idx_t)vertex(xi, yi, zi + 1),
-                                                 (idx_t)vertex(xi + 1, yi, zi + 1),
-                                                 (idx_t)vertex(xi + 1, yi + 1, zi + 1),
-                                                 (idx_t)vertex(xi, yi + 1, zi + 1)};
-                    const idx_t face_centers[6] = {(idx_t)face_z(xi, yi, zi),
-                                                   (idx_t)face_z(xi, yi, zi + 1),
-                                                   (idx_t)face_y(xi, yi, zi),
-                                                   (idx_t)face_y(xi, yi + 1, zi),
-                                                   (idx_t)face_x(xi, yi, zi),
-                                                   (idx_t)face_x(xi + 1, yi, zi)};
-                    const idx_t    cell_center = (idx_t)cell(xi, yi, zi);
-                    const ptrdiff_t base        = (zi * ny * nx + yi * nx + xi) * 24;
+                    const idx_t     cube_nodes[8]   = {(idx_t)vertex(xi, yi, zi),
+                                                       (idx_t)vertex(xi + 1, yi, zi),
+                                                       (idx_t)vertex(xi + 1, yi + 1, zi),
+                                                       (idx_t)vertex(xi, yi + 1, zi),
+                                                       (idx_t)vertex(xi, yi, zi + 1),
+                                                       (idx_t)vertex(xi + 1, yi, zi + 1),
+                                                       (idx_t)vertex(xi + 1, yi + 1, zi + 1),
+                                                       (idx_t)vertex(xi, yi + 1, zi + 1)};
+                    const idx_t     face_centers[6] = {(idx_t)face_z(xi, yi, zi),
+                                                       (idx_t)face_z(xi, yi, zi + 1),
+                                                       (idx_t)face_y(xi, yi, zi),
+                                                       (idx_t)face_y(xi, yi + 1, zi),
+                                                       (idx_t)face_x(xi, yi, zi),
+                                                       (idx_t)face_x(xi + 1, yi, zi)};
+                    const idx_t     cell_center     = (idx_t)cell(xi, yi, zi);
+                    const ptrdiff_t base            = (zi * ny * nx + yi * nx + xi) * 24;
 
                     for (int face = 0; face < 6; face++) {
-                        const int *fn          = face_nodes[face];
+                        const int  *fn          = face_nodes[face];
                         const idx_t face_center = face_centers[face];
 
                         for (int edge = 0; edge < 4; edge++) {
@@ -3330,4 +3330,9 @@ namespace smesh {
         os << "n_nodes: " << n_nodes() << "\n";
         points()->print(os);
     }
+
+    std::shared_ptr<Mesh> Mesh::create_from_yaml(const std::shared_ptr<Communicator> &comm, const ryml::NodeRef &node) {
+        return mesh_from_yaml(comm, node);
+    }
+
 }  // namespace smesh
