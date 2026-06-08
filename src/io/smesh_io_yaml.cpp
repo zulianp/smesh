@@ -13,6 +13,8 @@
 #include <memory>
 #include <string>
 
+// TODO: FIXME! Do not assume naming conventions, read the actual nodes and paths from the yaml files.
+
 namespace smesh {
     static std::string yaml_scalar_to_string(const ryml::ConstNodeRef &node) {
         auto v = node.val();

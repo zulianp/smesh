@@ -24,6 +24,6 @@ namespace c4 {
 namespace ryml {
     using c4::yml::NodeRef;
 }
-#endif
+#endif  // SMESH_ENABLE_RYAML
 
 #endif  // SMESH_FORWARD_DECLARATIONS_HPP
