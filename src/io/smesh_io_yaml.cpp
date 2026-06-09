@@ -78,6 +78,20 @@ namespace smesh {
                                    yaml_read_or<geom_t>(node, "ymax", 1));
     }
 
+    static std::shared_ptr<Mesh> yaml_create_half_sphere(const std::shared_ptr<Communicator> &comm, const ryml::ConstNodeRef &node) {
+        const ptrdiff_t n  = yaml_read_or<ptrdiff_t>(node, "n", 8);
+        const ptrdiff_t nx = yaml_read_or<ptrdiff_t>(node, "nx", n);
+        const ptrdiff_t ny = yaml_read_or<ptrdiff_t>(node, "ny", n);
+        const ptrdiff_t nz = yaml_read_or<ptrdiff_t>(node, "nz", node.has_child("n") ? n : 4);
+
+        return Mesh::create_half_sphere(comm,
+                                        yaml_read_element_type_or(node, HEX8),
+                                        yaml_read_or<geom_t>(node, "radius", 1),
+                                        nx,
+                                        ny,
+                                        nz);
+    }
+
     static Path yaml_resolve_path(const ryml::ConstNodeRef &node, const std::string &path) {
         if (path.empty() || path[0] == '/' || (path.size() > 1 && path[1] == ':')) {
             return Path(path);
@@ -195,6 +209,11 @@ namespace smesh {
             if (type == "square" || type == "sqare") {
                 return yaml_create_square(comm, node);
             }
+
+            if (type == "half_sphere") {
+                return yaml_create_half_sphere(comm, node);
+            }
+
             if (type != "file") {
                 SMESH_ERROR("Mesh::create_from_yaml: Unsupported mesh type %s\n", type.c_str());
                 return nullptr;
