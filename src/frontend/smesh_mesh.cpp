@@ -2037,6 +2037,8 @@ namespace smesh {
                 return create_semistructured_hex_cube(comm, 7, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
             case PROTEUS_HEX729:
                 return create_semistructured_hex_cube(comm, 8, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
+            case PROTEUS_HEX4913:
+                return create_semistructured_hex_cube(comm, 16, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
             default:
                 SMESH_ERROR("Invalid element type: %d\n", element_type);
                 return nullptr;

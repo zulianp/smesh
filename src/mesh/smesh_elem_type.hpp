@@ -61,7 +61,7 @@ namespace smesh {
         PROTEUS_QUADSHELL49    = 4900001,
         PROTEUS_QUADSHELL64    = 6400001,
         PROTEUS_QUADSHELL81    = 8100001,
-        PROTEUS_QUADHESLL289   = 28900001,
+        PROTEUS_QUADSHELL289   = 28900001,
         INVALID                = -1
     };
 
@@ -112,7 +112,7 @@ namespace smesh {
         if (!strcmp(str, "PROTEUS_QUADSHELL49")) return PROTEUS_QUADSHELL49;
         if (!strcmp(str, "PROTEUS_QUADSHELL64")) return PROTEUS_QUADSHELL64;
         if (!strcmp(str, "PROTEUS_QUADSHELL81")) return PROTEUS_QUADSHELL81;
-        if (!strcmp(str, "PROTEUS_QUADHESLL289")) return PROTEUS_QUADHESLL289;
+        if (!strcmp(str, "PROTEUS_QUADSHELL289")) return PROTEUS_QUADSHELL289;
         SMESH_ERROR("No element type found for string: %s\n", str);
         return INVALID;
     }
@@ -213,8 +213,8 @@ namespace smesh {
                 return "PROTEUS_QUADSHELL64";
             case PROTEUS_QUADSHELL81:
                 return "PROTEUS_QUADSHELL81";
-            case PROTEUS_QUADHESLL289:
-                return "PROTEUS_QUADHESLL289";
+            case PROTEUS_QUADSHELL289:
+                return "PROTEUS_QUADSHELL289";
             default: {
                 SMESH_ERROR("No element type found for type: %d\n", type);
                 return "INVALID";
@@ -306,6 +306,12 @@ namespace smesh {
                 return PROTEUS_QUADSHELL36;
             case PROTEUS_HEX343:
                 return PROTEUS_QUADSHELL49;
+            case PROTEUS_HEX512:
+                return PROTEUS_QUADSHELL64;
+            case PROTEUS_HEX729:
+                return PROTEUS_QUADSHELL81;
+            case PROTEUS_HEX4913:
+                return PROTEUS_QUADSHELL289;
             case PROTEUS_QUAD4:
                 return PROTEUS_QUADSHELL4;
             case PROTEUS_QUAD9:
@@ -316,6 +322,14 @@ namespace smesh {
                 return PROTEUS_QUADSHELL25;
             case PROTEUS_QUAD36:
                 return PROTEUS_QUADSHELL36;
+            case PROTEUS_QUAD49:
+                return PROTEUS_QUADSHELL49;
+            case PROTEUS_QUAD64:
+                return PROTEUS_QUADSHELL64;
+            case PROTEUS_QUAD81:
+                return PROTEUS_QUADSHELL81;
+            case PROTEUS_QUAD289:
+                return PROTEUS_QUADSHELL289;
             case PROTEUS_QUADSHELL4:
                 return PROTEUS_QUADSHELL4;
             case PROTEUS_QUADSHELL9:
@@ -326,8 +340,12 @@ namespace smesh {
                 return PROTEUS_QUADSHELL25;
             case PROTEUS_QUADSHELL36:
                 return PROTEUS_QUADSHELL36;
-            case PROTEUS_QUADHESLL289:
-                return PROTEUS_QUADHESLL289;
+            case PROTEUS_QUADSHELL289:
+                return PROTEUS_QUADSHELL289;
+            case PROTEUS_QUADSHELL64:
+                return PROTEUS_QUADSHELL64;
+            case PROTEUS_QUADSHELL81:
+                return PROTEUS_QUADSHELL81;
             default: {
                 SMESH_ERROR("No shell type found for type: %s\n", type_to_string(type));
                 return INVALID;
@@ -612,6 +630,8 @@ namespace smesh {
                 return PROTEUS_HEX8;
             case PROTEUS_HEX729:
                 return PROTEUS_HEX8;
+            case PROTEUS_HEX4913:
+                return PROTEUS_HEX8;
             default: {
                 SMESH_ERROR("No macro base elem found for type: %s\n", type_to_string(macro_type));
                 return macro_type;
@@ -720,6 +740,8 @@ namespace smesh {
                 return 7;
             case PROTEUS_QUAD81:
                 return 8;
+            case PROTEUS_QUAD289:
+                return 16;
             case PROTEUS_QUADSHELL4:
                 return 1;
             case PROTEUS_QUADSHELL9:
@@ -736,10 +758,10 @@ namespace smesh {
                 return 7;
             case PROTEUS_QUADSHELL81:
                 return 8;
-            case PROTEUS_QUAD289:
+            case PROTEUS_QUADSHELL289:
                 return 16;
             default: {
-                SMESH_ERROR("proteus_quad_micro_elements_per_dim: Invalid element type %d", type);
+                SMESH_ERROR("proteus_quad_micro_elements_per_dim: Invalid element type %s", type_to_string(type));
                 return INVALID;
             }
         }

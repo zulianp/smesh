@@ -977,7 +977,8 @@ namespace smesh {
                                idx_t **const SMESH_RESTRICT                            sides) {
         int lidx = 0;
         for (int zi = 0; zi <= L; zi++) {
-            for (int xi = L; xi >= 0; xi--) {
+            for (int xi = 0; xi <= L; xi++) {
+                // for (int xi = L; xi >= 0; xi--) {
                 sides[lidx++][i] = elems[sshex8_lidx(L, xi, 0, zi)][e];
             }
         }
@@ -991,7 +992,8 @@ namespace smesh {
                                idx_t **const SMESH_RESTRICT                            sides) {
         int lidx = 0;
         for (int zi = 0; zi <= L; zi++) {
-            for (int xi = 0; xi <= L; xi++) {
+            // for (int xi = 0; xi <= L; xi++) {
+            for (int xi = L; xi >= 0; xi--) {
                 sides[lidx++][i] = elems[sshex8_lidx(L, xi, L, zi)][e];
             }
         }
