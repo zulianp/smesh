@@ -183,6 +183,19 @@ namespace smesh {
         return std::make_shared<Mesh>(sshex->comm(), blocks, sshex->points());
     }
 
+    std::shared_ptr<Mesh> ssquad_to_quad4(const std::shared_ptr<Mesh> &ssquad) {
+        std::vector<std::shared_ptr<Mesh::Block>> blocks;
+        for (auto &block : ssquad->blocks()) {
+            auto new_block = std::make_shared<Mesh::Block>();
+            ssquad_block_to_quad4_block(*block, *new_block);
+            blocks.push_back(new_block);
+        }
+
+        auto ret = std::make_shared<Mesh>(ssquad->comm(), blocks, ssquad->points());
+        ret->set_node_mapping(ssquad->node_mapping());
+        return ret;
+    }
+
     std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh, const int to_level) {
         if (mesh->n_blocks() > 1) {
             SMESH_ERROR("derefine is not supported for multiblock meshes");

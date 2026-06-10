@@ -2665,7 +2665,7 @@ namespace smesh {
             return nullptr;
         }
 
-        if (is_semistructured_type(mesh->element_type(0))) {
+        if (is_semistructured_type(mesh->element_type(0)) && semistructured_level(mesh->element_type(0)) > 1) {
             return skin_sideset(derefine(mesh, 1));
         }
 

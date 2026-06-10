@@ -596,10 +596,8 @@ namespace smesh {
                 return TET4;
             case TRI6:
                 return TRI3;
-            // case SSHEX8:
-            //   return HEX8;
-            // case PROTEUS_HEX8:
-            //   return PROTEUS_HEX8;
+            case PROTEUS_HEX8:
+                return PROTEUS_HEX8;
             case PROTEUS_HEX27:
                 return PROTEUS_HEX8;
             case PROTEUS_HEX64:
