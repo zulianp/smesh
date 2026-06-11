@@ -2,10 +2,10 @@
 #include <stdio.h>
 #include <algorithm>
 
-#include "smesh_test.hpp"
-#include "smesh_sshex8_graph.hpp"
 #include "smesh_buffer.hpp"
 #include "smesh_sshex8.hpp"
+#include "smesh_sshex8_graph.hpp"
+#include "smesh_test.hpp"
 
 using namespace smesh;
 
@@ -43,8 +43,10 @@ int test_sshex8_hierarchical_renumbering() {
     SMESH_TEST_ASSERT(levels->data()[3] == 24);
 
     auto node_mapping = create_host_buffer<idx_t>(sshex_nnodes);
-    SMESH_TEST_ASSERT(sshex8_hierarchical_renumbering(
-                             L, nlevels, levels->data(), nelements, sshex_nnodes, sshex8_elements->data(), node_mapping->data()) == SMESH_SUCCESS);
+    SMESH_TEST_ASSERT(
+            sshex8_hierarchical_renumbering(
+                    L, nlevels, levels->data(), nelements, sshex_nnodes, sshex8_elements->data(), node_mapping->data(), true) ==
+            SMESH_SUCCESS);
 
     // Check that original nodes are in range
     for (int zi = 0; zi <= 1; zi++) {
