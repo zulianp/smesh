@@ -18,16 +18,15 @@ namespace smesh {
                                 ssquad4_lidx(level, level, level),
                                 ssquad4_lidx(level, 0, level)};
 
-#pragma omp parallel for
         for (int d = 0; d < 4; d++) {
             const int c = corners[d];
+#pragma omp parallel for
             for (ptrdiff_t e = 0; e < nelements; e++) {
                 const IDXType node = elements[c][e];
                 rowptr[node + 1]   = 1;
             }
         }
 
-#pragma omp parallel for
         for (int vi = 1; vi < level; vi++) {
             const int edges[4] = {
                     ssquad4_lidx(level, 0, vi),
@@ -38,6 +37,7 @@ namespace smesh {
 
             for (int d = 0; d < 4; d++) {
                 const int edge = edges[d];
+#pragma omp parallel for
                 for (ptrdiff_t e = 0; e < nelements; e++) {
                     const IDXType node = elements[edge][e];
                     rowptr[node + 1]   = 2;
@@ -45,10 +45,10 @@ namespace smesh {
             }
         }
 
-#pragma omp parallel for collapse(2)
         for (int yi = 1; yi < level; yi++) {
             for (int xi = 1; xi < level; xi++) {
                 const int ii = ssquad4_lidx(level, xi, yi);
+#pragma omp parallel for
                 for (ptrdiff_t e = 0; e < nelements; e++) {
                     const IDXType node = elements[ii][e];
                     rowptr[node + 1]   = 4;
@@ -79,9 +79,10 @@ namespace smesh {
                                 ssquad4_lidx(level, level, level),
                                 ssquad4_lidx(level, 0, level)};
 
-#pragma omp parallel for
         for (int d = 0; d < 4; d++) {
             const int c = corners[d];
+
+#pragma omp parallel for
             for (ptrdiff_t e = 0; e < nelements; e++) {
                 const IDXType    node = elements[c][e];
                 const RowPtrType k    = rowptr[node];
@@ -107,7 +108,6 @@ namespace smesh {
             }
         };
 
-#pragma omp parallel for
         for (int vi = 1; vi < level; vi++) {
             const int edges[4] = {
                     ssquad4_lidx(level, 0, vi),
@@ -125,9 +125,10 @@ namespace smesh {
                 const int v0   = ev0[d];
                 const int v1   = ev1[d];
 
+#pragma omp parallel for
                 for (ptrdiff_t e = 0; e < nelements; e++) {
-                    const IDXType    node = elements[eidx][e];
-                    const RowPtrType k    = rowptr[node];
+                    const IDXType    node  = elements[eidx][e];
+                    const RowPtrType k     = rowptr[node];
                     IDXType          node0 = elements[v0][e];
                     IDXType          node1 = elements[v1][e];
                     T                w0i   = w0;
@@ -151,13 +152,12 @@ namespace smesh {
             }
         }
 
-#pragma omp parallel for collapse(2)
         for (int yi = 1; yi < level; yi++) {
             for (int xi = 1; xi < level; xi++) {
                 const int ii = ssquad4_lidx(level, xi, yi);
 
-                const T x = xi * h;
-                const T y = yi * h;
+                const T x    = xi * h;
+                const T y    = yi * h;
                 const T w[4] = {
                         (T(1) - x) * (T(1) - y),
                         x * (T(1) - y),
@@ -165,6 +165,7 @@ namespace smesh {
                         (T(1) - x) * y,
                 };
 
+#pragma omp parallel for
                 for (ptrdiff_t e = 0; e < nelements; e++) {
                     const IDXType    node = elements[ii][e];
                     const RowPtrType k    = rowptr[node];

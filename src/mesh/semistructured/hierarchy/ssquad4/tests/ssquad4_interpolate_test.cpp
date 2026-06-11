@@ -1,4 +1,5 @@
 #include "smesh_ssquad4_prolongation.hpp"
+#include "smesh_ssquad4_prolongation_matrix.hpp"
 #include "smesh_ssquad4_restriction.hpp"
 
 #include <stdio.h>
@@ -416,6 +417,87 @@ int test_basic_interpolation_matrix() {
     return SMESH_TEST_SUCCESS;
 }
 
+int test_prolongation_matrix_matches_matrix_free_square() {
+    static const int level  = 4;
+    static const int nnodes = (level + 1) * (level + 1);
+
+    auto elements = create_host_buffer<idx_t>(nnodes, 1);
+    auto e        = elements->data();
+
+    e[0][0] = 0;
+    e[1][0] = 9;
+    e[2][0] = 4;
+    e[3][0] = 10;
+    e[4][0] = 1;
+
+    e[5][0] = 16;
+    e[6][0] = 19;
+    e[7][0] = 17;
+    e[8][0] = 20;
+    e[9][0] = 11;
+
+    e[10][0] = 7;
+    e[11][0] = 24;
+    e[12][0] = 8;
+    e[13][0] = 21;
+    e[14][0] = 5;
+
+    e[15][0] = 15;
+    e[16][0] = 23;
+    e[17][0] = 18;
+    e[18][0] = 22;
+    e[19][0] = 12;
+
+    e[20][0] = 3;
+    e[21][0] = 14;
+    e[22][0] = 6;
+    e[23][0] = 13;
+    e[24][0] = 2;
+
+    auto from        = create_host_buffer<real_t>(nnodes);
+    auto to_matrix   = create_host_buffer<real_t>(nnodes);
+    auto to_free     = create_host_buffer<real_t>(nnodes);
+    auto rowptr      = create_host_buffer<count_t>(nnodes + 1);
+    const auto fdata = from->data();
+
+    fdata[e[0][0]]  = 1.25;
+    fdata[e[4][0]]  = -2.0;
+    fdata[e[24][0]] = 3.5;
+    fdata[e[20][0]] = 0.75;
+
+    SMESH_TEST_ASSERT(ssquad4_prolongate(1,          // nelements
+                                         1,          // from_level
+                                         level,      // from_level_stride
+                                         e,          // from_elements
+                                         level,      // to_level
+                                         1,          // to_level_stride
+                                         e,          // to_elements
+                                         1,          // vec_size
+                                         fdata,
+                                         to_free->data()) == SMESH_SUCCESS);
+
+    SMESH_TEST_ASSERT((ssquad4_prolongation_matrix_symb<idx_t, count_t, idx_t, real_t>(
+                              level, 1, nnodes, e, rowptr->data()) == SMESH_SUCCESS));
+
+    auto colidx = create_host_buffer<idx_t>(rowptr->data()[nnodes]);
+    auto values = create_host_buffer<real_t>(rowptr->data()[nnodes]);
+
+    SMESH_TEST_ASSERT(ssquad4_prolongation_matrix_fill(
+                              level, 1, nnodes, e, rowptr->data(), colidx->data(), values->data()) == SMESH_SUCCESS);
+
+    for (ptrdiff_t i = 0; i < nnodes; i++) {
+        for (count_t k = rowptr->data()[i]; k < rowptr->data()[i + 1]; k++) {
+            to_matrix->data()[i] += values->data()[k] * fdata[colidx->data()[k]];
+        }
+    }
+
+    for (ptrdiff_t i = 0; i < nnodes; i++) {
+        SMESH_TEST_ASSERT(fabs(to_matrix->data()[i] - to_free->data()[i]) < 1e-12);
+    }
+
+    return SMESH_TEST_SUCCESS;
+}
+
 int main(int argc, char *argv[]) {
     SMESH_UNIT_TEST_INIT(argc, argv);
     SMESH_RUN_TEST(test_incidence_count);
@@ -425,6 +507,7 @@ int main(int argc, char *argv[]) {
     SMESH_RUN_TEST(test_level2_to_level4);
     SMESH_RUN_TEST(test_level1_to_level2);
     SMESH_RUN_TEST(test_basic_interpolation_matrix);
+    SMESH_RUN_TEST(test_prolongation_matrix_matches_matrix_free_square);
     SMESH_UNIT_TEST_FINALIZE();
     return SMESH_UNIT_TEST_ERR();
 }
