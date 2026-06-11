@@ -3337,8 +3337,10 @@ namespace smesh {
         points()->print(os);
     }
 
+#ifdef SMESH_ENABLE_RYAML
     std::shared_ptr<Mesh> Mesh::create_from_yaml(const std::shared_ptr<Communicator> &comm, const ryml::NodeRef &node) {
         return mesh_from_yaml(comm, node);
     }
+#endif
 
 }  // namespace smesh
