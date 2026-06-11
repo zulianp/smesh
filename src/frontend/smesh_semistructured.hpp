@@ -22,13 +22,15 @@ namespace smesh {
     int semistructured_hierarchical_renumbering(const enum ElemType          element_type,
                                                 const int                    level,
                                                 const ptrdiff_t              n_nodes,
-                                                const SharedBuffer<idx_t *> &elements);
+                                                const SharedBuffer<idx_t *> &elements,
+                                                const bool                   preserve_corner_ordering);
 
     int semistructured_hierarchical_renumbering(const enum ElemType           element_type,
                                                 const int                     level,
                                                 const ptrdiff_t               n_nodes,
                                                 const SharedBuffer<idx_t *>  &elements,
-                                                const SharedBuffer<geom_t *> &points);
+                                                const SharedBuffer<geom_t *> &points,
+                                                const bool                    preserve_corner_ordering);
 
     std::shared_ptr<Mesh> to_semistructured(const int                    level,
                                             const std::shared_ptr<Mesh> &mesh,

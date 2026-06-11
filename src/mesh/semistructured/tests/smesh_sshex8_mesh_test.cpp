@@ -1,5 +1,6 @@
 
 #include <stdio.h>
+#include <algorithm>
 
 #include "smesh_test.hpp"
 #include "smesh_sshex8_graph.hpp"
@@ -57,6 +58,21 @@ int test_sshex8_hierarchical_renumbering() {
             }
         }
     }
+
+    ptrdiff_t max_level_1_node = -1;
+    for (int zi = 0; zi <= 1; zi++) {
+        for (int yi = 0; yi <= 1; yi++) {
+            for (int xi = 0; xi <= 1; xi++) {
+                int v = sshex8_lidx(L, xi * L, yi * L, zi * L);
+
+                for (ptrdiff_t e = 0; e < nelements; e++) {
+                    max_level_1_node = std::max(max_level_1_node, static_cast<ptrdiff_t>(sshex8_elements->data()[v][e]));
+                }
+            }
+        }
+    }
+
+    SMESH_TEST_ASSERT(max_level_1_node + 1 == nnodes);
 
     return SMESH_TEST_SUCCESS;
 }

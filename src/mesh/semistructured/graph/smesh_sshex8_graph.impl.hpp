@@ -869,7 +869,8 @@ namespace smesh {
                                         const ptrdiff_t                                   nelements,
                                         const ptrdiff_t                                   nnodes,
                                         idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
-                                        idx_t *const SMESH_RESTRICT                       node_mapping) {
+                                        idx_t *const SMESH_RESTRICT                       node_mapping,
+                                        const bool                                        preserve_corner_ordering) {
         // idx_t *node_mapping =
         //     static_cast<idx_t *>(SMESH_ALLOC(static_cast<size_t>(nnodes) * sizeof(idx_t)));
 #pragma omp parallel for
@@ -878,23 +879,44 @@ namespace smesh {
         }
 
         idx_t next_id = 0;
-        // Preserve original ordering for base HEX8 mesh
-        for (int zi = 0; zi <= 1; zi++) {
-            for (int yi = 0; yi <= 1; yi++) {
-                for (int xi = 0; xi <= 1; xi++) {
-                    for (ptrdiff_t e = 0; e < nelements; e++) {
-                        const int   v   = sshex8_lidx(L, xi * L, yi * L, zi * L);
-                        const idx_t idx = elements[v][e];
 
-                        SMESH_ASSERT(idx < nnodes);
-                        node_mapping[idx] = idx;
-                        next_id           = std::max(next_id, idx);
+        if (preserve_corner_ordering) {
+            // Preserve original ordering for base HEX8 mesh
+            for (int zi = 0; zi <= 1; zi++) {
+                for (int yi = 0; yi <= 1; yi++) {
+                    for (int xi = 0; xi <= 1; xi++) {
+                        for (ptrdiff_t e = 0; e < nelements; e++) {
+                            const int   v   = sshex8_lidx(L, xi * L, yi * L, zi * L);
+                            const idx_t idx = elements[v][e];
+
+                            SMESH_ASSERT(idx < nnodes);
+                            node_mapping[idx] = idx;
+                            next_id           = std::max(next_id, idx);
+                        }
+                    }
+                }
+            }
+
+            next_id++;
+
+        } else {
+            // Overrdide corner ordering
+            for (int zi = 0; zi <= 1; zi++) {
+                for (int yi = 0; yi <= 1; yi++) {
+                    for (int xi = 0; xi <= 1; xi++) {
+                        for (ptrdiff_t e = 0; e < nelements; e++) {
+                            const int   v   = sshex8_lidx(L, xi * L, yi * L, zi * L);
+                            const idx_t idx = elements[v][e];
+                            SMESH_ASSERT(idx < nnodes);
+
+                            if (node_mapping[idx] == invalid_idx<idx_t>()) {
+                                node_mapping[idx] = next_id++;
+                            }
+                        }
                     }
                 }
             }
         }
-
-        next_id++;
 
         int stride = 1;
         for (int k = 1; k < nlevels; k++) {

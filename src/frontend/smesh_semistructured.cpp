@@ -19,7 +19,8 @@ namespace smesh {
     int semistructured_hierarchical_renumbering(const enum ElemType          element_type,
                                                 const int                    level,
                                                 const ptrdiff_t              n_nodes,
-                                                const SharedBuffer<idx_t *> &elements) {
+                                                const SharedBuffer<idx_t *> &elements,
+                                                const bool                   preserve_corner_ordering) {
         SMESH_UNUSED(element_type);  // FIXME: harcoded for sshex8
         const int        nlevels = sshex8_hierarchical_n_levels(level);
         std::vector<int> levels(nlevels);
@@ -29,15 +30,22 @@ namespace smesh {
 
         auto node_mapping = create_host_buffer<idx_t>(n_nodes);
 
-        return sshex8_hierarchical_renumbering(
-                level, nlevels, levels.data(), elements->extent(1), n_nodes, elements->data(), node_mapping->data());
+        return sshex8_hierarchical_renumbering(level,
+                                               nlevels,
+                                               levels.data(),
+                                               elements->extent(1),
+                                               n_nodes,
+                                               elements->data(),
+                                               node_mapping->data(),
+                                               preserve_corner_ordering);
     }
 
     int semistructured_hierarchical_renumbering(const enum ElemType           element_type,
                                                 const int                     level,
                                                 const ptrdiff_t               n_nodes,
                                                 const SharedBuffer<idx_t *>  &elements,
-                                                const SharedBuffer<geom_t *> &points) {
+                                                const SharedBuffer<geom_t *> &points,
+                                                const bool                    preserve_corner_ordering) {
         SMESH_UNUSED(element_type);  // FIXME: harcoded for sshex8
         const int        nlevels = sshex8_hierarchical_n_levels(level);
         std::vector<int> levels(nlevels);
@@ -47,19 +55,44 @@ namespace smesh {
 
         auto node_mapping = create_host_buffer<idx_t>(n_nodes);
 
-        return sshex8_hierarchical_renumbering(
-                level, nlevels, levels.data(), elements->extent(1), n_nodes, elements->data(), node_mapping->data());
+        const int err = sshex8_hierarchical_renumbering(level,
+                                                        nlevels,
+                                                        levels.data(),
+                                                        elements->extent(1),
+                                                        n_nodes,
+                                                        elements->data(),
+                                                        node_mapping->data(),
+                                                        preserve_corner_ordering);
+        if (err != SMESH_SUCCESS) {
+            return err;
+        }
 
-        auto      temp = create_host_buffer<idx_t>(n_nodes);
+        auto      temp = create_host_buffer<geom_t>(n_nodes);
         const int dims = points->extent(0);
 
-        auto points_data = points->data();
-        auto temp_data   = temp->data();
-        for (int d = 0; d < dims; d++) {
-            memcpy(temp_data, points_data[d], n_nodes * sizeof(geom_t));
-            for (int i = 0; i < n_nodes; i++) {
-                const idx_t idx     = node_mapping->data()[i];
-                points_data[d][idx] = temp_data[i];
+        auto        points_data = points->data();
+        auto        temp_data   = temp->data();
+        const idx_t invalid     = invalid_idx<idx_t>();
+        if (!preserve_corner_ordering) {
+            for (int d = 0; d < dims; d++) {
+                memcpy(temp_data, points_data[d], n_nodes * sizeof(geom_t));
+                for (int i = 0; i < n_nodes; i++) {
+                    const idx_t idx = node_mapping->data()[i];
+                    if (idx != invalid) {
+                        SMESH_ASSERT(idx != invalid);
+                        points_data[d][idx] = temp_data[i];
+                    }
+                }
+            }
+        } else {
+            for (int d = 0; d < dims; d++) {
+                memcpy(temp_data, points_data[d], n_nodes * sizeof(geom_t));
+                for (int i = 0; i < n_nodes; i++) {
+                    const idx_t idx = node_mapping->data()[i];
+
+                    SMESH_ASSERT(idx != invalid);
+                    points_data[d][idx] = temp_data[i];
+                }
             }
         }
 
@@ -100,7 +133,7 @@ namespace smesh {
             blocks.push_back(default_block);
 
             if (hiearchical_ordering) {
-                semistructured_hierarchical_renumbering(element_type, level, n_unique_nodes, elements);
+                semistructured_hierarchical_renumbering(element_type, level, n_unique_nodes, elements, true);
             }
 
             auto p       = smesh::create_host_buffer<geom_t>(mesh->spatial_dimension(), n_unique_nodes);

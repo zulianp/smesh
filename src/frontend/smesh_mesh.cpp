@@ -1407,6 +1407,10 @@ namespace smesh {
                                                   elements->data(),
                                                   ret->impl_->points->data());
 
+        // if (hiearchical_ordering) {
+        semistructured_hierarchical_renumbering(smesh::HEX8, micro_elements_per_dim, nnodes, elements, ret->impl_->points, false);
+        // }
+
         // Create default block
         auto default_block = std::make_shared<Block>();
         default_block->set_name("default");

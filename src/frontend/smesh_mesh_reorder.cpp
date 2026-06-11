@@ -5,6 +5,7 @@
 #include "smesh_mesh.hpp"
 #include "smesh_ops.hpp"
 #include "smesh_reorder.hpp"
+#include "smesh_semistructured.hpp"
 #include "smesh_sfc.hpp"
 #include "smesh_tracer.hpp"
 
@@ -110,6 +111,16 @@ int SFC::reorder(Mesh &mesh) {
   SMESH_CATCH(mesh_block_reorder(nxe, n_elements,
                                  mesh.elements(block_id)->data(), idx,
                                  mesh.elements(block_id)->data()));
+
+  if (is_semistructured_type(mesh.element_type(block_id))) {
+    SMESH_FREE(buff);
+    return semistructured_hierarchical_renumbering(mesh.element_type(block_id),
+                                                   semistructured_level(mesh),
+                                                   n_nodes,
+                                                   mesh.elements(block_id),
+                                                   mesh.points(),
+                                                   false);
+  }
 
   auto n2n_scatter = create_host_buffer<idx_t>(n_nodes);
   for (ptrdiff_t i = 0; i < n_nodes; i++) {
