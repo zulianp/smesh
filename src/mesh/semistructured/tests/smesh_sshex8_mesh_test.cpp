@@ -13,11 +13,12 @@ int test_sshex8_hierarchical_renumbering() {
     const ptrdiff_t nelements = 2;
     const ptrdiff_t nnodes    = 27 + 18;
 
-    auto elements = create_host_buffer<idx_t>(27, nelements);
+    auto elements = create_host_buffer<idx_t>(8, nelements);
 
-    for (ptrdiff_t i = 0; i < 27; i++) {
-        elements->data()[i][0] = i;
-        elements->data()[i][1] = 18 + i;
+    const idx_t corners[8] = {0, 2, 8, 6, 18, 20, 26, 24};
+    for (ptrdiff_t i = 0; i < 8; i++) {
+        elements->data()[i][0] = corners[i];
+        elements->data()[i][1] = 18 + corners[i];
     }
 
     int       L               = 24;
