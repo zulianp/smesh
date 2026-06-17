@@ -217,6 +217,7 @@ void quad4_to_hex8_extrude(
     const idx_t i0 = quad4_elements[0][i];
     const idx_t i1 = quad4_elements[1][i];
     const idx_t i2 = quad4_elements[2][i];
+    const idx_t i3 = quad4_elements[3][i];
 
     geom_t nx, ny, nz;
     normal3(points[0][i0], points[1][i0], points[2][i0], points[0][i1],
@@ -226,14 +227,17 @@ void quad4_to_hex8_extrude(
     pseudo_normals[0][i0] += nx;
     pseudo_normals[0][i1] += nx;
     pseudo_normals[0][i2] += nx;
+    pseudo_normals[0][i3] += nx;
 
     pseudo_normals[1][i0] += ny;
     pseudo_normals[1][i1] += ny;
     pseudo_normals[1][i2] += ny;
+    pseudo_normals[1][i3] += ny;
 
     pseudo_normals[2][i0] += nz;
     pseudo_normals[2][i1] += nz;
     pseudo_normals[2][i2] += nz;
+    pseudo_normals[2][i3] += nz;
 
     // TODO: use bilinear basis functions for normals for better accuracy
   }
