@@ -43,11 +43,13 @@ public:
   const ptrdiff_t *nglobal() const;
   const ptrdiff_t *stride() const;
 
-  const geom_t *origin() const;
-  const geom_t *delta() const;
+        const geom_t *origin() const;
+        const geom_t *delta() const;
 
-  SharedBuffer<T> buffer();
-  T *data();
+        void scale(const geom_t scale);
+
+        SharedBuffer<T> buffer();
+        T              *data();
 
 #ifdef SMESH_ENABLE_MPI
   MPI_Datatype mpi_data_type() const;

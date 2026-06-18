@@ -408,11 +408,23 @@ create_sdf(const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx,
     }
   }
 
-  return g;
-}
+        return g;
+    }
 
-// Explicit instantiation
-template class Grid<float>;
-template class Grid<double>;
+    template <class T>
+    void Grid<T>::scale(const geom_t scale) {
+        if (scale == 1) {
+            return;
+        }
+
+        auto data = impl_->field->data();
+        auto size = impl_->field->size();
+        for (ptrdiff_t i = 0; i < size; i++) {
+            data[i] *= scale;
+        }
+    }
+    // Explicit instantiation
+    template class Grid<float>;
+    template class Grid<double>;
 
 } // namespace smesh
