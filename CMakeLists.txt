@@ -31,6 +31,7 @@ set(SMESH_LIBRARY_SCAN_DIRS
     "src/mesh/semistructured/hierarchy"
     "src/mesh/semistructured/hierarchy/sshex8"
     "src/mesh/semistructured/hierarchy/ssquad4"
+    "src/mesh/surface"
     "src/mesh/refinement"
     "src/mesh/sets"
     "src/packedmesh"
