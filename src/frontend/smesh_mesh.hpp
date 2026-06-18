@@ -199,8 +199,8 @@ public:
   std::shared_ptr<NodeToNodeGraph>
   create_node_to_node_graph(const enum ElemType element_type);
 
-  SharedBuffer<count_t> node_to_node_rowptr() const;
-  SharedBuffer<idx_t> node_to_node_colidx() const;
+  // SharedBuffer<count_t> node_to_node_rowptr() const;
+  // SharedBuffer<idx_t> node_to_node_colidx() const;
   SharedBuffer<ptrdiff_t> node_offsets() const;
   SharedBuffer<idx_t> ghosts() const;
   SharedBuffer<int> node_owner() const;
