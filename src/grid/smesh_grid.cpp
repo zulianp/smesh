@@ -16,6 +16,7 @@
 #include <fstream>
 #include <iterator>
 #include <sstream>
+#include <type_traits>
 
 namespace smesh {
 
@@ -50,6 +51,68 @@ Grid<T>::Grid(const std::shared_ptr<Communicator> &comm)
 }
 
 template <class T> Grid<T>::~Grid() = default;
+
+template <typename T>
+void create_xdmf(const Grid<T> &grid, const Path &path_binary_field,
+                 std::ostream &os) {
+  const ptrdiff_t *const n = grid.nglobal();
+  const geom_t *const o = grid.origin();
+  const geom_t *const d = grid.delta();
+  const int block_size = grid.block_size();
+  const char *const attribute_type = block_size == 1 ? "Scalar" : "Vector";
+  const char *const number_type =
+      std::is_floating_point_v<T> ? "Float"
+                                  : (std::is_unsigned_v<T> ? "UInt" : "Int");
+#if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) &&                \
+    __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  const char *const endianess = "Big";
+#else
+  const char *const endianess = "Little";
+#endif
+
+  os << "<!DOCTYPE Xdmf SYSTEM \"Xdmf.dtd\" []>\n"
+        "<Xdmf \n"
+        "    xmlns:xi=\"http://www.w3.org/2001/XInclude\" Version=\"2.0\">\n"
+        "    <Domain>\n"
+        "        <Topology name=\"topo\" TopologyType=\"3DCoRectMesh\"\n"
+        "            Dimensions=\""
+     << n[2] << ' ' << n[1] << ' ' << n[0]
+     << "\">\n"
+        "        </Topology>\n"
+        "        <Geometry name=\"geo\" Type=\"ORIGIN_DXDYDZ\">\n"
+        "            <!-- Origin -->\n"
+        "            <DataItem Format=\"XML\" Dimensions=\"3\">\n"
+        "                "
+     << o[2] << ' ' << o[1] << ' ' << o[0]
+     << "\n"
+        "            </DataItem>\n"
+        "            <!-- DxDyDz -->\n"
+        "            <DataItem Format=\"XML\" Dimensions=\"3\">\n"
+        "                "
+     << d[2] << ' ' << d[1] << ' ' << d[0]
+     << "\n"
+        "            </DataItem>\n"
+        "        </Geometry>\n"
+        "        <Grid Name=\"T1\" GridType=\"Uniform\">\n"
+        "            <Topology Reference=\"/Xdmf/Domain/Topology[1]\"/>\n"
+        "            <Geometry Reference=\"/Xdmf/Domain/Geometry[1]\"/>\n"
+        "            <Attribute Name=\"U\" Center=\"Node\" AttributeType=\""
+     << attribute_type
+     << "\">\n"
+        "                <DataItem Format=\"Binary\" Dimensions=\""
+     << n[2] << ' ' << n[1] << ' ' << n[0] << ' ' << block_size
+     << "\" Endian=\"" << endianess << "\" Precision=\"" << sizeof(T)
+     << "\" NumberType=\"" << number_type
+     << "\">\n"
+        "                    "
+     << path_binary_field
+     << "\n"
+        "                </DataItem>\n"
+        "            </Attribute>\n"
+        "        </Grid>\n"
+        "    </Domain>\n"
+        "</Xdmf>";
+}
 
 template <class T>
 std::shared_ptr<Grid<T>>
@@ -233,7 +296,7 @@ Grid<T>::create_from_file(const std::shared_ptr<Communicator> &comm,
   return ret;
 }
 
-template <class T> int Grid<T>::to_file(const std::string &folder) {
+template <class T> int Grid<T>::to_file(const Path &folder) {
   std::stringstream ss;
 
   std::string field_path;
@@ -259,14 +322,26 @@ template <class T> int Grid<T>::to_file(const std::string &folder) {
 
   ss << "block_size: " << impl_->block_size << "\n";
 
-  smesh::create_directory(folder.c_str());
-  std::ofstream os(folder + "/meta.yaml");
-  if (!os.good())
-    return SMESH_FAILURE;
-  os << ss.str();
-  os.close();
+  {
+    smesh::create_directory(folder.c_str());
+    std::ofstream os(folder.to_string() + "/meta.yaml");
+    if (!os.good())
+      return SMESH_FAILURE;
+    os << ss.str();
+    os.close();
+  }
 
-  return impl_->field->to_file(smesh::Path(folder + "/sdf." + field_ext));
+  auto file_path = smesh::Path(folder / ("sdf." + field_ext));
+
+  {
+    std::ofstream os((folder / "sdf.xdmf").c_str());
+    if (!os.good())
+      return SMESH_FAILURE;
+    create_xdmf(*this, file_path.absolute(), os);
+    os.close();
+  }
+
+  return impl_->field->to_file(file_path);
 }
 
 template <class T> ptrdiff_t Grid<T>::stride(int dim) const {

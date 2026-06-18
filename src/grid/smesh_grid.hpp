@@ -28,7 +28,7 @@ public:
                                       const geom_t xmax, const geom_t ymax,
                                       const geom_t zmax);
 
-  int to_file(const std::string &folder);
+  int to_file(const Path &folder);
 
   Grid(const std::shared_ptr<Communicator> &comm);
   ~Grid();

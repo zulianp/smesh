@@ -47,7 +47,7 @@ public:
   using Iterator = PathIterator;
 
   Path(std::string_view path = "");
-//   Path(const char *path);
+  //   Path(const char *path);
 
   Path operator+(const Path &other) const;
   Path operator/(const Path &other) const;
@@ -76,6 +76,8 @@ public:
   PathIterator iter() const;
 
   virtual ~Path();
+
+  Path absolute() const;
 
   bool is_dir() const;
   bool exists() const;
