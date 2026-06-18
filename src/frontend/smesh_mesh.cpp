@@ -1337,12 +1337,12 @@ int Mesh::convert_to_macro_element_mesh() {
   return SMESH_SUCCESS;
 }
 
-SharedBuffer<count_t> Mesh::node_to_node_rowptr() const {
-  return impl_->crs_graph->rowptr();
-}
-SharedBuffer<idx_t> Mesh::node_to_node_colidx() const {
-  return impl_->crs_graph->colidx();
-}
+// SharedBuffer<count_t> Mesh::node_to_node_rowptr() const {
+//   return this->node_to_node_graph()->rowptr();
+// }
+// SharedBuffer<idx_t> Mesh::node_to_node_colidx() const {
+//   return this->node_to_node_graph()->colidx();
+// }
 
 std::shared_ptr<Mesh>
 Mesh::create_hex8_cube(const std::shared_ptr<Communicator> &comm,
@@ -3375,10 +3375,11 @@ Mesh::create_from_yaml(const std::shared_ptr<Communicator> &comm,
 #endif
 
 bool surface_is_closed(const std::shared_ptr<Mesh> &mesh) {
+  auto n2n = mesh->node_to_node_graph();
   return surface_is_closed(mesh->element_type(0), mesh->n_elements(0),
                            mesh->elements(0)->data(), mesh->n_nodes(),
-                           mesh->node_to_node_rowptr()->data(),
-                           mesh->node_to_node_colidx()->data());
+                           n2n->rowptr()->data(),
+                           n2n->colidx()->data());
 }
 
 } // namespace smesh
