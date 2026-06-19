@@ -2,6 +2,7 @@
 #define SMESH_BUFFER_HPP
 
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <functional>
 #include <iostream>
