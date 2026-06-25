@@ -22,12 +22,15 @@ namespace smesh {
         TRISHELL6       = 106,
         TRISHELL10      = 110,
         QUAD4           = 40,
+        QUAD9           = 9,
         QUADSHELL4      = 140,
+        QUADSHELL9      = 149,
         TET4            = 4,
         TET10           = 10,
         TET15           = 15,
         TET20           = 20,
         HEX8            = 8,
+        HEX27           = 27,
         WEDGE6          = 1006,
         MACRO           = 200,
         MACRO_TRI3      = (MACRO + TRI3),
@@ -78,7 +81,9 @@ namespace smesh {
         if (!strcmp(str, "TRISHELL3")) return TRISHELL3;
         if (!strcmp(str, "WEDGE6")) return WEDGE6;
         if (!strcmp(str, "QUAD4")) return QUAD4;
+        if (!strcmp(str, "QUAD9")) return QUAD9;
         if (!strcmp(str, "QUADSHELL4")) return QUADSHELL4;
+        if (!strcmp(str, "QUADSHELL9")) return QUADSHELL9;
         if (!strcmp(str, "TET4")) return TET4;
         if (!strcmp(str, "TET15")) return TET15;
         if (!strcmp(str, "TET10")) return TET10;
@@ -86,6 +91,7 @@ namespace smesh {
         if (!strcmp(str, "MACRO_TRI3")) return MACRO_TRI3;
         if (!strcmp(str, "MACRO_TET4")) return MACRO_TET4;
         if (!strcmp(str, "HEX8")) return HEX8;
+        if (!strcmp(str, "HEX27")) return HEX27;
         if (!strcmp(str, "PROTEUS_HEX8")) return PROTEUS_HEX8;
         if (!strcmp(str, "PROTEUS_HEX27")) return PROTEUS_HEX27;
         if (!strcmp(str, "PROTEUS_HEX64")) return PROTEUS_HEX64;
@@ -137,8 +143,12 @@ namespace smesh {
                 return "WEDGE6";
             case QUAD4:
                 return "QUAD4";
+            case QUAD9:
+                return "QUAD9";
             case QUADSHELL4:
                 return "QUADSHELL4";
+            case QUADSHELL9:
+                return "QUADSHELL9";
             case TET4:
                 return "TET4";
             case TRI6:
@@ -155,6 +165,8 @@ namespace smesh {
                 return "MACRO_TET4";
             case HEX8:
                 return "HEX8";
+            case HEX27:
+                return "HEX27";
             case TET10:
                 return "TET10";
             case TET15:
@@ -227,6 +239,10 @@ namespace smesh {
             case TRI3:
             case QUAD4:
                 return EDGE2;
+            case QUAD9:
+                return EDGE3;
+            case QUADSHELL9:
+                return EDGE3;
             case TRI6:
                 return EDGE3;
             case TET4:
@@ -245,6 +261,8 @@ namespace smesh {
                 return MACRO_TRI3;
             case HEX8:
                 return QUAD4;
+            case HEX27:
+                return QUAD9;
             case PROTEUS_HEX8:
                 return PROTEUS_QUAD4;
             case PROTEUS_HEX27:
@@ -294,6 +312,10 @@ namespace smesh {
                 return QUADSHELL4;
             case QUADSHELL4:
                 return QUADSHELL4;
+            case QUAD9:
+                return QUADSHELL9;
+            case QUADSHELL9:
+                return QUADSHELL9;
             case PROTEUS_HEX8:
                 return PROTEUS_QUADSHELL4;
             case PROTEUS_HEX27:
@@ -359,8 +381,12 @@ namespace smesh {
                 return NIL;
             case TRI6:
                 return TRI3;
+            case QUAD9:
+                return QUAD4;
             case TET10:
                 return TET4;
+            case HEX27:
+                return HEX8;
             case TET20:
                 return TET10;
             case EDGE3:
@@ -378,8 +404,12 @@ namespace smesh {
                 return NIL;
             case TRI3:
                 return TRI6;
+            case QUAD4:
+                return QUAD9;
             case TET4:
                 return TET10;
+            case HEX8:
+                return HEX27;
             case TET10:
                 return TET20;
             case EDGE2:
@@ -413,8 +443,12 @@ namespace smesh {
                 return 6;
             case QUAD4:
                 return 4;
+            case QUAD9:
+                return 9;
             case QUADSHELL4:
                 return 4;
+            case QUADSHELL9:
+                return 9;
             case TET4:
                 return 4;
             case TRI6:
@@ -425,6 +459,8 @@ namespace smesh {
                 return 10;
             case HEX8:
                 return 8;
+            case HEX27:
+                return 27;
             case TET10:
                 return 10;
             case TET15:
@@ -506,7 +542,11 @@ namespace smesh {
                 return 4;
             case QUAD4:
                 return 4;
+            case QUAD9:
+                return 4;
             case QUADSHELL4:
+                return 4;
+            case QUADSHELL9:
                 return 4;
             case TET4:
                 return 4;
@@ -515,6 +555,8 @@ namespace smesh {
             case TRI6:
                 return 3;
             case HEX8:
+                return 6;
+            case HEX27:
                 return 6;
             case TET10:
                 return 4;
@@ -551,7 +593,11 @@ namespace smesh {
                 return 2;
             case QUAD4:
                 return 2;
+            case QUAD9:
+                return 2;
             case QUADSHELL4:
+                return 2;
+            case QUADSHELL9:
                 return 2;
             case TET4:
                 return 3;
@@ -564,6 +610,8 @@ namespace smesh {
             case MACRO_TET4:
                 return 3;
             case HEX8:
+                return 3;
+            case HEX27:
                 return 3;
             case TET10:
                 return 3;
@@ -644,6 +692,10 @@ namespace smesh {
             case TET10:
                 return 1;
             case TRI6:
+                return 1;
+            case QUAD9:
+                return 1;
+            case HEX27:
                 return 1;
             default: {
                 return 0;

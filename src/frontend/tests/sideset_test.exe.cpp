@@ -199,6 +199,68 @@ int test_sideset_select_propagate_cube_mesh() {
   return SMESH_TEST_SUCCESS;
 }
 
+int test_hex27_element_contract() {
+  SMESH_TEST_ASSERT(HEX27 != PROTEUS_HEX27);
+  SMESH_TEST_EQ(type_from_string("HEX27"), HEX27);
+  SMESH_TEST_EQ(type_from_string("PROTEUS_HEX27"), PROTEUS_HEX27);
+  SMESH_TEST_EQ(elem_num_nodes(HEX27), 27);
+  SMESH_TEST_EQ(elem_num_sides(HEX27), 6);
+  SMESH_TEST_EQ(side_type(HEX27), QUAD9);
+  SMESH_TEST_EQ(shell_type(side_type(HEX27)), QUADSHELL9);
+  SMESH_TEST_ASSERT(!is_semistructured_type(HEX27));
+  SMESH_TEST_ASSERT(is_semistructured_type(PROTEUS_HEX27));
+
+  LocalSideTable table;
+  table.fill(HEX27);
+  SMESH_TEST_EQ(table.nnxs, 9);
+
+  const int expected[6][9] = {
+      {0, 1, 5, 4, 8, 17, 12, 16, 20},
+      {1, 2, 6, 5, 9, 18, 13, 17, 21},
+      {2, 3, 7, 6, 10, 19, 14, 18, 22},
+      {3, 0, 4, 7, 11, 16, 15, 19, 23},
+      {3, 2, 1, 0, 10, 9, 8, 11, 24},
+      {4, 5, 6, 7, 12, 13, 14, 15, 25},
+  };
+  for (int side = 0; side < 6; ++side) {
+    for (int node = 0; node < 9; ++node) {
+      SMESH_TEST_EQ(table(side, node), expected[side][node]);
+    }
+  }
+
+  return SMESH_TEST_SUCCESS;
+}
+
+int test_hex27_cube_uses_conventional_ordering() {
+  auto mesh = Mesh::create_cube(Communicator::self(), HEX27, 1, 1, 1, 0, 0, 0,
+                                1, 1, 1);
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  SMESH_TEST_EQ(mesh->element_type(0), HEX27);
+  SMESH_TEST_EQ(mesh->n_elements(0), static_cast<ptrdiff_t>(1));
+  SMESH_TEST_EQ(mesh->n_nodes(), static_cast<ptrdiff_t>(27));
+
+  const geom_t expected[27][3] = {
+      {0, 0, 0},       {1, 0, 0},       {1, 1, 0},       {0, 1, 0},
+      {0, 0, 1},       {1, 0, 1},       {1, 1, 1},       {0, 1, 1},
+      {0.5, 0, 0},     {1, 0.5, 0},     {0.5, 1, 0},     {0, 0.5, 0},
+      {0.5, 0, 1},     {1, 0.5, 1},     {0.5, 1, 1},     {0, 0.5, 1},
+      {0, 0, 0.5},     {1, 0, 0.5},     {1, 1, 0.5},     {0, 1, 0.5},
+      {0.5, 0, 0.5},   {1, 0.5, 0.5},   {0.5, 1, 0.5},   {0, 0.5, 0.5},
+      {0.5, 0.5, 0},   {0.5, 0.5, 1},   {0.5, 0.5, 0.5},
+  };
+  auto elements = mesh->elements(0)->data();
+  auto points = mesh->points()->data();
+  for (int node = 0; node < 27; ++node) {
+    const idx_t global = elements[node][0];
+    for (int component = 0; component < 3; ++component) {
+      SMESH_TEST_APPROXEQ(points[component][global],
+                          expected[node][component], 1e-12);
+    }
+  }
+
+  return SMESH_TEST_SUCCESS;
+}
+
 int main(int argc, char *argv[]) {
   SMESH_UNIT_TEST_INIT(argc, argv);
 
@@ -206,6 +268,8 @@ int main(int argc, char *argv[]) {
   SMESH_RUN_TEST(test_sideset_to_nodeset_conversion);
   SMESH_RUN_TEST(test_sideset_io_write_read_identity);
   SMESH_RUN_TEST(test_sideset_select_propagate_cube_mesh);
+  SMESH_RUN_TEST(test_hex27_element_contract);
+  SMESH_RUN_TEST(test_hex27_cube_uses_conventional_ordering);
 
   SMESH_UNIT_TEST_FINALIZE();
   return SMESH_UNIT_TEST_ERR();

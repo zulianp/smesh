@@ -12,7 +12,7 @@ namespace smesh {
 
     struct LocalSideTable {
         static constexpr int MAX_NUM_SIDES          = 6;
-        static constexpr int MAX_NUM_NODES_PER_SIDE = 6;
+        static constexpr int MAX_NUM_NODES_PER_SIDE = 9;
         int                  nnxs{-1};
         int                  table[MAX_NUM_SIDES * MAX_NUM_NODES_PER_SIDE];
 
@@ -87,6 +87,22 @@ namespace smesh {
 
                 (*this)(3, 0) = 4 - 1;
                 (*this)(3, 1) = 1 - 1;
+            } else if (element_type == QUAD9 || element_type == QUADSHELL9) {
+                (*this)(0, 0) = 0;
+                (*this)(0, 1) = 1;
+                (*this)(0, 2) = 4;
+
+                (*this)(1, 0) = 1;
+                (*this)(1, 1) = 2;
+                (*this)(1, 2) = 5;
+
+                (*this)(2, 0) = 2;
+                (*this)(2, 1) = 3;
+                (*this)(2, 2) = 6;
+
+                (*this)(3, 0) = 3;
+                (*this)(3, 1) = 0;
+                (*this)(3, 2) = 7;
             } else if (element_type == HEX8) {
                 (*this)(0, 0) = 1 - 1;
                 (*this)(0, 1) = 2 - 1;
@@ -117,6 +133,22 @@ namespace smesh {
                 (*this)(5, 1) = 6 - 1;
                 (*this)(5, 2) = 7 - 1;
                 (*this)(5, 3) = 8 - 1;
+            } else if (element_type == HEX27) {
+                // Corners 0..7, edge nodes 8..19, face centers 20..25,
+                // and volume center 26. Face order follows HEX8 above.
+                const int faces[6][9] = {
+                        {0, 1, 5, 4, 8, 17, 12, 16, 20},
+                        {1, 2, 6, 5, 9, 18, 13, 17, 21},
+                        {2, 3, 7, 6, 10, 19, 14, 18, 22},
+                        {3, 0, 4, 7, 11, 16, 15, 19, 23},
+                        {3, 2, 1, 0, 10, 9, 8, 11, 24},
+                        {4, 5, 6, 7, 12, 13, 14, 15, 25},
+                };
+                for (int side = 0; side < 6; ++side) {
+                    for (int node = 0; node < 9; ++node) {
+                        (*this)(side, node) = faces[side][node];
+                    }
+                }
             } else if (element_type == PROTEUS_HEX8) {
                 (*this)(0, 0) = 1 - 1;
                 (*this)(0, 1) = 2 - 1;

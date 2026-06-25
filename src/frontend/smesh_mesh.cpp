@@ -2006,6 +2006,31 @@ Mesh::create_cube(const std::shared_ptr<Communicator> &comm,
   case HEX8:
     return create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax,
                             zmax);
+  case HEX27: {
+    auto mesh = create_semistructured_hex_cube(comm, 2, nx, ny, nz, xmin, ymin,
+                                               zmin, xmax, ymax, zmax);
+    if (!mesh) {
+      return nullptr;
+    }
+
+    static constexpr int hex27_to_cartesian[27] = {
+        0,  2,  8,  6,  18, 20, 26, 24, 1,  5,  7,  3,  19, 23,
+        25, 21, 9,  11, 17, 15, 10, 14, 16, 12, 4,  22, 13,
+    };
+    auto elements = mesh->elements(0);
+    auto streams = elements->data();
+    idx_t *cartesian[27];
+    for (int node = 0; node < 27; ++node) {
+      cartesian[node] = streams[node];
+    }
+    for (int node = 0; node < 27; ++node) {
+      streams[node] = cartesian[hex27_to_cartesian[node]];
+    }
+
+    auto block = mesh->block(0);
+    block->set_element_type(HEX27);
+    return mesh;
+  }
   case TET4:
     return create_tet4_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax,
                             zmax);
