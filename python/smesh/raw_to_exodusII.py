@@ -24,6 +24,14 @@ LEN_LINE = 81
 ELEMENT_INFO = {
     "HEX8": {"exodus": "HEX8", "nnodes": 8},
     "HEX": {"exodus": "HEX8", "nnodes": 8},
+    "hex8": {"exodus": "HEX8", "nnodes": 8},
+    "hexahedron": {"exodus": "HEX8", "nnodes": 8},
+    "hexahedron8": {"exodus": "HEX8", "nnodes": 8},
+    "HEX27": {"exodus": "HEX27", "nnodes": 27},
+    "hex27": {"exodus": "HEX27", "nnodes": 27},
+    "hexahedron27": {"exodus": "HEX27", "nnodes": 27},
+    "PROTEUS_HEX27": {"exodus": "HEX27", "nnodes": 27},
+    "proteus_hex27": {"exodus": "HEX27", "nnodes": 27},
     "TET4": {"exodus": "TETRA", "nnodes": 4},
     "TETRA": {"exodus": "TETRA", "nnodes": 4},
     "tetra": {"exodus": "TETRA", "nnodes": 4},
@@ -34,6 +42,19 @@ ELEMENT_INFO = {
     "TRI3": {"exodus": "TRI3", "nnodes": 3},
     "TRI": {"exodus": "TRI3", "nnodes": 3},
     "tri3": {"exodus": "TRI3", "nnodes": 3},
+}
+
+# PROTEUS_HEX27 uses Cartesian iz*9+iy*3+ix ordering; Exodus/HEX27 uses PATRAN layout.
+proteus_hex27_to_hexahedron27 = (
+    0, 2, 8, 6, 18, 20, 26, 24, 1, 5, 7, 3, 19, 23,
+    25, 21, 9, 11, 17, 15, 10, 14, 16, 12, 4, 22, 13,
+)
+
+ELEMENT_TYPE_BY_NUM_NODES = {
+    3: "TRI3",
+    4: "TET4",
+    8: "HEX8",
+    27: "HEX27",
 }
 
 
@@ -115,6 +136,47 @@ def normalize_element_type(raw_type):
         raise RuntimeError(f"unsupported element_type '{raw_type}'")
 
     return raw_type, ELEMENT_INFO[raw_type]
+
+
+def metadata_element_type(meta):
+    for key in ("element_type", "cell_type", "elem_type"):
+        raw_type = meta.get(key)
+        if raw_type:
+            return raw_type
+    return None
+
+
+def resolve_element_type(meta, nnodes_per_elem):
+    raw_type = metadata_element_type(meta)
+    if raw_type is not None:
+        _, element_info = normalize_element_type(raw_type)
+        if element_info["nnodes"] != nnodes_per_elem:
+            raise RuntimeError(
+                "meta.yaml element_type=%s expects %d nodes but connectivity has %d"
+                % (raw_type, element_info["nnodes"], nnodes_per_elem)
+            )
+        if "elem_num_nodes" in meta and int(meta["elem_num_nodes"]) != nnodes_per_elem:
+            raise RuntimeError(
+                "meta.yaml elem_num_nodes=%s but connectivity has %d"
+                % (meta["elem_num_nodes"], nnodes_per_elem)
+            )
+        return raw_type
+
+    if "elem_num_nodes" in meta:
+        expected = int(meta["elem_num_nodes"])
+        if expected != nnodes_per_elem:
+            raise RuntimeError(
+                "meta.yaml elem_num_nodes=%d but connectivity has %d"
+                % (expected, nnodes_per_elem)
+            )
+
+    inferred = ELEMENT_TYPE_BY_NUM_NODES.get(nnodes_per_elem)
+    if inferred is None:
+        raise RuntimeError(
+            "missing meta.yaml element_type and unable to infer from connectivity width %d"
+            % nnodes_per_elem
+        )
+    return inferred
 
 
 def find_axis_path(folder, axis):
@@ -578,9 +640,12 @@ def write_exodus(
 
 def raw_to_exodusII(input_folder, output_mesh, title=None):
     meta = read_simple_meta(os.path.join(input_folder, "meta.yaml"))
-    element_type = meta.get("element_type")
     points = load_points(input_folder)
     connectivity = load_connectivity(input_folder)
+    element_type = resolve_element_type(meta, connectivity.shape[1])
+    if element_type in ("PROTEUS_HEX27", "proteus_hex27"):
+        connectivity = connectivity[:, proteus_hex27_to_hexahedron27]
+        element_type = "HEX27"
     blocks = load_block_ranges(input_folder, connectivity.shape[0])
     sidesets = load_sidesets(input_folder)
     nodesets = load_nodesets(input_folder, sidesets)

@@ -38,6 +38,23 @@ proteus_hex27_to_hexahedron27 = (
     25, 21, 9, 11, 17, 15, 10, 14, 16, 12, 4, 22, 13,
 )
 
+# SFEM/Exodus and VTK agree on corners (0-19) and the body node (26), but assign
+# face centers 20-25 to different faces.
+# - VTU/VTK (meshio): vtkTriQuadraticHexahedron maps -> apply permutation below.
+# - Exodus (.e): PATRAN/Exodus maps -> keep raw ordering; use raw_to_exodusII path.
+# Exodus: 20=-y, 21=+x, 22=+y, 23=-x, 24=-z, 25=+z
+# VTK:    20=-x, 21=+x, 22=-y, 23=+y, 24=-z, 25=+z
+exodus_hex27_to_vtk_hex27 = (
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+    23, 21, 20, 22, 24, 25, 26,
+)
+
+EXODUS_OUTPUT_EXTENSIONS = (".e", ".exo", ".ex2")
+
+
+def is_exodus_output(path):
+    return os.path.splitext(path)[1].lower() in EXODUS_OUTPUT_EXTENSIONS
+
 
 def read_simple_meta(path):
     meta = {}
@@ -61,9 +78,12 @@ def read_simple_meta(path):
 def element_type_from_meta(folder):
     meta_path = os.path.join(folder, "meta.yaml")
     meta = read_simple_meta(meta_path)
-    if "element_type" not in meta:
+    for key in ("element_type", "cell_type", "elem_type"):
+        if key in meta and meta[key]:
+            return meta[key], meta, meta_path
+    if "elem_num_nodes" not in meta:
         return None, meta, meta_path
-    return meta["element_type"], meta, meta_path
+    return None, meta, meta_path
 
 
 class Field:
@@ -316,10 +336,9 @@ def raw_to_db(argv):
         elif opt in ("--ssref"):
             ssref = int(arg)
 
-    mesh_meta = {}
     mesh_meta_path = os.path.join(raw_mesh_folder, "meta.yaml")
+    meta_type, mesh_meta, mesh_meta_path = element_type_from_meta(raw_mesh_folder)
     if cell_type is None:
-        meta_type, mesh_meta, mesh_meta_path = element_type_from_meta(raw_mesh_folder)
         if meta_type is not None:
             cell_type = meta_type
             if verbose:
@@ -333,6 +352,25 @@ def raw_to_db(argv):
             n_time_steps = len(time_whole)
 
         print(f"Found {n_time_steps} time steps!")
+
+    if is_exodus_output(output_path) and not transient:
+        if verbose:
+            print(
+                "Exodus output: delegating to raw_to_exodusII "
+                "(Exodus/PATRAN HEX27 ordering for ParaView Exodus reader)"
+            )
+        if point_data or cell_data:
+            print(
+                "Warning: --point_data/--cell_data are ignored for .e export; "
+                "place fields under point_data/ and cell_data/ in the mesh folder"
+            )
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        if script_dir not in sys.path:
+            sys.path.insert(0, script_dir)
+        from raw_to_exodusII import raw_to_exodusII as write_exodus_mesh
+
+        write_exodus_mesh(raw_mesh_folder, output_path)
+        return
 
     points = []
     for pfn in ["x", "y", "z"]:
@@ -386,8 +424,8 @@ def raw_to_db(argv):
     if mesh_meta and "elem_num_nodes" in mesh_meta and len(idx) > 0:
         expected_nnodes = int(mesh_meta["elem_num_nodes"])
         if len(idx) != expected_nnodes:
-            print(
-                f"Warning: meta.yaml elem_num_nodes={expected_nnodes} "
+            raise RuntimeError(
+                f"meta.yaml elem_num_nodes={expected_nnodes} "
                 f"but found {len(idx)} connectivity streams"
             )
 
@@ -474,6 +512,10 @@ def raw_to_db(argv):
     cell_indices = np.array(idx).transpose()
     if reorder is not None:
         cell_indices = cell_indices[:, reorder]
+    if cell_type == "hexahedron27":
+        cell_indices = cell_indices[:, exodus_hex27_to_vtk_hex27]
+        if verbose:
+            print("Applied Exodus HEX27 -> VTK face-center node permutation")
     cells = [(cell_type, cell_indices)]
 
     if transient:
