@@ -13,11 +13,16 @@ import inspect
 # Get the current frame
 frame = inspect.currentframe()
 
-tet4_names = ("tetra", "tetrahedron", "tetra4", "tet4", "TET4")
-hex8_names = ("hexahedron", "hex", "hex8", "HEX8")
+tet4_names = ("tetra", "tetrahedron", "tetra4", "tet4", "TET4", "TETRA")
+tet10_names = ("tetra10", "TET10")
+hex8_names = ("hexahedron", "hex", "hex8", "HEX8", "HEX")
+hex27_names = ("hexahedron27", "hex27", "HEX27")
+proteus_hex27_names = ("proteus_hex27", "PROTEUS_HEX27")
 
-quad4_names = ("quad", "quad4", "QUAD4")
-tri3_names = ("tri", "tri3", "TRI3")
+quad4_names = ("quad", "quad4", "QUAD4", "QUAD")
+quad9_names = ("quad9", "QUAD9", "quadshell9", "QUADSHELL9")
+tri3_names = ("tri", "tri3", "TRI3", "TRI")
+tri6_names = ("triangle6", "TRI6")
 
 try:
     geom_t
@@ -26,7 +31,39 @@ except NameError:
     geom_t = np.float32
     idx_t = np.int32
 
-max_nodes_x_element = 15
+max_nodes_x_element = 27
+
+proteus_hex27_to_hexahedron27 = (
+    0, 2, 8, 6, 18, 20, 26, 24, 1, 5, 7, 3, 19, 23,
+    25, 21, 9, 11, 17, 15, 10, 14, 16, 12, 4, 22, 13,
+)
+
+
+def read_simple_meta(path):
+    meta = {}
+    if not os.path.exists(path):
+        return meta
+
+    with open(path, "r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("- "):
+                continue
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            meta[key.strip()] = value.strip()
+    return meta
+
+
+def element_type_from_meta(folder):
+    meta_path = os.path.join(folder, "meta.yaml")
+    meta = read_simple_meta(meta_path)
+    if "element_type" not in meta:
+        return None, meta, meta_path
+    return meta["element_type"], meta, meta_path
 
 
 class Field:
@@ -279,6 +316,15 @@ def raw_to_db(argv):
         elif opt in ("--ssref"):
             ssref = int(arg)
 
+    mesh_meta = {}
+    mesh_meta_path = os.path.join(raw_mesh_folder, "meta.yaml")
+    if cell_type is None:
+        meta_type, mesh_meta, mesh_meta_path = element_type_from_meta(raw_mesh_folder)
+        if meta_type is not None:
+            cell_type = meta_type
+            if verbose:
+                print(f"Using element_type={cell_type} from {mesh_meta_path}")
+
     if transient:
         if len(time_whole) == 0:
             assert n_time_steps != 0
@@ -337,17 +383,41 @@ def raw_to_db(argv):
             ii = np.fromfile(path, dtype=dtype)
             idx.append(ii)
 
+    if mesh_meta and "elem_num_nodes" in mesh_meta and len(idx) > 0:
+        expected_nnodes = int(mesh_meta["elem_num_nodes"])
+        if len(idx) != expected_nnodes:
+            print(
+                f"Warning: meta.yaml elem_num_nodes={expected_nnodes} "
+                f"but found {len(idx)} connectivity streams"
+            )
+
     if cell_type in quad4_names:
         cell_type = "quad"
+
+    if cell_type in quad9_names:
+        cell_type = "quad9"
 
     if cell_type in hex8_names:
         cell_type = "hexahedron"
 
+    reorder = None
+    if cell_type in hex27_names:
+        cell_type = "hexahedron27"
+    elif cell_type in proteus_hex27_names:
+        cell_type = "hexahedron27"
+        reorder = proteus_hex27_to_hexahedron27
+
     if cell_type in tet4_names:
         cell_type = "tetra"
 
+    if cell_type in tet10_names:
+        cell_type = "tetra10"
+
     if cell_type in tri3_names:
         cell_type = "triangle"
+
+    if cell_type in tri6_names:
+        cell_type = "triangle6"
 
     # Do I need to do that?
     # if ssref > 1:
@@ -365,6 +435,8 @@ def raw_to_db(argv):
             cell_type = "triangle"
         elif len(idx) == 6:
             cell_type = "triangle6"
+        elif len(idx) == 9:
+            cell_type = "quad9"
         elif len(idx) == 4:
             if len(points) == 2:
                 cell_type = "quad"
@@ -372,12 +444,23 @@ def raw_to_db(argv):
                 cell_type = "tetra"
         elif len(idx) == 8:
             cell_type = "hexahedron"
+        elif len(idx) == 27:
+            cell_type = "hexahedron27"
         elif len(idx) == 10:
             cell_type = "tetra10"
         elif len(idx) == 2:
             cell_type = "line"
         elif len(idx) == 1:
             cell_type = "vertex"
+
+    if cell_type == "quad" and len(idx) == 9:
+        cell_type = "quad9"
+    elif cell_type == "triangle" and len(idx) == 6:
+        cell_type = "triangle6"
+    elif cell_type == "tetra" and len(idx) == 10:
+        cell_type = "tetra10"
+    elif cell_type == "hexahedron" and len(idx) == 27:
+        cell_type = "hexahedron27"
 
     print(f"numnodes = {len(idx)} -> {cell_type}")
     n_points = len(points[0])
@@ -388,7 +471,10 @@ def raw_to_db(argv):
         return
 
     points = np.array(points).transpose()
-    cells = [(cell_type, np.array(idx).transpose())]
+    cell_indices = np.array(idx).transpose()
+    if reorder is not None:
+        cell_indices = cell_indices[:, reorder]
+    cells = [(cell_type, cell_indices)]
 
     if transient:
         print("Transient mode!")

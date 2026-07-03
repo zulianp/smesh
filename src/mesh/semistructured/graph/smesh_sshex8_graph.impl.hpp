@@ -839,6 +839,11 @@ namespace smesh {
             count++;
         }
 
+// CHECK
+        if (l == L && L > 1) {
+            count++;
+        }
+// CHECK
         if (l >= 1) {
             count++;
         }
@@ -853,6 +858,11 @@ namespace smesh {
         int l     = L;
         for (; l > 1 && l % 2 == 0; l /= 2) {
             levels[nlevels - 1 - count] = l;
+            count++;
+        }
+
+        if (l == L && L > 1) {
+            levels[nlevels - 1 - count] = L;
             count++;
         }
 

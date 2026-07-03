@@ -69,6 +69,7 @@ namespace smesh {
 
         switch (element_type) {
             case TET4:
+            case TET10:
                 return tet4_adjugate_fill(nelements, elements, points, stride, adjugate, determinant);
             case HEX8:
                 return hex8_adjugate_fill(nelements, elements, points, 0.5, 0.5, 0.5, stride, adjugate, determinant);
