@@ -8,6 +8,8 @@ from collections import OrderedDict
 
 import numpy as np
 
+from common.hex27_ordering import prepare_exodus_hex27_connectivity
+
 
 try:
     geom_t
@@ -43,12 +45,6 @@ ELEMENT_INFO = {
     "TRI": {"exodus": "TRI3", "nnodes": 3},
     "tri3": {"exodus": "TRI3", "nnodes": 3},
 }
-
-# PROTEUS_HEX27 uses Cartesian iz*9+iy*3+ix ordering; Exodus/HEX27 uses PATRAN layout.
-proteus_hex27_to_hexahedron27 = (
-    0, 2, 8, 6, 18, 20, 26, 24, 1, 5, 7, 3, 19, 23,
-    25, 21, 9, 11, 17, 15, 10, 14, 16, 12, 4, 22, 13,
-)
 
 ELEMENT_TYPE_BY_NUM_NODES = {
     3: "TRI3",
@@ -643,9 +639,9 @@ def raw_to_exodusII(input_folder, output_mesh, title=None):
     points = load_points(input_folder)
     connectivity = load_connectivity(input_folder)
     element_type = resolve_element_type(meta, connectivity.shape[1])
-    if element_type in ("PROTEUS_HEX27", "proteus_hex27"):
-        connectivity = connectivity[:, proteus_hex27_to_hexahedron27]
-        element_type = "HEX27"
+    connectivity, element_type = prepare_exodus_hex27_connectivity(
+        connectivity, element_type
+    )
     blocks = load_block_ranges(input_folder, connectivity.shape[0])
     sidesets = load_sidesets(input_folder)
     nodesets = load_nodesets(input_folder, sidesets)

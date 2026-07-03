@@ -7,6 +7,10 @@ import os
 import glob
 import pdb
 from common.utils import detect_files, extension_to_dtype, extension
+from common.hex27_ordering import (
+    exodus_hex27_to_vtk_hex27,
+    proteus_hex27_to_exodus_hex27 as proteus_hex27_to_hexahedron27,
+)
 
 import inspect
 
@@ -32,22 +36,6 @@ except NameError:
     idx_t = np.int32
 
 max_nodes_x_element = 27
-
-proteus_hex27_to_hexahedron27 = (
-    0, 2, 8, 6, 18, 20, 26, 24, 1, 5, 7, 3, 19, 23,
-    25, 21, 9, 11, 17, 15, 10, 14, 16, 12, 4, 22, 13,
-)
-
-# SFEM/Exodus and VTK agree on corners (0-19) and the body node (26), but assign
-# face centers 20-25 to different faces.
-# - VTU/VTK (meshio): vtkTriQuadraticHexahedron maps -> apply permutation below.
-# - Exodus (.e): PATRAN/Exodus maps -> keep raw ordering; use raw_to_exodusII path.
-# Exodus: 20=-y, 21=+x, 22=+y, 23=-x, 24=-z, 25=+z
-# VTK:    20=-x, 21=+x, 22=-y, 23=+y, 24=-z, 25=+z
-exodus_hex27_to_vtk_hex27 = (
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-    23, 21, 20, 22, 24, 25, 26,
-)
 
 EXODUS_OUTPUT_EXTENSIONS = (".e", ".exo", ".ex2")
 
@@ -353,25 +341,6 @@ def raw_to_db(argv):
 
         print(f"Found {n_time_steps} time steps!")
 
-    if is_exodus_output(output_path) and not transient:
-        if verbose:
-            print(
-                "Exodus output: delegating to raw_to_exodusII "
-                "(Exodus/PATRAN HEX27 ordering for ParaView Exodus reader)"
-            )
-        if point_data or cell_data:
-            print(
-                "Warning: --point_data/--cell_data are ignored for .e export; "
-                "place fields under point_data/ and cell_data/ in the mesh folder"
-            )
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        if script_dir not in sys.path:
-            sys.path.insert(0, script_dir)
-        from raw_to_exodusII import raw_to_exodusII as write_exodus_mesh
-
-        write_exodus_mesh(raw_mesh_folder, output_path)
-        return
-
     points = []
     for pfn in ["x", "y", "z"]:
         path = detect_files(
@@ -536,6 +505,12 @@ def raw_to_db(argv):
 
         add_fields(point_data, mesh.point_data, n_points)
         add_fields(cell_data, mesh.cell_data, n_cells)
+
+        if is_exodus_output(output_path) and verbose:
+            print(
+                "Writing Exodus via meshio (same VTK HEX27 layout as .vtu); "
+                "use raw_to_exodusII for FEM/IOSS PATRAN ordering"
+            )
 
         mesh.write(output_path)
 
