@@ -2086,6 +2086,50 @@ namespace smesh {
         }
     }
 
+    std::shared_ptr<Mesh> Mesh::create_wall_mounted_hump(const std::shared_ptr<Communicator> &comm,
+                                                         const enum ElemType                  element_type,
+                                                         const ptrdiff_t                      nx,
+                                                         const ptrdiff_t                      ny,
+                                                         const ptrdiff_t                      nz,
+                                                         const geom_t                         length,
+                                                         const geom_t                         height,
+                                                         const geom_t                         width,
+                                                         const geom_t                         hump_start,
+                                                         const geom_t                         hump_length,
+                                                         const geom_t                         hump_height) {
+        SMESH_TRACE_SCOPE("Mesh::create_wall_mounted_hump");
+        if (nx <= 0 || ny <= 0 || nz <= 0 || length <= 0 || height <= 0 || width <= 0 || hump_length <= 0 ||
+            hump_height < 0) {
+            SMESH_ERROR("Mesh::create_wall_mounted_hump received invalid dimensions\n");
+            return nullptr;
+        }
+
+        auto mesh = create_cube(comm, element_type, nx, ny, nz, 0, 0, 0, length, height, width);
+        if (!mesh) {
+            return nullptr;
+        }
+
+        auto points = mesh->points()->data();
+        const geom_t inv_height = 1.0 / height;
+        const geom_t pi = static_cast<geom_t>(acos(-1.0));
+        for (ptrdiff_t node = 0; node < mesh->n_nodes(); ++node) {
+            const geom_t x = points[0][node];
+            const geom_t eta = points[1][node] * inv_height;
+            geom_t bottom = 0;
+            if (x >= hump_start && x <= hump_start + hump_length) {
+                const geom_t s = (x - hump_start) / hump_length;
+                const geom_t wave = sin(pi * s);
+                bottom = hump_height * wave * wave;
+            }
+            points[1][node] = bottom + eta * (height - bottom);
+        }
+
+        if (mesh->n_blocks() > 0) {
+            mesh->block(0)->set_name("fluid");
+        }
+        return mesh;
+    }
+
     std::pair<SharedBuffer<geom_t>, SharedBuffer<geom_t>> Mesh::compute_bounding_box() {
         auto points = impl_->points->data();
 

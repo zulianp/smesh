@@ -237,6 +237,14 @@ public:
               const geom_t zmin = 0, const geom_t xmax = 1,
               const geom_t ymax = 1, const geom_t zmax = 1);
 
+  static std::shared_ptr<Mesh> create_wall_mounted_hump(
+      const std::shared_ptr<Communicator> &comm,
+      const enum ElemType element_type, const ptrdiff_t nx = 32,
+      const ptrdiff_t ny = 12, const ptrdiff_t nz = 4,
+      const geom_t length = 9.0, const geom_t height = 3.0,
+      const geom_t width = 1.0, const geom_t hump_start = 0.65,
+      const geom_t hump_length = 1.0, const geom_t hump_height = 0.128);
+
   static std::shared_ptr<Mesh>
   create_half_sphere(const std::shared_ptr<Communicator> &comm,
                      const enum ElemType element_type, const geom_t radius,
