@@ -38,6 +38,14 @@ namespace smesh {
         SharedBuffer<ptrdiff_t>    n_shared(const int block_idx) const;
         SharedBuffer<ptrdiff_t>    ghost_ptr(const int block_idx) const;
         SharedBuffer<idx_t>        ghost_idx(const int block_idx) const;
+        /// CSR gather graph for atomics-free ghost reduction (two-pass apply).
+        /// Row r reduces into global dof ghost_reduce_dest()[r] by summing
+        /// ghost buffer slots ghost_reduce_idx()[ghost_reduce_ptr()[r] .. ghost_reduce_ptr()[r+1]).
+        SharedBuffer<ptrdiff_t>    ghost_reduce_ptr(const int block_idx) const;
+        SharedBuffer<ptrdiff_t>    ghost_reduce_idx(const int block_idx) const;
+        SharedBuffer<idx_t>        ghost_reduce_dest(const int block_idx) const;
+        ptrdiff_t                  n_ghost_entries(const int block_idx) const;
+        ptrdiff_t                  n_ghost_reduce_rows(const int block_idx) const;
         ptrdiff_t                  n_packs(const int block_idx) const;
         ptrdiff_t                  n_elements_per_pack(const int block_idx) const;
 

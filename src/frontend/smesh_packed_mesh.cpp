@@ -4,8 +4,11 @@
 #include "smesh_glob.hpp"
 #include "smesh_buffer.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <utility>
+#include <vector>
 
 namespace smesh {
 
@@ -21,19 +24,31 @@ public:
   SharedBuffer<ptrdiff_t> n_shared;
   SharedBuffer<ptrdiff_t> ghost_ptr;
   SharedBuffer<idx_t> ghost_idx;
-  
+  SharedBuffer<ptrdiff_t> ghost_reduce_ptr;
+  SharedBuffer<ptrdiff_t> ghost_reduce_idx;
+  SharedBuffer<idx_t> ghost_reduce_dest;
+
   int write(const Path &path) const {
     packed_elements->to_files(path / ("i%d." + std::string(TypeToString<pack_idx_t>::value())));
     owned_nodes_ptr->to_file(path / ("owned_nodes_ptr." + std::string(TypeToString<ptrdiff_t>::value())));
     n_shared->to_file(path / ("n_shared." + std::string(TypeToString<ptrdiff_t>::value())));
     ghost_ptr->to_file(path / ("ghost_ptr." + std::string(TypeToString<ptrdiff_t>::value())));
     ghost_idx->to_file(path / ("ghost_idx." + std::string(TypeToString<idx_t>::value())));
+    if (ghost_reduce_ptr) {
+      ghost_reduce_ptr->to_file(path / ("ghost_reduce_ptr." + std::string(TypeToString<ptrdiff_t>::value())));
+      ghost_reduce_idx->to_file(path / ("ghost_reduce_idx." + std::string(TypeToString<ptrdiff_t>::value())));
+      ghost_reduce_dest->to_file(path / ("ghost_reduce_dest." + std::string(TypeToString<idx_t>::value())));
+    }
     return SMESH_SUCCESS;
   }
 
   size_t nbytes() const {
-    return packed_elements->nbytes() + owned_nodes_ptr->nbytes() +
-           ghost_ptr->nbytes() + ghost_idx->nbytes() + n_shared->nbytes();
+    size_t n = packed_elements->nbytes() + owned_nodes_ptr->nbytes() + ghost_ptr->nbytes() +
+               ghost_idx->nbytes() + n_shared->nbytes();
+    if (ghost_reduce_ptr) {
+      n += ghost_reduce_ptr->nbytes() + ghost_reduce_idx->nbytes() + ghost_reduce_dest->nbytes();
+    }
+    return n;
   }
 
   void print(std::ostream &os = std::cout, const int verbosity = 0) const {
@@ -294,6 +309,47 @@ public:
       memset(d_ghost_flag, 0, ghost_flag->nbytes());
     }
   }
+
+  void build_ghost_reduce() {
+    const ptrdiff_t n_entries = ghost_ptr->data()[n_packs];
+    auto d_ghost_idx = ghost_idx->data();
+
+    std::vector<std::pair<idx_t, ptrdiff_t>> pairs((size_t)n_entries);
+    for (ptrdiff_t j = 0; j < n_entries; ++j) {
+      pairs[(size_t)j] = std::make_pair(d_ghost_idx[j], j);
+    }
+    std::sort(pairs.begin(), pairs.end());
+
+    ptrdiff_t n_dest = 0;
+    for (ptrdiff_t j = 0; j < n_entries;) {
+      const idx_t dest = pairs[(size_t)j].first;
+      ++n_dest;
+      while (j < n_entries && pairs[(size_t)j].first == dest) {
+        ++j;
+      }
+    }
+
+    ghost_reduce_ptr = smesh::create_host_buffer<ptrdiff_t>(n_dest + 1);
+    ghost_reduce_idx = smesh::create_host_buffer<ptrdiff_t>(n_entries);
+    ghost_reduce_dest = smesh::create_host_buffer<idx_t>(n_dest);
+
+    auto d_ptr = ghost_reduce_ptr->data();
+    auto d_idx = ghost_reduce_idx->data();
+    auto d_dest = ghost_reduce_dest->data();
+
+    ptrdiff_t row = 0;
+    ptrdiff_t pos = 0;
+    d_ptr[0] = 0;
+    for (ptrdiff_t j = 0; j < n_entries;) {
+      const idx_t dest = pairs[(size_t)j].first;
+      d_dest[row] = dest;
+      while (j < n_entries && pairs[(size_t)j].first == dest) {
+        d_idx[pos++] = pairs[(size_t)j].second;
+        ++j;
+      }
+      d_ptr[++row] = pos;
+    }
+  }
 };
 
 template <typename pack_idx_t> class PackedMesh<pack_idx_t>::Impl {
@@ -386,6 +442,7 @@ public:
     pack_offset = 0;
     for (auto &packed_block : blocks) {
       packed_block->pack(mesh, pack_offset, node_map, node_owner, flags);
+      packed_block->build_ghost_reduce();
       pack_offset += packed_block->n_packs;
       packed_block->print();
     }
@@ -452,6 +509,36 @@ PackedMesh<pack_idx_t>::ghost_ptr(const int block_idx) const {
 template <typename pack_idx_t>
 SharedBuffer<idx_t> PackedMesh<pack_idx_t>::ghost_idx(const int block_idx) const {
   return impl_->blocks[block_idx]->ghost_idx;
+}
+
+template <typename pack_idx_t>
+SharedBuffer<ptrdiff_t>
+PackedMesh<pack_idx_t>::ghost_reduce_ptr(const int block_idx) const {
+  return impl_->blocks[block_idx]->ghost_reduce_ptr;
+}
+
+template <typename pack_idx_t>
+SharedBuffer<ptrdiff_t>
+PackedMesh<pack_idx_t>::ghost_reduce_idx(const int block_idx) const {
+  return impl_->blocks[block_idx]->ghost_reduce_idx;
+}
+
+template <typename pack_idx_t>
+SharedBuffer<idx_t>
+PackedMesh<pack_idx_t>::ghost_reduce_dest(const int block_idx) const {
+  return impl_->blocks[block_idx]->ghost_reduce_dest;
+}
+
+template <typename pack_idx_t>
+ptrdiff_t PackedMesh<pack_idx_t>::n_ghost_entries(const int block_idx) const {
+  auto gp = impl_->blocks[block_idx]->ghost_ptr;
+  return gp->data()[impl_->blocks[block_idx]->n_packs];
+}
+
+template <typename pack_idx_t>
+ptrdiff_t PackedMesh<pack_idx_t>::n_ghost_reduce_rows(const int block_idx) const {
+  auto dest = impl_->blocks[block_idx]->ghost_reduce_dest;
+  return dest ? (ptrdiff_t)dest->size() : 0;
 }
 
 template <typename pack_idx_t>

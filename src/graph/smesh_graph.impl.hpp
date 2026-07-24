@@ -680,26 +680,26 @@ static int create_crs_graph_upper_triangular_from_n2e(
       for (ptrdiff_t node = 0; node < nnodes; ++node) {
         idx_t n2nbuff[4096];
 
-        count_t ebegin = n2eptr[node];
-        count_t eend = n2eptr[node + 1];
+        const count_t ebegin = n2eptr[node];
+        const count_t eend = n2eptr[node + 1];
 
         idx_t nneighs = 0;
 
         for (count_t e = ebegin; e < eend; ++e) {
-          element_idx_t eidx = elindex[e];
+          const element_idx_t eidx = elindex[e];
           assert(eidx < nelements);
 
           for (int edof_i = 0; edof_i < nnodesxelem; ++edof_i) {
-            idx_t neighnode = elems[edof_i][eidx];
+            const idx_t neighnode = elems[edof_i][eidx];
             if (neighnode > node) {
               assert(nneighs < 4096);
               n2nbuff[nneighs++] = neighnode;
             }
           }
-
-          nneighs = sort_and_unique(n2nbuff, nneighs);
-          rowptr[node + 1] = nneighs;
         }
+
+        nneighs = sort_and_unique(n2nbuff, nneighs);
+        rowptr[node + 1] = nneighs;
       }
 
       // Cumulative sum
@@ -714,28 +714,28 @@ static int create_crs_graph_upper_triangular_from_n2e(
 #pragma omp parallel for
         for (ptrdiff_t node = 0; node < nnodes; ++node) {
           idx_t n2nbuff[4096];
-          count_t ebegin = n2eptr[node];
-          count_t eend = n2eptr[node + 1];
+          const count_t ebegin = n2eptr[node];
+          const count_t eend = n2eptr[node + 1];
 
           idx_t nneighs = 0;
 
           for (count_t e = ebegin; e < eend; ++e) {
-            element_idx_t eidx = elindex[e];
+            const element_idx_t eidx = elindex[e];
             assert(eidx < nelements);
 
             for (int edof_i = 0; edof_i < nnodesxelem; ++edof_i) {
-              idx_t neighnode = elems[edof_i][eidx];
+              const idx_t neighnode = elems[edof_i][eidx];
               if (neighnode > node) {
                 assert(nneighs < 4096);
                 n2nbuff[nneighs++] = neighnode;
               }
             }
+          }
 
-            nneighs = sort_and_unique(n2nbuff, nneighs);
+          nneighs = sort_and_unique(n2nbuff, nneighs);
 
-            for (idx_t i = 0; i < nneighs; ++i) {
-              colidx[rowptr[node] + i] = n2nbuff[i];
-            }
+          for (idx_t i = 0; i < nneighs; ++i) {
+            colidx[rowptr[node] + i] = n2nbuff[i];
           }
         }
       }

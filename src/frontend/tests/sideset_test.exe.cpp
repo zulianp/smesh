@@ -261,6 +261,38 @@ int test_hex27_cube_uses_conventional_ordering() {
   return SMESH_TEST_SUCCESS;
 }
 
+int test_upper_triangular_graph_with_unused_node() {
+  auto elements = create_host_buffer<idx_t>(3, 1);
+  auto points = create_host_buffer<geom_t>(3, 4);
+  SMESH_TEST_ASSERT(elements != nullptr);
+  SMESH_TEST_ASSERT(points != nullptr);
+
+  auto elems = elements->data();
+  elems[0][0] = 0;
+  elems[1][0] = 1;
+  elems[2][0] = 2;
+
+  auto mesh = std::make_shared<Mesh>(Communicator::self(), TRI3, elements, points);
+  auto graph = mesh->node_to_node_graph_upper_triangular();
+  SMESH_TEST_ASSERT(graph != nullptr);
+
+  const count_t expected_rowptr[5] = {0, 2, 3, 3, 3};
+  const idx_t expected_colidx[3] = {1, 2, 2};
+
+  SMESH_TEST_EQ(graph->rowptr()->size(), static_cast<size_t>(5));
+  SMESH_TEST_EQ(graph->colidx()->size(), static_cast<size_t>(3));
+
+  for (size_t i = 0; i < 5; ++i) {
+    SMESH_TEST_EQ(graph->rowptr()->data()[i], expected_rowptr[i]);
+  }
+
+  for (size_t i = 0; i < 3; ++i) {
+    SMESH_TEST_EQ(graph->colidx()->data()[i], expected_colidx[i]);
+  }
+
+  return SMESH_TEST_SUCCESS;
+}
+
 int main(int argc, char *argv[]) {
   SMESH_UNIT_TEST_INIT(argc, argv);
 
@@ -270,6 +302,7 @@ int main(int argc, char *argv[]) {
   SMESH_RUN_TEST(test_sideset_select_propagate_cube_mesh);
   SMESH_RUN_TEST(test_hex27_element_contract);
   SMESH_RUN_TEST(test_hex27_cube_uses_conventional_ordering);
+  SMESH_RUN_TEST(test_upper_triangular_graph_with_unused_node);
 
   SMESH_UNIT_TEST_FINALIZE();
   return SMESH_UNIT_TEST_ERR();
