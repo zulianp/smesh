@@ -14,6 +14,7 @@ namespace smesh {
         EDGE2           = 2,
         EDGE3           = 11,
         EDGESHELL2      = 101,
+        EDGESHELL3      = 111,
         BEAM2           = 100002,
         TRI3            = 3,
         TRI6            = 6,
@@ -75,6 +76,8 @@ namespace smesh {
         if (!strcmp(str, "NODE1")) return NODE1;
         if (!strcmp(str, "EDGE2")) return EDGE2;
         if (!strcmp(str, "EDGE3")) return EDGE3;
+        if (!strcmp(str, "EDGESHELL2")) return EDGESHELL2;
+        if (!strcmp(str, "EDGESHELL3")) return EDGESHELL3;
         if (!strcmp(str, "TRI3")) return TRI3;
         if (!strcmp(str, "TRI6")) return TRI6;
         if (!strcmp(str, "TRI10")) return TRI10;
@@ -131,6 +134,8 @@ namespace smesh {
                 return "EDGE2";
             case EDGESHELL2:
                 return "EDGESHELL2";
+            case EDGESHELL3:
+                return "EDGESHELL3";
             case EDGE3:
                 return "EDGE3";
             case BEAM2:
@@ -252,6 +257,9 @@ namespace smesh {
             case TET20:
                 return TRI10;
             case EDGE2:
+            case EDGE3:
+            case EDGESHELL2:
+            case EDGESHELL3:
                 return NODE1;
             case TRISHELL3:
                 return BEAM2;
@@ -306,6 +314,12 @@ namespace smesh {
                 return TRISHELL10;
             case EDGE2:
                 return EDGESHELL2;
+            case EDGE3:
+                return EDGESHELL3;
+            case EDGESHELL2:
+                return EDGESHELL2;
+            case EDGESHELL3:
+                return EDGESHELL3;
             case BEAM2:
                 return BEAM2;
             case QUAD4:
@@ -391,6 +405,8 @@ namespace smesh {
                 return TET10;
             case EDGE3:
                 return EDGE2;
+            case EDGESHELL3:
+                return EDGESHELL2;
             default: {
                 SMESH_ERROR("No lower order type found for type: %s\n", type_to_string(type));
                 return INVALID;
@@ -414,6 +430,8 @@ namespace smesh {
                 return TET20;
             case EDGE2:
                 return EDGE3;
+            case EDGESHELL2:
+                return EDGESHELL3;
             default: {
                 SMESH_ERROR("No higher order type found for type: %s\n", type_to_string(type));
                 return INVALID;
@@ -432,6 +450,7 @@ namespace smesh {
             case EDGESHELL2:
                 return 2;
             case EDGE3:
+            case EDGESHELL3:
                 return 3;
             case TRI3:
                 return 3;
@@ -531,6 +550,9 @@ namespace smesh {
             case NIL:
                 return 0;
             case EDGE2:
+            case EDGESHELL2:
+            case EDGE3:
+            case EDGESHELL3:
                 return 2;
             case TRI3:
                 return 3;
@@ -588,6 +610,9 @@ namespace smesh {
             case NIL:
                 return 0;
             case EDGE2:
+            case EDGESHELL2:
+            case EDGE3:
+            case EDGESHELL3:
                 return 1;
             case TRI3:
                 return 2;
@@ -694,6 +719,10 @@ namespace smesh {
             case TRI6:
                 return 1;
             case QUAD9:
+                return 1;
+            case EDGE3:
+                return 1;
+            case EDGESHELL3:
                 return 1;
             case HEX27:
                 return 1;

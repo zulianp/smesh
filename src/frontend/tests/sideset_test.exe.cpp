@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <utility>
 #include <vector>
@@ -207,6 +208,18 @@ int test_hex27_element_contract() {
   SMESH_TEST_EQ(elem_num_sides(HEX27), 6);
   SMESH_TEST_EQ(side_type(HEX27), QUAD9);
   SMESH_TEST_EQ(shell_type(side_type(HEX27)), QUADSHELL9);
+  SMESH_TEST_EQ(side_type(EDGE3), NODE1);
+  SMESH_TEST_EQ(elem_num_sides(EDGE3), 2);
+  SMESH_TEST_EQ(elem_manifold_dim(EDGE3), 1);
+  SMESH_TEST_EQ(type_from_string("EDGESHELL2"), EDGESHELL2);
+  SMESH_TEST_EQ(type_from_string("EDGESHELL3"), EDGESHELL3);
+  SMESH_TEST_ASSERT(std::strcmp(type_to_string(EDGESHELL3), "EDGESHELL3") == 0);
+  SMESH_TEST_EQ(shell_type(EDGE3), EDGESHELL3);
+  SMESH_TEST_EQ(elem_num_nodes(EDGESHELL3), 3);
+  SMESH_TEST_EQ(elem_num_sides(EDGESHELL3), 2);
+  SMESH_TEST_EQ(elem_manifold_dim(EDGESHELL3), 1);
+  SMESH_TEST_EQ(shell_type(side_type(QUAD9)), EDGESHELL3);
+  SMESH_TEST_EQ(shell_type(side_type(TRI6)), EDGESHELL3);
   SMESH_TEST_ASSERT(!is_semistructured_type(HEX27));
   SMESH_TEST_ASSERT(is_semistructured_type(PROTEUS_HEX27));
 
