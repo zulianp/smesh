@@ -5,6 +5,7 @@
 #include "smesh_ssquad4_inline.cuh"
 
 #include <cassert>
+#include <mutex>
 #include <vector>
 
 namespace smesh {
@@ -310,12 +311,16 @@ public:
   T *data{nullptr};
   size_t nodes{0};
   int stride{0};
+  int steps{0};
+  int padding{0};
 
-  ShapeInterpolation(const int steps, const int padding = 0) {
+  int init(const int steps_, const int padding_ = 0) {
+    steps = steps_;
+    padding = padding_;
     nodes = (steps + 1);
     stride = nodes + padding;
     std::vector<T> S_host(2 * stride, 0);
-    double h = 1. / steps;
+    double h = 1. / steps_;
     for (int i = 0; i < nodes; i++) {
       S_host[0 * stride + i] = (1 - h * i);
       S_host[1 * stride + i] = h * i;
@@ -326,9 +331,73 @@ public:
     SMESH_CUDA_CHECK(cudaMalloc((void **)&data, nbytes));
     SMESH_CUDA_CHECK(
         cudaMemcpy(data, S_host.data(), nbytes, cudaMemcpyHostToDevice));
+
+    return SMESH_SUCCESS;
   }
 
-  ~ShapeInterpolation() { cudaFree(data); }
+  bool matches(const int steps_, const int padding_) const {
+    return data && steps == steps_ && padding == padding_;
+  }
+
+  ~ShapeInterpolation() { destroy(); }
+
+  void destroy() {
+    if (data) {
+      cudaFree(data);
+      data = nullptr;
+    }
+  }
+};
+
+template <typename T> class ShapeInterpolationPool {
+public:
+  static ShapeInterpolation<T> *get(const int steps, const int padding) {
+    std::lock_guard<std::mutex> lock(mutex());
+
+    ShapeInterpolation<T> *empty_slot = nullptr;
+    for (int i = 0; i < capacity(); ++i) {
+      auto &entry = entries()[i];
+      if (entry.matches(steps, padding)) {
+        return &entry;
+      }
+
+      if (!entry.data && !empty_slot) {
+        empty_slot = &entry;
+      }
+    }
+
+    if (!empty_slot) {
+      SMESH_ERROR("ShapeInterpolationPool capacity exceeded for steps=%d padding=%d\n",
+                  steps, padding);
+      return nullptr;
+    }
+
+    if (empty_slot->init(steps, padding) != SMESH_SUCCESS) {
+      return nullptr;
+    }
+
+    return empty_slot;
+  }
+
+  static void destroy() {
+    std::lock_guard<std::mutex> lock(mutex());
+    for (int i = 0; i < capacity(); ++i) {
+      entries()[i].destroy();
+    }
+  }
+
+private:
+  static constexpr int capacity() { return 64; }
+
+  static ShapeInterpolation<T> *entries() {
+    static ShapeInterpolation<T> pool[capacity()];
+    return pool;
+  }
+
+  static std::mutex &mutex() {
+    static std::mutex m;
+    return m;
+  }
 };
 
 template <typename From, typename To>
@@ -494,7 +563,11 @@ int cu_ssquad4_restrict_tpl(
       MAX(ptrdiff_t(1),
           (nelements + block_size / TILE_SIZE - 1) / (block_size / TILE_SIZE));
 
-  ShapeInterpolation<To> S(from_level / to_level, from_level % 2 == 0);
+  auto S =
+      ShapeInterpolationPool<To>::get(from_level / to_level, from_level % 2 == 0);
+  if (!S) {
+    return SMESH_FAILURE;
+  }
 
   size_t shared_mem_size = block_size * sizeof(From);
 
@@ -507,7 +580,7 @@ int cu_ssquad4_restrict_tpl(
             // stride,
             from_level, from_level_stride, from_elements,
             from_element_to_node_incidence_count, to_level, to_level_stride,
-            to_elements, S.data, vec_size, from_stride, from, to_stride, to);
+            to_elements, S->data, vec_size, from_stride, from, to_stride, to);
   } else {
     cu_ssquad4_restrict_kernel<From, To>
         <<<n_blocks, block_size, shared_mem_size>>>(
@@ -515,7 +588,7 @@ int cu_ssquad4_restrict_tpl(
             // stride,
             from_level, from_level_stride, from_elements,
             from_element_to_node_incidence_count, to_level, to_level_stride,
-            to_elements, S.data, vec_size, from_stride, from, to_stride, to);
+            to_elements, S->data, vec_size, from_stride, from, to_stride, to);
   }
 
   SMESH_DEBUG_SYNCHRONIZE();
@@ -535,6 +608,22 @@ int cu_ssquad4_restrict(
     const ptrdiff_t to_stride, void *const SMESH_RESTRICT to, void *stream) {
   assert(from_type == to_type && "TODO mixed types!");
   if (from_type != to_type) {
+    SMESH_ERROR("cu_ssquad4_restrict requires matching from/to types (%s != %s)\n",
+                to_string(from_type), to_string(to_type));
+    return SMESH_FAILURE;
+  }
+
+  if (from_level <= 0 || to_level <= 0 || from_level % to_level != 0) {
+    SMESH_ERROR("cu_ssquad4_restrict requires positive nested levels with "
+                "from_level %% to_level == 0 (from=%d, to=%d)\n",
+                from_level, to_level);
+    return SMESH_FAILURE;
+  }
+
+  if (from_level_stride <= 0 || to_level_stride <= 0 || vec_size <= 0) {
+    SMESH_ERROR("cu_ssquad4_restrict requires positive strides and vec_size "
+                "(from_level_stride=%d, to_level_stride=%d, vec_size=%d)\n",
+                from_level_stride, to_level_stride, vec_size);
     return SMESH_FAILURE;
   }
 
@@ -563,8 +652,8 @@ int cu_ssquad4_restrict(
         // stride,
         from_level, from_level_stride, from_elements,
         from_element_to_node_incidence_count, to_level, to_level_stride,
-        to_elements, vec_size, from_type, (double *)from, to_type, (double *)to,
-        stream);
+        to_elements, vec_size, from_stride, (double *)from, to_stride,
+        (double *)to, stream);
   }
 
   default: {

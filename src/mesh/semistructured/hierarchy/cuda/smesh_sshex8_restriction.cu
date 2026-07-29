@@ -7,6 +7,7 @@
 #include "smesh_types.hpp"
 
 #include <cstdio>
+#include <mutex>
 #include <vector>
 
 namespace smesh {
@@ -24,12 +25,16 @@ namespace smesh {
         T     *data{nullptr};
         size_t nodes{0};
         int    stride{0};
+        int    steps{0};
+        int    padding{0};
 
-        ShapeInterpolation(const int steps, const int padding = 0) {
-            nodes  = (steps + 1);
-            stride = nodes + padding;
+        int init(const int steps_, const int padding_ = 0) {
+            steps   = steps_;
+            padding = padding_;
+            nodes   = (steps + 1);
+            stride  = nodes + padding;
             std::vector<T> S_host(2 * stride, 0);
-            f64            h = 1. / steps;
+            f64            h = 1. / steps_;
             for (int i = 0; i < nodes; i++) {
                 S_host[0 * stride + i] = (1 - h * i);
                 S_host[1 * stride + i] = h * i;
@@ -51,9 +56,70 @@ namespace smesh {
         }
         printf("\n");
 #endif
+            return SMESH_SUCCESS;
         }
 
-        ~ShapeInterpolation() { cudaFree(data); }
+        bool matches(const int steps_, const int padding_) const { return data && steps == steps_ && padding == padding_; }
+
+        ~ShapeInterpolation() { destroy(); }
+
+        void destroy() {
+            if (data) {
+                cudaFree(data);
+                data = nullptr;
+            }
+        }
+    };
+
+    template <typename T>
+    class ShapeInterpolationPool {
+    public:
+        static ShapeInterpolation<T> *get(const int steps, const int padding) {
+            std::lock_guard<std::mutex> lock(mutex());
+
+            ShapeInterpolation<T> *empty_slot = nullptr;
+            for (int i = 0; i < capacity(); ++i) {
+                auto &entry = entries()[i];
+                if (entry.matches(steps, padding)) {
+                    return &entry;
+                }
+
+                if (!entry.data && !empty_slot) {
+                    empty_slot = &entry;
+                }
+            }
+
+            if (!empty_slot) {
+                SMESH_ERROR("ShapeInterpolationPool capacity exceeded for steps=%d padding=%d\n", steps, padding);
+                return nullptr;
+            }
+
+            if (empty_slot->init(steps, padding) != SMESH_SUCCESS) {
+                return nullptr;
+            }
+
+            return empty_slot;
+        }
+
+        static void destroy() {
+            std::lock_guard<std::mutex> lock(mutex());
+            for (int i = 0; i < capacity(); ++i) {
+                entries()[i].destroy();
+            }
+        }
+
+    private:
+        static constexpr int capacity() { return 64; }
+
+        static ShapeInterpolation<T> *entries() {
+            static ShapeInterpolation<T> pool[capacity()];
+            return pool;
+        }
+
+        static std::mutex &mutex() {
+            static std::mutex m;
+            return m;
+        }
     };
 
     // PROLONGATION
@@ -570,7 +636,10 @@ namespace smesh {
 
         ptrdiff_t n_blocks = MAX(ptrdiff_t(1), (nelements + block_size / TILE_SIZE - 1) / (block_size / TILE_SIZE));
 
-        ShapeInterpolation<To> S(from_level / to_level, from_level % 2 == 0);
+        auto S = ShapeInterpolationPool<To>::get(from_level / to_level, from_level % 2 == 0);
+        if (!S) {
+            return SMESH_FAILURE;
+        }
 
         size_t shared_mem_size = block_size * sizeof(From);
 
@@ -586,7 +655,7 @@ namespace smesh {
                                                                    to_level,
                                                                    to_level_stride,
                                                                    to_elements,
-                                                                   S.data,
+                                                                   S->data,
                                                                    vec_size,
                                                                    from_type,
                                                                    from_stride,
@@ -604,7 +673,7 @@ namespace smesh {
                                                                 to_level,
                                                                 to_level_stride,
                                                                 to_elements,
-                                                                S.data,
+                                                                S->data,
                                                                 vec_size,
                                                                 from_type,
                                                                 from_stride,
@@ -636,6 +705,22 @@ namespace smesh {
                            void                            *stream) {
         SMESH_ASSERT(from_type == to_type && "TODO mixed types!");
         if (from_type != to_type) {
+            SMESH_ERROR("cu_sshex8_restrict requires matching from/to types (%s != %s)\n", to_string(from_type), to_string(to_type));
+            return SMESH_FAILURE;
+        }
+
+        if (from_level <= 0 || to_level <= 0 || from_level % to_level != 0) {
+            SMESH_ERROR("cu_sshex8_restrict requires positive nested levels with from_level %% to_level == 0 (from=%d, to=%d)\n",
+                        from_level,
+                        to_level);
+            return SMESH_FAILURE;
+        }
+
+        if (from_level_stride <= 0 || to_level_stride <= 0 || vec_size <= 0) {
+            SMESH_ERROR("cu_sshex8_restrict requires positive strides and vec_size (from_level_stride=%d, to_level_stride=%d, vec_size=%d)\n",
+                        from_level_stride,
+                        to_level_stride,
+                        vec_size);
             return SMESH_FAILURE;
         }
 

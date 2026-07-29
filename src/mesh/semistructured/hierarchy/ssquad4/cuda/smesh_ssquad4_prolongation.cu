@@ -6,7 +6,6 @@
 #include "smesh_types.hpp"
 
 #include <cassert>
-#include <vector>
 
 namespace smesh {
 
@@ -149,32 +148,6 @@ static const int TILE_SIZE = 4;
 
 static inline __device__ int is_even(const int v) { return !(v & 1); }
 static inline __device__ int is_odd(const int v) { return (v & 1); }
-
-template <typename T> class ShapeInterpolation {
-public:
-  T *data{nullptr};
-  size_t nodes{0};
-  int stride{0};
-
-  ShapeInterpolation(const int steps, const int padding = 0) {
-    nodes = (steps + 1);
-    stride = nodes + padding;
-    std::vector<T> S_host(2 * stride, 0);
-    double h = 1. / steps;
-    for (int i = 0; i < nodes; i++) {
-      S_host[0 * stride + i] = (1 - h * i);
-      S_host[1 * stride + i] = h * i;
-    }
-
-    auto nbytes = S_host.size() * sizeof(T);
-
-    SMESH_CUDA_CHECK(cudaMalloc((void **)&data, nbytes));
-    SMESH_CUDA_CHECK(
-        cudaMemcpy(data, S_host.data(), nbytes, cudaMemcpyHostToDevice));
-  }
-
-  ~ShapeInterpolation() { cudaFree(data); }
-};
 
 // Even TO sub-elements are used to interpolate from FROM sub-elements
 template <typename From, typename To>
