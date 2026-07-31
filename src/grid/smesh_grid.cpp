@@ -308,7 +308,7 @@ namespace smesh {
             os.close();
         }
 
-        auto file_path = smesh::Path("sdf." + field_ext);
+        auto file_path = smesh::Path(folder / ("sdf." + field_ext));
 
         {
             std::ofstream os((folder / "sdf.xdmf").c_str());
