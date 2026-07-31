@@ -138,6 +138,7 @@ public:
 
     SharedBuffer<idx_t *> device_elements_SoA();
     SharedBuffer<idx_t> device_elements_AoS();
+    void set_device_elements_SoA(const SharedBuffer<idx_t *> &elements);
 
   private:
     class Impl;

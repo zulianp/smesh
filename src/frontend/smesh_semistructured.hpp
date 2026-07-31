@@ -40,6 +40,17 @@ namespace smesh {
     std::shared_ptr<Mesh> ssquad_to_quad4(const std::shared_ptr<Mesh> &ssquad);
     std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh, const int to_level);
 
+    /// Device SoA view into a finer SSHEX8 connectivity: uploads only a pointer table
+    /// (nxe device row pointers), keeping row data owned by \p fine_device_soa.
+    SharedBuffer<idx_t *> sshex8_device_elements_view(const SharedBuffer<idx_t *> &fine_device_soa,
+                                                      const int                    from_level,
+                                                      const int                    to_level);
+
+    /// HEX8 coarsest view of SSHEX8 corners (level-1 conversion): 8 device row pointers
+    /// into \p fine_device_soa, matching \c sshex8_to_standard_hex8_mesh ordering.
+    SharedBuffer<idx_t *> sshex8_to_hex8_device_elements_view(const SharedBuffer<idx_t *> &fine_device_soa,
+                                                              const int                    from_level);
+
     inline int semistructured_level(const Mesh &mesh) { return semistructured_level(mesh.element_type(0)); }
 
     inline ptrdiff_t semistructured_interior_start(const Mesh &mesh) {

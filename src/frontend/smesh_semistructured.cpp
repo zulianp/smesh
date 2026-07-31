@@ -4,7 +4,9 @@
 // STL
 #include <fstream>
 #include <sstream>
+#include <vector>
 
+#include "smesh_device_buffer.hpp"
 #include "smesh_glob.hpp"
 #include "smesh_line_quadrature.hpp"
 #include "smesh_sshex8.hpp"
@@ -289,6 +291,140 @@ namespace smesh {
         auto points = smesh::view(mesh->points(), 0, sdim, 0, n_unique_nodes);
 
         return std::make_shared<Mesh>(mesh->comm(), blocks, points);
+    }
+
+    SharedBuffer<idx_t *> sshex8_device_elements_view(const SharedBuffer<idx_t *> &fine_device_soa,
+                                                      const int                    from_level,
+                                                      const int                    to_level) {
+        if (!fine_device_soa) {
+            SMESH_ERROR("sshex8_device_elements_view: fine_device_soa is null");
+            return nullptr;
+        }
+
+        if (to_level <= 0 || from_level < to_level || (from_level % to_level) != 0) {
+            SMESH_ERROR("sshex8_device_elements_view: invalid levels from=%d to=%d", from_level, to_level);
+            return nullptr;
+        }
+
+        const int       step_factor = from_level / to_level;
+        const int       nxe        = (to_level + 1) * (to_level + 1) * (to_level + 1);
+        const ptrdiff_t n_elements = fine_device_soa->extent(1);
+
+        auto fill_host_view = [&](idx_t **host_fine_ptrs, idx_t **host_coarse_ptrs) {
+            for (int zi = 0; zi <= to_level; zi++) {
+                for (int yi = 0; yi <= to_level; yi++) {
+                    for (int xi = 0; xi <= to_level; xi++) {
+                        const int from_lidx           = sshex8_lidx(from_level, xi * step_factor, yi * step_factor, zi * step_factor);
+                        const int to_lidx             = sshex8_lidx(to_level, xi, yi, zi);
+                        host_coarse_ptrs[to_lidx] = host_fine_ptrs[from_lidx];
+                    }
+                }
+            }
+        };
+
+#ifdef SMESH_ENABLE_CUDA
+        if (fine_device_soa->mem_space() == MEMORY_SPACE_DEVICE) {
+            const ptrdiff_t        n0_fine = fine_device_soa->extent(0);
+            std::vector<idx_t *> fine_host_ptrs(n0_fine);
+            device::device_to_host(static_cast<size_t>(n0_fine), fine_device_soa->data(), fine_host_ptrs.data());
+
+            std::vector<idx_t *> coarse_host_ptrs(static_cast<size_t>(nxe));
+            fill_host_view(fine_host_ptrs.data(), coarse_host_ptrs.data());
+
+            idx_t **dev_ptrs = device::alloc<idx_t *>(static_cast<size_t>(nxe));
+            device::host_to_device(static_cast<size_t>(nxe), coarse_host_ptrs.data(), dev_ptrs);
+
+            return Buffer<idx_t *>::own(
+                    static_cast<size_t>(nxe),
+                    static_cast<size_t>(n_elements),
+                    dev_ptrs,
+                    [keep_alive = fine_device_soa](int /*n*/, void **ptr) {
+                        (void)keep_alive;
+                        device::destroy(ptr);
+                    },
+                    MEMORY_SPACE_DEVICE);
+        }
+#endif
+
+        auto view = Buffer<idx_t *>::own(
+                static_cast<size_t>(nxe),
+                static_cast<size_t>(n_elements),
+                (idx_t **)SMESH_ALLOC(static_cast<size_t>(nxe) * sizeof(idx_t *)),
+                [keep_alive = fine_device_soa](int /*n*/, void **v) {
+                    (void)keep_alive;
+                    SMESH_FREE(v);
+                },
+                fine_device_soa->mem_space());
+
+        fill_host_view(fine_device_soa->data(), view->data());
+        return view;
+    }
+
+    SharedBuffer<idx_t *> sshex8_to_hex8_device_elements_view(const SharedBuffer<idx_t *> &fine_device_soa,
+                                                              const int                    from_level) {
+        if (!fine_device_soa) {
+            SMESH_ERROR("sshex8_to_hex8_device_elements_view: fine_device_soa is null");
+            return nullptr;
+        }
+
+        if (from_level < 1) {
+            SMESH_ERROR("sshex8_to_hex8_device_elements_view: invalid from_level=%d", from_level);
+            return nullptr;
+        }
+
+        // Corner (xi,yi,zi) for HEX8 local nodes — same as sshex8_to_standard_hex8_mesh(level=1).
+        static const int hex8_corner_xi[8] = {0, 1, 1, 0, 0, 1, 1, 0};
+        static const int hex8_corner_yi[8] = {0, 0, 1, 1, 0, 0, 1, 1};
+        static const int hex8_corner_zi[8] = {0, 0, 0, 0, 1, 1, 1, 1};
+
+        constexpr int   nxe        = 8;
+        const int       step_factor = from_level;  // view of level-1 corners in the fine SS mesh
+        const ptrdiff_t n_elements = fine_device_soa->extent(1);
+
+        auto fill_host_view = [&](idx_t **host_fine_ptrs, idx_t **host_hex8_ptrs) {
+            for (int l = 0; l < nxe; l++) {
+                const int from_lidx =
+                        sshex8_lidx(from_level, hex8_corner_xi[l] * step_factor, hex8_corner_yi[l] * step_factor, hex8_corner_zi[l] * step_factor);
+                host_hex8_ptrs[l] = host_fine_ptrs[from_lidx];
+            }
+        };
+
+#ifdef SMESH_ENABLE_CUDA
+        if (fine_device_soa->mem_space() == MEMORY_SPACE_DEVICE) {
+            const ptrdiff_t      n0_fine = fine_device_soa->extent(0);
+            std::vector<idx_t *> fine_host_ptrs(static_cast<size_t>(n0_fine));
+            device::device_to_host(static_cast<size_t>(n0_fine), fine_device_soa->data(), fine_host_ptrs.data());
+
+            std::vector<idx_t *> hex8_host_ptrs(static_cast<size_t>(nxe));
+            fill_host_view(fine_host_ptrs.data(), hex8_host_ptrs.data());
+
+            idx_t **dev_ptrs = device::alloc<idx_t *>(static_cast<size_t>(nxe));
+            device::host_to_device(static_cast<size_t>(nxe), hex8_host_ptrs.data(), dev_ptrs);
+
+            return Buffer<idx_t *>::own(
+                    static_cast<size_t>(nxe),
+                    static_cast<size_t>(n_elements),
+                    dev_ptrs,
+                    [keep_alive = fine_device_soa](int /*n*/, void **ptr) {
+                        (void)keep_alive;
+                        device::destroy(ptr);
+                    },
+                    MEMORY_SPACE_DEVICE);
+        }
+#endif
+
+        auto view = Buffer<idx_t *>::own(
+                static_cast<size_t>(nxe),
+                static_cast<size_t>(n_elements),
+                (idx_t **)SMESH_ALLOC(static_cast<size_t>(nxe) * sizeof(idx_t *)),
+                [keep_alive = fine_device_soa](int /*n*/, void **v) {
+                    (void)keep_alive;
+                    SMESH_FREE(v);
+                },
+                fine_device_soa->mem_space());
+
+        fill_host_view(fine_device_soa->data(), view->data());
+        return view;
     }
 
 }  // namespace smesh

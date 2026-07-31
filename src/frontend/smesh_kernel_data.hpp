@@ -42,6 +42,8 @@ namespace smesh {
         int init_AoS(const SharedBuffer<idx_t *> &elements, const MemorySpace space);
         int init_SoA(const SharedBuffer<idx_t *> &elements, const MemorySpace space);
 
+        void adopt_SoA(const SharedBuffer<idx_t *> &elements) { elements_SoA_ = elements; }
+
         inline SharedBuffer<idx_t *> elements_SoA() const {
             SMESH_ASSERT(elements_SoA_);
             return elements_SoA_;

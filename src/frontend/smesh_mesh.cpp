@@ -386,6 +386,13 @@ namespace smesh {
         return impl_->device_elements->elements_AoS();
     }
 
+    void Mesh::Block::set_device_elements_SoA(const SharedBuffer<idx_t *> &elements) {
+        if (!impl_->device_elements) {
+            impl_->device_elements = std::make_shared<smesh::Elements>();
+        }
+        impl_->device_elements->adopt_SoA(elements);
+    }
+
     Mesh::Block::Block() : impl_(std::make_unique<Impl>()) { impl_->device_elements = std::make_shared<smesh::Elements>(); }
     Mesh::Block::~Block() = default;
 
