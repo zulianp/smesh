@@ -126,4 +126,14 @@ void Communicator::sum(void *buffer, int count, enum PrimitiveType type) const {
   SMESH_UNUSED(type);
 #endif
 }
+
+void Communicator::max(void *buffer, int count, enum PrimitiveType type) const {
+#ifdef SMESH_ENABLE_MPI
+  MPI_Allreduce(MPI_IN_PLACE, buffer, count, mpi_type_from_primitive_type(type), MPI_MAX, impl_->comm);
+#else
+  SMESH_UNUSED(buffer);
+  SMESH_UNUSED(count);
+  SMESH_UNUSED(type);
+#endif
+}
 } // namespace smesh

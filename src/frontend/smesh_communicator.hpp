@@ -51,6 +51,14 @@ public:
 
   void sum(void *buffer, int count, enum PrimitiveType type) const;
 
+  template <typename T> T max(const T &value) const {
+    T result = value;
+    max(&result, 1, TypeToEnum<T>::value());
+    return result;
+  }
+
+  void max(void *buffer, int count, enum PrimitiveType type) const;
+
 private:
   class Impl;
   std::unique_ptr<Impl> impl_;
