@@ -313,7 +313,7 @@ namespace smesh {
         {
             std::ofstream os((folder / "sdf.xdmf").c_str());
             if (!os.good()) return SMESH_FAILURE;
-            create_xdmf(*this, file_path, os);
+            create_xdmf(*this, smesh::Path("sdf." + field_ext), os);
             os.close();
         }
 
