@@ -246,7 +246,7 @@ void mesh_fill_quad4_square(
   // #pragma omp parallel for collapse(2)
   for (ptrdiff_t yi = 0; yi < ny; yi++) {
     for (ptrdiff_t xi = 0; xi < nx; xi++) {
-      const ptrdiff_t e = yi * ldy + xi * ldx;
+      const ptrdiff_t e = yi * nx + xi;
 
       const idx_t i0 = (xi + 0) * ldx + (yi + 0) * ldy;
       const idx_t i1 = (xi + 1) * ldx + (yi + 0) * ldy;

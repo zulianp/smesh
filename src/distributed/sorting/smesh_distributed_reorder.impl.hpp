@@ -679,6 +679,10 @@ int mesh_from_folder_multiblock(
     ptrdiff_t *n_shared_elements_out, ptrdiff_t *n_ghost_elements_out,
     large_idx_t **element_mapping_out, large_idx_t **aura_element_mapping_out,
     int **nxe_per_block_out, ptrdiff_t **n_local_elements_per_block_out,
+    ptrdiff_t **n_owned_per_block_out, ptrdiff_t **n_shared_per_block_out,
+    ptrdiff_t **n_ghosts_per_block_out,
+    large_idx_t ***element_mapping_per_block_out,
+    large_idx_t ***aura_element_mapping_per_block_out,
     idx_t ****elements_per_block_out, int *spatial_dim_out,
     ptrdiff_t *n_global_nodes_out, ptrdiff_t *n_owned_nodes_out,
     ptrdiff_t *n_shared_nodes_out, ptrdiff_t *n_ghost_nodes_out,
@@ -689,7 +693,9 @@ int mesh_from_folder_multiblock(
   const block_idx_t n_blocks = static_cast<block_idx_t>(block_names.size());
   if (n_blocks == 0 || block_names.size() != element_types.size() ||
       !n_local_elements_per_block_out || !elements_per_block_out ||
-      !nxe_per_block_out) {
+      !nxe_per_block_out || !n_owned_per_block_out || !n_shared_per_block_out ||
+      !n_ghosts_per_block_out || !element_mapping_per_block_out ||
+      !aura_element_mapping_per_block_out) {
     return SMESH_FAILURE;
   }
 
@@ -824,9 +830,18 @@ int mesh_from_folder_multiblock(
   sorted_concat_ids = nullptr;
 
   const ptrdiff_t n_owned = *n_owned_elements_out;
+  const ptrdiff_t n_shared = *n_shared_elements_out;
+  const ptrdiff_t n_ons = n_owned - n_shared;
   const ptrdiff_t n_aura = *n_ghost_elements_out;
   const large_idx_t *const element_mapping = *element_mapping_out;
   const large_idx_t *const aura_element_mapping = *aura_element_mapping_out;
+  if (n_ons < 0) {
+    SMESH_ERROR("mesh_from_folder_multiblock: n_shared (%ld) > n_owned (%ld)\n",
+                (long)n_shared, (long)n_owned);
+    SMESH_FREE(out_e2n_ptr);
+    SMESH_FREE(out_e2n_idx);
+    return SMESH_FAILURE;
+  }
 
   auto block_of_concat = [&](const large_idx_t cid) -> block_idx_t {
     for (block_idx_t b = 0; b < n_blocks; ++b) {
@@ -838,20 +853,41 @@ int mesh_from_folder_multiblock(
     return n_blocks;
   };
 
-  ptrdiff_t *n_local_per_block =
+  ptrdiff_t *n_ons_per_block =
       (ptrdiff_t *)SMESH_CALLOC((size_t)n_blocks, sizeof(ptrdiff_t));
-  for (ptrdiff_t i = 0; i < n_owned; ++i) {
+  ptrdiff_t *n_shared_per_block =
+      (ptrdiff_t *)SMESH_CALLOC((size_t)n_blocks, sizeof(ptrdiff_t));
+  ptrdiff_t *n_ghosts_per_block =
+      (ptrdiff_t *)SMESH_CALLOC((size_t)n_blocks, sizeof(ptrdiff_t));
+
+  auto fail_split = [&]() -> int {
+    SMESH_FREE(out_e2n_ptr);
+    SMESH_FREE(out_e2n_idx);
+    SMESH_FREE(n_ons_per_block);
+    SMESH_FREE(n_shared_per_block);
+    SMESH_FREE(n_ghosts_per_block);
+    return SMESH_FAILURE;
+  };
+
+  for (ptrdiff_t i = 0; i < n_ons; ++i) {
     const block_idx_t b = block_of_concat(element_mapping[i]);
     if (b >= n_blocks) {
       SMESH_ERROR("mesh_from_folder_multiblock: owned concat_id %lld out of "
                   "range\n",
                   (long long)element_mapping[i]);
-      SMESH_FREE(out_e2n_ptr);
-      SMESH_FREE(out_e2n_idx);
-      SMESH_FREE(n_local_per_block);
-      return SMESH_FAILURE;
+      return fail_split();
     }
-    n_local_per_block[b]++;
+    n_ons_per_block[b]++;
+  }
+  for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
+    const block_idx_t b = block_of_concat(element_mapping[i]);
+    if (b >= n_blocks) {
+      SMESH_ERROR("mesh_from_folder_multiblock: owned concat_id %lld out of "
+                  "range\n",
+                  (long long)element_mapping[i]);
+      return fail_split();
+    }
+    n_shared_per_block[b]++;
   }
   for (ptrdiff_t i = 0; i < n_aura; ++i) {
     const block_idx_t b = block_of_concat(aura_element_mapping[i]);
@@ -859,17 +895,37 @@ int mesh_from_folder_multiblock(
       SMESH_ERROR("mesh_from_folder_multiblock: aura concat_id %lld out of "
                   "range\n",
                   (long long)aura_element_mapping[i]);
-      SMESH_FREE(out_e2n_ptr);
-      SMESH_FREE(out_e2n_idx);
-      SMESH_FREE(n_local_per_block);
-      return SMESH_FAILURE;
+      return fail_split();
     }
-    n_local_per_block[b]++;
+    n_ghosts_per_block[b]++;
+  }
+
+  ptrdiff_t *n_owned_per_block =
+      (ptrdiff_t *)SMESH_ALLOC((size_t)n_blocks * sizeof(ptrdiff_t));
+  ptrdiff_t *n_local_per_block =
+      (ptrdiff_t *)SMESH_ALLOC((size_t)n_blocks * sizeof(ptrdiff_t));
+  for (block_idx_t b = 0; b < n_blocks; ++b) {
+    n_owned_per_block[b] = n_ons_per_block[b] + n_shared_per_block[b];
+    n_local_per_block[b] = n_owned_per_block[b] + n_ghosts_per_block[b];
+  }
+
+  large_idx_t **owned_map_per_block =
+      (large_idx_t **)SMESH_CALLOC((size_t)n_blocks, sizeof(large_idx_t *));
+  large_idx_t **aura_map_per_block =
+      (large_idx_t **)SMESH_CALLOC((size_t)n_blocks, sizeof(large_idx_t *));
+  for (block_idx_t b = 0; b < n_blocks; ++b) {
+    if (n_owned_per_block[b] > 0) {
+      owned_map_per_block[b] = (large_idx_t *)SMESH_ALLOC(
+          (size_t)n_owned_per_block[b] * sizeof(large_idx_t));
+    }
+    if (n_ghosts_per_block[b] > 0) {
+      aura_map_per_block[b] = (large_idx_t *)SMESH_ALLOC(
+          (size_t)n_ghosts_per_block[b] * sizeof(large_idx_t));
+    }
   }
 
   idx_t ***elements_per_block =
       (idx_t ***)SMESH_ALLOC((size_t)n_blocks * sizeof(idx_t **));
-  std::vector<ptrdiff_t> write_cursor((size_t)n_blocks, 0);
   for (block_idx_t b = 0; b < n_blocks; ++b) {
     const int nxe_b = nxe[(size_t)b];
     elements_per_block[b] =
@@ -881,8 +937,8 @@ int mesh_from_folder_multiblock(
     }
   }
 
-  auto append_elem = [&](const block_idx_t b, const ptrdiff_t src) {
-    const ptrdiff_t dst = write_cursor[(size_t)b]++;
+  auto write_elem = [&](const block_idx_t b, const ptrdiff_t src,
+                        const ptrdiff_t dst) {
     const int nxe_b = nxe[(size_t)b];
     const ptrdiff_t k0 = out_e2n_ptr[src];
     SMESH_ASSERT((out_e2n_ptr[src + 1] - k0) == nxe_b);
@@ -891,15 +947,38 @@ int mesh_from_folder_multiblock(
     }
   };
 
-  for (ptrdiff_t i = 0; i < n_owned; ++i) {
-    append_elem(block_of_concat(element_mapping[i]), i);
+  auto block_local_id = [&](const block_idx_t b, const large_idx_t cid) {
+    return cid - static_cast<large_idx_t>(concat_offset[(size_t)b]);
+  };
+
+  std::vector<ptrdiff_t> ons_cursor((size_t)n_blocks, 0);
+  std::vector<ptrdiff_t> shared_cursor((size_t)n_blocks, 0);
+  std::vector<ptrdiff_t> aura_cursor((size_t)n_blocks, 0);
+
+  for (ptrdiff_t i = 0; i < n_ons; ++i) {
+    const block_idx_t b = block_of_concat(element_mapping[i]);
+    const ptrdiff_t dst = ons_cursor[(size_t)b]++;
+    owned_map_per_block[b][dst] = block_local_id(b, element_mapping[i]);
+    write_elem(b, i, dst);
+  }
+  for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
+    const block_idx_t b = block_of_concat(element_mapping[i]);
+    const ptrdiff_t dst =
+        n_ons_per_block[b] + shared_cursor[(size_t)b]++;
+    owned_map_per_block[b][dst] = block_local_id(b, element_mapping[i]);
+    write_elem(b, i, dst);
   }
   for (ptrdiff_t i = 0; i < n_aura; ++i) {
-    append_elem(block_of_concat(aura_element_mapping[i]), n_owned + i);
+    const block_idx_t b = block_of_concat(aura_element_mapping[i]);
+    const ptrdiff_t dst_aura = aura_cursor[(size_t)b]++;
+    aura_map_per_block[b][dst_aura] =
+        block_local_id(b, aura_element_mapping[i]);
+    write_elem(b, n_owned + i, n_owned_per_block[b] + dst_aura);
   }
 
   SMESH_FREE(out_e2n_ptr);
   SMESH_FREE(out_e2n_idx);
+  SMESH_FREE(n_ons_per_block);
 
   int *nxe_out = (int *)SMESH_ALLOC((size_t)n_blocks * sizeof(int));
   for (block_idx_t b = 0; b < n_blocks; ++b) {
@@ -907,6 +986,11 @@ int mesh_from_folder_multiblock(
   }
   *nxe_per_block_out = nxe_out;
   *n_local_elements_per_block_out = n_local_per_block;
+  *n_owned_per_block_out = n_owned_per_block;
+  *n_shared_per_block_out = n_shared_per_block;
+  *n_ghosts_per_block_out = n_ghosts_per_block;
+  *element_mapping_per_block_out = owned_map_per_block;
+  *aura_element_mapping_per_block_out = aura_map_per_block;
   *elements_per_block_out = elements_per_block;
   return SMESH_SUCCESS;
 }

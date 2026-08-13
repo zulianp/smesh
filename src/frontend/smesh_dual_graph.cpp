@@ -20,6 +20,8 @@ SharedBuffer<count_t> DualGraph::adj_ptr() { return impl_->adj_ptr; }
 
 SharedBuffer<element_idx_t> DualGraph::adj_idx() { return impl_->adj_idx; }
 
+SharedBuffer<block_idx_t> DualGraph::adj_block() { return impl_->adj_block; }
+
 std::shared_ptr<DualGraph>
 DualGraph::create(const std::shared_ptr<Mesh> &mesh) {
   auto ret = std::make_shared<DualGraph>();

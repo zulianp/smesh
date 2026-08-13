@@ -195,34 +195,32 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
   return 0;
 }
 
-int write_distributed_mesh_topology(
-    MPI_Comm comm, const Path &path, enum ElemType /*element_type*/,
-    int spatial_dim, ptrdiff_t n_global_elements, ptrdiff_t n_owned_elements,
-    const large_idx_t *element_mapping, int nnodesxelem, idx_t **local_elements,
-    ptrdiff_t n_global_nodes, ptrdiff_t n_owned_nodes,
-    const large_idx_t *node_mapping, geom_t **local_points) {
-  SMESH_TRACE_SCOPE("write_distributed_mesh_topology");
+int write_distributed_mesh_coordinates(
+    MPI_Comm comm, const Path &path, int spatial_dim, ptrdiff_t n_global_nodes,
+    ptrdiff_t n_owned_nodes, const large_idx_t *node_mapping,
+    geom_t **local_points) {
+  SMESH_TRACE_SCOPE("write_distributed_mesh_coordinates");
 
   int err = SMESH_SUCCESS;
-
-  // Write coordinates (x/y/z.*) using ownership-based mapping.
   static constexpr char xyz[3] = {'x', 'y', 'z'};
   for (int d = 0; d < spatial_dim; ++d) {
     std::string fname =
         std::string(1, xyz[d]) + "." + std::string(TypeToString<geom_t>::value());
     Path coord_path = path / fname;
-
-    // Only owned nodes participate in mapped write.
     err |= write_mapped_field(comm, coord_path, n_owned_nodes, n_global_nodes,
                               node_mapping, smesh::mpi_type<geom_t>(),
                               local_points[d]);
   }
+  return err == SMESH_SUCCESS ? SMESH_SUCCESS : SMESH_FAILURE;
+}
 
-  if (err != SMESH_SUCCESS) {
-    return SMESH_FAILURE;
-  }
+int write_distributed_block_connectivity(
+    MPI_Comm comm, const Path &path, ptrdiff_t n_global_elements,
+    ptrdiff_t n_owned_elements, const large_idx_t *element_mapping,
+    int nnodesxelem, idx_t **local_elements, const large_idx_t *node_mapping) {
+  SMESH_TRACE_SCOPE("write_distributed_block_connectivity");
 
-  // Write connectivity i*.*
+  int err = SMESH_SUCCESS;
   for (int v = 0; v < nnodesxelem; ++v) {
     std::string fname =
         "i" + std::to_string(v) + "." + std::string(TypeToString<idx_t>::value());
@@ -246,6 +244,28 @@ int write_distributed_mesh_topology(
 
     SMESH_FREE(buffer);
   }
+
+  return err == SMESH_SUCCESS ? SMESH_SUCCESS : SMESH_FAILURE;
+}
+
+int write_distributed_mesh_topology(
+    MPI_Comm comm, const Path &path, enum ElemType /*element_type*/,
+    int spatial_dim, ptrdiff_t n_global_elements, ptrdiff_t n_owned_elements,
+    const large_idx_t *element_mapping, int nnodesxelem, idx_t **local_elements,
+    ptrdiff_t n_global_nodes, ptrdiff_t n_owned_nodes,
+    const large_idx_t *node_mapping, geom_t **local_points) {
+  SMESH_TRACE_SCOPE("write_distributed_mesh_topology");
+
+  int err = write_distributed_mesh_coordinates(
+      comm, path, spatial_dim, n_global_nodes, n_owned_nodes, node_mapping,
+      local_points);
+  if (err != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+
+  err = write_distributed_block_connectivity(
+      comm, path, n_global_elements, n_owned_elements, element_mapping,
+      nnodesxelem, local_elements, node_mapping);
 
   return err == SMESH_SUCCESS ? SMESH_SUCCESS : SMESH_FAILURE;
 }

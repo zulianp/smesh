@@ -3,8 +3,12 @@
 
 #include "smesh_multiblock_graph.hpp"
 #include "smesh_alloc.hpp"
+#include "smesh_adjacency.hpp"
+#include "smesh_graph.hpp"
 #include "smesh_sort.hpp"
+#include "smesh_ssquad4_graph.hpp"
 
+#include <algorithm>
 #include <cstring>
 
 namespace smesh {
@@ -460,6 +464,338 @@ int create_multiblock_dual_graph_from_n2e(
   *out_dual_eidx = dual_eidx;
   *out_dual_eblock = dual_eblock;
 
+  return SMESH_SUCCESS;
+}
+
+template <typename idx_t, typename count_t, typename element_idx_t>
+static enum ElemType element_type_for_adjacency(enum ElemType element_type) {
+  if (element_type == TET10) {
+    return TET4;
+  }
+  if (element_type == TRI6) {
+    return TRI3;
+  }
+  return element_type;
+}
+
+template <typename idx_t, typename count_t, typename element_idx_t>
+int create_multiblock_half_face_table_for_block(
+    const block_idx_t target_block, const block_idx_t n_blocks,
+    const enum ElemType element_types[], const ptrdiff_t n_elements[],
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems[],
+    const count_t *const SMESH_RESTRICT global_dual_ptr,
+    const element_idx_t *const SMESH_RESTRICT global_dual_idx,
+    const block_idx_t *const SMESH_RESTRICT global_dual_block,
+    const element_idx_t *const SMESH_RESTRICT block_base,
+    element_idx_t **out_table, block_idx_t **out_neighbor_block) {
+  SMESH_ASSERT(target_block < n_blocks);
+
+  enum ElemType element_type =
+      element_type_for_adjacency<idx_t, count_t, element_idx_t>(
+          element_types[target_block]);
+  if (is_semistructured_type(element_type)) {
+    SMESH_ERROR(
+        "create_multiblock_half_face_table_for_block: semistructured type "
+        "not supported: %s\n",
+        type_to_string(element_types[target_block]));
+    return SMESH_FAILURE;
+  }
+
+  LocalSideTable lst_src;
+  lst_src.fill(element_type);
+
+  const enum ElemType st = side_type(element_type);
+  const int nn_src = elem_num_nodes(st);
+  const int ns_src = elem_num_sides(element_type);
+  const ptrdiff_t n_block_elements = n_elements[target_block];
+  const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems_src =
+      elems[target_block];
+
+  element_idx_t *table = (element_idx_t *)SMESH_ALLOC(
+      static_cast<size_t>(n_block_elements * ns_src) * sizeof(element_idx_t));
+  block_idx_t *neighbor_block = (block_idx_t *)SMESH_ALLOC(
+      static_cast<size_t>(n_block_elements * ns_src) * sizeof(block_idx_t));
+
+  std::vector<LocalSideTable> lst_blocks(n_blocks);
+  std::vector<int> ns_blocks(n_blocks);
+  std::vector<int> nn_blocks(n_blocks);
+  for (block_idx_t b = 0; b < n_blocks; ++b) {
+    enum ElemType et =
+        element_type_for_adjacency<idx_t, count_t, element_idx_t>(
+            element_types[b]);
+    lst_blocks[b].fill(et);
+    ns_blocks[b] = elem_num_sides(et);
+    nn_blocks[b] = elem_num_nodes(side_type(et));
+  }
+
+#pragma omp parallel
+  {
+    idx_t *nodes1 = (idx_t *)SMESH_ALLOC(
+        LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
+    idx_t *nodes2 = (idx_t *)SMESH_ALLOC(
+        LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
+    int *assigned =
+        (int *)SMESH_ALLOC(LocalSideTable::MAX_NUM_SIDES * sizeof(int));
+
+#pragma omp for
+    for (ptrdiff_t e = 0; e < n_block_elements; ++e) {
+      const element_idx_t g = block_base[target_block] + static_cast<element_idx_t>(e);
+      const count_t begin = global_dual_ptr[g];
+      const count_t end = global_dual_ptr[g + 1];
+      const count_t range = end - begin;
+
+      memset(assigned, 0, static_cast<size_t>(range) * sizeof(int));
+
+      for (int s1 = 0; s1 < ns_src; ++s1) {
+        table[static_cast<size_t>(e) * static_cast<size_t>(ns_src) +
+              static_cast<size_t>(s1)] = invalid_idx<element_idx_t>();
+        neighbor_block[static_cast<size_t>(e) * static_cast<size_t>(ns_src) +
+                       static_cast<size_t>(s1)] = target_block;
+
+        for (int j = 0; j < nn_src; ++j) {
+          nodes1[j] = elems_src[lst_src(s1, j)][e];
+        }
+        std::sort(nodes1, nodes1 + nn_src);
+
+        for (count_t k = 0; k < range; ++k) {
+          if (assigned[k]) {
+            continue;
+          }
+
+          const element_idx_t e_adj = global_dual_idx[begin + k];
+          const block_idx_t b_adj = global_dual_block[begin + k];
+          const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems_adj =
+              elems[b_adj];
+          const LocalSideTable &lst_adj = lst_blocks[b_adj];
+          const int ns_adj = ns_blocks[b_adj];
+          const int nn_adj = nn_blocks[b_adj];
+
+          for (int s2 = 0; s2 < ns_adj; ++s2) {
+            for (int j = 0; j < nn_adj; ++j) {
+              nodes2[j] = elems_adj[lst_adj(s2, j)][e_adj];
+            }
+            std::sort(nodes2, nodes2 + nn_adj);
+
+            if (nn_adj != nn_src) {
+              continue;
+            }
+
+            int diffs = 0;
+            for (int j = 0; j < nn_src; ++j) {
+              diffs += nodes1[j] != nodes2[j];
+            }
+
+            if (!diffs) {
+              table[static_cast<size_t>(e) * static_cast<size_t>(ns_src) +
+                    static_cast<size_t>(s1)] = e_adj;
+              neighbor_block[static_cast<size_t>(e) * static_cast<size_t>(ns_src) +
+                             static_cast<size_t>(s1)] = b_adj;
+              assigned[k] = 1;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    SMESH_FREE(nodes1);
+    SMESH_FREE(nodes2);
+    SMESH_FREE(assigned);
+  }
+
+  *out_table = table;
+  *out_neighbor_block = neighbor_block;
+  return SMESH_SUCCESS;
+}
+
+template <typename idx_t, typename count_t, typename element_idx_t>
+int create_multiblock_edge_graph_from_n2e(
+    const block_idx_t n_blocks, const enum ElemType element_types[],
+    const ptrdiff_t n_elements[],
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems[],
+    const ptrdiff_t n_nodes, const count_t *const SMESH_RESTRICT n2eptr,
+    const element_idx_t *const SMESH_RESTRICT elindex,
+    const block_idx_t *const SMESH_RESTRICT block_number, count_t **out_rowptr,
+    idx_t **out_colidx) {
+  count_t *rowptr = (count_t *)SMESH_ALLOC((n_nodes + 1) * sizeof(count_t));
+  rowptr[0] = 0;
+
+#pragma omp parallel
+  {
+    idx_t n2nbuff[4096];
+#pragma omp for
+    for (ptrdiff_t node = 0; node < n_nodes; ++node) {
+      count_t nneighs = 0;
+      const count_t ebegin = n2eptr[node];
+      const count_t eend = n2eptr[node + 1];
+
+      for (count_t ei = ebegin; ei < eend; ++ei) {
+        const block_idx_t b = block_number[ei];
+        const element_idx_t eidx = elindex[ei];
+        const enum ElemType element_type = element_types[b];
+        const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT block_elems =
+            elems[b];
+
+        if (element_type == TET4 || element_type == TRI3 ||
+            element_type == TRISHELL3) {
+          const int nnodesxelem = elem_num_nodes(element_type);
+          int lidx = -1;
+          for (int edof_i = 0; edof_i < nnodesxelem; ++edof_i) {
+            if (block_elems[edof_i][eidx] == static_cast<idx_t>(node)) {
+              lidx = edof_i;
+              break;
+            }
+          }
+          SMESH_ASSERT(lidx != -1);
+          for (int edof_i = 0; edof_i < nnodesxelem; ++edof_i) {
+            if (edof_i == lidx) {
+              continue;
+            }
+            const idx_t neighnode = block_elems[edof_i][eidx];
+            if (static_cast<ptrdiff_t>(neighnode) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = neighnode;
+            }
+          }
+        } else if (element_type == QUAD4 || element_type == QUADSHELL4) {
+          static const int nnodesxelem = 4;
+          int lidx = -1;
+          for (int edof_i = 0; edof_i < nnodesxelem; ++edof_i) {
+            if (block_elems[edof_i][eidx] == static_cast<idx_t>(node)) {
+              lidx = edof_i;
+              break;
+            }
+          }
+          SMESH_ASSERT(lidx != -1);
+          static int quad4_edge_connectivity[4][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}};
+          for (int d = 0; d < 2; ++d) {
+            const idx_t neighnode =
+                block_elems[quad4_edge_connectivity[lidx][d]][eidx];
+            if (static_cast<ptrdiff_t>(neighnode) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = neighnode;
+            }
+          }
+        } else if (element_type == HEX8) {
+          static int hex8_edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
+                                          {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+          for (int e = 0; e < 12; ++e) {
+            const idx_t n0 = block_elems[hex8_edges[e][0]][eidx];
+            const idx_t n1 = block_elems[hex8_edges[e][1]][eidx];
+            if (n0 == static_cast<idx_t>(node) && static_cast<ptrdiff_t>(n1) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = n1;
+            }
+            if (n1 == static_cast<idx_t>(node) && static_cast<ptrdiff_t>(n0) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = n0;
+            }
+          }
+        } else {
+          SMESH_ERROR(
+              "create_multiblock_edge_graph_from_n2e: unsupported element "
+              "type %s\n",
+              type_to_string(element_type));
+        }
+      }
+
+      nneighs = static_cast<count_t>(
+          sort_and_unique(n2nbuff, static_cast<size_t>(nneighs)));
+      rowptr[node + 1] = nneighs;
+    }
+  }
+
+  for (ptrdiff_t node = 0; node < n_nodes; ++node) {
+    rowptr[node + 1] += rowptr[node];
+  }
+
+  const ptrdiff_t nnz = rowptr[n_nodes];
+  idx_t *colidx = (idx_t *)SMESH_ALLOC(static_cast<size_t>(nnz) * sizeof(idx_t));
+
+#pragma omp parallel
+  {
+    idx_t n2nbuff[4096];
+#pragma omp for
+    for (ptrdiff_t node = 0; node < n_nodes; ++node) {
+      count_t nneighs = 0;
+      const count_t ebegin = n2eptr[node];
+      const count_t eend = n2eptr[node + 1];
+
+      for (count_t ei = ebegin; ei < eend; ++ei) {
+        const block_idx_t b = block_number[ei];
+        const element_idx_t eidx = elindex[ei];
+        const enum ElemType element_type = element_types[b];
+        const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT block_elems =
+            elems[b];
+
+        if (element_type == TET4 || element_type == TRI3 ||
+            element_type == TRISHELL3) {
+          const int nnodesxelem = elem_num_nodes(element_type);
+          int lidx = -1;
+          for (int edof_i = 0; edof_i < nnodesxelem; ++edof_i) {
+            if (block_elems[edof_i][eidx] == static_cast<idx_t>(node)) {
+              lidx = edof_i;
+              break;
+            }
+          }
+          SMESH_ASSERT(lidx != -1);
+          for (int edof_i = 0; edof_i < nnodesxelem; ++edof_i) {
+            if (edof_i == lidx) {
+              continue;
+            }
+            const idx_t neighnode = block_elems[edof_i][eidx];
+            if (static_cast<ptrdiff_t>(neighnode) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = neighnode;
+            }
+          }
+        } else if (element_type == QUAD4 || element_type == QUADSHELL4) {
+          static const int nnodesxelem = 4;
+          int lidx = -1;
+          for (int edof_i = 0; edof_i < nnodesxelem; ++edof_i) {
+            if (block_elems[edof_i][eidx] == static_cast<idx_t>(node)) {
+              lidx = edof_i;
+              break;
+            }
+          }
+          SMESH_ASSERT(lidx != -1);
+          static int quad4_edge_connectivity[4][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}};
+          for (int d = 0; d < 2; ++d) {
+            const idx_t neighnode =
+                block_elems[quad4_edge_connectivity[lidx][d]][eidx];
+            if (static_cast<ptrdiff_t>(neighnode) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = neighnode;
+            }
+          }
+        } else if (element_type == HEX8) {
+          static int hex8_edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
+                                          {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+          for (int e = 0; e < 12; ++e) {
+            const idx_t n0 = block_elems[hex8_edges[e][0]][eidx];
+            const idx_t n1 = block_elems[hex8_edges[e][1]][eidx];
+            if (n0 == static_cast<idx_t>(node) && static_cast<ptrdiff_t>(n1) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = n1;
+            }
+            if (n1 == static_cast<idx_t>(node) && static_cast<ptrdiff_t>(n0) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = n0;
+            }
+          }
+        }
+      }
+
+      nneighs = static_cast<count_t>(
+          sort_and_unique(n2nbuff, static_cast<size_t>(nneighs)));
+      for (count_t i = 0; i < nneighs; ++i) {
+        colidx[rowptr[node] + i] = n2nbuff[i];
+      }
+    }
+  }
+
+  *out_rowptr = rowptr;
+  *out_colidx = colidx;
   return SMESH_SUCCESS;
 }
 

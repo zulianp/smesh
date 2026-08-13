@@ -15,6 +15,179 @@
 
 using namespace smesh;
 
+#ifdef SMESH_ENABLE_MPI
+static int check_per_block_layout(const Mesh &mesh,
+                                  const ptrdiff_t *const serial_n_elements) {
+  auto dist = mesh.distributed();
+  SMESH_TEST_ASSERT(dist != nullptr);
+  const int rank = mesh.comm()->rank();
+  auto node_owner_buf = dist->node_owner();
+  SMESH_TEST_ASSERT(node_owner_buf != nullptr);
+  const int *const node_owner = node_owner_buf->data();
+  const ptrdiff_t n_local_nodes = mesh.n_nodes();
+
+  ptrdiff_t sum_owned = 0;
+  ptrdiff_t sum_shared = 0;
+  ptrdiff_t sum_ghosts = 0;
+
+  for (size_t b = 0; b < mesh.n_blocks(); ++b) {
+    auto block = mesh.block((block_idx_t)b);
+    const ptrdiff_t n_owned = block->n_elements_owned();
+    const ptrdiff_t n_shared = block->n_elements_shared();
+    const ptrdiff_t n_ghosts = block->n_elements_ghosts();
+    const ptrdiff_t n_ons = block->n_elements_owned_not_shared();
+    SMESH_TEST_EQ(block->n_elements(), n_owned + n_ghosts);
+    SMESH_TEST_EQ(n_owned, n_ons + n_shared);
+    SMESH_TEST_ASSERT(n_ons >= 0);
+
+    ptrdiff_t global_owned = 0;
+    MPI_Allreduce(&n_owned, &global_owned, 1, mpi_type<ptrdiff_t>(), MPI_SUM,
+                  mesh.comm()->get());
+    SMESH_TEST_EQ(global_owned, serial_n_elements[b]);
+
+    auto elems = block->elements();
+    SMESH_TEST_ASSERT(elems != nullptr);
+    const int nxe = block->n_nodes_per_element();
+    for (ptrdiff_t e = 0; e < n_ons; ++e) {
+      for (int d = 0; d < nxe; ++d) {
+        const idx_t node = elems->data()[d][e];
+        SMESH_TEST_ASSERT(static_cast<ptrdiff_t>(node) >= 0);
+        SMESH_TEST_ASSERT(static_cast<ptrdiff_t>(node) < n_local_nodes);
+        SMESH_TEST_EQ(node_owner[node], rank);
+      }
+    }
+    for (ptrdiff_t e = n_ons; e < n_owned; ++e) {
+      bool has_remote = false;
+      for (int d = 0; d < nxe; ++d) {
+        const idx_t node = elems->data()[d][e];
+        SMESH_TEST_ASSERT(static_cast<ptrdiff_t>(node) >= 0);
+        SMESH_TEST_ASSERT(static_cast<ptrdiff_t>(node) < n_local_nodes);
+        has_remote |= (node_owner[node] != rank);
+      }
+      SMESH_TEST_ASSERT(has_remote);
+    }
+
+    auto owned_map = block->element_mapping();
+    auto aura_map = block->aura_element_mapping();
+    if (n_owned > 0) {
+      SMESH_TEST_ASSERT(owned_map != nullptr);
+      SMESH_TEST_EQ(static_cast<ptrdiff_t>(owned_map->size()), n_owned);
+      for (ptrdiff_t i = 0; i < n_owned; ++i) {
+        const large_idx_t id = owned_map->data()[i];
+        SMESH_TEST_ASSERT(id >= 0);
+        SMESH_TEST_ASSERT(id < static_cast<large_idx_t>(serial_n_elements[b]));
+      }
+    }
+    if (n_ghosts > 0) {
+      SMESH_TEST_ASSERT(aura_map != nullptr);
+      SMESH_TEST_EQ(static_cast<ptrdiff_t>(aura_map->size()), n_ghosts);
+      for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
+        const large_idx_t id = aura_map->data()[i];
+        SMESH_TEST_ASSERT(id >= 0);
+        SMESH_TEST_ASSERT(id < static_cast<large_idx_t>(serial_n_elements[b]));
+      }
+    }
+
+    sum_owned += n_owned;
+    sum_shared += n_shared;
+    sum_ghosts += n_ghosts;
+  }
+
+  SMESH_TEST_EQ(sum_owned, dist->n_elements_owned());
+  SMESH_TEST_EQ(sum_shared, dist->n_elements_shared());
+  SMESH_TEST_EQ(sum_ghosts, dist->n_elements_ghosts());
+  return SMESH_TEST_SUCCESS;
+}
+
+static int check_single_block_matches_distributed(const Mesh &mesh) {
+  SMESH_TEST_EQ(static_cast<int>(mesh.n_blocks()), 1);
+  auto dist = mesh.distributed();
+  SMESH_TEST_ASSERT(dist != nullptr);
+  auto block = mesh.block(0);
+  SMESH_TEST_EQ(block->n_elements_owned(), dist->n_elements_owned());
+  SMESH_TEST_EQ(block->n_elements_shared(), dist->n_elements_shared());
+  SMESH_TEST_EQ(block->n_elements_ghosts(), dist->n_elements_ghosts());
+  SMESH_TEST_EQ(block->n_elements_owned_not_shared(),
+                dist->n_elements_owned_not_shared());
+  SMESH_TEST_EQ(block->n_elements(), dist->n_elements_local());
+
+  const ptrdiff_t n_owned = dist->n_elements_owned();
+  const ptrdiff_t n_ghosts = dist->n_elements_ghosts();
+  if (n_owned > 0) {
+    SMESH_TEST_ASSERT(block->element_mapping() != nullptr);
+    SMESH_TEST_ASSERT(dist->element_mapping() != nullptr);
+    SMESH_TEST_EQ(static_cast<ptrdiff_t>(block->element_mapping()->size()),
+                  n_owned);
+    SMESH_TEST_EQ(static_cast<ptrdiff_t>(dist->element_mapping()->size()),
+                  n_owned);
+    for (ptrdiff_t i = 0; i < n_owned; ++i) {
+      SMESH_TEST_EQ(block->element_mapping()->data()[i],
+                    dist->element_mapping()->data()[i]);
+    }
+  }
+  if (n_ghosts > 0) {
+    SMESH_TEST_ASSERT(block->aura_element_mapping() != nullptr);
+    SMESH_TEST_ASSERT(dist->aura_element_mapping() != nullptr);
+    SMESH_TEST_EQ(static_cast<ptrdiff_t>(block->aura_element_mapping()->size()),
+                  n_ghosts);
+    SMESH_TEST_EQ(static_cast<ptrdiff_t>(dist->aura_element_mapping()->size()),
+                  n_ghosts);
+    for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
+      SMESH_TEST_EQ(block->aura_element_mapping()->data()[i],
+                    dist->aura_element_mapping()->data()[i]);
+    }
+  }
+  return SMESH_TEST_SUCCESS;
+}
+
+static int mpi_write_read_roundtrip(const Mesh &mesh, const Path &out_path,
+                                    const ptrdiff_t *const serial_n_elements,
+                                    const size_t n_blocks_ref) {
+  auto comm = mesh.comm();
+
+  if (comm->rank() == 0) {
+    std::filesystem::remove_all(out_path.to_string());
+  }
+  comm->barrier();
+
+  SMESH_TEST_ASSERT(mesh.write(out_path) == SMESH_SUCCESS);
+  comm->barrier();
+
+  if (comm->rank() == 0) {
+    Mesh serial_check(Communicator::self());
+    SMESH_TEST_ASSERT(serial_check.read(out_path) == SMESH_SUCCESS);
+    SMESH_TEST_EQ(serial_check.n_blocks(), n_blocks_ref);
+    for (size_t b = 0; b < n_blocks_ref; ++b) {
+      SMESH_TEST_EQ(serial_check.n_elements((block_idx_t)b),
+                    serial_n_elements[b]);
+      SMESH_TEST_ASSERT(serial_check.block((block_idx_t)b)->name() ==
+                        mesh.block((block_idx_t)b)->name());
+      SMESH_TEST_EQ(serial_check.block((block_idx_t)b)->element_type(),
+                    mesh.block((block_idx_t)b)->element_type());
+    }
+  }
+  comm->barrier();
+
+  Mesh roundtrip(comm);
+  SMESH_TEST_ASSERT(roundtrip.read(out_path) == SMESH_SUCCESS);
+  SMESH_TEST_EQ(roundtrip.n_blocks(), n_blocks_ref);
+  for (size_t b = 0; b < n_blocks_ref; ++b) {
+    SMESH_TEST_ASSERT(roundtrip.block((block_idx_t)b)->name() ==
+                      mesh.block((block_idx_t)b)->name());
+    SMESH_TEST_EQ(roundtrip.block((block_idx_t)b)->element_type(),
+                  mesh.block((block_idx_t)b)->element_type());
+  }
+  SMESH_TEST_EQ(check_per_block_layout(roundtrip, serial_n_elements),
+                SMESH_TEST_SUCCESS);
+
+  if (comm->rank() == 0) {
+    std::filesystem::remove_all(out_path.to_string());
+  }
+  comm->barrier();
+  return SMESH_TEST_SUCCESS;
+}
+#endif
+
 static int test_mpi_multiblock_checkerboard_read() {
 #ifndef SMESH_ENABLE_MPI
   return SMESH_TEST_SUCCESS;
@@ -101,6 +274,13 @@ static int test_mpi_multiblock_checkerboard_read() {
                 mpi_type<ptrdiff_t>(), MPI_SUM, comm->get());
   SMESH_TEST_EQ(global_owned_white, serial_white);
   SMESH_TEST_EQ(global_owned_black, serial_black);
+  SMESH_TEST_EQ(mesh.block(0)->n_elements_owned(), local_owned_white);
+  SMESH_TEST_EQ(mesh.block(1)->n_elements_owned(), local_owned_black);
+
+  {
+    const ptrdiff_t serial_n[2] = {serial_white, serial_black};
+    SMESH_TEST_EQ(check_per_block_layout(mesh, serial_n), SMESH_TEST_SUCCESS);
+  }
 
   // Hilbert keys of owned centroids: max on rank r <= min on rank r+1.
   {
@@ -195,6 +375,17 @@ static int test_mpi_multiblock_checkerboard_read() {
     }
   }
 
+  {
+    char rt_path_buffer[256];
+    std::snprintf(rt_path_buffer, sizeof(rt_path_buffer),
+                  "/tmp/smesh_mpi_multiblock_checkerboard_rt_%d_%d",
+                  comm->size(), token + 1000);
+    const Path rt_path(rt_path_buffer);
+    const ptrdiff_t serial_n[2] = {serial_white, serial_black};
+    SMESH_TEST_EQ(mpi_write_read_roundtrip(mesh, rt_path, serial_n, 2),
+                  SMESH_TEST_SUCCESS);
+  }
+
   if (comm->rank() == 0) {
     std::filesystem::remove_all(mesh_path.to_string());
   }
@@ -227,13 +418,16 @@ static int test_mpi_single_block_read_regression() {
   const ptrdiff_t ny = 3;
   const ptrdiff_t nz = 2;
 
+  ptrdiff_t serial_elements = 0;
   if (comm->rank() == 0) {
     std::filesystem::remove_all(mesh_path.to_string());
     auto serial = Mesh::create_hex8_cube(Communicator::self(), nx, ny, nz, 0, 0,
                                          0, 1, 1, 1);
     SMESH_TEST_ASSERT(serial != nullptr);
+    serial_elements = serial->n_elements();
     SMESH_TEST_ASSERT(serial->write(mesh_path) == SMESH_SUCCESS);
   }
+  comm->broadcast(&serial_elements, 1, 0);
   comm->barrier();
 
   unsetenv("SMESH_REORDER");
@@ -243,6 +437,20 @@ static int test_mpi_single_block_read_regression() {
   SMESH_TEST_ASSERT(mesh.block(0)->name() == "default");
   SMESH_TEST_EQ(mesh.block(0)->element_type(), HEX8);
   SMESH_TEST_ASSERT(mesh.distributed() != nullptr);
+  SMESH_TEST_EQ(check_single_block_matches_distributed(mesh),
+                SMESH_TEST_SUCCESS);
+  SMESH_TEST_EQ(check_per_block_layout(mesh, &serial_elements),
+                SMESH_TEST_SUCCESS);
+
+  {
+    char rt_path_buffer[256];
+    std::snprintf(rt_path_buffer, sizeof(rt_path_buffer),
+                  "/tmp/smesh_mpi_single_block_rt_%d_%d", comm->size(),
+                  token + 1000);
+    const Path rt_path(rt_path_buffer);
+    SMESH_TEST_EQ(mpi_write_read_roundtrip(mesh, rt_path, &serial_elements, 1),
+                  SMESH_TEST_SUCCESS);
+  }
 
   if (comm->rank() == 0) {
     std::filesystem::remove_all(mesh_path.to_string());
@@ -374,6 +582,13 @@ static int test_mpi_multiblock_hex8_tet4_read() {
                 MPI_SUM, comm->get());
   SMESH_TEST_EQ(global_owned_hex, serial_hex);
   SMESH_TEST_EQ(global_owned_tet, serial_tet);
+  SMESH_TEST_EQ(mesh.block(0)->n_elements_owned(), local_owned_hex);
+  SMESH_TEST_EQ(mesh.block(1)->n_elements_owned(), local_owned_tet);
+
+  {
+    const ptrdiff_t serial_n[2] = {serial_hex, serial_tet};
+    SMESH_TEST_EQ(check_per_block_layout(mesh, serial_n), SMESH_TEST_SUCCESS);
+  }
 
   ptrdiff_t n_owned_nodes = dist->n_nodes_owned();
   ptrdiff_t global_owned_nodes = 0;
@@ -473,6 +688,17 @@ static int test_mpi_multiblock_hex8_tet4_read() {
                    comm->get(), MPI_STATUS_IGNORE);
       SMESH_TEST_ASSERT(prev_max <= local_key_min);
     }
+  }
+
+  {
+    char rt_path_buffer[256];
+    std::snprintf(rt_path_buffer, sizeof(rt_path_buffer),
+                  "/tmp/smesh_mpi_multiblock_hex8_tet4_rt_%d_%d",
+                  comm->size(), token + 1000);
+    const Path rt_path(rt_path_buffer);
+    const ptrdiff_t serial_n[2] = {serial_hex, serial_tet};
+    SMESH_TEST_EQ(mpi_write_read_roundtrip(mesh, rt_path, serial_n, 2),
+                  SMESH_TEST_SUCCESS);
   }
 
   if (comm->rank() == 0) {

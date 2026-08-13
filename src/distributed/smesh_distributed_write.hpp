@@ -29,6 +29,18 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
                        MPI_Datatype data_type,
                        const void *const SMESH_RESTRICT data);
 
+// Write coordinates (x/y/z.*) using ownership-based node mapping.
+int write_distributed_mesh_coordinates(
+    MPI_Comm comm, const Path &path, int spatial_dim, ptrdiff_t n_global_nodes,
+    ptrdiff_t n_owned_nodes, const large_idx_t *node_mapping,
+    geom_t **local_points);
+
+// Write connectivity (i*.*) for one block using owned rows and mappings.
+int write_distributed_block_connectivity(
+    MPI_Comm comm, const Path &path, ptrdiff_t n_global_elements,
+    ptrdiff_t n_owned_elements, const large_idx_t *element_mapping,
+    int nnodesxelem, idx_t **local_elements, const large_idx_t *node_mapping);
+
 // Distributed mesh topology writer for single-block meshes.
 // Writes connectivity (i*.ext) and coordinates (x/y/z.ext) in the same
 // on-disk format as the serial mesh_to_folder helpers, using a mapping-based

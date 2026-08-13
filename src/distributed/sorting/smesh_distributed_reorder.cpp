@@ -49,6 +49,10 @@ namespace smesh {
       LARGE_IDX_T **element_mapping_out,                                       \
       LARGE_IDX_T **aura_element_mapping_out, int **nxe_per_block_out,         \
       ptrdiff_t **n_local_elements_per_block_out,                              \
+      ptrdiff_t **n_owned_per_block_out, ptrdiff_t **n_shared_per_block_out,   \
+      ptrdiff_t **n_ghosts_per_block_out,                                      \
+      LARGE_IDX_T ***element_mapping_per_block_out,                            \
+      LARGE_IDX_T ***aura_element_mapping_per_block_out,                       \
       IDX_T ****elements_per_block_out, int *spatial_dim_out,                  \
       ptrdiff_t *n_global_nodes_out, ptrdiff_t *n_owned_nodes_out,             \
       ptrdiff_t *n_shared_nodes_out, ptrdiff_t *n_ghost_nodes_out,             \

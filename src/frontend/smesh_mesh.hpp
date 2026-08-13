@@ -55,6 +55,31 @@ private:
   std::unique_ptr<Impl> impl_;
 };
 
+/// Per-block owned/shared/aura element layout. Nodes stay mesh-global on
+/// `Distributed`. SoA order is `[owned-not-shared | shared | aura]`.
+class DistributedBlock {
+public:
+  DistributedBlock();
+  ~DistributedBlock();
+
+  ptrdiff_t n_elements_local() const;
+  ptrdiff_t n_elements_owned_not_shared() const;
+  ptrdiff_t n_elements_owned() const;
+  ptrdiff_t n_elements_shared() const;
+  ptrdiff_t n_elements_ghosts() const;
+
+  SharedBuffer<large_idx_t> element_mapping() const;
+  SharedBuffer<large_idx_t> aura_element_mapping() const;
+
+  void set_elements(ptrdiff_t n_owned, ptrdiff_t n_shared, ptrdiff_t n_ghosts,
+                    SharedBuffer<large_idx_t> element_mapping,
+                    SharedBuffer<large_idx_t> aura_element_mapping);
+
+private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+};
+
 // enum KernelDataFlags {
 //     GEO_NONE                  = 0,
 //     GEO_ELEMENT_SOA           = 1 << 0,
@@ -136,6 +161,20 @@ public:
     void set_elements(SharedBuffer<idx_t *> elements);
     ptrdiff_t n_elements() const;
 
+    std::shared_ptr<DistributedBlock> distributed() const;
+    void set_distributed(const std::shared_ptr<DistributedBlock> &distributed);
+
+    ptrdiff_t n_elements_owned() const;
+    ptrdiff_t n_elements_shared() const;
+    ptrdiff_t n_elements_ghosts() const;
+    ptrdiff_t n_elements_owned_not_shared() const;
+    SharedBuffer<large_idx_t> element_mapping() const;
+    SharedBuffer<large_idx_t> aura_element_mapping() const;
+    void set_distributed_elements(ptrdiff_t n_owned, ptrdiff_t n_shared,
+                                  ptrdiff_t n_ghosts,
+                                  SharedBuffer<large_idx_t> element_mapping,
+                                  SharedBuffer<large_idx_t> aura_element_mapping);
+
     SharedBuffer<idx_t *> device_elements_SoA();
     SharedBuffer<idx_t> device_elements_AoS();
     void set_device_elements_SoA(const SharedBuffer<idx_t *> &elements);
@@ -196,7 +235,10 @@ public:
   std::shared_ptr<NodeToNodeGraph> node_to_node_graph_upper_triangular();
   std::shared_ptr<NodeToNodeGraph> edge_graph();
   std::shared_ptr<NodeToElementGraph> node_to_element_graph();
+  SharedBuffer<block_idx_t> node_to_element_block_number() const;
   SharedBuffer<element_idx_t> half_face_table();
+  SharedBuffer<element_idx_t> half_face_table(block_idx_t block_id);
+  SharedBuffer<block_idx_t> half_face_neighbor_block(block_idx_t block_id);
   std::shared_ptr<NodeToNodeGraph>
   create_node_to_node_graph(const enum ElemType element_type);
 
@@ -323,7 +365,7 @@ public:
                   const std::vector<std::string> &block_names = {});
 
   int split_block(const SharedBuffer<element_idx_t> &elements,
-                  const std::string &name);
+                  const std::string &name, block_idx_t block_id = 0);
   int split_boundary_layer();
   int renumber_nodes();
   int renumber_nodes(const SharedBuffer<idx_t> &node_mapping);
@@ -365,6 +407,8 @@ std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
 std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
                              const int levels = 1);
 std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh);
+std::vector<std::shared_ptr<Sideset>>
+skin_sidesets(const std::shared_ptr<Mesh> &mesh);
 std::shared_ptr<Mesh>
 mesh_from_sideset(const std::shared_ptr<Mesh> &mesh,
                   const std::shared_ptr<Sideset> &sideset);

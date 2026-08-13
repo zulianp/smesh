@@ -20,9 +20,11 @@
 #endif
 
 #include <cstddef>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <list>
+#include <unordered_map>
 #include <vector>
 
 namespace smesh {
@@ -124,6 +126,54 @@ namespace smesh {
         }
 
         return SMESH_SUCCESS;
+    }
+
+    static std::vector<std::shared_ptr<Sideset>> filter_sidesets_to_owned(
+            const std::shared_ptr<Mesh>                          &mesh,
+            std::vector<std::shared_ptr<Sideset>>                 sidesets) {
+        if (mesh->comm()->size() == 1) {
+            return sidesets;
+        }
+
+        for (auto &sideset : sidesets) {
+            auto block = mesh->block(sideset->block_id());
+            const ptrdiff_t n_owned = block->n_elements_owned();
+
+            const ptrdiff_t n_sides = sideset->size();
+            auto            parent  = sideset->parent()->data();
+            auto            lfi     = sideset->lfi()->data();
+
+            std::vector<element_idx_t> owned_parent;
+            std::vector<i16>           owned_lfi;
+            owned_parent.reserve(static_cast<size_t>(n_sides));
+            owned_lfi.reserve(static_cast<size_t>(n_sides));
+
+            for (ptrdiff_t i = 0; i < n_sides; ++i) {
+                if (parent[i] < n_owned) {
+                    owned_parent.push_back(parent[i]);
+                    owned_lfi.push_back(lfi[i]);
+                }
+            }
+
+            element_idx_t *new_parent = nullptr;
+            i16           *new_lfi    = nullptr;
+            if (!owned_parent.empty()) {
+                new_parent = (element_idx_t *)SMESH_ALLOC(owned_parent.size() * sizeof(element_idx_t));
+                new_lfi    = (i16 *)SMESH_ALLOC(owned_lfi.size() * sizeof(i16));
+                std::memcpy(new_parent, owned_parent.data(), owned_parent.size() * sizeof(element_idx_t));
+                std::memcpy(new_lfi, owned_lfi.data(), owned_lfi.size() * sizeof(i16));
+            }
+
+            sideset = std::make_shared<Sideset>(mesh->comm(),
+                                                smesh::manage_host_buffer(
+                                                    static_cast<ptrdiff_t>(owned_parent.size()), new_parent),
+                                                smesh::manage_host_buffer(
+                                                    static_cast<ptrdiff_t>(owned_lfi.size()), new_lfi),
+                                                sideset->block_id(),
+                                                block->element_mapping());
+        }
+
+        return sidesets;
     }
 
     std::vector<std::shared_ptr<Sideset>> Sideset::create_from_selector(
@@ -255,10 +305,15 @@ namespace smesh {
 
 #endif
 
-            sidesets.push_back(std::make_shared<Sideset>(mesh->comm(), parent, lfi, b));
+            sidesets.push_back(std::make_shared<Sideset>(
+                    mesh->comm(),
+                    parent,
+                    lfi,
+                    static_cast<block_idx_t>(b),
+                    mesh->comm()->size() > 1 ? block->element_mapping() : nullptr));
         }
 
-        return sidesets;
+        return filter_sidesets_to_owned(mesh, sidesets);
     }
 
     std::vector<std::shared_ptr<Sideset>> Sideset::create_from_batch_selector(
@@ -376,10 +431,15 @@ namespace smesh {
                 }
             }
 
-            sidesets.push_back(std::make_shared<Sideset>(mesh->comm(), parent, lfi, b));
+            sidesets.push_back(std::make_shared<Sideset>(
+                    mesh->comm(),
+                    parent,
+                    lfi,
+                    static_cast<block_idx_t>(b),
+                    mesh->comm()->size() > 1 ? block->element_mapping() : nullptr));
         }
 
-        return sidesets;
+        return filter_sidesets_to_owned(mesh, sidesets);
     }
 
     std::vector<std::shared_ptr<Sideset>> Sideset::create_from_plane(const std::shared_ptr<Mesh>    &mesh,
@@ -442,6 +502,45 @@ namespace smesh {
     }
 
     int Sideset::read_and_redistibute(const std::shared_ptr<Mesh> &mesh, const Path &path, block_idx_t block_id) {
+#ifdef SMESH_ENABLE_MPI
+        const int rank = mesh->comm()->rank();
+        const int size = mesh->comm()->size();
+        if (size > 1) {
+            i64 n_sides = 0;
+            if (rank == 0) {
+                if (read(Communicator::self(), path, block_id) != SMESH_SUCCESS) {
+                    n_sides = -1;
+                } else {
+                    n_sides = static_cast<i64>(this->size());
+                }
+            }
+            mesh->comm()->broadcast(&n_sides, 1, 0);
+            if (n_sides < 0) {
+                return SMESH_FAILURE;
+            }
+
+            mesh->comm()->broadcast(&block_id, 1, 0);
+            impl_->block_id = block_id;
+            impl_->comm     = mesh->comm();
+
+            element_idx_t *parent = nullptr;
+            i16           *lfi    = nullptr;
+            if (n_sides > 0) {
+                parent = (element_idx_t *)SMESH_ALLOC(static_cast<size_t>(n_sides) * sizeof(element_idx_t));
+                lfi    = (i16 *)SMESH_ALLOC(static_cast<size_t>(n_sides) * sizeof(i16));
+                if (rank == 0) {
+                    std::memcpy(parent, impl_->parent->data(), static_cast<size_t>(n_sides) * sizeof(element_idx_t));
+                    std::memcpy(lfi, impl_->lfi->data(), static_cast<size_t>(n_sides) * sizeof(i16));
+                }
+                mesh->comm()->broadcast(parent, static_cast<int>(n_sides), 0);
+                mesh->comm()->broadcast(lfi, static_cast<int>(n_sides), 0);
+            }
+
+            impl_->parent = smesh::manage_host_buffer(static_cast<ptrdiff_t>(n_sides), parent);
+            impl_->lfi    = smesh::manage_host_buffer(static_cast<ptrdiff_t>(n_sides), lfi);
+            return redistribute(mesh);
+        }
+#endif
         if (read(mesh->comm(), path, block_id) != SMESH_SUCCESS) {
             return SMESH_FAILURE;
         }
@@ -454,91 +553,73 @@ namespace smesh {
         }
 
 #ifdef SMESH_ENABLE_MPI
-        auto dist       = mesh->distributed();
-        auto n_elements = dist->n_elements_global();
+        auto block = mesh->block(impl_->block_id);
+        if (!block) {
+            SMESH_ERROR("Sideset::redistribute: invalid block_id %d\n", impl_->block_id);
+            return SMESH_FAILURE;
+        }
+
+        const ptrdiff_t n_owned = block->n_elements_owned();
+        auto            elem_map = block->element_mapping();
+        if (n_owned > 0 && !elem_map) {
+            SMESH_ERROR("Sideset::redistribute: block %s has no element_mapping\n", block->name().c_str());
+            return SMESH_FAILURE;
+        }
+
+        large_idx_t n_global = 0;
+        if (n_owned > 0) {
+            for (ptrdiff_t i = 0; i < n_owned; ++i) {
+                n_global = std::max(n_global, elem_map->data()[i] + 1);
+            }
+        }
+        n_global = mesh->comm()->max(n_global);
+
+        std::vector<element_idx_t> invert(static_cast<size_t>(n_global),
+                                          invalid_idx<element_idx_t>());
+        for (ptrdiff_t i = 0; i < n_owned; ++i) {
+            const large_idx_t serial_id = elem_map->data()[i];
+            if (serial_id >= 0 && serial_id < n_global) {
+                invert[static_cast<size_t>(serial_id)] = static_cast<element_idx_t>(i);
+            }
+        }
 
         const ptrdiff_t n_sides = size();
         auto            parent  = impl_->parent->data();
         auto            lfi     = impl_->lfi->data();
 
-        int  comm_size   = mesh->comm()->size();
-        i64 *send_count  = (i64 *)SMESH_CALLOC(comm_size, sizeof(i64));
-        i64 *send_displs = (i64 *)SMESH_CALLOC((comm_size + 1), sizeof(i64));
+        std::vector<element_idx_t> local_parent;
+        std::vector<i16>           local_lfi;
+        local_parent.reserve(static_cast<size_t>(n_sides));
+        local_lfi.reserve(static_cast<size_t>(n_sides));
 
-        for (int i = 0; i < n_sides; i++) {
-            const element_idx_t e     = parent[i];
-            const int           owner = rank_owner(n_elements, e, comm_size);
-            send_count[owner + 1]++;
+        for (ptrdiff_t i = 0; i < n_sides; ++i) {
+            const large_idx_t serial_parent = static_cast<large_idx_t>(parent[i]);
+            if (serial_parent >= 0 && serial_parent < n_global) {
+                const element_idx_t local_e = invert[static_cast<size_t>(serial_parent)];
+                if (local_e != invalid_idx<element_idx_t>()) {
+                    local_parent.push_back(local_e);
+                    local_lfi.push_back(lfi[i]);
+                }
+            }
         }
 
-        for (int i = 0; i < comm_size; i++) {
-            send_displs[i + 1] += send_count[i];
+        element_idx_t *new_parent =
+            (element_idx_t *)SMESH_ALLOC(local_parent.size() * sizeof(element_idx_t));
+        i16 *new_lfi = (i16 *)SMESH_ALLOC(local_lfi.size() * sizeof(i16));
+        if (!local_parent.empty()) {
+            std::memcpy(new_parent, local_parent.data(), local_parent.size() * sizeof(element_idx_t));
+            std::memcpy(new_lfi, local_lfi.data(), local_lfi.size() * sizeof(i16));
         }
 
-        element_idx_t *send_elements = (element_idx_t *)SMESH_CALLOC(send_displs[comm_size], sizeof(element_idx_t));
-        i16           *send_lfi      = (i16 *)SMESH_CALLOC(send_displs[comm_size], sizeof(i16));
-
-        for (int i = 0; i < n_sides; i++) {
-            const element_idx_t e                                 = parent[i];
-            const int           owner                             = rank_owner(n_elements, e, comm_size);
-            send_elements[send_displs[owner] + send_count[owner]] = e;
-            send_lfi[send_displs[owner] + send_count[owner]]      = lfi[i];
-            send_count[owner]++;
-        }
-
-        i64 *recv_count  = (i64 *)SMESH_ALLOC(comm_size * sizeof(i64));
-        i64 *recv_displs = (i64 *)SMESH_ALLOC((comm_size + 1) * sizeof(i64));
-
-        MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1, mpi_type<i64>(), mesh->comm()->get());
-
-        recv_displs[0] = 0;
-        for (int i = 0; i < comm_size; i++) {
-            recv_count[i] = send_count[i];
-            recv_displs[i + 1] += recv_count[i];
-        }
-
-        element_idx_t *recv_elements = (element_idx_t *)SMESH_ALLOC(recv_displs[comm_size] * sizeof(element_idx_t));
-        i16           *recv_lfi      = (i16 *)SMESH_ALLOC(recv_displs[comm_size] * sizeof(i16));
-
-        all_to_allv_64(send_elements,
-                       send_count,
-                       send_displs,
-                       recv_elements,
-                       recv_count,
-                       recv_displs,
-                       mesh->comm()->get(),
-                       std::numeric_limits<i32>::max());
-        all_to_allv_64(send_lfi,
-                       send_count,
-                       send_displs,
-                       recv_lfi,
-                       recv_count,
-                       recv_displs,
-                       mesh->comm()->get(),
-                       std::numeric_limits<i32>::max());
-
-        impl_->parent          = smesh::manage_host_buffer(recv_displs[comm_size], recv_elements);
-        impl_->lfi             = smesh::manage_host_buffer(recv_displs[comm_size], recv_lfi);
-        impl_->element_mapping = dist->element_mapping();
-
-        SMESH_FREE(send_count);
-        SMESH_FREE(send_displs);
-        SMESH_FREE(recv_count);
-        SMESH_FREE(recv_displs);
-        SMESH_FREE(send_elements);
-        SMESH_FREE(send_lfi);
+        impl_->parent          = smesh::manage_host_buffer(static_cast<ptrdiff_t>(local_parent.size()), new_parent);
+        impl_->lfi             = smesh::manage_host_buffer(static_cast<ptrdiff_t>(local_lfi.size()), new_lfi);
+        impl_->element_mapping = block->element_mapping();
 
         return SMESH_SUCCESS;
 #endif
 
         SMESH_ERROR("Sideset::redistribute is not supported for distributed runs\n");
         return SMESH_FAILURE;
-
-        // 1) Use rank_owner to redistribute the sideset to the owned elements
-        // 2) Distribute the sideset to the aura elements?
-        // return redistribute_sideset(mesh->comm(),
-        // mesh->n_elements(impl_->block_id), impl_->parent->data(),
-        // impl_->lfi->data(), impl_->block_id);
     }
 
     std::shared_ptr<Buffer<element_idx_t>> Sideset::parent() const { return impl_->parent; }

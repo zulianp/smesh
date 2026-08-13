@@ -147,6 +147,45 @@ namespace smesh {
     ptrdiff_t Distributed::n_elements_shared() const { return impl_->n_elements_shared; }
     ptrdiff_t Distributed::n_elements_ghosts() const { return impl_->n_elements_ghosts; }
 
+    class DistributedBlock::Impl {
+    public:
+        ptrdiff_t                 n_elements_owned  = 0;
+        ptrdiff_t                 n_elements_shared = 0;
+        ptrdiff_t                 n_elements_ghosts = 0;
+        SharedBuffer<large_idx_t> element_mapping;
+        SharedBuffer<large_idx_t> aura_element_mapping;
+    };
+
+    DistributedBlock::DistributedBlock() : impl_(std::make_unique<Impl>()) {}
+    DistributedBlock::~DistributedBlock() = default;
+
+    ptrdiff_t DistributedBlock::n_elements_local() const {
+        return impl_->n_elements_owned + impl_->n_elements_ghosts;
+    }
+    ptrdiff_t DistributedBlock::n_elements_owned_not_shared() const {
+        return impl_->n_elements_owned - impl_->n_elements_shared;
+    }
+    ptrdiff_t DistributedBlock::n_elements_owned() const { return impl_->n_elements_owned; }
+    ptrdiff_t DistributedBlock::n_elements_shared() const { return impl_->n_elements_shared; }
+    ptrdiff_t DistributedBlock::n_elements_ghosts() const { return impl_->n_elements_ghosts; }
+
+    SharedBuffer<large_idx_t> DistributedBlock::element_mapping() const {
+        return impl_->element_mapping;
+    }
+    SharedBuffer<large_idx_t> DistributedBlock::aura_element_mapping() const {
+        return impl_->aura_element_mapping;
+    }
+
+    void DistributedBlock::set_elements(ptrdiff_t n_owned, ptrdiff_t n_shared, ptrdiff_t n_ghosts,
+                                        SharedBuffer<large_idx_t> element_mapping,
+                                        SharedBuffer<large_idx_t> aura_element_mapping) {
+        impl_->n_elements_owned     = n_owned;
+        impl_->n_elements_shared    = n_shared;
+        impl_->n_elements_ghosts    = n_ghosts;
+        impl_->element_mapping      = std::move(element_mapping);
+        impl_->aura_element_mapping = std::move(aura_element_mapping);
+    }
+
     static ptrdiff_t max_node_id(const enum ElemType                                     element_type,
                                  const ptrdiff_t                                         n_elements,
                                  const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems) {
@@ -353,6 +392,7 @@ namespace smesh {
         enum ElemType                    element_type;
         SharedBuffer<idx_t *>            elements;
         std::shared_ptr<smesh::Elements> device_elements;
+        std::shared_ptr<DistributedBlock> distributed;
     };
 
     Mesh::Block::Block(const std::string &name, enum ElemType element_type, SharedBuffer<idx_t *> elements)
@@ -407,9 +447,44 @@ namespace smesh {
     void Mesh::Block::set_elements(SharedBuffer<idx_t *> elements) {
         impl_->elements        = elements;
         impl_->device_elements = std::make_shared<smesh::Elements>();
+        impl_->distributed     = nullptr;
     }
 
     ptrdiff_t Mesh::Block::n_elements() const { return impl_->elements->extent(1); }
+
+    std::shared_ptr<DistributedBlock> Mesh::Block::distributed() const { return impl_->distributed; }
+
+    void Mesh::Block::set_distributed(const std::shared_ptr<DistributedBlock> &distributed) {
+        impl_->distributed = distributed;
+    }
+
+    ptrdiff_t Mesh::Block::n_elements_owned() const {
+        return impl_->distributed ? impl_->distributed->n_elements_owned() : 0;
+    }
+    ptrdiff_t Mesh::Block::n_elements_shared() const {
+        return impl_->distributed ? impl_->distributed->n_elements_shared() : 0;
+    }
+    ptrdiff_t Mesh::Block::n_elements_ghosts() const {
+        return impl_->distributed ? impl_->distributed->n_elements_ghosts() : 0;
+    }
+    ptrdiff_t Mesh::Block::n_elements_owned_not_shared() const {
+        return impl_->distributed ? impl_->distributed->n_elements_owned_not_shared() : 0;
+    }
+    SharedBuffer<large_idx_t> Mesh::Block::element_mapping() const {
+        return impl_->distributed ? impl_->distributed->element_mapping() : nullptr;
+    }
+    SharedBuffer<large_idx_t> Mesh::Block::aura_element_mapping() const {
+        return impl_->distributed ? impl_->distributed->aura_element_mapping() : nullptr;
+    }
+    void Mesh::Block::set_distributed_elements(ptrdiff_t n_owned, ptrdiff_t n_shared, ptrdiff_t n_ghosts,
+                                               SharedBuffer<large_idx_t> element_mapping,
+                                               SharedBuffer<large_idx_t> aura_element_mapping) {
+        if (!impl_->distributed) {
+            impl_->distributed = std::make_shared<DistributedBlock>();
+        }
+        impl_->distributed->set_elements(n_owned, n_shared, n_ghosts, std::move(element_mapping),
+                                         std::move(aura_element_mapping));
+    }
 
     class Mesh::Impl {
     public:
@@ -422,7 +497,14 @@ namespace smesh {
         std::shared_ptr<NodeToNodeGraph>    crs_graph;
         std::shared_ptr<NodeToNodeGraph>    crs_graph_upper_triangular;
         std::shared_ptr<NodeToElementGraph> node_to_element_graph;
+        SharedBuffer<block_idx_t>           n2e_block_number;
         std::shared_ptr<NodeToNodeGraph>    edge_graph;
+
+        count_t              *dual_ptr{nullptr};
+        element_idx_t        *dual_idx{nullptr};
+        block_idx_t          *dual_block{nullptr};
+        std::vector<SharedBuffer<element_idx_t>> half_face_tables;
+        std::vector<SharedBuffer<block_idx_t>>   half_face_neighbor_blocks;
 
         std::shared_ptr<Points> device_points;
 
@@ -462,6 +544,7 @@ namespace smesh {
 
             count_t       *rowptr{nullptr};
             element_idx_t *colidx{nullptr};
+            block_idx_t   *block_number{nullptr};
 
             const ptrdiff_t nnodes = points->extent(1);
             if (blocks.size() == 1) {
@@ -492,14 +575,120 @@ namespace smesh {
                                                                      n_elements.data(),
                                                                      elements.data(),
                                                                      nnodes,
-                                                                     nullptr,
+                                                                     &block_number,
                                                                      &rowptr,
                                                                      &colidx);
+                if (block_number) {
+                    n2e_block_number = manage_host_buffer<block_idx_t>(
+                        rowptr[nnodes], block_number);
+                }
             }
 
             node_to_element_graph = std::make_shared<Mesh::NodeToElementGraph>(
                     Buffer<count_t>::own(nnodes + 1, rowptr, free, MEMORY_SPACE_HOST),
                     Buffer<element_idx_t>::own(rowptr[nnodes], colidx, free, MEMORY_SPACE_HOST));
+        }
+
+        void ensure_dual_graph() {
+            if (dual_ptr) {
+                return;
+            }
+
+            const block_idx_t n_blocks = static_cast<block_idx_t>(blocks.size());
+            if (n_blocks == 1) {
+                auto block0 = blocks[0];
+                create_dual_graph(block0->n_elements(),
+                                  points->extent(1),
+                                  block0->element_type(),
+                                  block0->elements()->data(),
+                                  &dual_ptr,
+                                  &dual_idx);
+                return;
+            }
+
+            std::vector<enum ElemType> element_types(n_blocks);
+            std::vector<ptrdiff_t>     n_elements(n_blocks);
+            std::vector<idx_t **>      elements(n_blocks);
+            for (block_idx_t i = 0; i < n_blocks; ++i) {
+                element_types[i] = blocks[i]->element_type();
+                n_elements[i] = blocks[i]->n_elements();
+                elements[i] = blocks[i]->elements()->data();
+            }
+
+            block_idx_t *n2e_block = nullptr;
+            count_t     *n2e_ptr = nullptr;
+            element_idx_t *n2e_idx = nullptr;
+            create_multiblock_n2e<idx_t, count_t, element_idx_t>(n_blocks,
+                                                                 element_types.data(),
+                                                                 n_elements.data(),
+                                                                 elements.data(),
+                                                                 points->extent(1),
+                                                                 &n2e_block,
+                                                                 &n2e_ptr,
+                                                                 &n2e_idx);
+            create_multiblock_dual_graph_from_n2e<idx_t, count_t, element_idx_t>(
+                n_blocks,
+                element_types.data(),
+                n_elements.data(),
+                points->extent(1),
+                elements.data(),
+                n2e_ptr,
+                n2e_idx,
+                n2e_block,
+                &dual_ptr,
+                &dual_idx,
+                &dual_block);
+
+            SMESH_FREE(n2e_block);
+            SMESH_FREE(n2e_ptr);
+            SMESH_FREE(n2e_idx);
+        }
+
+        void ensure_half_face_tables() {
+            if (!half_face_tables.empty()) {
+                return;
+            }
+            ensure_dual_graph();
+            const block_idx_t n_blocks = static_cast<block_idx_t>(blocks.size());
+            half_face_tables.resize(n_blocks);
+            half_face_neighbor_blocks.resize(n_blocks);
+
+            std::vector<enum ElemType> element_types(n_blocks);
+            std::vector<ptrdiff_t>     n_elements(n_blocks);
+            std::vector<idx_t **>      elements(n_blocks);
+            std::vector<element_idx_t> block_base(n_blocks + 1);
+            element_idx_t global_base = 0;
+            for (block_idx_t b = 0; b < n_blocks; ++b) {
+                element_types[b] = blocks[b]->element_type();
+                n_elements[b] = blocks[b]->n_elements();
+                elements[b] = blocks[b]->elements()->data();
+                block_base[b] = global_base;
+                global_base += static_cast<element_idx_t>(n_elements[b]);
+            }
+            block_base[n_blocks] = global_base;
+
+            for (block_idx_t b = 0; b < n_blocks; ++b) {
+                element_idx_t *table = nullptr;
+                block_idx_t   *neighbor_block = nullptr;
+                create_multiblock_half_face_table_for_block<idx_t, count_t, element_idx_t>(
+                    b,
+                    n_blocks,
+                    element_types.data(),
+                    n_elements.data(),
+                    elements.data(),
+                    dual_ptr,
+                    dual_idx,
+                    dual_block,
+                    block_base.data(),
+                    &table,
+                    &neighbor_block);
+
+                const int nsides = elem_num_sides(element_types[b]);
+                half_face_tables[b] =
+                    manage_host_buffer<element_idx_t>(n_elements[b] * nsides, table);
+                half_face_neighbor_blocks[b] =
+                    manage_host_buffer<block_idx_t>(n_elements[b] * nsides, neighbor_block);
+            }
         }
     };
 
@@ -907,9 +1096,14 @@ namespace smesh {
                     return SMESH_FAILURE;
                 }
 
-                ptrdiff_t *n_local_per_block = nullptr;
-                idx_t   ***elements_per_block = nullptr;
-                int       *nxe_per_block      = nullptr;
+                ptrdiff_t    *n_local_per_block              = nullptr;
+                ptrdiff_t    *n_owned_per_block              = nullptr;
+                ptrdiff_t    *n_shared_per_block             = nullptr;
+                ptrdiff_t    *n_ghosts_per_block             = nullptr;
+                large_idx_t **element_mapping_per_block      = nullptr;
+                large_idx_t **aura_element_mapping_per_block = nullptr;
+                idx_t      ***elements_per_block             = nullptr;
+                int          *nxe_per_block                  = nullptr;
 
                 read_status = mesh_from_folder_multiblock(
                         impl_->comm->get(),
@@ -924,6 +1118,11 @@ namespace smesh {
                         &aura_element_mapping,
                         &nxe_per_block,
                         &n_local_per_block,
+                        &n_owned_per_block,
+                        &n_shared_per_block,
+                        &n_ghosts_per_block,
+                        &element_mapping_per_block,
+                        &aura_element_mapping_per_block,
                         &elements_per_block,
                         &spatial_dim,
                         &dist->impl_->n_nodes_global,
@@ -962,6 +1161,9 @@ namespace smesh {
                                                   ghosts);
 
                 const size_t n_blocks = block_names.size();
+                ptrdiff_t    sum_owned  = 0;
+                ptrdiff_t    sum_shared = 0;
+                ptrdiff_t    sum_ghosts = 0;
                 for (size_t b = 0; b < n_blocks; ++b) {
                     enum ElemType et = element_types[b];
                     const int     nxe_b = nxe_per_block[b];
@@ -970,13 +1172,53 @@ namespace smesh {
                     }
                     auto elements_buffer =
                             manage_host_buffer<idx_t>(nxe_b, n_local_per_block[b], elements_per_block[b]);
+                    auto owned_map = manage_host_buffer<large_idx_t>(n_owned_per_block[b],
+                                                                     element_mapping_per_block[b]);
+                    auto aura_map  = manage_host_buffer<large_idx_t>(n_ghosts_per_block[b],
+                                                                    aura_element_mapping_per_block[b]);
                     auto block = std::make_shared<Block>();
                     block->set_name(block_names[b]);
                     block->set_element_type(et);
                     block->set_elements(elements_buffer);
+                    block->set_distributed_elements(n_owned_per_block[b],
+                                                    n_shared_per_block[b],
+                                                    n_ghosts_per_block[b],
+                                                    owned_map,
+                                                    aura_map);
                     this->add_block(block);
+                    sum_owned += n_owned_per_block[b];
+                    sum_shared += n_shared_per_block[b];
+                    sum_ghosts += n_ghosts_per_block[b];
+                    if (block->n_elements() != n_owned_per_block[b] + n_ghosts_per_block[b]) {
+                        SMESH_ERROR(
+                                "Mesh::read: block %s local SoA size %ld != owned (%ld) + "
+                                "ghosts (%ld)\n",
+                                block_names[b].c_str(),
+                                (long)block->n_elements(),
+                                (long)n_owned_per_block[b],
+                                (long)n_ghosts_per_block[b]);
+                        return SMESH_FAILURE;
+                    }
+                }
+                if (sum_owned != dist->n_elements_owned() || sum_shared != dist->n_elements_shared() ||
+                    sum_ghosts != dist->n_elements_ghosts()) {
+                    SMESH_ERROR(
+                            "Mesh::read: per-block element counts (%ld owned, %ld shared, %ld "
+                            "ghosts) do not match Distributed (%ld, %ld, %ld)\n",
+                            (long)sum_owned,
+                            (long)sum_shared,
+                            (long)sum_ghosts,
+                            (long)dist->n_elements_owned(),
+                            (long)dist->n_elements_shared(),
+                            (long)dist->n_elements_ghosts());
+                    return SMESH_FAILURE;
                 }
                 SMESH_FREE(n_local_per_block);
+                SMESH_FREE(n_owned_per_block);
+                SMESH_FREE(n_shared_per_block);
+                SMESH_FREE(n_ghosts_per_block);
+                SMESH_FREE(element_mapping_per_block);
+                SMESH_FREE(aura_element_mapping_per_block);
                 SMESH_FREE(elements_per_block);
                 SMESH_FREE(nxe_per_block);
 
@@ -1093,6 +1335,11 @@ namespace smesh {
                 default_block->set_name("default");
                 default_block->set_element_type(element_type);
                 default_block->set_elements(elements_buffer);
+                default_block->set_distributed_elements(dist->n_elements_owned(),
+                                                        dist->n_elements_shared(),
+                                                        dist->n_elements_ghosts(),
+                                                        dist->element_mapping(),
+                                                        dist->aura_element_mapping());
                 this->add_block(default_block);
 
                 impl_->distributed = dist;
@@ -1164,44 +1411,131 @@ namespace smesh {
         }
 #ifdef SMESH_ENABLE_MPI
         else {
-            // Parallel topology write for single-block meshes.
             if (!impl_->distributed) {
                 SMESH_ERROR(
                         "Mesh::write (MPI) requires a Distributed object. "
                         "Did you create the mesh via distributed read?\n");
+                return SMESH_FAILURE;
             }
 
-            if (impl_->blocks.size() != 1 || !impl_->blocks[0]) {
-                SMESH_ERROR(
-                        "Mesh::write (MPI) currently supports only single-block "
-                        "meshes.\n");
+            if (impl_->blocks.empty()) {
+                return SMESH_FAILURE;
             }
 
-            auto dist = impl_->distributed;
+            auto        dist  = impl_->distributed;
+            MPI_Comm    comm  = impl_->comm->get();
+            const auto *node_mapping =
+                    dist->impl_->node_mapping->data();
 
-            const enum ElemType et  = impl_->blocks[0]->element_type();
-            const int           nxe = elem_num_nodes(et);
+            if (impl_->blocks.size() == 1 && impl_->blocks[0]) {
+                const enum ElemType et  = impl_->blocks[0]->element_type();
+                const int           nxe = elem_num_nodes(et);
 
-            // Write coordinates and connectivity in parallel.
-            int err = write_distributed_mesh_topology(impl_->comm->get(),
-                                                      path,
-                                                      et,
-                                                      this->spatial_dimension(),
-                                                      dist->n_elements_global(),
-                                                      dist->n_elements_owned(),
-                                                      dist->impl_->element_mapping->data(),
-                                                      nxe,
-                                                      impl_->blocks[0]->elements()->data(),
-                                                      dist->n_nodes_global(),
-                                                      dist->n_nodes_owned(),
-                                                      dist->impl_->node_mapping->data(),
-                                                      impl_->points->data());
+                return write_distributed_mesh_topology(
+                        comm,
+                        path,
+                        et,
+                        this->spatial_dimension(),
+                        dist->n_elements_global(),
+                        dist->n_elements_owned(),
+                        dist->impl_->element_mapping->data(),
+                        nxe,
+                        impl_->blocks[0]->elements()->data(),
+                        dist->n_nodes_global(),
+                        dist->n_nodes_owned(),
+                        node_mapping,
+                        impl_->points->data());
+            }
 
+            const size_t n_blocks = impl_->blocks.size();
+            if (impl_->comm->rank() == 0) {
+                if (create_directory(path / "blocks") != SMESH_SUCCESS) {
+                    return SMESH_FAILURE;
+                }
+                for (size_t b = 0; b < n_blocks; ++b) {
+                    if (!impl_->blocks[b]) {
+                        return SMESH_FAILURE;
+                    }
+                    if (create_directory(path / "blocks" / impl_->blocks[b]->name()) !=
+                        SMESH_SUCCESS) {
+                        return SMESH_FAILURE;
+                    }
+                }
+            }
+            impl_->comm->barrier();
+
+            int err = write_distributed_mesh_coordinates(comm,
+                                                         path,
+                                                         this->spatial_dimension(),
+                                                         dist->n_nodes_global(),
+                                                         dist->n_nodes_owned(),
+                                                         node_mapping,
+                                                         impl_->points->data());
             if (err != SMESH_SUCCESS) {
                 return err;
             }
 
-            return SMESH_SUCCESS;
+            std::vector<ptrdiff_t> n_owned_local(n_blocks);
+            for (size_t b = 0; b < n_blocks; ++b) {
+                n_owned_local[b] = impl_->blocks[b]->n_elements_owned();
+            }
+            std::vector<ptrdiff_t> n_global_per_block(n_blocks);
+            MPI_Allreduce(n_owned_local.data(),
+                          n_global_per_block.data(),
+                          static_cast<int>(n_blocks),
+                          mpi_type<ptrdiff_t>(),
+                          MPI_SUM,
+                          comm);
+
+            std::vector<std::string>   block_names;
+            std::vector<enum ElemType> element_types;
+            block_names.reserve(n_blocks);
+            element_types.reserve(n_blocks);
+
+            for (size_t b = 0; b < n_blocks; ++b) {
+                auto block = impl_->blocks[b];
+                block_names.push_back(block->name());
+                element_types.push_back(block->element_type());
+
+                const ptrdiff_t n_owned = block->n_elements_owned();
+                auto            elem_map = block->element_mapping();
+                if (n_owned > 0 && !elem_map) {
+                    SMESH_ERROR(
+                            "Mesh::write (MPI): block %s has %ld owned elements "
+                            "but no element_mapping.\n",
+                            block->name().c_str(),
+                            (long)n_owned);
+                    return SMESH_FAILURE;
+                }
+
+                const Path block_path = path / "blocks" / block->name();
+                err |= write_distributed_block_connectivity(
+                        comm,
+                        block_path,
+                        n_global_per_block[b],
+                        n_owned,
+                        n_owned > 0 ? elem_map->data() : nullptr,
+                        block->n_nodes_per_element(),
+                        block->elements()->data(),
+                        node_mapping);
+            }
+
+            if (err != SMESH_SUCCESS) {
+                return SMESH_FAILURE;
+            }
+
+            if (impl_->comm->rank() == 0) {
+                err = mesh_multiblock_write_yaml(path,
+                                                 static_cast<uint16_t>(n_blocks),
+                                                 block_names,
+                                                 element_types,
+                                                 n_global_per_block,
+                                                 this->spatial_dimension(),
+                                                 dist->n_nodes_global());
+            }
+            impl_->comm->barrier();
+
+            return err == SMESH_SUCCESS ? SMESH_SUCCESS : SMESH_FAILURE;
         }
 #endif
 
@@ -1218,14 +1552,17 @@ namespace smesh {
         return impl_->node_to_element_graph;
     }
 
+    SharedBuffer<block_idx_t> Mesh::node_to_element_block_number() const {
+        const_cast<Mesh *>(this)->impl_->create_node_to_element_graph();
+        return impl_->n2e_block_number;
+    }
+
     SharedBuffer<element_idx_t> Mesh::half_face_table() {
         if (n_blocks() > 1) {
-            SMESH_ERROR("half_face_table is not supported for multiblock meshes");
-            return nullptr;
+            return half_face_table(0);
         }
 
         const block_idx_t block_id = 0;
-        // FIXME it should be allocated outisde
         element_idx_t *table{nullptr};
         create_element_adj_table(n_elements(block_id), n_nodes(), element_type(block_id), elements(block_id)->data(), &table);
 
@@ -1233,45 +1570,99 @@ namespace smesh {
         return manage_host_buffer<element_idx_t>(n_elements(block_id) * nsxe, table);
     }
 
-    // FIXME: redesign to support multiblock meshes
-    std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::create_node_to_node_graph(const enum ElemType element_type) {
-        if (n_blocks() != 1) {
-            SMESH_ERROR(
-                    "create_node_to_node_graph is not supported for multi-block "
-                    "meshes!\n");
+    SharedBuffer<element_idx_t> Mesh::half_face_table(block_idx_t block_id) {
+        if (n_blocks() == 1) {
+            return half_face_table();
+        }
+
+        if (static_cast<size_t>(block_id) >= n_blocks()) {
+            SMESH_ERROR("half_face_table: invalid block_id %d\n", block_id);
             return nullptr;
         }
 
-        if (this->element_type(0) == element_type) {
+        impl_->ensure_half_face_tables();
+        return impl_->half_face_tables[block_id];
+    }
+
+    SharedBuffer<block_idx_t> Mesh::half_face_neighbor_block(block_idx_t block_id) {
+        if (n_blocks() == 1) {
+            SMESH_ERROR("half_face_neighbor_block requires multiblock mesh\n");
+            return nullptr;
+        }
+
+        if (static_cast<size_t>(block_id) >= n_blocks()) {
+            SMESH_ERROR("half_face_neighbor_block: invalid block_id %d\n", block_id);
+            return nullptr;
+        }
+
+        impl_->ensure_half_face_tables();
+        return impl_->half_face_neighbor_blocks[block_id];
+    }
+
+    std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::create_node_to_node_graph(const enum ElemType element_type) {
+        if (is_semistructured_type(element_type)) {
+            if (n_blocks() != 1) {
+                SMESH_ERROR(
+                    "Semistructured create_node_to_node_graph override is not "
+                    "supported for multi-block meshes!\n");
+                return nullptr;
+            }
+        }
+
+        bool all_same_type = true;
+        for (size_t b = 0; b < n_blocks(); ++b) {
+            if (this->element_type(static_cast<block_idx_t>(b)) != element_type) {
+                all_same_type = false;
+                break;
+            }
+        }
+        if (all_same_type) {
             return node_to_node_graph();
         }
 
-        const ptrdiff_t n_nodes = max_node_id(element_type, n_elements(0), elements(0)->data()) + 1;
+        if (n_blocks() == 1) {
+            const ptrdiff_t n_nodes =
+                max_node_id(element_type, n_elements(0), elements(0)->data()) + 1;
+
+            count_t *rowptr{nullptr};
+            idx_t   *colidx{nullptr};
+            if (is_semistructured_type(this->element_type(0))) {
+                SMESH_ERROR(
+                    "Semistructured meshes by create_node_to_node_graph for "
+                    "different element type!\n");
+                return nullptr;
+            }
+
+            create_crs_graph_for_elem_type(
+                element_type, n_elements(0), n_nodes, elements(0)->data(), &rowptr, &colidx);
+
+            return std::make_shared<Mesh::NodeToNodeGraph>(
+                Buffer<count_t>::own(n_nodes + 1, rowptr, free, MEMORY_SPACE_HOST),
+                Buffer<idx_t>::own(rowptr[n_nodes], colidx, free, MEMORY_SPACE_HOST));
+        }
+
+        std::vector<enum ElemType> element_types(n_blocks());
+        std::vector<ptrdiff_t>     n_elements_per_block(n_blocks());
+        std::vector<idx_t **>      block_elements(n_blocks());
+        for (size_t b = 0; b < n_blocks(); ++b) {
+            element_types[b] = element_type;
+            n_elements_per_block[b] = n_elements(static_cast<block_idx_t>(b));
+            block_elements[b] = elements(static_cast<block_idx_t>(b))->data();
+        }
 
         count_t *rowptr{nullptr};
         idx_t   *colidx{nullptr};
-        if (is_semistructured_type(this->element_type(0))) {
-            // TODO: check of it works
-            SMESH_ERROR(
-                    "Semistructured meshes by create_node_to_node_graph for "
-                    "different element type!\n");
-            // for other semistructured elements
-            sshex8_crs_graph<element_idx_t, count_t, idx_t>(proteus_hex_micro_elements_per_dim(element_type),
-                                                            this->n_elements(0),
-                                                            this->n_nodes(),
-                                                            this->elements(0)->data(),
-                                                            &rowptr,
-                                                            &colidx);
+        create_multiblock_crs_graph(static_cast<block_idx_t>(n_blocks()),
+                                    element_types.data(),
+                                    n_elements_per_block.data(),
+                                    block_elements.data(),
+                                    this->n_nodes(),
+                                    &rowptr,
+                                    &colidx);
 
-        } else {
-            create_crs_graph_for_elem_type(element_type, n_elements(0), n_nodes, elements(0)->data(), &rowptr, &colidx);
-        }
-
-        auto crs_graph =
-                std::make_shared<Mesh::NodeToNodeGraph>(Buffer<count_t>::own(n_nodes + 1, rowptr, free, MEMORY_SPACE_HOST),
-                                                        Buffer<idx_t>::own(rowptr[n_nodes], colidx, free, MEMORY_SPACE_HOST));
-
-        return crs_graph;
+        return std::make_shared<Mesh::NodeToNodeGraph>(
+            Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free, MEMORY_SPACE_HOST),
+            Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free, MEMORY_SPACE_HOST));
     }
 
     int Mesh::initialize_node_to_node_graph() {
@@ -1336,27 +1727,58 @@ namespace smesh {
             return impl_->edge_graph;
         }
 
-        if (n_blocks() == 1 &&
-            (block(0)->element_type() == TET4 || block(0)->element_type() == TRI3 || block(0)->element_type() == TRISHELL3)) {
+        bool all_simplex = true;
+        for (size_t b = 0; b < n_blocks(); ++b) {
+            const enum ElemType et = block(static_cast<block_idx_t>(b))->element_type();
+            if (et != TET4 && et != TRI3 && et != TRISHELL3) {
+                all_simplex = false;
+                break;
+            }
+        }
+
+        if (all_simplex) {
             impl_->edge_graph = node_to_node_graph_upper_triangular();
             return impl_->edge_graph;
-        } else if (n_blocks() != 1) {
-            SMESH_ERROR("Edge graph is not supported for multiblock meshes");
-            return nullptr;
         }
 
         count_t *rowptr{nullptr};
         idx_t   *colidx{nullptr};
 
-        auto n2e = node_to_element_graph();
-        create_edge_graph_for_element_from_n2e(block(0)->element_type(),
-                                               block(0)->n_elements(),
-                                               this->n_nodes(),
-                                               block(0)->elements()->data(),
-                                               n2e->rowptr()->data(),
-                                               n2e->colidx()->data(),
-                                               &rowptr,
-                                               &colidx);
+        if (n_blocks() == 1) {
+            auto n2e = node_to_element_graph();
+            create_edge_graph_for_element_from_n2e(block(0)->element_type(),
+                                                   block(0)->n_elements(),
+                                                   this->n_nodes(),
+                                                   block(0)->elements()->data(),
+                                                   n2e->rowptr()->data(),
+                                                   n2e->colidx()->data(),
+                                                   &rowptr,
+                                                   &colidx);
+        } else {
+            impl_->create_node_to_element_graph();
+            auto n2e = impl_->node_to_element_graph;
+
+            std::vector<enum ElemType> element_types(n_blocks());
+            std::vector<ptrdiff_t>     n_elements_per_block(n_blocks());
+            std::vector<idx_t **>      block_elements(n_blocks());
+            for (size_t b = 0; b < n_blocks(); ++b) {
+                element_types[b] = element_type(static_cast<block_idx_t>(b));
+                n_elements_per_block[b] = n_elements(static_cast<block_idx_t>(b));
+                block_elements[b] = elements(static_cast<block_idx_t>(b))->data();
+            }
+
+            create_multiblock_edge_graph_from_n2e<idx_t, count_t, element_idx_t>(
+                static_cast<block_idx_t>(n_blocks()),
+                element_types.data(),
+                n_elements_per_block.data(),
+                block_elements.data(),
+                this->n_nodes(),
+                n2e->rowptr()->data(),
+                n2e->colidx()->data(),
+                impl_->n2e_block_number->data(),
+                &rowptr,
+                &colidx);
+        }
 
         impl_->edge_graph = std::make_shared<Mesh::NodeToNodeGraph>(
                 Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free, MEMORY_SPACE_HOST),
@@ -2242,15 +2664,15 @@ namespace smesh {
         return nullptr;
     }
 
-    int Mesh::split_block(const SharedBuffer<element_idx_t> &elements, const std::string &name) {
-        if (n_blocks() != 1) {
-            SMESH_ERROR("Mesh must have exactly one block to split boundary layer!\n");
+    int Mesh::split_block(const SharedBuffer<element_idx_t> &elements, const std::string &name, block_idx_t block_id) {
+        if (static_cast<size_t>(block_id) >= n_blocks()) {
+            SMESH_ERROR("split_block: invalid block_id %d\n", block_id);
             return SMESH_FAILURE;
         }
 
         {
-            const int       nxe        = n_nodes_per_element(0);
-            const ptrdiff_t n_elements = this->n_elements(0);
+            const int       nxe        = n_nodes_per_element(block_id);
+            const ptrdiff_t n_elements = this->n_elements(block_id);
 
             auto bdry_mask = create_host_buffer<mask_t>(mask_count(n_elements));
 
@@ -2258,9 +2680,9 @@ namespace smesh {
             auto            d_bdry_mask  = bdry_mask->data();
             const ptrdiff_t size_sideset = elements->size();
 
-            auto default_block = impl_->blocks[0];
+            auto source_block = impl_->blocks[block_id];
 
-            auto d_elements = default_block->elements()->data();
+            auto d_elements = source_block->elements()->data();
 
             ptrdiff_t n_bdry_elements = 0;
             for (ptrdiff_t i = 0; i < size_sideset; i++) {
@@ -2302,20 +2724,20 @@ namespace smesh {
             }
 
             // !!!!
-            remove_block(0);
+            remove_block(block_id);
 
             {  // Boundary block
                 auto block = std::make_shared<Block>();
                 block->set_name(name);
-                block->set_element_type(default_block->element_type());
+                block->set_element_type(source_block->element_type());
                 block->set_elements(bdry_elements);
                 this->add_block(block);
             }
 
             {  // Interior block
                 auto block = std::make_shared<Block>();
-                block->set_name(default_block->name());
-                block->set_element_type(default_block->element_type());
+                block->set_name(source_block->name());
+                block->set_element_type(source_block->element_type());
                 block->set_elements(interior_elements);
                 this->add_block(block);
             }
@@ -2325,33 +2747,45 @@ namespace smesh {
     }
 
     int Mesh::split_boundary_layer() {
-        if (n_blocks() != 1) {
-            SMESH_ERROR("Mesh must have exactly one block to split boundary layer!\n");
+        if (comm()->size() > 1) {
+            SMESH_ERROR("split_boundary_layer is only supported in serial\n");
             return SMESH_FAILURE;
         }
 
-        std::shared_ptr<Sideset> sideset;
+        const block_idx_t target_block = 0;
+        auto              hft          = half_face_table(target_block);
 
-        {
-            ptrdiff_t      n_surf_elements = 0;
-            element_idx_t *parent          = 0;
-            int16_t       *side_idx        = 0;
+        ptrdiff_t      n_surf_elements = 0;
+        element_idx_t *parent          = nullptr;
+        i16           *side_idx        = nullptr;
 
-            if (extract_skin_sideset(this->n_elements(0),
-                                     this->n_nodes(),
-                                     this->element_type(0),
-                                     this->elements(0)->data(),
-                                     &n_surf_elements,
-                                     &parent,
-                                     &side_idx) != SMESH_SUCCESS) {
-                SMESH_ERROR("Failed to extract skin!\n");
-            }
-
-            sideset = std::make_shared<Sideset>(
-                    this->comm(), manage_host_buffer(n_surf_elements, parent), manage_host_buffer(n_surf_elements, side_idx));
+        if (extract_sideset_from_adj_table(element_type(target_block),
+                                           n_elements(target_block),
+                                           hft->data(),
+                                           &n_surf_elements,
+                                           &parent,
+                                           &side_idx) != SMESH_SUCCESS) {
+            SMESH_ERROR("Failed to extract skin for split_boundary_layer\n");
+            return SMESH_FAILURE;
         }
 
-        return split_block(sideset->parent(), "boundary_layer");
+        std::vector<element_idx_t> parent_elements(static_cast<size_t>(n_surf_elements));
+        for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+            parent_elements[static_cast<size_t>(i)] = parent[i];
+        }
+        SMESH_FREE(parent);
+        SMESH_FREE(side_idx);
+
+        element_idx_t *parent_buf = (element_idx_t *)SMESH_ALLOC(
+            parent_elements.size() * sizeof(element_idx_t));
+        std::memcpy(parent_buf,
+                    parent_elements.data(),
+                    parent_elements.size() * sizeof(element_idx_t));
+
+        return split_block(
+                manage_host_buffer<element_idx_t>(static_cast<ptrdiff_t>(parent_elements.size()), parent_buf),
+                "boundary_layer",
+                target_block);
     }
 
     int Mesh::renumber_nodes() {
@@ -2509,18 +2943,45 @@ namespace smesh {
     }
 
     std::shared_ptr<Mesh> Mesh::clone() const {
-        auto ret = std::make_shared<Mesh>();
-        SMESH_IMPLEMENT_ME();
+        auto ret = std::make_shared<Mesh>(impl_->comm);
+
+        const int       spatial_dim = spatial_dimension();
+        const ptrdiff_t nnodes      = n_nodes();
+        auto            src_points  = points();
+        auto            dst_points  = create_host_buffer<geom_t>(spatial_dim, nnodes);
+        for (int d = 0; d < spatial_dim; ++d) {
+            std::memcpy(dst_points->data()[d],
+                        src_points->data()[d],
+                        static_cast<size_t>(nnodes) * sizeof(geom_t));
+        }
+        ret->set_points(dst_points);
+
+        for (const auto &block : impl_->blocks) {
+            if (!block || !block->elements()) {
+                continue;
+            }
+
+            const int       nxe       = block->n_nodes_per_element();
+            const ptrdiff_t nelements = block->n_elements();
+            auto            dst_elems = create_host_buffer<idx_t>(nxe, nelements);
+            auto            src_elems = block->elements()->data();
+            for (int d = 0; d < nxe; ++d) {
+                std::memcpy(dst_elems->data()[d],
+                            src_elems[d],
+                            static_cast<size_t>(nelements) * sizeof(idx_t));
+            }
+
+            auto new_block = std::make_shared<Block>();
+            new_block->set_name(block->name());
+            new_block->set_element_type(block->element_type());
+            new_block->set_elements(dst_elems);
+            ret->add_block(new_block);
+        }
+
         return ret;
     }
 
     std::shared_ptr<Mesh> convert_to(const enum ElemType element_type, const std::shared_ptr<Mesh> &mesh) {
-        // FIXME the multiblock case is not really supported yet
-        if (mesh->n_blocks() > 1) {
-            SMESH_ERROR("Conversion from %s is not supported for multiblock meshes\n", type_to_string(element_type));
-            return nullptr;
-        }
-
         std::map<std::pair<enum ElemType, enum ElemType>, std::function<void(const Mesh::Block &, Mesh::Block &)>> cmap;
 
         cmap[std::make_pair(HEX8, TET4)] = [](const Mesh::Block &block, Mesh::Block &new_block) {
@@ -2638,9 +3099,8 @@ namespace smesh {
     }
 
     std::shared_ptr<Mesh> promote_to(const enum ElemType element_type, const std::shared_ptr<Mesh> &mesh) {
-        // FIXME the multiblock case is not really supported yet
-        if (mesh->n_blocks() > 1) {
-            SMESH_ERROR("Promotion to %s is not supported for multiblock meshes\n", type_to_string(element_type));
+        if (mesh->comm()->size() > 1) {
+            SMESH_ERROR("Promotion to %s is not supported for distributed meshes\n", type_to_string(element_type));
             return nullptr;
         }
 
@@ -2722,19 +3182,118 @@ namespace smesh {
         };
 
         auto it = cmap.find(std::make_pair(mesh->element_type(0), element_type));
-        if (it != cmap.end()) {
-            return it->second(*mesh);
-        } else {
+        if (it == cmap.end()) {
             SMESH_ERROR("Promotion from %s to %s is not supported\n",
                         type_to_string(mesh->element_type(0)),
                         type_to_string(element_type));
             return nullptr;
         }
+
+        if (mesh->n_blocks() == 1) {
+            return it->second(*mesh);
+        }
+
+        for (size_t b = 1; b < mesh->n_blocks(); ++b) {
+            if (mesh->element_type(static_cast<block_idx_t>(b)) != mesh->element_type(0)) {
+                SMESH_ERROR("Promotion requires all blocks to share the same element type\n");
+                return nullptr;
+            }
+        }
+
+        if (element_type == TET10 || element_type == TRI6) {
+            auto n2n_upper_triangular     = mesh->node_to_node_graph_upper_triangular();
+            auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
+            auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+
+            const enum ElemType src_type = mesh->element_type(0);
+            const int           dst_nxe = elem_num_nodes(element_type);
+
+            std::vector<std::shared_ptr<Mesh::Block>> blocks;
+            blocks.reserve(mesh->n_blocks());
+
+            SharedBuffer<geom_t *> points;
+            for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+                auto block = mesh->block(b);
+                auto elements =
+                        create_host_buffer<idx_t>(dst_nxe, block->n_elements());
+                if (b == 0) {
+                    points = create_host_buffer<geom_t>(
+                        mesh->spatial_dimension(),
+                        n2n_upper_triangular->colidx()->size() + mesh->n_nodes());
+                }
+
+                p1_to_p2(src_type,
+                         block->n_elements(),
+                         block->elements()->data(),
+                         mesh->spatial_dimension(),
+                         mesh->n_nodes(),
+                         mesh->points()->data(),
+                         n2n_upper_triangular_ptr,
+                         n2n_upper_triangular_idx,
+                         elements->data(),
+                         points->data());
+
+                auto new_block = std::make_shared<Mesh::Block>();
+                new_block->set_name(block->name());
+                new_block->set_element_type(element_type);
+                new_block->set_elements(elements);
+                blocks.push_back(new_block);
+            }
+
+            return std::make_shared<Mesh>(mesh->comm(), blocks, points);
+        }
+
+        if (element_type == TET15) {
+            auto n2n_upper_triangular     = mesh->node_to_node_graph_upper_triangular();
+            auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
+            auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+
+            std::vector<std::shared_ptr<Mesh::Block>> blocks;
+            blocks.reserve(mesh->n_blocks());
+            SharedBuffer<geom_t *> points;
+            ptrdiff_t              n_new_nodes = 0;
+
+            for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+                auto block = mesh->block(static_cast<block_idx_t>(b));
+                auto hft   = mesh->half_face_table(static_cast<block_idx_t>(b));
+                auto elements = create_host_buffer<idx_t>(15, block->n_elements());
+
+                mesh_tet4_to_tet15(block->n_elements(),
+                                   mesh->n_nodes(),
+                                   block->elements()->data(),
+                                   n2n_upper_triangular_ptr,
+                                   n2n_upper_triangular_idx,
+                                   hft->data(),
+                                   elements->data(),
+                                   b == 0 ? &n_new_nodes : nullptr);
+
+                if (b == 0) {
+                    points = create_host_buffer<geom_t>(3, n_new_nodes);
+                    mesh_tet4_to_tet15_points(block->n_elements(),
+                                              mesh->n_nodes(),
+                                              mesh->points()->data(),
+                                              n2n_upper_triangular_ptr,
+                                              n2n_upper_triangular_idx,
+                                              elements->data(),
+                                              points->data());
+                }
+
+                auto new_block = std::make_shared<Mesh::Block>();
+                new_block->set_name(block->name());
+                new_block->set_element_type(TET15);
+                new_block->set_elements(elements);
+                blocks.push_back(new_block);
+            }
+
+            return std::make_shared<Mesh>(mesh->comm(), blocks, points);
+        }
+
+        return it->second(*mesh);
     }
 
     std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh, const int levels) {
-        if (mesh->n_blocks() != 1) {
-            SMESH_ERROR("Refinement is not supported for multiblock meshes\n");
+        if (mesh->comm()->size() > 1) {
+            SMESH_ERROR("Refinement is not supported for distributed meshes\n");
             return nullptr;
         }
 
@@ -2751,6 +3310,66 @@ namespace smesh {
                     return 0;
             }
         }(mesh->element_type(0));
+
+        for (size_t b = 1; b < mesh->n_blocks(); ++b) {
+            if (mesh->element_type(static_cast<block_idx_t>(b)) != mesh->element_type(0)) {
+                SMESH_ERROR("Refinement requires all blocks to share the same element type\n");
+                return nullptr;
+            }
+        }
+
+        if (mesh->n_blocks() > 1 &&
+            (mesh->element_type(0) == TET4 || mesh->element_type(0) == TRI3)) {
+            auto out = mesh;
+            for (int i = 0; i < levels; ++i) {
+                auto n2n_upper_triangular     = out->node_to_node_graph_upper_triangular();
+                auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
+                auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+
+                auto refined_points = create_host_buffer<geom_t>(
+                    out->spatial_dimension(),
+                    n2n_upper_triangular->colidx()->size() + out->n_nodes());
+
+                std::vector<std::shared_ptr<Mesh::Block>> blocks;
+                blocks.reserve(out->n_blocks());
+
+                for (size_t b = 0; b < out->n_blocks(); ++b) {
+                    auto block = out->block(static_cast<block_idx_t>(b));
+                    auto refined_elements = create_host_buffer<idx_t>(
+                        block->n_nodes_per_element(), block->n_elements() * refine_factor);
+
+                    int err = mesh_refine(block->element_type(),
+                                          block->n_elements(),
+                                          block->elements()->data(),
+                                          out->spatial_dimension(),
+                                          out->n_nodes(),
+                                          out->points()->data(),
+                                          n2n_upper_triangular_ptr,
+                                          n2n_upper_triangular_idx,
+                                          refined_elements->data(),
+                                          refined_points->data());
+
+                    if (err != SMESH_SUCCESS) {
+                        SMESH_ERROR("Multiblock refinement failed\n");
+                        return nullptr;
+                    }
+
+                    auto new_block = std::make_shared<Mesh::Block>();
+                    new_block->set_name(block->name());
+                    new_block->set_element_type(block->element_type());
+                    new_block->set_elements(refined_elements);
+                    blocks.push_back(new_block);
+                }
+
+                out = std::make_shared<Mesh>(out->comm(), blocks, refined_points);
+            }
+            return out;
+        }
+
+        if (mesh->n_blocks() > 1 && mesh->element_type(0) == HEX8) {
+            SMESH_ERROR("HEX8 multiblock refinement is not supported yet\n");
+            return nullptr;
+        }
 
         auto out = mesh;
         if (mesh->element_type(0) == HEX8) {
@@ -2821,6 +3440,180 @@ namespace smesh {
         return out;
     }
 
+#ifdef SMESH_ENABLE_MPI
+    static int filter_distributed_skin_sides(const std::shared_ptr<Communicator> &comm,
+                                             const ptrdiff_t                      n_owned_elements,
+                                             const ptrdiff_t                      n_shared_elements,
+                                             const ptrdiff_t                      n_owned_not_shared,
+                                             const ptrdiff_t                      n_aura_elements,
+                                             const large_idx_t                   *element_mapping,
+                                             const large_idx_t                   *aura_element_mapping,
+                                             ptrdiff_t                           *n_surf_elements,
+                                             element_idx_t                       *parent_element,
+                                             i16                                 *side_idx) {
+        large_idx_t n_global = 0;
+        if (element_mapping) {
+            for (ptrdiff_t i = 0; i < n_owned_elements; ++i) {
+                n_global = std::max(n_global, element_mapping[i] + 1);
+            }
+        }
+        if (aura_element_mapping) {
+            for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
+                n_global = std::max(n_global, aura_element_mapping[i] + 1);
+            }
+        }
+        n_global = comm->max(n_global);
+
+        const int comm_size = comm->size();
+        const int rank      = comm->rank();
+
+        std::vector<element_idx_t> owned_global_to_local(static_cast<size_t>(n_global),
+                                                         invalid_idx<element_idx_t>());
+        std::vector<int>           owner(static_cast<size_t>(n_global), -1);
+        for (ptrdiff_t i = 0; i < n_owned_elements; ++i) {
+            const large_idx_t gid = element_mapping[i];
+            owned_global_to_local[static_cast<size_t>(gid)] = static_cast<element_idx_t>(i);
+            owner[static_cast<size_t>(gid)]                 = rank;
+        }
+        if (n_global > 0) {
+            SMESH_MPI_CATCH(MPI_Allreduce(MPI_IN_PLACE,
+                                          owner.data(),
+                                          static_cast<int>(n_global),
+                                          MPI_INT,
+                                          MPI_MAX,
+                                          comm->get()));
+        }
+
+        u8 *shared_face_mask = nullptr;
+        if (n_shared_elements > 0) {
+            shared_face_mask = (u8 *)SMESH_CALLOC((size_t)n_shared_elements, sizeof(u8));
+        }
+
+        u8 *aura_face_mask = nullptr;
+        if (n_aura_elements > 0) {
+            aura_face_mask = (u8 *)SMESH_CALLOC((size_t)n_aura_elements, sizeof(u8));
+        }
+
+        for (ptrdiff_t i = 0; i < *n_surf_elements; ++i) {
+            const element_idx_t parent    = parent_element[i];
+            const u8            side_mask = static_cast<u8>(1u << side_idx[i]);
+            if (parent < n_owned_elements) {
+                if (parent >= n_owned_not_shared) {
+                    shared_face_mask[parent - n_owned_not_shared] |= side_mask;
+                }
+            } else {
+                aura_face_mask[parent - n_owned_elements] |= side_mask;
+            }
+        }
+
+        {
+            i64 *send_count  = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
+            i64 *send_displs = (i64 *)SMESH_CALLOC((size_t)comm_size + 1, sizeof(i64));
+
+            for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
+                const int dest = owner[static_cast<size_t>(aura_element_mapping[i])];
+                if (dest >= 0 && dest < comm_size) {
+                    send_displs[dest + 1]++;
+                }
+            }
+            for (int r = 0; r < comm_size; ++r) {
+                send_displs[r + 1] += send_displs[r];
+            }
+
+            auto send_global_ids =
+                    (large_idx_t *)SMESH_ALLOC((size_t)send_displs[comm_size] * sizeof(large_idx_t));
+            auto send_face_mask = (u8 *)SMESH_ALLOC((size_t)send_displs[comm_size] * sizeof(u8));
+
+            memset(send_count, 0, (size_t)comm_size * sizeof(i64));
+            for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
+                const large_idx_t global_id = aura_element_mapping[i];
+                const int         dest      = owner[static_cast<size_t>(global_id)];
+                if (dest < 0 || dest >= comm_size) {
+                    continue;
+                }
+                const i64 pos        = send_displs[dest] + send_count[dest]++;
+                send_global_ids[pos] = global_id;
+                send_face_mask[pos]  = aura_face_mask[i];
+            }
+
+            i64 *recv_count  = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
+            i64 *recv_displs = (i64 *)SMESH_ALLOC(((size_t)comm_size + 1) * sizeof(i64));
+            SMESH_MPI_CATCH(
+                    MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1, mpi_type<i64>(), comm->get()));
+
+            recv_displs[0] = 0;
+            for (int r = 0; r < comm_size; ++r) {
+                recv_displs[r + 1] = recv_displs[r] + recv_count[r];
+            }
+
+            auto      recv_global_ids = (large_idx_t *)SMESH_ALLOC((size_t)recv_displs[comm_size] * sizeof(large_idx_t));
+            auto      recv_face_mask  = (u8 *)SMESH_ALLOC((size_t)recv_displs[comm_size] * sizeof(u8));
+            const i64 max_chunk_size  = (i64)std::numeric_limits<i32>::max() / comm_size;
+
+            SMESH_MPI_CATCH(all_to_allv_64(send_global_ids,
+                                           send_count,
+                                           send_displs,
+                                           recv_global_ids,
+                                           recv_count,
+                                           recv_displs,
+                                           comm->get(),
+                                           max_chunk_size));
+            SMESH_MPI_CATCH(all_to_allv_64(send_face_mask,
+                                           send_count,
+                                           send_displs,
+                                           recv_face_mask,
+                                           recv_count,
+                                           recv_displs,
+                                           comm->get(),
+                                           max_chunk_size));
+
+            for (i64 i = 0; i < recv_displs[comm_size]; ++i) {
+                const large_idx_t gid = recv_global_ids[i];
+                if (gid < 0 || gid >= n_global) {
+                    continue;
+                }
+                const element_idx_t local_element = owned_global_to_local[static_cast<size_t>(gid)];
+                if (local_element == invalid_idx<element_idx_t>() || local_element < n_owned_not_shared ||
+                    local_element >= n_owned_elements) {
+                    continue;
+                }
+                shared_face_mask[local_element - n_owned_not_shared] &= recv_face_mask[i];
+            }
+
+            SMESH_FREE(send_count);
+            SMESH_FREE(send_displs);
+            SMESH_FREE(send_global_ids);
+            SMESH_FREE(send_face_mask);
+            SMESH_FREE(recv_count);
+            SMESH_FREE(recv_displs);
+            SMESH_FREE(recv_global_ids);
+            SMESH_FREE(recv_face_mask);
+        }
+
+        ptrdiff_t write_pos = 0;
+        for (ptrdiff_t i = 0; i < *n_surf_elements; ++i) {
+            const element_idx_t parent = parent_element[i];
+            if (parent >= n_owned_elements) {
+                continue;
+            }
+            if (parent >= n_owned_not_shared) {
+                const u8 side_mask = static_cast<u8>(1u << side_idx[i]);
+                if ((shared_face_mask[parent - n_owned_not_shared] & side_mask) == 0) {
+                    continue;
+                }
+            }
+            parent_element[write_pos] = parent;
+            side_idx[write_pos]       = side_idx[i];
+            ++write_pos;
+        }
+        *n_surf_elements = write_pos;
+
+        SMESH_FREE(shared_face_mask);
+        SMESH_FREE(aura_face_mask);
+        return SMESH_SUCCESS;
+    }
+#endif
+
     std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
         SMESH_TRACE_SCOPE("skin_sideset");
         if (mesh->n_blocks() != 1) {
@@ -2857,147 +3650,20 @@ namespace smesh {
 
 #ifdef SMESH_ENABLE_MPI
         if (mesh->comm()->size() > 1) {
-            const auto dist               = mesh->distributed();
-            const auto n_global_elements  = dist->n_elements_global();
-            const auto n_owned_elements   = dist->n_elements_owned();
-            const auto n_shared_elements  = dist->n_elements_shared();
-            const auto n_owned_not_shared = dist->n_elements_owned_not_shared();
-
-            const int comm_size = mesh->comm()->size();
+            const auto dist = mesh->distributed();
             SMESH_ASSERT(elem_num_sides(mesh->element_type(0)) <= 8);
-            const auto     element_start         = rank_start(n_global_elements, comm_size, mesh->comm()->rank());
-            auto           element_mapping       = dist->element_mapping()->data();
-            element_idx_t *owned_global_to_local = nullptr;
-            if (n_owned_elements > 0) {
-                owned_global_to_local = (element_idx_t *)SMESH_ALLOC((size_t)n_owned_elements * sizeof(element_idx_t));
-                for (ptrdiff_t i = 0; i < n_owned_elements; ++i) {
-                    owned_global_to_local[element_mapping[i] - element_start] = static_cast<element_idx_t>(i);
-                }
-            }
-
-            u8 *shared_face_mask = nullptr;
-            if (n_shared_elements > 0) {
-                shared_face_mask = (u8 *)SMESH_CALLOC((size_t)n_shared_elements, sizeof(u8));
-            }
-
-            const auto n_aura_elements = dist->n_elements_ghosts();
-            u8        *aura_face_mask  = nullptr;
-            if (n_aura_elements > 0) {
-                aura_face_mask = (u8 *)SMESH_CALLOC((size_t)n_aura_elements, sizeof(u8));
-            }
-
-            for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
-                const element_idx_t parent    = parent_element[i];
-                const u8            side_mask = static_cast<u8>(1u << side_idx[i]);
-
-                if (parent < n_owned_elements) {
-                    if (parent >= n_owned_not_shared) {
-                        shared_face_mask[parent - n_owned_not_shared] |= side_mask;
-                    }
-                } else {
-                    aura_face_mask[parent - n_owned_elements] |= side_mask;
-                }
-            }
-
-            {
-                const large_idx_t *aura_element_mapping = n_aura_elements > 0 ? dist->aura_element_mapping()->data() : nullptr;
-                i64               *send_count           = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
-                i64               *send_displs          = (i64 *)SMESH_CALLOC((size_t)comm_size + 1, sizeof(i64));
-
-                for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
-                    const int owner = rank_owner(n_global_elements, aura_element_mapping[i], comm_size);
-                    send_displs[owner + 1]++;
-                }
-
-                for (int r = 0; r < comm_size; ++r) {
-                    send_displs[r + 1] += send_displs[r];
-                }
-
-                auto send_global_ids = (large_idx_t *)SMESH_ALLOC((size_t)send_displs[comm_size] * sizeof(large_idx_t));
-                auto send_face_mask  = (u8 *)SMESH_ALLOC((size_t)send_displs[comm_size] * sizeof(u8));
-
-                memset(send_count, 0, (size_t)comm_size * sizeof(i64));
-                for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
-                    const large_idx_t global_id = aura_element_mapping[i];
-                    const int         owner     = rank_owner(n_global_elements, global_id, comm_size);
-                    const i64         pos       = send_displs[owner] + send_count[owner]++;
-                    send_global_ids[pos]        = global_id;
-                    send_face_mask[pos]         = aura_face_mask[i];
-                }
-
-                i64 *recv_count  = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
-                i64 *recv_displs = (i64 *)SMESH_ALLOC(((size_t)comm_size + 1) * sizeof(i64));
-                SMESH_MPI_CATCH(
-                        MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1, mpi_type<i64>(), mesh->comm()->get()));
-
-                recv_displs[0] = 0;
-                for (int r = 0; r < comm_size; ++r) {
-                    recv_displs[r + 1] = recv_displs[r] + recv_count[r];
-                }
-
-                auto      recv_global_ids = (large_idx_t *)SMESH_ALLOC((size_t)recv_displs[comm_size] * sizeof(large_idx_t));
-                auto      recv_face_mask  = (u8 *)SMESH_ALLOC((size_t)recv_displs[comm_size] * sizeof(u8));
-                const i64 max_chunk_size  = (i64)std::numeric_limits<i32>::max() / comm_size;
-
-                SMESH_MPI_CATCH(all_to_allv_64(send_global_ids,
-                                               send_count,
-                                               send_displs,
-                                               recv_global_ids,
-                                               recv_count,
-                                               recv_displs,
-                                               mesh->comm()->get(),
-                                               max_chunk_size));
-                SMESH_MPI_CATCH(all_to_allv_64(send_face_mask,
-                                               send_count,
-                                               send_displs,
-                                               recv_face_mask,
-                                               recv_count,
-                                               recv_displs,
-                                               mesh->comm()->get(),
-                                               max_chunk_size));
-
-                for (i64 i = 0; i < recv_displs[comm_size]; ++i) {
-                    const ptrdiff_t local_element = owned_global_to_local[recv_global_ids[i] - element_start];
-                    if (local_element < n_owned_not_shared || local_element >= n_owned_elements) {
-                        continue;
-                    }
-
-                    shared_face_mask[local_element - n_owned_not_shared] &= recv_face_mask[i];
-                }
-
-                SMESH_FREE(send_count);
-                SMESH_FREE(send_displs);
-                SMESH_FREE(send_global_ids);
-                SMESH_FREE(send_face_mask);
-                SMESH_FREE(recv_count);
-                SMESH_FREE(recv_displs);
-                SMESH_FREE(recv_global_ids);
-                SMESH_FREE(recv_face_mask);
-            }
-
-            ptrdiff_t write_pos = 0;
-            for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
-                const element_idx_t parent = parent_element[i];
-                if (parent >= n_owned_elements) {
-                    continue;
-                }
-
-                if (parent >= n_owned_not_shared) {
-                    const u8 side_mask = static_cast<u8>(1u << side_idx[i]);
-                    if ((shared_face_mask[parent - n_owned_not_shared] & side_mask) == 0) {
-                        continue;
-                    }
-                }
-
-                parent_element[write_pos] = parent;
-                side_idx[write_pos]       = side_idx[i];
-                ++write_pos;
-            }
-            n_surf_elements = write_pos;
-
-            SMESH_FREE(owned_global_to_local);
-            SMESH_FREE(shared_face_mask);
-            SMESH_FREE(aura_face_mask);
+            auto owned_map = dist->element_mapping();
+            auto aura_map  = dist->aura_element_mapping();
+            filter_distributed_skin_sides(mesh->comm(),
+                                          dist->n_elements_owned(),
+                                          dist->n_elements_shared(),
+                                          dist->n_elements_owned_not_shared(),
+                                          dist->n_elements_ghosts(),
+                                          (owned_map && owned_map->size() > 0) ? owned_map->data() : nullptr,
+                                          (aura_map && aura_map->size() > 0) ? aura_map->data() : nullptr,
+                                          &n_surf_elements,
+                                          parent_element,
+                                          side_idx);
         }
 #endif
 
@@ -3006,6 +3672,83 @@ namespace smesh {
                                          manage_host_buffer<i16>(n_surf_elements, side_idx),
                                          0,
                                          mesh->comm()->size() > 1 ? mesh->distributed()->element_mapping() : nullptr);
+    }
+
+    static std::shared_ptr<Sideset> skin_sideset_for_block(const std::shared_ptr<Mesh> &mesh,
+                                                           const block_idx_t            block_id) {
+        auto block = mesh->block(block_id);
+        if (!block) {
+            return nullptr;
+        }
+
+        const enum ElemType et = block->element_type();
+        if (is_semistructured_type(et) && semistructured_level(et) > 1) {
+            SMESH_ERROR("skin_sidesets: semistructured blocks are not supported\n");
+            return nullptr;
+        }
+
+        if (block->n_elements() == 0) {
+            auto empty_parent = create_host_buffer<element_idx_t>(0);
+            auto empty_lfi    = create_host_buffer<i16>(0);
+            return std::make_shared<Sideset>(mesh->comm(),
+                                             empty_parent,
+                                             empty_lfi,
+                                             block_id,
+                                             mesh->comm()->size() > 1 ? block->element_mapping() : nullptr);
+        }
+
+        auto hft = mesh->half_face_table(block_id);
+        ptrdiff_t      n_surf_elements = 0;
+        element_idx_t *parent_element  = nullptr;
+        i16           *side_idx        = nullptr;
+
+        if (extract_sideset_from_adj_table(et,
+                                           block->n_elements(),
+                                           hft->data(),
+                                           &n_surf_elements,
+                                           &parent_element,
+                                           &side_idx) != SMESH_SUCCESS) {
+            SMESH_ERROR("Unable to extract skin sideset for block %d\n", block_id);
+            return nullptr;
+        }
+
+#ifdef SMESH_ENABLE_MPI
+        if (mesh->comm()->size() > 1) {
+            SMESH_ASSERT(elem_num_sides(et) <= 8);
+            auto owned_map = block->element_mapping();
+            auto aura_map  = block->aura_element_mapping();
+            filter_distributed_skin_sides(mesh->comm(),
+                                          block->n_elements_owned(),
+                                          block->n_elements_shared(),
+                                          block->n_elements_owned_not_shared(),
+                                          block->n_elements_ghosts(),
+                                          (owned_map && owned_map->size() > 0) ? owned_map->data() : nullptr,
+                                          (aura_map && aura_map->size() > 0) ? aura_map->data() : nullptr,
+                                          &n_surf_elements,
+                                          parent_element,
+                                          side_idx);
+        }
+#endif
+
+        return std::make_shared<Sideset>(mesh->comm(),
+                                         manage_host_buffer<element_idx_t>(n_surf_elements, parent_element),
+                                         manage_host_buffer<i16>(n_surf_elements, side_idx),
+                                         block_id,
+                                         mesh->comm()->size() > 1 ? block->element_mapping() : nullptr);
+    }
+
+    std::vector<std::shared_ptr<Sideset>> skin_sidesets(const std::shared_ptr<Mesh> &mesh) {
+        SMESH_TRACE_SCOPE("skin_sidesets");
+        std::vector<std::shared_ptr<Sideset>> result;
+        result.reserve(mesh->n_blocks());
+        for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+            auto ss = skin_sideset_for_block(mesh, static_cast<block_idx_t>(b));
+            if (!ss) {
+                return {};
+            }
+            result.push_back(ss);
+        }
+        return result;
     }
 
 #ifdef SMESH_ENABLE_MPI
@@ -3366,45 +4109,93 @@ namespace smesh {
     }
 
     std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh, const geom_t height, const ptrdiff_t nlayers) {
-        if (mesh->n_blocks() != 1) {
-            SMESH_ERROR("Extrusion is not supported for multiblock meshes\n");
+        if (mesh->comm()->size() > 1) {
+            SMESH_ERROR("Extrusion is not supported for distributed meshes\n");
             return nullptr;
         }
-        // This is a hack
-        if (mesh->n_nodes_per_element(0) == 4) {
-            auto hex8_elements = create_host_buffer<idx_t>(8, mesh->n_elements(0) * nlayers);
 
+        enum ElemType extrude_type = INVALID;
+        for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+            const enum ElemType et = mesh->element_type(static_cast<block_idx_t>(b));
+            if (extrude_type == INVALID) {
+                extrude_type = et;
+            } else if (extrude_type != et) {
+                SMESH_ERROR("Extrusion requires all blocks to share the same element type\n");
+                return nullptr;
+            }
+        }
+
+        if (extrude_type == QUAD4 || extrude_type == QUADSHELL4) {
             auto hex8_points = create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
+            std::vector<std::shared_ptr<Mesh::Block>> blocks;
+            blocks.reserve(mesh->n_blocks());
 
-            quad4_to_hex8_extrude(mesh->n_elements(0),
-                                  mesh->n_nodes(),
-                                  mesh->elements(0)->data(),
-                                  mesh->points()->data(),
-                                  nlayers,
-                                  height,
-                                  hex8_elements->data(),
-                                  hex8_points->data());
+            for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+                auto block = mesh->block(static_cast<block_idx_t>(b));
+                auto hex8_elements =
+                        create_host_buffer<idx_t>(8, block->n_elements() * nlayers);
 
-            return std::make_shared<Mesh>(mesh->comm(), HEX8, hex8_elements, hex8_points);
-        } else if (mesh->element_type(0) == TRI3) {
-            auto wedge6_elements = create_host_buffer<idx_t>(6, mesh->n_elements(0) * nlayers);
+                if (b == 0) {
+                    quad4_to_hex8_extrude(block->n_elements(),
+                                          mesh->n_nodes(),
+                                          block->elements()->data(),
+                                          mesh->points()->data(),
+                                          nlayers,
+                                          height,
+                                          hex8_elements->data(),
+                                          hex8_points->data());
+                } else {
+                    quad4_to_hex8_extrude(block->n_elements(),
+                                          mesh->n_nodes(),
+                                          block->elements()->data(),
+                                          mesh->points()->data(),
+                                          nlayers,
+                                          height,
+                                          hex8_elements->data(),
+                                          hex8_points->data());
+                }
 
-            auto wedge6_points = create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
+                auto new_block = std::make_shared<Mesh::Block>();
+                new_block->set_name(block->name());
+                new_block->set_element_type(HEX8);
+                new_block->set_elements(hex8_elements);
+                blocks.push_back(new_block);
+            }
 
-            tri3_to_wedge6_extrude(mesh->n_elements(0),
-                                   mesh->n_nodes(),
-                                   mesh->elements(0)->data(),
-                                   mesh->points()->data(),
-                                   nlayers,
-                                   height,
-                                   wedge6_elements->data(),
-                                   wedge6_points->data());
-
-            return std::make_shared<Mesh>(mesh->comm(), WEDGE6, wedge6_elements, wedge6_points);
-        } else {
-            SMESH_ERROR("Extrusion not supported for element type %s\n", type_to_string(mesh->element_type(0)));
-            return nullptr;
+            return std::make_shared<Mesh>(mesh->comm(), blocks, hex8_points);
         }
+
+        if (extrude_type == TRI3) {
+            auto wedge6_points = create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
+            std::vector<std::shared_ptr<Mesh::Block>> blocks;
+            blocks.reserve(mesh->n_blocks());
+
+            for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+                auto block = mesh->block(static_cast<block_idx_t>(b));
+                auto wedge6_elements =
+                        create_host_buffer<idx_t>(6, block->n_elements() * nlayers);
+
+                tri3_to_wedge6_extrude(block->n_elements(),
+                                       mesh->n_nodes(),
+                                       block->elements()->data(),
+                                       mesh->points()->data(),
+                                       nlayers,
+                                       height,
+                                       wedge6_elements->data(),
+                                       wedge6_points->data());
+
+                auto new_block = std::make_shared<Mesh::Block>();
+                new_block->set_name(block->name());
+                new_block->set_element_type(WEDGE6);
+                new_block->set_elements(wedge6_elements);
+                blocks.push_back(new_block);
+            }
+
+            return std::make_shared<Mesh>(mesh->comm(), blocks, wedge6_points);
+        }
+
+        SMESH_ERROR("Extrusion not supported for element type %s\n", type_to_string(extrude_type));
+        return nullptr;
     }
 
     std::shared_ptr<Mesh> concatenate(const std::shared_ptr<Mesh> &mesh1, const std::shared_ptr<Mesh> &mesh2) {
