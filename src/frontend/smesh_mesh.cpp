@@ -11,6 +11,7 @@
 #include "smesh_multiblock_graph.hpp"
 #include "smesh_path.hpp"
 #include "smesh_promotions.hpp"
+#include "smesh_blocks_meta.hpp"
 #include "smesh_read.hpp"
 #include "smesh_refine.hpp"
 #include "smesh_semistructured.hpp"
@@ -774,68 +775,6 @@ namespace smesh {
         }
     }
 
-    static bool read_blocks_meta(const Path                 &path,
-                                 std::vector<std::string>   &block_names,
-                                 std::vector<enum ElemType> &element_types) {
-        block_names.clear();
-        element_types.clear();
-
-        auto meta_file = Path(path) / "meta.yaml";
-        if (!meta_file.exists()) {
-            return false;
-        }
-
-#if defined(SMESH_ENABLE_RYAML)
-        std::ifstream ifs(meta_file.c_str(), std::ios::binary);
-        if (!ifs.good()) {
-            return false;
-        }
-
-        std::string yaml((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-        if (yaml.empty()) {
-            return false;
-        }
-
-        ryml::Tree tree = ryml::parse_in_arena(ryml::to_csubstr(yaml));
-        auto       root = tree.rootref();
-        if (!root.has_child("blocks")) {
-            return false;
-        }
-
-        auto         blocks = root["blocks"];
-        const size_t n      = blocks.num_children();
-        block_names.reserve(n);
-        element_types.reserve(n);
-
-        for (size_t i = 0; i < n; ++i) {
-            auto blk = blocks[i];
-            if (!blk.has_child("name")) {
-                continue;
-            }
-
-            auto        name_val = blk["name"].val();
-            std::string name(name_val.str, name_val.len);
-
-            enum ElemType et = INVALID;
-            if (blk.has_child("element_type")) {
-                auto        et_val = blk["element_type"].val();
-                std::string et_str(et_val.str, et_val.len);
-                et = type_from_string(et_str.c_str());
-            }
-
-            block_names.push_back(name);
-            element_types.push_back(et);
-        }
-
-        return !block_names.empty();
-#else
-        (void)path;
-        (void)block_names;
-        (void)element_types;
-        return false;
-#endif
-    }
-
     int Mesh::read(const Path &path) {
         SMESH_TRACE_SCOPE("Mesh::read");
 
@@ -912,123 +851,249 @@ namespace smesh {
         }
 #ifdef SMESH_ENABLE_MPI
         else {
+            std::vector<std::string>   block_names;
+            std::vector<enum ElemType> element_types;
+            const bool                 has_blocks = read_blocks_meta(path, block_names, element_types);
 
             auto         dist = std::make_shared<Distributed>();
             int          nnodesxelem;
             large_idx_t *element_mapping      = nullptr;
             large_idx_t *aura_element_mapping = nullptr;
             large_idx_t *node_mapping         = nullptr;
-            idx_t      **elements             = nullptr;
             geom_t     **points               = nullptr;
             ptrdiff_t   *node_offsets         = nullptr;
             int         *node_owner           = nullptr;
             idx_t       *ghosts               = nullptr;
             ptrdiff_t    n_nodes_aura         = 0;
+            int          spatial_dim          = 0;
 
-            int spatial_dim;
-
-            const char *const reorder     = std::getenv("SMESH_REORDER");
+            const char *const reorder = std::getenv("SMESH_REORDER");
             int               read_status = SMESH_FAILURE;
-            if (reorder && reorder[0] != '\0') {
-                OrderEncoder<geom_t> ordering = nullptr;
 
+            auto parse_ordering = [&](OrderEncoder<geom_t> *ordering_out,
+                                      bool                  *use_sfc_out) -> int {
+                *use_sfc_out = true;
+                *ordering_out = encode_hilbert3<geom_t>;
+                if (!reorder || reorder[0] == '\0') {
+                    return SMESH_SUCCESS;
+                }
+                if (std::strcmp(reorder, "none") == 0 || std::strcmp(reorder, "0") == 0) {
+                    *use_sfc_out = false;
+                    return SMESH_SUCCESS;
+                }
                 if (std::strcmp(reorder, "hilbert3") == 0) {
-                    ordering = encode_hilbert3<geom_t>;
+                    *ordering_out = encode_hilbert3<geom_t>;
                 } else if (std::strcmp(reorder, "morton3") == 0) {
-                    ordering = encode_morton3<geom_t>;
+                    *ordering_out = encode_morton3<geom_t>;
                 } else if (std::strcmp(reorder, "cartesian3") == 0) {
-                    ordering = encode_cartesian3_default<geom_t>;
+                    *ordering_out = encode_cartesian3_default<geom_t>;
                 } else if (std::strcmp(reorder, "random3") == 0) {
-                    ordering = encode_random3_bounded<geom_t>;
+                    *ordering_out = encode_random3_bounded<geom_t>;
                 } else {
                     SMESH_ERROR("Unsupported SMESH_REORDER=%s\n", reorder);
                     return SMESH_FAILURE;
                 }
+                return SMESH_SUCCESS;
+            };
 
-                read_status = mesh_from_folder_reordered(impl_->comm->get(),
-                                                         path,
-                                                         // Elements
-                                                         &nnodesxelem,
-                                                         &dist->impl_->n_elements_global,
-                                                         &dist->impl_->n_elements_owned,
-                                                         &dist->impl_->n_elements_shared,
-                                                         &dist->impl_->n_elements_ghosts,
-                                                         &element_mapping,
-                                                         &aura_element_mapping,
-                                                         &elements,
-                                                         // Nodes
-                                                         &spatial_dim,
-                                                         &dist->impl_->n_nodes_global,
-                                                         &dist->impl_->n_nodes_owned,
-                                                         &dist->impl_->n_nodes_shared,
-                                                         &dist->impl_->n_nodes_ghosts,
-                                                         &n_nodes_aura,
-                                                         &node_mapping,
-                                                         &points,
-                                                         // Distributed connectivities
-                                                         &node_owner,
-                                                         &node_offsets,
-                                                         &ghosts,
-                                                         ordering);
+            impl_->blocks.clear();
+
+            if (has_blocks) {
+                // Multi-block MPI: SFC over the union (default Hilbert).
+                // SMESH_REORDER=none|0 → concat-id / file-order partition.
+                OrderEncoder<geom_t> ordering = encode_hilbert3<geom_t>;
+                bool                 use_sfc  = true;
+                if (parse_ordering(&ordering, &use_sfc) != SMESH_SUCCESS) {
+                    return SMESH_FAILURE;
+                }
+
+                ptrdiff_t *n_local_per_block = nullptr;
+                idx_t   ***elements_per_block = nullptr;
+
+                read_status = mesh_from_folder_multiblock(
+                        impl_->comm->get(),
+                        path,
+                        block_names,
+                        element_types,
+                        &dist->impl_->n_elements_global,
+                        &dist->impl_->n_elements_owned,
+                        &dist->impl_->n_elements_shared,
+                        &dist->impl_->n_elements_ghosts,
+                        &element_mapping,
+                        &aura_element_mapping,
+                        &nnodesxelem,
+                        &n_local_per_block,
+                        &elements_per_block,
+                        &spatial_dim,
+                        &dist->impl_->n_nodes_global,
+                        &dist->impl_->n_nodes_owned,
+                        &dist->impl_->n_nodes_shared,
+                        &dist->impl_->n_nodes_ghosts,
+                        &n_nodes_aura,
+                        &node_mapping,
+                        &points,
+                        &node_owner,
+                        &node_offsets,
+                        &ghosts,
+                        use_sfc,
+                        ordering);
+
+                if (read_status != SMESH_SUCCESS) {
+                    SMESH_ERROR("Failed to read multi-block mesh from folder %s\n", path.c_str());
+                    return SMESH_FAILURE;
+                }
+
+                dist->impl_->n_nodes_aura = n_nodes_aura;
+                impl_->points = manage_host_buffer<geom_t>(spatial_dim, dist->n_nodes_local(), points);
+                dist->impl_->node_mapping =
+                        manage_host_buffer<large_idx_t>(dist->n_nodes_local(), node_mapping);
+                dist->impl_->node_owner = manage_host_buffer<int>(dist->n_nodes_local(), node_owner);
+                dist->impl_->element_mapping =
+                        manage_host_buffer<large_idx_t>(dist->n_elements_owned(), element_mapping);
+                dist->impl_->aura_element_mapping =
+                        manage_host_buffer<large_idx_t>(dist->n_elements_ghosts(), aura_element_mapping);
+
+                int comm_size = 0;
+                MPI_Comm_size(impl_->comm->get(), &comm_size);
+                dist->impl_->node_offsets = manage_host_buffer<ptrdiff_t>(comm_size + 1, node_offsets);
+                dist->impl_->ghosts_and_aura =
+                        manage_host_buffer<idx_t>(dist->impl_->n_nodes_ghosts + dist->impl_->n_nodes_aura,
+                                                  ghosts);
+
+                const size_t n_blocks = block_names.size();
+                for (size_t b = 0; b < n_blocks; ++b) {
+                    enum ElemType et = element_types[b];
+                    if (et == INVALID) {
+                        et = (enum ElemType)nnodesxelem;
+                    }
+                    auto elements_buffer =
+                            manage_host_buffer<idx_t>(nnodesxelem, n_local_per_block[b], elements_per_block[b]);
+                    auto block = std::make_shared<Block>();
+                    block->set_name(block_names[b]);
+                    block->set_element_type(et);
+                    block->set_elements(elements_buffer);
+                    this->add_block(block);
+                }
+                SMESH_FREE(n_local_per_block);
+                SMESH_FREE(elements_per_block);
+
+                impl_->distributed = dist;
             } else {
-                read_status = mesh_from_folder(impl_->comm->get(),
-                                               path,
-                                               // Elements
-                                               &nnodesxelem,
-                                               &dist->impl_->n_elements_global,
-                                               &dist->impl_->n_elements_owned,
-                                               &dist->impl_->n_elements_shared,
-                                               &dist->impl_->n_elements_ghosts,
-                                               &element_mapping,
-                                               &aura_element_mapping,
-                                               &elements,
-                                               // Nodes
-                                               &spatial_dim,
-                                               &dist->impl_->n_nodes_global,
-                                               &dist->impl_->n_nodes_owned,
-                                               &dist->impl_->n_nodes_shared,
-                                               &dist->impl_->n_nodes_ghosts,
-                                               &n_nodes_aura,
-                                               &node_mapping,
-                                               &points,
-                                               // Distributed connectivities
-                                               &node_owner,
-                                               &node_offsets,
-                                               &ghosts);
+                // Legacy single-block MPI path (unchanged layout).
+                idx_t **elements = nullptr;
+
+                // Single-block: SMESH_REORDER remains opt-in (unset → no SFC).
+                if (reorder && reorder[0] != '\0') {
+                    if (std::strcmp(reorder, "none") == 0 || std::strcmp(reorder, "0") == 0) {
+                        read_status = mesh_from_folder(impl_->comm->get(),
+                                                       path,
+                                                       &nnodesxelem,
+                                                       &dist->impl_->n_elements_global,
+                                                       &dist->impl_->n_elements_owned,
+                                                       &dist->impl_->n_elements_shared,
+                                                       &dist->impl_->n_elements_ghosts,
+                                                       &element_mapping,
+                                                       &aura_element_mapping,
+                                                       &elements,
+                                                       &spatial_dim,
+                                                       &dist->impl_->n_nodes_global,
+                                                       &dist->impl_->n_nodes_owned,
+                                                       &dist->impl_->n_nodes_shared,
+                                                       &dist->impl_->n_nodes_ghosts,
+                                                       &n_nodes_aura,
+                                                       &node_mapping,
+                                                       &points,
+                                                       &node_owner,
+                                                       &node_offsets,
+                                                       &ghosts);
+                    } else {
+                        OrderEncoder<geom_t> ordering = nullptr;
+                        bool                 use_sfc  = true;
+                        if (parse_ordering(&ordering, &use_sfc) != SMESH_SUCCESS || !use_sfc) {
+                            return SMESH_FAILURE;
+                        }
+                        read_status = mesh_from_folder_reordered(impl_->comm->get(),
+                                                                 path,
+                                                                 &nnodesxelem,
+                                                                 &dist->impl_->n_elements_global,
+                                                                 &dist->impl_->n_elements_owned,
+                                                                 &dist->impl_->n_elements_shared,
+                                                                 &dist->impl_->n_elements_ghosts,
+                                                                 &element_mapping,
+                                                                 &aura_element_mapping,
+                                                                 &elements,
+                                                                 &spatial_dim,
+                                                                 &dist->impl_->n_nodes_global,
+                                                                 &dist->impl_->n_nodes_owned,
+                                                                 &dist->impl_->n_nodes_shared,
+                                                                 &dist->impl_->n_nodes_ghosts,
+                                                                 &n_nodes_aura,
+                                                                 &node_mapping,
+                                                                 &points,
+                                                                 &node_owner,
+                                                                 &node_offsets,
+                                                                 &ghosts,
+                                                                 ordering);
+                    }
+                } else {
+                    read_status = mesh_from_folder(impl_->comm->get(),
+                                                   path,
+                                                   &nnodesxelem,
+                                                   &dist->impl_->n_elements_global,
+                                                   &dist->impl_->n_elements_owned,
+                                                   &dist->impl_->n_elements_shared,
+                                                   &dist->impl_->n_elements_ghosts,
+                                                   &element_mapping,
+                                                   &aura_element_mapping,
+                                                   &elements,
+                                                   &spatial_dim,
+                                                   &dist->impl_->n_nodes_global,
+                                                   &dist->impl_->n_nodes_owned,
+                                                   &dist->impl_->n_nodes_shared,
+                                                   &dist->impl_->n_nodes_ghosts,
+                                                   &n_nodes_aura,
+                                                   &node_mapping,
+                                                   &points,
+                                                   &node_owner,
+                                                   &node_offsets,
+                                                   &ghosts);
+                }
+
+                if (read_status != SMESH_SUCCESS) {
+                    SMESH_ERROR("Failed to read mesh from folder %s\n", path.c_str());
+                    return SMESH_FAILURE;
+                }
+                dist->impl_->n_nodes_aura = n_nodes_aura;
+
+                auto elements_buffer =
+                        manage_host_buffer<idx_t>(nnodesxelem, dist->n_elements_local(), elements);
+                impl_->points = manage_host_buffer<geom_t>(spatial_dim, dist->n_nodes_local(), points);
+                dist->impl_->node_mapping =
+                        manage_host_buffer<large_idx_t>(dist->n_nodes_local(), node_mapping);
+                dist->impl_->node_owner = manage_host_buffer<int>(dist->n_nodes_local(), node_owner);
+                dist->impl_->element_mapping =
+                        manage_host_buffer<large_idx_t>(dist->n_elements_owned(), element_mapping);
+                dist->impl_->aura_element_mapping =
+                        manage_host_buffer<large_idx_t>(dist->n_elements_ghosts(), aura_element_mapping);
+
+                int comm_size = 0;
+                MPI_Comm_size(impl_->comm->get(), &comm_size);
+                dist->impl_->node_offsets = manage_host_buffer<ptrdiff_t>(comm_size + 1, node_offsets);
+                dist->impl_->ghosts_and_aura =
+                        manage_host_buffer<idx_t>(dist->impl_->n_nodes_ghosts + dist->impl_->n_nodes_aura,
+                                                  ghosts);
+
+                enum ElemType element_type = (enum ElemType)nnodesxelem;
+                read_meta(impl_->comm, path, element_type);
+
+                auto default_block = std::make_shared<Block>();
+                default_block->set_name("default");
+                default_block->set_element_type(element_type);
+                default_block->set_elements(elements_buffer);
+                this->add_block(default_block);
+
+                impl_->distributed = dist;
             }
-
-            if (read_status != SMESH_SUCCESS) {
-                SMESH_ERROR("Failed to read mesh from folder %s\n", path.c_str());
-                return SMESH_FAILURE;
-            }
-            dist->impl_->n_nodes_aura = n_nodes_aura;
-
-            auto elements_buffer              = manage_host_buffer<idx_t>(nnodesxelem, dist->n_elements_local(), elements);
-            impl_->points                     = manage_host_buffer<geom_t>(spatial_dim, dist->n_nodes_local(), points);
-            dist->impl_->node_mapping         = manage_host_buffer<large_idx_t>(dist->n_nodes_local(), node_mapping);
-            dist->impl_->node_owner           = manage_host_buffer<int>(dist->n_nodes_local(), node_owner);
-            dist->impl_->element_mapping      = manage_host_buffer<large_idx_t>(dist->n_elements_owned(), element_mapping);
-            dist->impl_->aura_element_mapping = manage_host_buffer<large_idx_t>(dist->n_elements_ghosts(), aura_element_mapping);
-
-            int comm_size;
-            MPI_Comm_size(impl_->comm->get(), &comm_size);
-            dist->impl_->node_offsets = manage_host_buffer<ptrdiff_t>(comm_size + 1, node_offsets);
-
-            dist->impl_->ghosts_and_aura =
-                    manage_host_buffer<idx_t>(dist->impl_->n_nodes_ghosts + dist->impl_->n_nodes_aura, ghosts);
-
-            // Best effort for basic types
-            enum ElemType element_type = (enum ElemType)nnodesxelem;
-            read_meta(impl_->comm, path, element_type);
-
-            // Create default block
-            auto default_block = std::make_shared<Block>();
-            default_block->set_name("default");
-            default_block->set_element_type(element_type);
-            default_block->set_elements(elements_buffer);
-            this->add_block(default_block);
-
-            impl_->distributed = dist;
         }
 #endif  // SMESH_ENABLE_MPI
 
