@@ -5,6 +5,7 @@
 
 #include "smesh_decompose.hpp"
 #include "smesh_distributed_aura.hpp"
+#include "smesh_distributed_create_e2n.impl.hpp"
 #include "smesh_distributed_read.impl.hpp"
 #include "smesh_sfc.hpp"
 
@@ -219,10 +220,11 @@ int distributed_assign_elements_sfc_multiblock(
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
     ptrdiff_t *const SMESH_RESTRICT n_assigned_out,
     large_idx_t **const SMESH_RESTRICT sorted_concat_ids_out,
-    idx_t ***const SMESH_RESTRICT assigned_elements_out, const bool use_sfc,
+    ptrdiff_t **const SMESH_RESTRICT e2n_ptr_out,
+    idx_t **const SMESH_RESTRICT e2n_idx_out, const bool use_sfc,
     Ordering ordering) {
-  if (!n_assigned_out || !sorted_concat_ids_out || !assigned_elements_out ||
-      n_blocks <= 0) {
+  if (!n_assigned_out || !sorted_concat_ids_out || !e2n_ptr_out ||
+      !e2n_idx_out || n_blocks <= 0) {
     return SMESH_FAILURE;
   }
 
@@ -231,18 +233,10 @@ int distributed_assign_elements_sfc_multiblock(
   SMESH_MPI_CATCH(MPI_Comm_rank(comm, &rank));
   SMESH_MPI_CATCH(MPI_Comm_size(comm, &size));
 
-  const int nxe0 = nnodesxelem[0];
   ptrdiff_t n_global_total = 0;
   ptrdiff_t n_send = 0;
   std::vector<ptrdiff_t> concat_offset((size_t)n_blocks + 1, 0);
   for (block_idx_t b = 0; b < n_blocks; ++b) {
-    if (nnodesxelem[b] != nxe0) {
-      SMESH_ERROR("distributed_assign_elements_sfc_multiblock: heterogeneous "
-                  "nnodesxelem is not supported in A1 (block %d has %d, "
-                  "expected %d)\n",
-                  (int)b, nnodesxelem[b], nxe0);
-      return SMESH_FAILURE;
-    }
     concat_offset[(size_t)b] = n_global_total;
     n_global_total += n_global_elements[b];
     n_send += n_local_elements[b];
@@ -372,15 +366,33 @@ int distributed_assign_elements_sfc_multiblock(
     SMESH_FREE(sorted_keys);
   }
 
-  idx_t **assigned =
-      (idx_t **)SMESH_ALLOC((size_t)nxe0 * sizeof(idx_t *));
-  for (int d = 0; d < nxe0; ++d) {
-    assigned[d] =
-        (idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_recv, 1) *
-                             sizeof(idx_t));
-  }
+  auto block_of = [&](const large_idx_t cid) -> block_idx_t {
+    for (block_idx_t b = 0; b < n_blocks; ++b) {
+      if (cid >= static_cast<large_idx_t>(concat_offset[(size_t)b]) &&
+          cid < static_cast<large_idx_t>(concat_offset[(size_t)(b + 1)])) {
+        return b;
+      }
+    }
+    return n_blocks;
+  };
 
-  // Gather connectivity per original block into assigned SoA.
+  ptrdiff_t *e2n_ptr =
+      (ptrdiff_t *)SMESH_ALLOC((size_t)(n_recv + 1) * sizeof(ptrdiff_t));
+  e2n_ptr[0] = 0;
+  for (ptrdiff_t i = 0; i < n_recv; ++i) {
+    const block_idx_t b = block_of(sorted_ids[i]);
+    if (b >= n_blocks) {
+      SMESH_FREE(sorted_ids);
+      SMESH_FREE(e2n_ptr);
+      return SMESH_FAILURE;
+    }
+    e2n_ptr[i + 1] = e2n_ptr[i] + nnodesxelem[b];
+  }
+  const ptrdiff_t nnz = e2n_ptr[n_recv];
+  idx_t *e2n_idx =
+      (idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(nnz, 1) * sizeof(idx_t));
+
+  // Gather connectivity per original block into CSR rows.
   for (block_idx_t b = 0; b < n_blocks; ++b) {
     std::vector<large_idx_t> block_ids;
     std::vector<ptrdiff_t> dest_pos;
@@ -399,46 +411,30 @@ int distributed_assign_elements_sfc_multiblock(
     }
 
     const ptrdiff_t n_b = static_cast<ptrdiff_t>(block_ids.size());
-    if (n_b == 0) {
-      // Still need a collective gather_mapped_field participation? gather
-      // uses Alltoall internally so all ranks must call it the same number
-      // of times. Call with n_local=0.
-      std::vector<idx_t> empty_tmp;
-      for (int d = 0; d < nxe0; ++d) {
-        if (gather_mapped_field(comm, 0, n_global_b, (large_idx_t *)nullptr,
-                                mpi_type<idx_t>(), elements[b][d],
-                                (idx_t *)nullptr) != SMESH_SUCCESS) {
-          for (int dd = 0; dd < nxe0; ++dd) {
-            SMESH_FREE(assigned[dd]);
-          }
-          SMESH_FREE(assigned);
-          SMESH_FREE(sorted_ids);
-          return SMESH_FAILURE;
-        }
-      }
-      continue;
-    }
-
-    std::vector<idx_t> tmp((size_t)n_b);
-    for (int d = 0; d < nxe0; ++d) {
-      if (gather_mapped_field(comm, n_b, n_global_b, block_ids.data(),
+    const int nxe = nnodesxelem[b];
+    idx_t *tmp =
+        n_b > 0 ? (idx_t *)SMESH_ALLOC((size_t)n_b * sizeof(idx_t)) : nullptr;
+    for (int d = 0; d < nxe; ++d) {
+      if (gather_mapped_field(comm, n_b, n_global_b,
+                              n_b > 0 ? block_ids.data() : nullptr,
                               mpi_type<idx_t>(), elements[b][d],
-                              tmp.data()) != SMESH_SUCCESS) {
-        for (int dd = 0; dd < nxe0; ++dd) {
-          SMESH_FREE(assigned[dd]);
-        }
-        SMESH_FREE(assigned);
+                              n_b > 0 ? tmp : nullptr) != SMESH_SUCCESS) {
+        SMESH_FREE(tmp);
+        SMESH_FREE(e2n_idx);
+        SMESH_FREE(e2n_ptr);
         SMESH_FREE(sorted_ids);
         return SMESH_FAILURE;
       }
       for (ptrdiff_t j = 0; j < n_b; ++j) {
-        assigned[d][dest_pos[(size_t)j]] = tmp[(size_t)j];
+        e2n_idx[e2n_ptr[dest_pos[(size_t)j]] + d] = tmp[j];
       }
     }
+    SMESH_FREE(tmp);
   }
 
   *sorted_concat_ids_out = sorted_ids;
-  *assigned_elements_out = assigned;
+  *e2n_ptr_out = e2n_ptr;
+  *e2n_idx_out = e2n_idx;
   return SMESH_SUCCESS;
 }
 
@@ -682,7 +678,7 @@ int mesh_from_folder_multiblock(
     ptrdiff_t *n_global_elements_out, ptrdiff_t *n_owned_elements_out,
     ptrdiff_t *n_shared_elements_out, ptrdiff_t *n_ghost_elements_out,
     large_idx_t **element_mapping_out, large_idx_t **aura_element_mapping_out,
-    int *nnodesxelem_out, ptrdiff_t **n_local_elements_per_block_out,
+    int **nxe_per_block_out, ptrdiff_t **n_local_elements_per_block_out,
     idx_t ****elements_per_block_out, int *spatial_dim_out,
     ptrdiff_t *n_global_nodes_out, ptrdiff_t *n_owned_nodes_out,
     ptrdiff_t *n_shared_nodes_out, ptrdiff_t *n_ghost_nodes_out,
@@ -693,7 +689,7 @@ int mesh_from_folder_multiblock(
   const block_idx_t n_blocks = static_cast<block_idx_t>(block_names.size());
   if (n_blocks == 0 || block_names.size() != element_types.size() ||
       !n_local_elements_per_block_out || !elements_per_block_out ||
-      !nnodesxelem_out) {
+      !nxe_per_block_out) {
     return SMESH_FAILURE;
   }
 
@@ -741,11 +737,12 @@ int mesh_from_folder_multiblock(
 
   ptrdiff_t n_assigned = 0;
   smesh::large_idx_t *sorted_concat_ids = nullptr;
-  idx_t **assigned_elements = nullptr;
+  ptrdiff_t *e2n_ptr = nullptr;
+  idx_t *e2n_idx = nullptr;
   if (distributed_assign_elements_sfc_multiblock<idx_t, geom_t, Ordering>(
           comm, n_blocks, nxe.data(), n_local_e.data(), n_global_e.data(),
           elems.data(), n_global_nodes, points, &n_assigned, &sorted_concat_ids,
-          &assigned_elements, use_sfc, ordering) != SMESH_SUCCESS) {
+          &e2n_ptr, &e2n_idx, use_sfc, ordering) != SMESH_SUCCESS) {
     for (block_idx_t b = 0; b < n_blocks; ++b) {
       for (int d = 0; d < nxe[(size_t)b]; ++d) {
         SMESH_FREE(elems[(size_t)b][d]);
@@ -774,23 +771,22 @@ int mesh_from_folder_multiblock(
   }
   concat_offset[(size_t)n_blocks] = n_global_total;
 
-  const int nxe0 = nxe[0];
-  idx_t **concat_elements = nullptr;
-  // Pass nullptr mapping; remap to concat_ids after rearrange (same pattern as
-  // mesh_from_folder_reordered_basic). Avoids large_idx_t vs smesh::large_idx_t
-  // template mismatches.
-  const int ret = mesh_create_parallel<idx_t, geom_t, large_idx_t>(
-      comm, comm_size, comm_rank, nxe0, assigned_elements, n_assigned,
-      n_global_total, spatial_dim, points, n_local_nodes_file, n_global_nodes,
-      nullptr, nnodesxelem_out, n_global_elements_out, n_owned_elements_out,
-      n_shared_elements_out, n_ghost_elements_out, element_mapping_out,
-      aura_element_mapping_out, &concat_elements, spatial_dim_out,
-      n_global_nodes_out, n_owned_nodes_out, n_shared_nodes_out,
-      n_ghost_nodes_out, n_aura_nodes_out, node_mapping_out, points_out,
-      node_owner_out, node_offsets_out, ghosts_out);
+  ptrdiff_t *out_e2n_ptr = nullptr;
+  idx_t *out_e2n_idx = nullptr;
+  const int ret = mesh_create_parallel_e2n<idx_t, geom_t, large_idx_t>(
+      comm, comm_size, comm_rank, e2n_ptr, e2n_idx, n_assigned, n_global_total,
+      spatial_dim, points, n_local_nodes_file, n_global_nodes,
+      n_global_elements_out, n_owned_elements_out, n_shared_elements_out,
+      n_ghost_elements_out, element_mapping_out, aura_element_mapping_out,
+      &out_e2n_ptr, &out_e2n_idx, spatial_dim_out, n_global_nodes_out,
+      n_owned_nodes_out, n_shared_nodes_out, n_ghost_nodes_out,
+      n_aura_nodes_out, node_mapping_out, points_out, node_owner_out,
+      node_offsets_out, ghosts_out);
 
   if (ret != SMESH_SUCCESS) {
     SMESH_FREE(sorted_concat_ids);
+    SMESH_FREE(e2n_ptr);
+    SMESH_FREE(e2n_idx);
     return SMESH_FAILURE;
   }
 
@@ -850,10 +846,8 @@ int mesh_from_folder_multiblock(
       SMESH_ERROR("mesh_from_folder_multiblock: owned concat_id %lld out of "
                   "range\n",
                   (long long)element_mapping[i]);
-      for (int d = 0; d < nxe0; ++d) {
-        SMESH_FREE(concat_elements[d]);
-      }
-      SMESH_FREE(concat_elements);
+      SMESH_FREE(out_e2n_ptr);
+      SMESH_FREE(out_e2n_idx);
       SMESH_FREE(n_local_per_block);
       return SMESH_FAILURE;
     }
@@ -865,10 +859,8 @@ int mesh_from_folder_multiblock(
       SMESH_ERROR("mesh_from_folder_multiblock: aura concat_id %lld out of "
                   "range\n",
                   (long long)aura_element_mapping[i]);
-      for (int d = 0; d < nxe0; ++d) {
-        SMESH_FREE(concat_elements[d]);
-      }
-      SMESH_FREE(concat_elements);
+      SMESH_FREE(out_e2n_ptr);
+      SMESH_FREE(out_e2n_idx);
       SMESH_FREE(n_local_per_block);
       return SMESH_FAILURE;
     }
@@ -879,10 +871,11 @@ int mesh_from_folder_multiblock(
       (idx_t ***)SMESH_ALLOC((size_t)n_blocks * sizeof(idx_t **));
   std::vector<ptrdiff_t> write_cursor((size_t)n_blocks, 0);
   for (block_idx_t b = 0; b < n_blocks; ++b) {
-    elements_per_block[b] = (idx_t **)SMESH_ALLOC((size_t)nxe0 * sizeof(idx_t *));
-    const ptrdiff_t n_b =
-        std::max<ptrdiff_t>(n_local_per_block[b], 1);
-    for (int d = 0; d < nxe0; ++d) {
+    const int nxe_b = nxe[(size_t)b];
+    elements_per_block[b] =
+        (idx_t **)SMESH_ALLOC((size_t)nxe_b * sizeof(idx_t *));
+    const ptrdiff_t n_b = std::max<ptrdiff_t>(n_local_per_block[b], 1);
+    for (int d = 0; d < nxe_b; ++d) {
       elements_per_block[b][d] =
           (idx_t *)SMESH_ALLOC((size_t)n_b * sizeof(idx_t));
     }
@@ -890,8 +883,11 @@ int mesh_from_folder_multiblock(
 
   auto append_elem = [&](const block_idx_t b, const ptrdiff_t src) {
     const ptrdiff_t dst = write_cursor[(size_t)b]++;
-    for (int d = 0; d < nxe0; ++d) {
-      elements_per_block[b][d][dst] = concat_elements[d][src];
+    const int nxe_b = nxe[(size_t)b];
+    const ptrdiff_t k0 = out_e2n_ptr[src];
+    SMESH_ASSERT((out_e2n_ptr[src + 1] - k0) == nxe_b);
+    for (int d = 0; d < nxe_b; ++d) {
+      elements_per_block[b][d][dst] = out_e2n_idx[k0 + d];
     }
   };
 
@@ -902,11 +898,14 @@ int mesh_from_folder_multiblock(
     append_elem(block_of_concat(aura_element_mapping[i]), n_owned + i);
   }
 
-  for (int d = 0; d < nxe0; ++d) {
-    SMESH_FREE(concat_elements[d]);
-  }
-  SMESH_FREE(concat_elements);
+  SMESH_FREE(out_e2n_ptr);
+  SMESH_FREE(out_e2n_idx);
 
+  int *nxe_out = (int *)SMESH_ALLOC((size_t)n_blocks * sizeof(int));
+  for (block_idx_t b = 0; b < n_blocks; ++b) {
+    nxe_out[b] = nxe[(size_t)b];
+  }
+  *nxe_per_block_out = nxe_out;
   *n_local_elements_per_block_out = n_local_per_block;
   *elements_per_block_out = elements_per_block;
   return SMESH_SUCCESS;

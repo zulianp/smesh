@@ -909,6 +909,7 @@ namespace smesh {
 
                 ptrdiff_t *n_local_per_block = nullptr;
                 idx_t   ***elements_per_block = nullptr;
+                int       *nxe_per_block      = nullptr;
 
                 read_status = mesh_from_folder_multiblock(
                         impl_->comm->get(),
@@ -921,7 +922,7 @@ namespace smesh {
                         &dist->impl_->n_elements_ghosts,
                         &element_mapping,
                         &aura_element_mapping,
-                        &nnodesxelem,
+                        &nxe_per_block,
                         &n_local_per_block,
                         &elements_per_block,
                         &spatial_dim,
@@ -963,11 +964,12 @@ namespace smesh {
                 const size_t n_blocks = block_names.size();
                 for (size_t b = 0; b < n_blocks; ++b) {
                     enum ElemType et = element_types[b];
+                    const int     nxe_b = nxe_per_block[b];
                     if (et == INVALID) {
-                        et = (enum ElemType)nnodesxelem;
+                        et = (enum ElemType)nxe_b;
                     }
                     auto elements_buffer =
-                            manage_host_buffer<idx_t>(nnodesxelem, n_local_per_block[b], elements_per_block[b]);
+                            manage_host_buffer<idx_t>(nxe_b, n_local_per_block[b], elements_per_block[b]);
                     auto block = std::make_shared<Block>();
                     block->set_name(block_names[b]);
                     block->set_element_type(et);
@@ -976,6 +978,7 @@ namespace smesh {
                 }
                 SMESH_FREE(n_local_per_block);
                 SMESH_FREE(elements_per_block);
+                SMESH_FREE(nxe_per_block);
 
                 impl_->distributed = dist;
             } else {

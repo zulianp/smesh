@@ -21,7 +21,8 @@ namespace smesh {
           *const SMESH_RESTRICT,                                               \
       const ptrdiff_t, GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT,     \
       ptrdiff_t *const SMESH_RESTRICT, large_idx_t **const SMESH_RESTRICT,     \
-      IDX_T ***const SMESH_RESTRICT, const bool, OrderEncoder<GEOM_T>)
+      ptrdiff_t **const SMESH_RESTRICT, IDX_T **const SMESH_RESTRICT,          \
+      const bool, OrderEncoder<GEOM_T>)
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER_REORDERED(                 \
     IDX_T, GEOM_T, LARGE_IDX_T)                                                \
@@ -46,7 +47,7 @@ namespace smesh {
       ptrdiff_t *n_global_elements_out, ptrdiff_t *n_owned_elements_out,       \
       ptrdiff_t *n_shared_elements_out, ptrdiff_t *n_ghost_elements_out,       \
       LARGE_IDX_T **element_mapping_out,                                       \
-      LARGE_IDX_T **aura_element_mapping_out, int *nnodesxelem_out,            \
+      LARGE_IDX_T **aura_element_mapping_out, int **nxe_per_block_out,         \
       ptrdiff_t **n_local_elements_per_block_out,                              \
       IDX_T ****elements_per_block_out, int *spatial_dim_out,                  \
       ptrdiff_t *n_global_nodes_out, ptrdiff_t *n_owned_nodes_out,             \

@@ -40,8 +40,7 @@ int distributed_reorder_elements(
 /// On entry, each block has file-order `rank_split(n_global_b)` local elements.
 /// On exit, this rank owns `rank_split(sum n_global_b)` elements identified by
 /// `sorted_concat_ids` (exclusive-scan concat ids). Connectivity is gathered
-/// into a temporary concatenated SoA with uniform @p nnodesxelem (all blocks
-/// must share the same nxe).
+/// into a CSR e2n (`e2n_ptr` / `e2n_idx`) so blocks may have different nxe.
 ///
 /// @param use_sfc  If false, sort keys are concat ids (file/concat order).
 template <typename idx_t, typename geom_t,
@@ -57,8 +56,8 @@ int distributed_assign_elements_sfc_multiblock(
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
     ptrdiff_t *const SMESH_RESTRICT n_assigned_out,
     large_idx_t **const SMESH_RESTRICT sorted_concat_ids_out,
-    idx_t ***const SMESH_RESTRICT assigned_elements_out,
-    const bool use_sfc = true,
+    ptrdiff_t **const SMESH_RESTRICT e2n_ptr_out,
+    idx_t **const SMESH_RESTRICT e2n_idx_out, const bool use_sfc = true,
     Ordering ordering = encode_hilbert3<geom_t>);
 
 template <typename idx_t, typename geom_t, typename global_idx_t,
@@ -80,8 +79,8 @@ int mesh_from_folder_reordered(
     Ordering ordering = encode_hilbert3<geom_t>);
 
 /// MPI read of a serial multi-block folder (`meta.yaml` + `blocks/<name>/`).
-/// Same-nxe blocks only (A1). Ownership uses an SFC over the union of elements
-/// unless @p use_sfc is false (concat-id partition).
+/// Heterogeneous nxe is allowed. Ownership uses an SFC over the union of
+/// elements unless @p use_sfc is false (concat-id partition).
 template <typename idx_t, typename geom_t, typename large_idx_t,
           typename Ordering = OrderEncoder<geom_t>>
 int mesh_from_folder_multiblock(
@@ -91,7 +90,7 @@ int mesh_from_folder_multiblock(
     ptrdiff_t *n_global_elements_out, ptrdiff_t *n_owned_elements_out,
     ptrdiff_t *n_shared_elements_out, ptrdiff_t *n_ghost_elements_out,
     large_idx_t **element_mapping_out, large_idx_t **aura_element_mapping_out,
-    int *nnodesxelem_out, ptrdiff_t **n_local_elements_per_block_out,
+    int **nxe_per_block_out, ptrdiff_t **n_local_elements_per_block_out,
     idx_t ****elements_per_block_out, int *spatial_dim_out,
     ptrdiff_t *n_global_nodes_out, ptrdiff_t *n_owned_nodes_out,
     ptrdiff_t *n_shared_nodes_out, ptrdiff_t *n_ghost_nodes_out,
