@@ -127,6 +127,15 @@ namespace smesh {
                                             const bool                   use_GLL) {
         SMESH_TRACE_SCOPE("to_semistructured");
 
+        if (mesh->is_distributed()) {
+            if (hiearchical_ordering) {
+                fprintf(stderr,
+                        "to_semistructured: hierarchical ordering is not implemented for distributed meshes\n");
+                return nullptr;
+            }
+            return to_semistructured_distributed(level, mesh, use_GLL);
+        }
+
         if (mesh->n_blocks() == 1) {
             auto              block  = mesh->block(0);
             const enum ElemType family = ss_source_family(block->element_type());
@@ -247,11 +256,6 @@ namespace smesh {
             }
 
             return std::make_shared<Mesh>(mesh->comm(), blocks, p);
-        }
-
-        if (mesh->comm()->size() > 1) {
-            SMESH_ERROR("to_semistructured is not supported for distributed meshes\n");
-            return nullptr;
         }
 
         enum ElemType family = INVALID;

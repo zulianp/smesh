@@ -147,6 +147,40 @@ namespace smesh {
     ptrdiff_t Distributed::n_elements_shared() const { return impl_->n_elements_shared; }
     ptrdiff_t Distributed::n_elements_ghosts() const { return impl_->n_elements_ghosts; }
 
+    void Distributed::set_nodes(ptrdiff_t                  n_global,
+                                ptrdiff_t                  n_owned,
+                                ptrdiff_t                  n_shared,
+                                ptrdiff_t                  n_ghosts,
+                                ptrdiff_t                  n_aura,
+                                SharedBuffer<large_idx_t>  node_mapping,
+                                SharedBuffer<int>          node_owner,
+                                SharedBuffer<ptrdiff_t>    node_offsets,
+                                SharedBuffer<idx_t>        ghosts_and_aura) {
+        impl_->n_nodes_global  = n_global;
+        impl_->n_nodes_owned   = n_owned;
+        impl_->n_nodes_shared  = n_shared;
+        impl_->n_nodes_ghosts  = n_ghosts;
+        impl_->n_nodes_aura    = n_aura;
+        impl_->node_mapping    = std::move(node_mapping);
+        impl_->node_owner      = std::move(node_owner);
+        impl_->node_offsets    = std::move(node_offsets);
+        impl_->ghosts_and_aura = std::move(ghosts_and_aura);
+    }
+
+    void Distributed::set_elements(ptrdiff_t                 n_global,
+                                   ptrdiff_t                 n_owned,
+                                   ptrdiff_t                 n_shared,
+                                   ptrdiff_t                 n_ghosts,
+                                   SharedBuffer<large_idx_t> element_mapping,
+                                   SharedBuffer<large_idx_t> aura_element_mapping) {
+        impl_->n_elements_global     = n_global;
+        impl_->n_elements_owned      = n_owned;
+        impl_->n_elements_shared     = n_shared;
+        impl_->n_elements_ghosts     = n_ghosts;
+        impl_->element_mapping       = std::move(element_mapping);
+        impl_->aura_element_mapping  = std::move(aura_element_mapping);
+    }
+
     class DistributedBlock::Impl {
     public:
         ptrdiff_t                 n_elements_owned  = 0;
@@ -706,6 +740,12 @@ namespace smesh {
     std::shared_ptr<Distributed> Mesh::distributed() const {
         SMESH_ASSERT(impl_->distributed);
         return impl_->distributed;
+    }
+
+    bool Mesh::is_distributed() const { return impl_->distributed != nullptr; }
+
+    void Mesh::set_distributed(const std::shared_ptr<Distributed> &distributed) {
+        impl_->distributed = distributed;
     }
 
     //     std::shared_ptr<KernelData> Mesh::create_kernel_data(const int flags,

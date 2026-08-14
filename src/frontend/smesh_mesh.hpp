@@ -49,8 +49,24 @@ public:
   friend std::shared_ptr<Mesh>
   mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
                              const std::shared_ptr<Sideset> &sideset);
+  friend std::shared_ptr<Mesh>
+  to_semistructured(const int level, const std::shared_ptr<Mesh> &mesh,
+                    const bool hiearchical_ordering, const bool use_GLL);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed(
+      const int level, const std::shared_ptr<Mesh> &mesh, const bool use_GLL);
 
 private:
+  void set_nodes(ptrdiff_t n_global, ptrdiff_t n_owned, ptrdiff_t n_shared,
+                 ptrdiff_t n_ghosts, ptrdiff_t n_aura,
+                 SharedBuffer<large_idx_t> node_mapping,
+                 SharedBuffer<int> node_owner,
+                 SharedBuffer<ptrdiff_t> node_offsets,
+                 SharedBuffer<idx_t> ghosts_and_aura);
+  void set_elements(ptrdiff_t n_global, ptrdiff_t n_owned, ptrdiff_t n_shared,
+                    ptrdiff_t n_ghosts,
+                    SharedBuffer<large_idx_t> element_mapping,
+                    SharedBuffer<large_idx_t> aura_element_mapping);
+
   class Impl;
   std::unique_ptr<Impl> impl_;
 };
@@ -220,6 +236,7 @@ public:
   void remove_block(size_t index);
 
   std::shared_ptr<Distributed> distributed() const;
+  bool is_distributed() const;
 
   int spatial_dimension() const;
   ptrdiff_t n_nodes() const;
@@ -405,6 +422,13 @@ private:
   friend std::shared_ptr<Mesh>
   mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
                              const std::shared_ptr<Sideset> &sideset);
+  friend std::shared_ptr<Mesh>
+  to_semistructured(const int level, const std::shared_ptr<Mesh> &mesh,
+                    const bool hiearchical_ordering, const bool use_GLL);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed(
+      const int level, const std::shared_ptr<Mesh> &mesh, const bool use_GLL);
+
+  void set_distributed(const std::shared_ptr<Distributed> &distributed);
 
   class Impl;
   std::unique_ptr<Impl> impl_;
