@@ -76,6 +76,12 @@ idx_t polar_node(const ptrdiff_t l, const ptrdiff_t i, const ptrdiff_t k, const 
     return static_cast<idx_t>(k * n_plane + n_core_plane + l * ntheta + i);
 }
 
+idx_t polar_on_side(const int side, const ptrdiff_t j, const ptrdiff_t k, const ptrdiff_t nq,
+                    const ptrdiff_t ntheta, const ptrdiff_t n_core_plane, const ptrdiff_t n_plane) {
+    const ptrdiff_t p = (static_cast<ptrdiff_t>(side) * nq + j) % ntheta;
+    return polar_node(0, p, k, ntheta, n_core_plane, n_plane);
+}
+
 idx_t square_side_node(const int side, const ptrdiff_t t, const ptrdiff_t k, const ptrdiff_t n_core,
                        const ptrdiff_t n_plane) {
     ptrdiff_t xi = 0;
@@ -94,6 +100,35 @@ idx_t square_side_node(const int side, const ptrdiff_t t, const ptrdiff_t k, con
         yi = 0;
     }
     return core_node(xi, yi, k, n_core, n_plane);
+}
+
+ptrdiff_t match_polar(const ptrdiff_t t, const ptrdiff_t n_core, const ptrdiff_t nq) {
+    if (t <= 0) {
+        return 0;
+    }
+    if (t >= n_core) {
+        return nq;
+    }
+    if (n_core <= 1) {
+        return nq;
+    }
+    if (n_core == 2) {
+        return nq / 2;
+    }
+    return 1 + ((t - 1) * (nq - 2)) / (n_core - 2);
+}
+
+double core_abscissa(const ptrdiff_t t, const ptrdiff_t n_core, const ptrdiff_t nq, const double a,
+                     const double dtheta) {
+    if (t <= 0) {
+        return -a;
+    }
+    if (t >= n_core) {
+        return a;
+    }
+    const ptrdiff_t j  = match_polar(t, n_core, nq);
+    const double    th = -M_PI / 4.0 + dtheta * static_cast<double>(j);
+    return a * std::tan(th);
 }
 
 }  // namespace
@@ -161,21 +196,21 @@ std::shared_ptr<Mesh> Mesh::create_hex_dominant_cylinder(const std::shared_ptr<C
     auto hex = hex_buf->data();
     idx_t *const *wedge = wedge_buf ? wedge_buf->data() : nullptr;
 
-    const double inv_n_core = 1.0 / static_cast<double>(n_core);
-    const double dtheta     = 2.0 * M_PI / static_cast<double>(ntheta);
-    const double dr         = (R - r_in) / static_cast<double>(nr);
-    const double dz         = static_cast<double>(height) / static_cast<double>(nz);
-    const double z0         = static_cast<double>(zmin);
+    const ptrdiff_t nq          = ntheta / 4;
+    const double    dtheta      = 2.0 * M_PI / static_cast<double>(ntheta);
+    const double    dr          = (R - r_in) / static_cast<double>(nr);
+    const double    dz          = static_cast<double>(height) / static_cast<double>(nz);
+    const double    z0          = static_cast<double>(zmin);
 
     for (ptrdiff_t k = 0; k <= nz; ++k) {
         const geom_t z = static_cast<geom_t>(z0 + dz * static_cast<double>(k));
         for (ptrdiff_t yi = 0; yi <= n_core; ++yi) {
-            const geom_t y = static_cast<geom_t>(-a + 2.0 * a * static_cast<double>(yi) * inv_n_core);
+            const geom_t y = static_cast<geom_t>(core_abscissa(yi, n_core, nq, a, dtheta));
             for (ptrdiff_t xi = 0; xi <= n_core; ++xi) {
                 const idx_t n = core_node(xi, yi, k, n_core, n_plane);
-                pts[0][n]     = static_cast<geom_t>(-a + 2.0 * a * static_cast<double>(xi) * inv_n_core);
-                pts[1][n]     = y;
-                pts[2][n]     = z;
+                pts[0][n] = static_cast<geom_t>(core_abscissa(xi, n_core, nq, a, dtheta));
+                pts[1][n] = y;
+                pts[2][n] = z;
             }
         }
         for (ptrdiff_t l = 0; l <= nr; ++l) {
@@ -217,48 +252,40 @@ std::shared_ptr<Mesh> Mesh::create_hex_dominant_cylinder(const std::shared_ptr<C
     }
 
     ptrdiff_t ew = 0;
-    const ptrdiff_t nq = ntheta / 4;
     for (ptrdiff_t k = 0; k < nz; ++k) {
         for (int side = 0; side < 4; ++side) {
-            ptrdiff_t si = 0;
-            ptrdiff_t sj = 0;
-            while (si < n_inner_side - 1 || sj < n_arc_side - 1) {
-                const ptrdiff_t rem_i = (n_inner_side - 1) - si;
-                const ptrdiff_t rem_j = (n_arc_side - 1) - sj;
-                const idx_t inner0 =
-                        square_side_node(side, si, k, n_core, n_plane);
-                const ptrdiff_t p0 = (static_cast<ptrdiff_t>(side) * nq + sj) % ntheta;
-                const idx_t     outer0 =
-                        polar_node(0, p0, k, ntheta, n_core_plane, n_plane);
+            for (ptrdiff_t t = 0; t < n_core; ++t) {
+                const ptrdiff_t j0 = match_polar(t, n_core, nq);
+                const ptrdiff_t j1 = match_polar(t + 1, n_core, nq);
+                const idx_t inner0 = square_side_node(side, t, k, n_core, n_plane);
+                const idx_t inner1 = square_side_node(side, t + 1, k, n_core, n_plane);
+                const bool  last_edge = (t == n_core - 1);
+                if (j1 <= j0) {
+                    SMESH_ERROR("create_hex_dominant_cylinder: non-increasing polar match\n");
+                }
 
-                if (si == n_inner_side - 1) {
-                    const ptrdiff_t p1 = (static_cast<ptrdiff_t>(side) * nq + sj + 1) % ntheta;
-                    const idx_t     outer1 =
-                            polar_node(0, p1, k, ntheta, n_core_plane, n_plane);
-                    emit_wedge_prism(wedge, ew++, inner0, outer0, outer1, n_plane, pts);
-                    ++sj;
-                } else if (sj == n_arc_side - 1) {
-                    const idx_t inner1 = square_side_node(side, si + 1, k, n_core, n_plane);
-                    emit_wedge_prism(wedge, ew++, inner0, inner1, outer0, n_plane, pts);
-                    ++si;
-                } else if (rem_j > rem_i) {
-                    const ptrdiff_t p1 = (static_cast<ptrdiff_t>(side) * nq + sj + 1) % ntheta;
-                    const idx_t     outer1 =
-                            polar_node(0, p1, k, ntheta, n_core_plane, n_plane);
-                    emit_wedge_prism(wedge, ew++, inner0, outer0, outer1, n_plane, pts);
-                    ++sj;
-                } else if (rem_i > rem_j) {
-                    const idx_t inner1 = square_side_node(side, si + 1, k, n_core, n_plane);
-                    emit_wedge_prism(wedge, ew++, inner0, inner1, outer0, n_plane, pts);
-                    ++si;
+                if (last_edge) {
+                    for (ptrdiff_t j = j0; j < j1 - 1; ++j) {
+                        emit_wedge_prism(wedge, ew++, inner0,
+                                         polar_on_side(side, j, k, nq, ntheta, n_core_plane, n_plane),
+                                         polar_on_side(side, j + 1, k, nq, ntheta, n_core_plane, n_plane),
+                                         n_plane, pts);
+                    }
+                    emit_hex_prism(hex, eh++, inner0, inner1,
+                                   polar_on_side(side, j1, k, nq, ntheta, n_core_plane, n_plane),
+                                   polar_on_side(side, j1 - 1, k, nq, ntheta, n_core_plane, n_plane),
+                                   n_plane, pts);
                 } else {
-                    const idx_t inner1 = square_side_node(side, si + 1, k, n_core, n_plane);
-                    const ptrdiff_t p1 = (static_cast<ptrdiff_t>(side) * nq + sj + 1) % ntheta;
-                    const idx_t     outer1 =
-                            polar_node(0, p1, k, ntheta, n_core_plane, n_plane);
-                    emit_hex_prism(hex, eh++, inner0, inner1, outer1, outer0, n_plane, pts);
-                    ++si;
-                    ++sj;
+                    emit_hex_prism(hex, eh++, inner0, inner1,
+                                   polar_on_side(side, j0 + 1, k, nq, ntheta, n_core_plane, n_plane),
+                                   polar_on_side(side, j0, k, nq, ntheta, n_core_plane, n_plane),
+                                   n_plane, pts);
+                    for (ptrdiff_t j = j0 + 1; j < j1; ++j) {
+                        emit_wedge_prism(wedge, ew++, inner1,
+                                         polar_on_side(side, j + 1, k, nq, ntheta, n_core_plane, n_plane),
+                                         polar_on_side(side, j, k, nq, ntheta, n_core_plane, n_plane),
+                                         n_plane, pts);
+                    }
                 }
             }
         }

@@ -139,6 +139,56 @@ static int test_hex_dominant_cylinder_mesh(const geom_t radius, const geom_t hei
                        static_cast<geom_t>(std::fabs(static_cast<double>(prism)));
     SMESH_TEST_ASSERT(rel < static_cast<geom_t>(1e-4));
 
+    {
+        const geom_t ztol = static_cast<geom_t>(1e-6);
+        int n_corners = 0;
+        int n_ray_hits = 0;
+        for (ptrdiff_t n = 0; n < mesh->n_nodes(); ++n) {
+            if (std::fabs(static_cast<double>(pts[2][n] - zmin)) > ztol) {
+                continue;
+            }
+            const double x = pts[0][n];
+            const double y = pts[1][n];
+            const double r = std::sqrt(x * x + y * y);
+            if (r < 1e-12) {
+                continue;
+            }
+            if (std::fabs(std::fabs(x) - std::fabs(y)) > 1e-4 * static_cast<double>(radius)) {
+                continue;
+            }
+            if (r > 0.8 * static_cast<double>(radius)) {
+                continue;
+            }
+            n_corners++;
+            const double th = std::atan2(y, x);
+            for (ptrdiff_t m = 0; m < mesh->n_nodes(); ++m) {
+                if (m == n || std::fabs(static_cast<double>(pts[2][m] - zmin)) > ztol) {
+                    continue;
+                }
+                const double xm = pts[0][m];
+                const double ym = pts[1][m];
+                const double rm = std::sqrt(xm * xm + ym * ym);
+                if (rm <= r + 1e-6) {
+                    continue;
+                }
+                const double thm = std::atan2(ym, xm);
+                double dth = thm - th;
+                while (dth > M_PI) {
+                    dth -= 2 * M_PI;
+                }
+                while (dth < -M_PI) {
+                    dth += 2 * M_PI;
+                }
+                if (std::fabs(dth) < 1e-3) {
+                    n_ray_hits++;
+                    break;
+                }
+            }
+        }
+        SMESH_TEST_ASSERT(n_corners >= 4);
+        SMESH_TEST_EQ(n_ray_hits, n_corners);
+    }
+
     SMESH_TEST_EQ(check_half_face_tables(*mesh, n_wedge > 0 ? 1 : 0), SMESH_TEST_SUCCESS);
 
     auto skins = skin_sidesets(mesh);

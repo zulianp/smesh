@@ -364,8 +364,8 @@ public:
   create_hex_dominant_serial(const std::shared_ptr<Communicator> &comm);
 
   /// HEX-dominant solid cylinder (axis +z, centerline at x=y=0).
-  /// HEX8 Cartesian core + polar HEX8 annulus; WEDGE6 only in the
-  /// square-to-circle fillets where a hex would be poorly shaped.
+  /// HEX8 Cartesian core (nodes on polar rays) + polar HEX8 annulus;
+  /// WEDGE6 only for leftover mid-side polar nodes, not at square corners.
   /// Requires ntheta >= 8 and ntheta % 4 == 0.
   static std::shared_ptr<Mesh> create_hex_dominant_cylinder(
       const std::shared_ptr<Communicator> &comm, const geom_t radius,
