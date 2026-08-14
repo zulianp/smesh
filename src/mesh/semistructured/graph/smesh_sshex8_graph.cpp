@@ -11,6 +11,17 @@ namespace smesh {
                                                  IDX_T *const SMESH_RESTRICT *const       SMESH_RESTRICT,  \
                                                  ptrdiff_t *,                                              \
                                                  ptrdiff_t *);                                             \
+    template int sshex8_generate_elements_blocks<IDX_T>(                                                   \
+            const int,                                                                                     \
+            const ptrdiff_t,                                                                               \
+            const ptrdiff_t *const,                                                                        \
+            const ptrdiff_t,                                                                               \
+            const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT *const SMESH_RESTRICT,                 \
+            IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT *const SMESH_RESTRICT,                       \
+            const element_idx_t *const *const,                                                             \
+            const block_idx_t *const *const,                                                               \
+            ptrdiff_t *,                                                                                   \
+            ptrdiff_t *);                                                                                  \
     template int sshex8_hierarchical_renumbering<IDX_T>(const int,                                         \
                                                         const int,                                         \
                                                         int *const,                                        \
@@ -19,6 +30,16 @@ namespace smesh {
                                                         IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, \
                                                         IDX_T *const                       SMESH_RESTRICT, \
                                                         const bool);                                       \
+    template int sshex8_hierarchical_renumbering_blocks<IDX_T>(                                            \
+            const int,                                                                                     \
+            const int,                                                                                     \
+            int *const,                                                                                    \
+            const ptrdiff_t,                                                                               \
+            const ptrdiff_t *const,                                                                        \
+            const ptrdiff_t,                                                                               \
+            IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT *const SMESH_RESTRICT,                       \
+            IDX_T *const SMESH_RESTRICT,                                                                   \
+            const bool);                                                                                   \
     template int ssquad4_hierarchical_remapping<IDX_T>(const int,                                          \
                                                        const int,                                          \
                                                        int *const,                                         \

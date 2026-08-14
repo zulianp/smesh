@@ -6,6 +6,7 @@
 
 #include "smesh_adjacency.hpp"
 #include "smesh_graph.hpp"
+#include "smesh_multiblock_graph.hpp"
 #include "smesh_search.hpp"
 #include "smesh_sort.hpp"
 #include "smesh_sshex8.hpp"   //FIXME
@@ -139,6 +140,112 @@ namespace smesh {
                 for (idx_t i = 0; i < nneighs; ++i) {
                     colidx[rowptr[node] + i] = n2nbuff[i];
                 }
+            }
+        }
+
+        *out_rowptr = rowptr;
+        *out_colidx = colidx;
+        return 0;
+    }
+
+    template <typename idx_t, typename count_t, typename element_idx_t>
+    static int hex8_build_edge_graph_from_multiblock_n2e(
+            const ptrdiff_t                                                                n_blocks,
+            const ptrdiff_t *const                                                         n_elements,
+            const ptrdiff_t                                                                nnodes,
+            const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+            const count_t *const SMESH_RESTRICT                                            n2eptr,
+            const element_idx_t *const SMESH_RESTRICT                                      elindex,
+            const block_idx_t *const SMESH_RESTRICT                                        block_number,
+            count_t                                                                      **out_rowptr,
+            idx_t                                                                        **out_colidx) {
+        SMESH_UNUSED(n_elements);
+        count_t *rowptr = (count_t *)SMESH_ALLOC((nnodes + 1) * sizeof(count_t));
+        idx_t   *colidx = 0;
+
+        static const int nnodesxelem = 8;
+
+        rowptr[0] = 0;
+
+#pragma omp parallel for
+        for (ptrdiff_t node = 0; node < nnodes; ++node) {
+            idx_t n2nbuff[2048];
+
+            count_t ebegin = n2eptr[node];
+            count_t eend   = n2eptr[node + 1];
+
+            idx_t nneighs = 0;
+
+            for (count_t e = ebegin; e < eend; ++e) {
+                const block_idx_t   b    = block_number[e];
+                const element_idx_t eidx = elindex[e];
+                SMESH_ASSERT(b >= 0 && b < n_blocks);
+                SMESH_ASSERT(eidx < n_elements[b]);
+
+                const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT block_elems = elems[b];
+
+                int lidx = -1;
+                for (int edof_i = 0; edof_i < nnodesxelem; ++edof_i) {
+                    if (block_elems[edof_i][eidx] == static_cast<idx_t>(node)) {
+                        lidx = edof_i;
+                        break;
+                    }
+                }
+
+                SMESH_ASSERT(lidx != -1);
+                SMESH_ASSERT(lidx < 8);
+
+                for (int d = 0; d < 3; d++) {
+                    idx_t neighnode = block_elems[hex8_edge_connectivity[lidx][d]][eidx];
+                    SMESH_ASSERT(nneighs < 2048);
+                    n2nbuff[nneighs++] = neighnode;
+                }
+            }
+
+            nneighs          = sort_and_unique(n2nbuff, nneighs);
+            rowptr[node + 1] = nneighs;
+        }
+
+        for (ptrdiff_t node = 0; node < nnodes; ++node) {
+            rowptr[node + 1] += rowptr[node];
+        }
+
+        const ptrdiff_t nnz = rowptr[nnodes];
+        colidx              = (idx_t *)SMESH_ALLOC(nnz * sizeof(idx_t));
+
+#pragma omp parallel for
+        for (ptrdiff_t node = 0; node < nnodes; ++node) {
+            idx_t n2nbuff[2048];
+
+            count_t ebegin = n2eptr[node];
+            count_t eend   = n2eptr[node + 1];
+
+            idx_t nneighs = 0;
+
+            for (count_t e = ebegin; e < eend; ++e) {
+                const block_idx_t   b    = block_number[e];
+                const element_idx_t eidx = elindex[e];
+                const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT block_elems = elems[b];
+
+                int lidx = 0;
+                for (int edof_i = 0; edof_i < nnodesxelem; ++edof_i) {
+                    if (block_elems[edof_i][eidx] == static_cast<idx_t>(node)) {
+                        lidx = edof_i;
+                        break;
+                    }
+                }
+
+                for (int d = 0; d < 3; d++) {
+                    idx_t neighnode = block_elems[hex8_edge_connectivity[lidx][d]][eidx];
+                    SMESH_ASSERT(nneighs < 2048);
+                    n2nbuff[nneighs++] = neighnode;
+                }
+            }
+
+            nneighs = sort_and_unique(n2nbuff, nneighs);
+
+            for (idx_t i = 0; i < nneighs; ++i) {
+                colidx[rowptr[node] + i] = n2nbuff[i];
             }
         }
 
@@ -608,6 +715,280 @@ namespace smesh {
         return SMESH_SUCCESS;
     }
 
+    /// Unique SSHEX8 numbering over HEX8 blocks without concatenating connectivity.
+    /// Writes into per-block SS SoA. Half-face tables must include inter-block neighbors.
+    template <typename idx_t>
+    int sshex8_generate_elements_blocks(
+            const int                                                                        L,
+            const ptrdiff_t                                                                  n_blocks,
+            const ptrdiff_t *const                                                           n_elements,
+            const ptrdiff_t                                                                  m_nnodes,
+            const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT *const SMESH_RESTRICT    m_elements,
+            idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT *const SMESH_RESTRICT          elements,
+            const element_idx_t *const *const                                                hft,
+            const block_idx_t *const *const                                                  hnbb,
+            ptrdiff_t                                                                       *n_unique_nodes_out,
+            ptrdiff_t                                                                       *interior_start_out) {
+        SMESH_ASSERT(L >= 2);
+        SMESH_ASSERT(n_blocks >= 1);
+
+        double tick = time_seconds();
+
+        const int nxe = sshex8_nxe(L);
+
+        int lagr_to_proteus_corners[8] = {sshex8_lidx(L, 0, 0, 0),
+                                          sshex8_lidx(L, L, 0, 0),
+                                          sshex8_lidx(L, L, L, 0),
+                                          sshex8_lidx(L, 0, L, 0),
+                                          sshex8_lidx(L, 0, 0, L),
+                                          sshex8_lidx(L, L, 0, L),
+                                          sshex8_lidx(L, L, L, L),
+                                          sshex8_lidx(L, 0, L, L)};
+
+        int *coords[3];
+        for (int d = 0; d < 3; d++) {
+            coords[d] = (int *)SMESH_ALLOC(nxe * sizeof(int));
+        }
+
+        for (int zi = 0; zi <= L; zi++) {
+            for (int yi = 0; yi <= L; yi++) {
+                for (int xi = 0; xi <= L; xi++) {
+                    int lidx        = sshex8_lidx(L, xi, yi, zi);
+                    coords[0][lidx] = xi;
+                    coords[1][lidx] = yi;
+                    coords[2][lidx] = zi;
+                }
+            }
+        }
+
+        ptrdiff_t n_e_total = 0;
+        for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+            n_e_total += n_elements[b];
+            for (int d = 0; d < 8; d++) {
+                for (ptrdiff_t e = 0; e < n_elements[b]; e++) {
+                    elements[b][lagr_to_proteus_corners[d]][e] = m_elements[b][d][e];
+                }
+            }
+        }
+
+        idx_t index_base = static_cast<idx_t>(m_nnodes);
+
+        ptrdiff_t nxedge = L - 1;
+        if (nxedge) {
+            enum ElemType *types = (enum ElemType *)SMESH_ALLOC(static_cast<size_t>(n_blocks) * sizeof(enum ElemType));
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                types[b] = HEX8;
+            }
+
+            idx_t         *n2eptr{nullptr};
+            idx_t         *elindex{nullptr};
+            block_idx_t   *block_number{nullptr};
+            create_multiblock_n2e<idx_t, idx_t, idx_t>(static_cast<block_idx_t>(n_blocks),
+                                                       types,
+                                                       n_elements,
+                                                       m_elements,
+                                                       m_nnodes,
+                                                       &block_number,
+                                                       &n2eptr,
+                                                       &elindex);
+
+            idx_t *rowptr{nullptr};
+            idx_t *colidx{nullptr};
+            hex8_build_edge_graph_from_multiblock_n2e<idx_t, idx_t, idx_t>(
+                    n_blocks, n_elements, m_nnodes, m_elements, n2eptr, elindex, block_number, &rowptr, &colidx);
+
+            ptrdiff_t nedges = rowptr[m_nnodes] / 2;
+            ptrdiff_t nnz    = rowptr[m_nnodes];
+            idx_t    *edge_idx = (idx_t *)SMESH_CALLOC(nnz, sizeof(idx_t));
+
+            idx_t lagr_connectivity[8][3] = {{1, 3, 4},
+                                             {0, 2, 5},
+                                             {1, 3, 6},
+                                             {0, 2, 7},
+                                             {0, 5, 7},
+                                             {1, 4, 6},
+                                             {2, 5, 7},
+                                             {3, 4, 6}};
+
+            ptrdiff_t edge_count = 0;
+            idx_t     next_id    = 0;
+            for (ptrdiff_t i = 0; i < m_nnodes; i++) {
+                const count_t begin = rowptr[i];
+                const count_t end   = rowptr[i + 1];
+                for (count_t k = begin; k < end; k++) {
+                    const idx_t j = colidx[k];
+                    if (i < j) {
+                        edge_count += 1;
+                        edge_idx[k] = next_id++;
+                    }
+                }
+            }
+            SMESH_ASSERT(edge_count == nedges);
+            SMESH_UNUSED(edge_count);
+
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                for (ptrdiff_t e = 0; e < n_elements[b]; e++) {
+                    idx_t nodes[8];
+                    for (int d = 0; d < 8; d++) {
+                        nodes[d] = m_elements[b][d][e];
+                    }
+
+                    for (int d1 = 0; d1 < 8; d1++) {
+                        idx_t              node1     = nodes[d1];
+                        const idx_t *const columns   = &colidx[rowptr[node1]];
+                        const idx_t *const edge_view = &edge_idx[rowptr[node1]];
+
+                        idx_t g_edges[3];
+                        idx_t g_neigh[3];
+                        for (int k = 0; k < 3; k++) {
+                            g_neigh[k] = nodes[lagr_connectivity[d1][k]];
+                        }
+
+                        idx_t offsets[3];
+                        find<3>(g_neigh, columns, rowptr[node1 + 1] - rowptr[node1], offsets);
+                        for (int d = 0; d < 3; d++) {
+                            g_edges[d] = edge_view[offsets[d]];
+                        }
+
+                        for (int d2 = 0; d2 < 3; d2++) {
+                            const idx_t node2 = g_neigh[d2];
+                            if (node1 > node2) continue;
+
+                            const int lid1 = lagr_to_proteus_corners[d1];
+                            const int lid2 = lagr_to_proteus_corners[lagr_connectivity[d1][d2]];
+
+                            int start[3], len[3], dir[3];
+                            for (int d = 0; d < 3; d++) {
+                                start[d] = coords[d][lid1];
+                            }
+                            for (int d = 0; d < 3; d++) {
+                                int x  = coords[d][lid2] - coords[d][lid1];
+                                dir[d] = 1;
+                                len[d] = 1;
+                                if (x > 0) {
+                                    x -= 1;
+                                    len[d]   = x;
+                                    start[d] = 1;
+                                } else if (x < 0) {
+                                    x += 1;
+                                    len[d]   = x;
+                                    dir[d]   = -1;
+                                    start[d] = L - 1;
+                                }
+                            }
+
+                            idx_t edge_start = index_base + g_edges[d2] * static_cast<idx_t>(nxedge);
+                            int   en         = 0;
+                            for (int zi = 0; zi != len[2]; zi += dir[2]) {
+                                for (int yi = 0; yi != len[1]; yi += dir[1]) {
+                                    for (int xi = 0; xi != len[0]; xi += dir[0]) {
+                                        const int lidx_edge = sshex8_lidx(L, start[0] + xi, start[1] + yi, start[2] + zi);
+                                        elements[b][lidx_edge][e] = edge_start + en;
+                                        en += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            SMESH_FREE(rowptr);
+            SMESH_FREE(colidx);
+            SMESH_FREE(edge_idx);
+            SMESH_FREE(n2eptr);
+            SMESH_FREE(elindex);
+            SMESH_FREE(block_number);
+            SMESH_FREE(types);
+
+            index_base += static_cast<idx_t>(nedges * nxedge);
+        }
+
+        int nxf = (L - 1) * (L - 1);
+        if (nxf) {
+            LocalSideTable lst;
+            lst.fill(HEX8);
+
+            idx_t n_unique_faces = 0;
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                for (ptrdiff_t e = 0; e < n_elements[b]; e++) {
+                    for (int f = 0; f < 6; f++) {
+                        const element_idx_t neigh_element = hft[b][e * 6 + f];
+                        const block_idx_t   neigh_block   = hnbb[b][e * 6 + f];
+                        if (neigh_element != invalid_idx<element_idx_t>() &&
+                            (neigh_block < static_cast<block_idx_t>(b) ||
+                             (neigh_block == static_cast<block_idx_t>(b) && neigh_element < static_cast<element_idx_t>(e)))) {
+                            continue;
+                        }
+
+                        idx_t global_face_offset = index_base + n_unique_faces * nxf;
+                        index_face(L, m_elements[b], lst.table, lagr_to_proteus_corners, coords, global_face_offset, e, f, elements[b]);
+
+                        if (neigh_element != invalid_idx<element_idx_t>()) {
+                            int neigh_f = 6;
+                            for (int f2 = 0; f2 < 6; f2++) {
+                                if (hft[neigh_block][neigh_element * 6 + f2] == static_cast<element_idx_t>(e) &&
+                                    hnbb[neigh_block][neigh_element * 6 + f2] == static_cast<block_idx_t>(b)) {
+                                    neigh_f = f2;
+                                    break;
+                                }
+                            }
+                            SMESH_ASSERT(neigh_f != 6);
+                            index_face(L,
+                                       m_elements[neigh_block],
+                                       lst.table,
+                                       lagr_to_proteus_corners,
+                                       coords,
+                                       global_face_offset,
+                                       neigh_element,
+                                       neigh_f,
+                                       elements[neigh_block]);
+                        }
+
+                        n_unique_faces++;
+                    }
+                }
+            }
+
+            index_base += n_unique_faces * nxf;
+        }
+
+        int       nxelement      = (L - 1) * (L - 1) * (L - 1);
+        ptrdiff_t interior_start = index_base;
+        if (nxelement) {
+            ptrdiff_t e_off = 0;
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                for (int zi = 1; zi < L; zi++) {
+                    for (int yi = 1; yi < L; yi++) {
+                        for (int xi = 1; xi < L; xi++) {
+                            const int lidx_vol = sshex8_lidx(L, xi, yi, zi);
+                            int       Lm1      = L - 1;
+                            int       en       = (zi - 1) * Lm1 * Lm1 + (yi - 1) * Lm1 + xi - 1;
+                            for (ptrdiff_t e = 0; e < n_elements[b]; e++) {
+                                elements[b][lidx_vol][e] = index_base + (e_off + e) * nxelement + en;
+                            }
+                        }
+                    }
+                }
+                e_off += n_elements[b];
+            }
+        }
+
+        for (int d = 0; d < 3; d++) {
+            SMESH_FREE(coords[d]);
+        }
+
+        *n_unique_nodes_out = interior_start + n_e_total * nxelement;
+        *interior_start_out = interior_start;
+
+        double tock = time_seconds();
+        printf("Create idx (HEX8 blocks) took\t%g [s]\n", tock - tick);
+        printf("#macroelements %ld, #macronodes %ld\n", n_e_total, m_nnodes);
+        printf("#microelements %ld, #micronodes %ld\n", n_e_total * (L * L * L), *n_unique_nodes_out);
+
+        return SMESH_SUCCESS;
+    }
+
     template <typename idx_t, typename element_idx_t, typename count_t>
     int sshex8_build_n2e(const int                                               L,
                          const ptrdiff_t                                         nelements,
@@ -968,6 +1349,98 @@ namespace smesh {
         }
 
         // SMESH_FREE(node_mapping);
+        return SMESH_SUCCESS;
+    }
+
+    template <typename idx_t>
+    int sshex8_hierarchical_renumbering_blocks(const int                                                                        L,
+                                               const int                                                                        nlevels,
+                                               int *const                                                                       levels,
+                                               const ptrdiff_t                                                                  n_blocks,
+                                               const ptrdiff_t *const                                                           n_elements,
+                                               const ptrdiff_t                                                                  nnodes,
+                                               idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT *const SMESH_RESTRICT          elements,
+                                               idx_t *const SMESH_RESTRICT                                                          node_mapping,
+                                               const bool                                                                           preserve_corner_ordering) {
+#pragma omp parallel for
+        for (ptrdiff_t i = 0; i < nnodes; i++) {
+            node_mapping[i] = invalid_idx<idx_t>();
+        }
+
+        idx_t next_id = 0;
+
+        auto visit_corners = [&](const bool assign_sequential) {
+            for (int zi = 0; zi <= 1; zi++) {
+                for (int yi = 0; yi <= 1; yi++) {
+                    for (int xi = 0; xi <= 1; xi++) {
+                        for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                            for (ptrdiff_t e = 0; e < n_elements[b]; e++) {
+                                const int   v   = sshex8_lidx(L, xi * L, yi * L, zi * L);
+                                const idx_t idx = elements[b][v][e];
+                                SMESH_ASSERT(idx < nnodes);
+                                if (assign_sequential) {
+                                    if (node_mapping[idx] == invalid_idx<idx_t>()) {
+                                        node_mapping[idx] = next_id++;
+                                    }
+                                } else {
+                                    node_mapping[idx] = idx;
+                                    next_id           = std::max(next_id, idx);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        if (preserve_corner_ordering) {
+            visit_corners(false);
+            next_id++;
+        } else {
+            visit_corners(true);
+        }
+
+        int stride = 1;
+        for (int k = 1; k < nlevels; k++) {
+            const int l           = levels[k];
+            const int step_factor = L / l;
+
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                for (ptrdiff_t e = 0; e < n_elements[b]; e++) {
+                    for (int zi = 0; zi <= l; zi += stride) {
+                        for (int yi = 0; yi <= l; yi += stride) {
+                            for (int xi = 0; xi <= l; xi += stride) {
+                                const int   v   = sshex8_lidx(L, xi * step_factor, yi * step_factor, zi * step_factor);
+                                const idx_t idx = elements[b][v][e];
+                                SMESH_ASSERT(idx < nnodes);
+                                if (node_mapping[idx] == invalid_idx<idx_t>()) {
+                                    node_mapping[idx] = next_id++;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (int zi = 0; zi <= L; zi++) {
+            for (int yi = 0; yi <= L; yi++) {
+                for (int xi = 0; xi <= L; xi++) {
+                    for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                        for (ptrdiff_t e = 0; e < n_elements[b]; e++) {
+                            const int   v   = sshex8_lidx(L, xi, yi, zi);
+                            const idx_t idx = elements[b][v][e];
+                            if (node_mapping[idx] == invalid_idx<idx_t>()) {
+                                printf("%d %d %d [block %ld, e %ld]\n", xi, yi, zi, b, e);
+                                SMESH_ERROR("Uninitialized node mapping\n");
+                            }
+                            elements[b][v][e] = node_mapping[idx];
+                        }
+                    }
+                }
+            }
+        }
+
         return SMESH_SUCCESS;
     }
 

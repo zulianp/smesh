@@ -480,6 +480,11 @@ std::shared_ptr<Mesh> PackedMesh<pack_idx_t>::mesh() const {
   return impl_->mesh;
 }
 
+template <typename pack_idx_t>
+SharedBuffer<idx_t> PackedMesh<pack_idx_t>::node_map() const {
+  return impl_->node_map;
+}
+
 template <typename pack_idx_t> ptrdiff_t PackedMesh<pack_idx_t>::n_blocks() const {
   return impl_->blocks.size();
 }

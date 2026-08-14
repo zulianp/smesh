@@ -2,6 +2,8 @@
 #include "smesh_alloc.hpp"
 
 // STL
+#include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -175,16 +177,147 @@ namespace smesh {
             }
 
             return std::make_shared<Mesh>(mesh->comm(), blocks, p);
+        }
 
-        } else {
-            SMESH_ERROR("hex8_to_sshex does not support multi-block meshes");
+        if (mesh->comm()->size() > 1) {
+            SMESH_ERROR("to_semistructured is not supported for distributed meshes\n");
             return nullptr;
         }
+
+        enum ElemType family = INVALID;
+        for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+            const enum ElemType f = ss_source_family(mesh->element_type(static_cast<block_idx_t>(b)));
+            if (family == INVALID) {
+                family = f;
+            } else if (f != family) {
+                fprintf(stderr,
+                        "to_semistructured: mixed-family semistructured conversion is not implemented\n");
+                return nullptr;
+            }
+        }
+
+        if (family != HEX8) {
+            fprintf(stderr,
+                    "to_semistructured: SS family %s is not implemented\n",
+                    family == INVALID ? "INVALID" : type_to_string(family));
+            return nullptr;
+        }
+
+        const ptrdiff_t n_blocks = static_cast<ptrdiff_t>(mesh->n_blocks());
+        std::vector<ptrdiff_t>                    n_e(static_cast<size_t>(n_blocks));
+        std::vector<const idx_t *const *>         hex_soa(static_cast<size_t>(n_blocks));
+        std::vector<idx_t **>                     ss_soa(static_cast<size_t>(n_blocks));
+        std::vector<std::shared_ptr<Mesh::Block>> ss_blocks(static_cast<size_t>(n_blocks));
+        std::vector<const element_idx_t *>        hft(static_cast<size_t>(n_blocks));
+        std::vector<const block_idx_t *>          hnbb(static_cast<size_t>(n_blocks));
+        std::vector<SharedBuffer<element_idx_t>>  hft_keep(static_cast<size_t>(n_blocks));
+        std::vector<SharedBuffer<block_idx_t>>    hnbb_keep(static_cast<size_t>(n_blocks));
+
+        const enum ElemType ss_element_type = semistructured_type(HEX8, level);
+        const int           nxe             = sshex8_nxe(level);
+
+        for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+            auto block = mesh->block(static_cast<size_t>(b));
+            if (block->n_nodes_per_element() != 8) {
+                fprintf(stderr,
+                        "to_semistructured: HEX family block '%s' does not have 8 nodes per element\n",
+                        block->name().c_str());
+                return nullptr;
+            }
+            const size_t bi = static_cast<size_t>(b);
+            n_e[bi]         = block->n_elements();
+            hex_soa[bi]     = block->elements()->data();
+
+            auto ss_elems = create_host_buffer<idx_t>(nxe, static_cast<size_t>(n_e[bi]));
+            ss_soa[bi]    = ss_elems->data();
+
+            auto ss_block = std::make_shared<Mesh::Block>();
+            ss_block->set_name(block->name());
+            ss_block->set_element_type(ss_element_type);
+            ss_block->set_elements(ss_elems);
+            ss_blocks[bi] = ss_block;
+
+            hft_keep[bi]  = mesh->half_face_table(static_cast<block_idx_t>(b));
+            hnbb_keep[bi] = mesh->half_face_neighbor_block(static_cast<block_idx_t>(b));
+            hft[bi]       = hft_keep[bi]->data();
+            hnbb[bi]      = hnbb_keep[bi]->data();
+        }
+
+        ptrdiff_t n_unique_nodes{-1};
+        ptrdiff_t interior_start{-1};
+        sshex8_generate_elements_blocks(level,
+                                        n_blocks,
+                                        n_e.data(),
+                                        mesh->n_nodes(),
+                                        hex_soa.data(),
+                                        ss_soa.data(),
+                                        hft.data(),
+                                        hnbb.data(),
+                                        &n_unique_nodes,
+                                        &interior_start);
+
+        if (hiearchical_ordering) {
+            const int        nlevels = sshex8_hierarchical_n_levels(level);
+            std::vector<int> levels(static_cast<size_t>(nlevels));
+            sshex8_hierarchical_mesh_levels(level, nlevels, levels.data());
+            auto node_mapping = create_host_buffer<idx_t>(n_unique_nodes);
+            sshex8_hierarchical_renumbering_blocks(level,
+                                                   nlevels,
+                                                   levels.data(),
+                                                   n_blocks,
+                                                   n_e.data(),
+                                                   n_unique_nodes,
+                                                   ss_soa.data(),
+                                                   node_mapping->data(),
+                                                   true);
+        }
+
+        auto p       = smesh::create_host_buffer<geom_t>(mesh->spatial_dimension(), n_unique_nodes);
+        auto macro_p = mesh->points()->data();
+
+        if (use_GLL) {
+            const double *qx{nullptr};
+            switch (level) {
+                case 1: {
+                    qx = line_GL_q2_x;
+                    break;
+                }
+                case 2: {
+                    qx = line_GL_q3_x;
+                    break;
+                }
+                case 4: {
+                    qx = line_GL_q5_x;
+                    break;
+                }
+                case 8: {
+                    qx = line_GL_q9_x;
+                    break;
+                }
+                case 16: {
+                    qx = line_GL_q17_x;
+                    break;
+                }
+                default: {
+                    SMESH_ERROR("Unsupported order %d!", level);
+                }
+            }
+
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                sshex8_fill_points_1D_map(level, n_e[static_cast<size_t>(b)], ss_soa[static_cast<size_t>(b)], macro_p, qx, p->data());
+            }
+        } else {
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                sshex8_fill_points(level, n_e[static_cast<size_t>(b)], ss_soa[static_cast<size_t>(b)], macro_p, p->data());
+            }
+        }
+
+        return std::make_shared<Mesh>(mesh->comm(), ss_blocks, p);
     }
 
     void sshex_block_to_hex8_block(const Mesh::Block &block, Mesh::Block &new_block) {
         auto      elements         = block.elements();
-        const int level            = proteus_hex_micro_elements_per_dim(block.element_type());
+        const int level            = semistructured_level(block.element_type());
         ptrdiff_t n_micro_elements = block.n_elements() * level * level * level;
         auto      hex8_elements    = create_host_buffer<idx_t>(8, n_micro_elements);
         sshex8_to_standard_hex8_mesh(level, block.n_elements(), elements->data(), hex8_elements->data());
@@ -232,15 +365,15 @@ namespace smesh {
     }
 
     std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh, const int to_level) {
-        if (mesh->n_blocks() > 1) {
-            SMESH_ERROR("derefine is not supported for multiblock meshes");
-            return nullptr;
-        }
-
         std::vector<std::shared_ptr<Mesh::Block>> blocks;
         ptrdiff_t                                 n_unique_nodes{-1};
         for (auto &block : mesh->blocks()) {
-            const int from_level  = proteus_hex_micro_elements_per_dim(block->element_type());
+            if (!is_semistructured_type(block->element_type()) || !is_hex_ss_family(block->element_type())) {
+                fprintf(stderr, "derefine: only HEX-family semistructured blocks are implemented\n");
+                return nullptr;
+            }
+
+            const int from_level  = semistructured_level(block->element_type());
             const int step_factor = from_level / to_level;
             const int nxe         = (to_level + 1) * (to_level + 1) * (to_level + 1);
 
@@ -265,7 +398,7 @@ namespace smesh {
                 }
             }
 
-            enum ElemType element_type = semistructured_type(macro_base_elem(block->element_type()), to_level);
+            enum ElemType element_type = semistructured_type(HEX8, to_level);
 
             auto derefined_block = std::make_shared<Mesh::Block>();
             derefined_block->set_name(block->name());

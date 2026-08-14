@@ -758,6 +758,36 @@ namespace smesh {
         }
     }
 
+    /// Macro family for SS conversion. HEX8 / PROTEUS_HEX* map to HEX8.
+    /// Do not use \c macro_base_elem on HEX8 (that path errors).
+    /// Mixed-family unique numbering (shared HEX–TET edges) cannot be two
+    /// independent per-family concats; that is a follow-on generator, not A5.
+    inline enum ElemType ss_source_family(const enum ElemType type) {
+        switch (type) {
+            case HEX8:
+            case PROTEUS_HEX8:
+            case PROTEUS_HEX27:
+            case PROTEUS_HEX64:
+            case PROTEUS_HEX125:
+            case PROTEUS_HEX216:
+            case PROTEUS_HEX343:
+            case PROTEUS_HEX512:
+            case PROTEUS_HEX729:
+            case PROTEUS_HEX4913:
+                return HEX8;
+            case TET4:
+            case MACRO_TET4:
+                return TET4;
+            case QUAD4:
+            case PROTEUS_QUAD4:
+                return QUAD4;
+            default:
+                return type;
+        }
+    }
+
+    inline bool is_hex_ss_family(const enum ElemType type) { return ss_source_family(type) == HEX8; }
+
     inline enum ElemType semistructured_type(const enum ElemType type, const int micro_elements_per_dim) {
         switch (type) {
             case HEX8: {
