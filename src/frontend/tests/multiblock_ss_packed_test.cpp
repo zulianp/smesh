@@ -8,6 +8,7 @@
 #include "smesh_packed_mesh.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sshex8.hpp"
+#include "smesh_sstet4.hpp"
 #include "smesh_test.hpp"
 
 using namespace smesh;
@@ -125,16 +126,68 @@ static int test_checkerboard_derefine() {
     return SMESH_TEST_SUCCESS;
 }
 
-static int test_mixed_and_tet_to_semistructured_rejected() {
+static int test_mixed_to_semistructured_rejected() {
     auto mixed = create_hex8_tet4_serial(2, 2, 2);
     SMESH_TEST_ASSERT(mixed != nullptr);
     SMESH_TEST_ASSERT(to_semistructured(2, mixed) == nullptr);
+    return SMESH_TEST_SUCCESS;
+}
 
-    auto tet_single = Mesh::create_tet4_cube(Communicator::self(), 2, 2, 2);
-    auto tet_multi  = split_first_half(tet_single);
-    SMESH_TEST_ASSERT(tet_multi != nullptr);
-    SMESH_TEST_EQ(static_cast<int>(tet_multi->n_blocks()), 2);
-    SMESH_TEST_ASSERT(to_semistructured(2, tet_multi) == nullptr);
+static int test_tet4_to_semistructured() {
+    auto comm  = Communicator::self();
+    auto single = Mesh::create_tet4_cube(comm, 2, 2, 2);
+    auto multi  = split_first_half(single);
+    SMESH_TEST_ASSERT(single != nullptr);
+    SMESH_TEST_ASSERT(multi != nullptr);
+    SMESH_TEST_EQ(static_cast<int>(multi->n_blocks()), 2);
+
+    for (int L : {1, 2, 3, 4}) {
+        auto ss_multi  = to_semistructured(L, multi);
+        auto ss_single = to_semistructured(L, single);
+        SMESH_TEST_ASSERT(ss_multi != nullptr);
+        SMESH_TEST_ASSERT(ss_single != nullptr);
+        SMESH_TEST_EQ(static_cast<int>(ss_multi->n_blocks()), 2);
+        SMESH_TEST_EQ(ss_multi->n_nodes(), ss_single->n_nodes());
+        SMESH_TEST_EQ(ss_multi->element_type(0), semistructured_type(TET4, L));
+        SMESH_TEST_EQ(ss_multi->element_type(1), semistructured_type(TET4, L));
+        SMESH_TEST_EQ(static_cast<int>(ss_multi->block(0)->n_nodes_per_element()), sstet4_nxe(L));
+        SMESH_TEST_EQ(ss_multi->n_elements(0), multi->n_elements(0));
+        SMESH_TEST_EQ(ss_multi->n_elements(1), multi->n_elements(1));
+        SMESH_TEST_EQ(ss_multi->n_elements(), single->n_elements());
+    }
+
+    return SMESH_TEST_SUCCESS;
+}
+
+static int test_tet4_to_semistructured_hierarchical() {
+    auto comm   = Communicator::self();
+    auto single = Mesh::create_tet4_cube(comm, 2, 2, 2);
+    auto multi  = split_first_half(single);
+
+    auto ss_multi  = to_semistructured(2, multi, true, false);
+    auto ss_single = to_semistructured(2, single, true, false);
+    SMESH_TEST_ASSERT(ss_multi != nullptr);
+    SMESH_TEST_ASSERT(ss_single != nullptr);
+    SMESH_TEST_EQ(ss_multi->n_nodes(), ss_single->n_nodes());
+    SMESH_TEST_EQ(static_cast<int>(ss_multi->n_blocks()), 2);
+    return SMESH_TEST_SUCCESS;
+}
+
+static int test_tet4_derefine() {
+    auto comm   = Communicator::self();
+    auto single = Mesh::create_tet4_cube(comm, 2, 2, 2);
+    auto multi  = split_first_half(single);
+
+    auto ss_multi  = to_semistructured(2, multi);
+    auto ss_single = to_semistructured(2, single);
+    auto d_multi   = derefine(ss_multi, 1);
+    auto d_single  = derefine(ss_single, 1);
+    SMESH_TEST_ASSERT(d_multi != nullptr);
+    SMESH_TEST_ASSERT(d_single != nullptr);
+    SMESH_TEST_EQ(static_cast<int>(d_multi->n_blocks()), 2);
+    SMESH_TEST_EQ(d_multi->n_nodes(), d_single->n_nodes());
+    SMESH_TEST_EQ(d_multi->element_type(0), semistructured_type(TET4, 1));
+    SMESH_TEST_EQ(d_multi->n_nodes(), single->n_nodes());
     return SMESH_TEST_SUCCESS;
 }
 
@@ -175,7 +228,10 @@ int main(int argc, char *argv[]) {
     SMESH_RUN_TEST(test_checkerboard_to_semistructured);
     SMESH_RUN_TEST(test_checkerboard_to_semistructured_hierarchical);
     SMESH_RUN_TEST(test_checkerboard_derefine);
-    SMESH_RUN_TEST(test_mixed_and_tet_to_semistructured_rejected);
+    SMESH_RUN_TEST(test_mixed_to_semistructured_rejected);
+    SMESH_RUN_TEST(test_tet4_to_semistructured);
+    SMESH_RUN_TEST(test_tet4_to_semistructured_hierarchical);
+    SMESH_RUN_TEST(test_tet4_derefine);
     SMESH_RUN_TEST(test_packed_checkerboard);
     SMESH_RUN_TEST(test_packed_hex8_tet4);
     SMESH_UNIT_TEST_FINALIZE();

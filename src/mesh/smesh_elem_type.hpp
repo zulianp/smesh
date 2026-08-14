@@ -66,6 +66,17 @@ namespace smesh {
         PROTEUS_QUADSHELL64    = 6400001,
         PROTEUS_QUADSHELL81    = 8100001,
         PROTEUS_QUADSHELL289   = 28900001,
+        // PROTEUS_TET{N}: N = (L+1)(L+2)(L+3)/6 lattice nodes. L=1/2 cannot use N*10000
+        // (40000 < SEMISTRUCTURED_ELEMENT; 100000 collides with the sentinel).
+        PROTEUS_TET4           = 100004,
+        PROTEUS_TET10          = 100010,
+        PROTEUS_TET20          = 200000,
+        PROTEUS_TET35          = 350000,
+        PROTEUS_TET56          = 560000,
+        PROTEUS_TET84          = 840000,
+        PROTEUS_TET120         = 1200000,
+        PROTEUS_TET165         = 1650000,
+        PROTEUS_TET969         = 9690000,
         INVALID                = -1
     };
 
@@ -122,6 +133,15 @@ namespace smesh {
         if (!strcmp(str, "PROTEUS_QUADSHELL64")) return PROTEUS_QUADSHELL64;
         if (!strcmp(str, "PROTEUS_QUADSHELL81")) return PROTEUS_QUADSHELL81;
         if (!strcmp(str, "PROTEUS_QUADSHELL289")) return PROTEUS_QUADSHELL289;
+        if (!strcmp(str, "PROTEUS_TET4")) return PROTEUS_TET4;
+        if (!strcmp(str, "PROTEUS_TET10")) return PROTEUS_TET10;
+        if (!strcmp(str, "PROTEUS_TET20")) return PROTEUS_TET20;
+        if (!strcmp(str, "PROTEUS_TET35")) return PROTEUS_TET35;
+        if (!strcmp(str, "PROTEUS_TET56")) return PROTEUS_TET56;
+        if (!strcmp(str, "PROTEUS_TET84")) return PROTEUS_TET84;
+        if (!strcmp(str, "PROTEUS_TET120")) return PROTEUS_TET120;
+        if (!strcmp(str, "PROTEUS_TET165")) return PROTEUS_TET165;
+        if (!strcmp(str, "PROTEUS_TET969")) return PROTEUS_TET969;
         SMESH_ERROR("No element type found for string: %s\n", str);
         return INVALID;
     }
@@ -232,6 +252,24 @@ namespace smesh {
                 return "PROTEUS_QUADSHELL81";
             case PROTEUS_QUADSHELL289:
                 return "PROTEUS_QUADSHELL289";
+            case PROTEUS_TET4:
+                return "PROTEUS_TET4";
+            case PROTEUS_TET10:
+                return "PROTEUS_TET10";
+            case PROTEUS_TET20:
+                return "PROTEUS_TET20";
+            case PROTEUS_TET35:
+                return "PROTEUS_TET35";
+            case PROTEUS_TET56:
+                return "PROTEUS_TET56";
+            case PROTEUS_TET84:
+                return "PROTEUS_TET84";
+            case PROTEUS_TET120:
+                return "PROTEUS_TET120";
+            case PROTEUS_TET165:
+                return "PROTEUS_TET165";
+            case PROTEUS_TET969:
+                return "PROTEUS_TET969";
             default: {
                 SMESH_ERROR("No element type found for type: %d\n", type);
                 return "INVALID";
@@ -289,6 +327,16 @@ namespace smesh {
                 return PROTEUS_QUAD81;
             case PROTEUS_HEX4913:
                 return PROTEUS_QUAD289;
+            case PROTEUS_TET4:
+            case PROTEUS_TET10:
+            case PROTEUS_TET20:
+            case PROTEUS_TET35:
+            case PROTEUS_TET56:
+            case PROTEUS_TET84:
+            case PROTEUS_TET120:
+            case PROTEUS_TET165:
+            case PROTEUS_TET969:
+                return TRI3;
             default: {
                 SMESH_ERROR("No side type found for type: %s\n", type_to_string(type));
                 return INVALID;
@@ -538,6 +586,24 @@ namespace smesh {
                 return 4913;
             case PROTEUS_QUAD289:
                 return 289;
+            case PROTEUS_TET4:
+                return 4;
+            case PROTEUS_TET10:
+                return 10;
+            case PROTEUS_TET20:
+                return 20;
+            case PROTEUS_TET35:
+                return 35;
+            case PROTEUS_TET56:
+                return 56;
+            case PROTEUS_TET84:
+                return 84;
+            case PROTEUS_TET120:
+                return 120;
+            case PROTEUS_TET165:
+                return 165;
+            case PROTEUS_TET969:
+                return 969;
             default: {
                 SMESH_ERROR("No number of nodes found for type: %s\n", type_to_string(type));
                 return 0;
@@ -598,6 +664,16 @@ namespace smesh {
                 return 6;
             case PROTEUS_QUAD289:
                 return 4;
+            case PROTEUS_TET4:
+            case PROTEUS_TET10:
+            case PROTEUS_TET20:
+            case PROTEUS_TET35:
+            case PROTEUS_TET56:
+            case PROTEUS_TET84:
+            case PROTEUS_TET120:
+            case PROTEUS_TET165:
+            case PROTEUS_TET969:
+                return 4;
             default: {
                 SMESH_ERROR("No number of sides found for type: %s\n", type_to_string(type));
                 return 0;
@@ -656,6 +732,16 @@ namespace smesh {
                 return 3;
             case PROTEUS_QUAD289:
                 return 2;
+            case PROTEUS_TET4:
+            case PROTEUS_TET10:
+            case PROTEUS_TET20:
+            case PROTEUS_TET35:
+            case PROTEUS_TET56:
+            case PROTEUS_TET84:
+            case PROTEUS_TET120:
+            case PROTEUS_TET165:
+            case PROTEUS_TET969:
+                return 3;
             default: {
                 SMESH_ERROR("No manifold dimension found for type: %s\n", type_to_string(type));
                 return INVALID;
@@ -705,6 +791,17 @@ namespace smesh {
                 return PROTEUS_HEX8;
             case PROTEUS_HEX4913:
                 return PROTEUS_HEX8;
+            case PROTEUS_TET4:
+                return PROTEUS_TET4;
+            case PROTEUS_TET10:
+            case PROTEUS_TET20:
+            case PROTEUS_TET35:
+            case PROTEUS_TET56:
+            case PROTEUS_TET84:
+            case PROTEUS_TET120:
+            case PROTEUS_TET165:
+            case PROTEUS_TET969:
+                return PROTEUS_TET4;
             default: {
                 SMESH_ERROR("No macro base elem found for type: %s\n", type_to_string(macro_type));
                 return macro_type;
@@ -777,6 +874,15 @@ namespace smesh {
                 return HEX8;
             case TET4:
             case MACRO_TET4:
+            case PROTEUS_TET4:
+            case PROTEUS_TET10:
+            case PROTEUS_TET20:
+            case PROTEUS_TET35:
+            case PROTEUS_TET56:
+            case PROTEUS_TET84:
+            case PROTEUS_TET120:
+            case PROTEUS_TET165:
+            case PROTEUS_TET969:
                 return TET4;
             case QUAD4:
             case PROTEUS_QUAD4:
@@ -788,6 +894,34 @@ namespace smesh {
 
     inline bool is_hex_ss_family(const enum ElemType type) { return ss_source_family(type) == HEX8; }
 
+    inline bool is_tet_ss_family(const enum ElemType type) { return ss_source_family(type) == TET4; }
+
+    inline enum ElemType proteus_tet_type(const int micro_elements_per_dim) {
+        switch (micro_elements_per_dim) {
+            case 1:
+                return PROTEUS_TET4;
+            case 2:
+                return PROTEUS_TET10;
+            case 3:
+                return PROTEUS_TET20;
+            case 4:
+                return PROTEUS_TET35;
+            case 5:
+                return PROTEUS_TET56;
+            case 6:
+                return PROTEUS_TET84;
+            case 7:
+                return PROTEUS_TET120;
+            case 8:
+                return PROTEUS_TET165;
+            case 16:
+                return PROTEUS_TET969;
+            default:
+                SMESH_ERROR("proteus_tet_type: Invalid element setup for proteus tet: %d", micro_elements_per_dim);
+                return INVALID;
+        }
+    }
+
     inline enum ElemType semistructured_type(const enum ElemType type, const int micro_elements_per_dim) {
         switch (type) {
             case HEX8: {
@@ -795,6 +929,10 @@ namespace smesh {
             }
             case PROTEUS_HEX8: {
                 return proteus_hex_type(micro_elements_per_dim);
+            }
+            case TET4:
+            case PROTEUS_TET4: {
+                return proteus_tet_type(micro_elements_per_dim);
             }
             default: {
                 SMESH_ERROR("semistructured_type: Invalid element type %d", type);
@@ -830,8 +968,40 @@ namespace smesh {
         }
     }
 
-    /// Semi-structured refinement level encoded in Proteus hex types (e.g. PROTEUS_HEX27 -> 2).
-    inline int semistructured_level(const enum ElemType type) { return proteus_hex_micro_elements_per_dim(type); }
+    inline int proteus_tet_micro_elements_per_dim(const enum ElemType type) {
+        switch (type) {
+            case PROTEUS_TET4:
+                return 1;
+            case PROTEUS_TET10:
+                return 2;
+            case PROTEUS_TET20:
+                return 3;
+            case PROTEUS_TET35:
+                return 4;
+            case PROTEUS_TET56:
+                return 5;
+            case PROTEUS_TET84:
+                return 6;
+            case PROTEUS_TET120:
+                return 7;
+            case PROTEUS_TET165:
+                return 8;
+            case PROTEUS_TET969:
+                return 16;
+            default: {
+                SMESH_ERROR("proteus_tet_micro_elements_per_dim: Invalid element type %d", type);
+                return INVALID;
+            }
+        }
+    }
+
+    /// Semi-structured refinement level encoded in Proteus types (e.g. PROTEUS_HEX27 -> 2).
+    inline int semistructured_level(const enum ElemType type) {
+        if (is_tet_ss_family(type) && is_semistructured_type(type)) {
+            return proteus_tet_micro_elements_per_dim(type);
+        }
+        return proteus_hex_micro_elements_per_dim(type);
+    }
 
     inline int proteus_quad_micro_elements_per_dim(const enum ElemType type) {
         switch (type) {
