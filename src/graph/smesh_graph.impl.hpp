@@ -554,13 +554,6 @@ static int create_dual_graph_from_n2e(
     n_nodes_per_elem = 4;
   }
 
-  enum ElemType st = side_type(element_type);
-  int n_nodes_per_side = elem_num_nodes(st);
-
-  if (element_type == TET10) {
-    n_nodes_per_side = 3;
-  }
-
 #ifdef SMESH_ENABLE_MEM_DIAGNOSTICS
   printf("create_dual_graph_from_n2e: allocating %g GB\n",
          (n_elements + 1) * sizeof(count_t) * 1e-9);
@@ -615,7 +608,7 @@ static int create_dual_graph_from_n2e(
       int overlap = connection_counter[l];
       assert(overlap <= n_nodes_per_elem);
 
-      if (overlap == n_nodes_per_side) {
+      if (elem_overlap_is_full_side(element_type, overlap)) {
         elist[actual_count++] = l;
       }
 

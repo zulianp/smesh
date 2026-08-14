@@ -63,11 +63,12 @@ geom_t side_centroid_x(const std::shared_ptr<Mesh> &mesh,
   const i16 s = sideset->lfi()->data()[side];
 
   geom_t x = 0;
-  for (int i = 0; i < lst.nnxs; ++i) {
+  const int nn = lst.nnxs_side[s];
+  for (int i = 0; i < nn; ++i) {
     x += points[0][elements[lst(s, i)][e]];
   }
 
-  return x / static_cast<geom_t>(lst.nnxs);
+  return x / static_cast<geom_t>(nn);
 }
 
 } // namespace

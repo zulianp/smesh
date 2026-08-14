@@ -2398,6 +2398,60 @@ namespace smesh {
         return ret;
     }
 
+    std::shared_ptr<Mesh>
+    Mesh::create_hex_dominant_serial(const std::shared_ptr<Communicator> &comm) {
+        constexpr ptrdiff_t n_nodes = 12;
+        auto points_buf = create_host_buffer<geom_t>(3, n_nodes);
+        auto points     = points_buf->data();
+
+        const geom_t coords[12][3] = {
+                {0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
+                {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1},
+                {1.5, 0.5, 0.5},
+                {1.25, 0.25, -0.5},
+                {0.5, -0.5, 0},
+                {0.5, -0.5, 1},
+        };
+        for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+            points[0][i] = coords[i][0];
+            points[1][i] = coords[i][1];
+            points[2][i] = coords[i][2];
+        }
+
+        auto hex_buf = create_host_buffer<idx_t>(8, 1);
+        for (int d = 0; d < 8; ++d) {
+            hex_buf->data()[d][0] = static_cast<idx_t>(d);
+        }
+
+        // HEX face 1 is {1,2,6,5}; pyramid base matches that node set.
+        auto pyr_buf = create_host_buffer<idx_t>(5, 1);
+        const idx_t pyr_nodes[5] = {1, 2, 6, 5, 8};
+        for (int d = 0; d < 5; ++d) {
+            pyr_buf->data()[d][0] = pyr_nodes[d];
+        }
+
+        // Pyramid side 0 is {1,2,8}; tet uses that face plus node 9.
+        auto tet_buf = create_host_buffer<idx_t>(4, 1);
+        const idx_t tet_nodes[4] = {1, 2, 8, 9};
+        for (int d = 0; d < 4; ++d) {
+            tet_buf->data()[d][0] = tet_nodes[d];
+        }
+
+        // HEX face 0 is {0,1,5,4}; wedge quad 0 is {0,1,4,3} → nodes 0,1,5,4.
+        auto wedge_buf = create_host_buffer<idx_t>(6, 1);
+        const idx_t wedge_nodes[6] = {0, 1, 10, 4, 5, 11};
+        for (int d = 0; d < 6; ++d) {
+            wedge_buf->data()[d][0] = wedge_nodes[d];
+        }
+
+        std::vector<std::shared_ptr<Block>> blocks;
+        blocks.push_back(std::make_shared<Block>("hex", HEX8, hex_buf));
+        blocks.push_back(std::make_shared<Block>("pyramid", PYRAMID5, pyr_buf));
+        blocks.push_back(std::make_shared<Block>("tet", TET4, tet_buf));
+        blocks.push_back(std::make_shared<Block>("wedge", WEDGE6, wedge_buf));
+        return std::make_shared<Mesh>(comm, blocks, points_buf);
+    }
+
     int Mesh::spatial_dimension() const { return points()->extent(0); }
 
     ptrdiff_t Mesh::n_nodes() const { return points()->extent(1); }
@@ -3000,6 +3054,12 @@ namespace smesh {
             new_block.set_element_type(TET4);
             new_block.set_elements(create_host_buffer<idx_t>(4, block.n_elements() * 3));
             mesh_wedge6_to_3x_tet4(block.n_elements(), block.elements()->data(), new_block.elements()->data());
+        };
+
+        cmap[std::make_pair(PYRAMID5, TET4)] = [](const Mesh::Block &block, Mesh::Block &new_block) {
+            new_block.set_element_type(TET4);
+            new_block.set_elements(create_host_buffer<idx_t>(4, block.n_elements() * 2));
+            mesh_pyramid5_to_2x_tet4(block.n_elements(), block.elements()->data(), new_block.elements()->data());
         };
 
         cmap[std::make_pair(QUAD4, TRI3)] = [](const Mesh::Block &block, Mesh::Block &new_block) {
@@ -3742,11 +3802,45 @@ namespace smesh {
         std::vector<std::shared_ptr<Sideset>> result;
         result.reserve(mesh->n_blocks());
         for (size_t b = 0; b < mesh->n_blocks(); ++b) {
-            auto ss = skin_sideset_for_block(mesh, static_cast<block_idx_t>(b));
+            const block_idx_t bid = static_cast<block_idx_t>(b);
+            auto ss = skin_sideset_for_block(mesh, bid);
             if (!ss) {
                 return {};
             }
-            result.push_back(ss);
+
+            const enum ElemType et = mesh->element_type(bid);
+            if (elem_sides_homogeneous(et) || ss->size() == 0) {
+                result.push_back(ss);
+                continue;
+            }
+
+            std::vector<element_idx_t> tri_parent, quad_parent;
+            std::vector<i16>           tri_lfi, quad_lfi;
+            const auto *parent = ss->parent()->data();
+            const auto *lfi    = ss->lfi()->data();
+            for (ptrdiff_t i = 0; i < ss->size(); ++i) {
+                if (side_type(et, lfi[i]) == TRI3) {
+                    tri_parent.push_back(parent[i]);
+                    tri_lfi.push_back(lfi[i]);
+                } else {
+                    quad_parent.push_back(parent[i]);
+                    quad_lfi.push_back(lfi[i]);
+                }
+            }
+
+            auto mapping = mesh->comm()->size() > 1 ? mesh->block(bid)->element_mapping() : nullptr;
+            auto emit    = [&](const std::vector<element_idx_t> &p, const std::vector<i16> &s) {
+                if (p.empty()) {
+                    return;
+                }
+                auto parent_buf = create_host_buffer<element_idx_t>(p.size());
+                auto lfi_buf    = create_host_buffer<i16>(s.size());
+                std::memcpy(parent_buf->data(), p.data(), p.size() * sizeof(element_idx_t));
+                std::memcpy(lfi_buf->data(), s.data(), s.size() * sizeof(i16));
+                result.push_back(std::make_shared<Sideset>(mesh->comm(), parent_buf, lfi_buf, bid, mapping));
+            };
+            emit(tri_parent, tri_lfi);
+            emit(quad_parent, quad_lfi);
         }
         return result;
     }
@@ -4302,3 +4396,4 @@ namespace smesh {
     }
 
 }  // namespace smesh
+

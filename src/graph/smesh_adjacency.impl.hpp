@@ -37,8 +37,6 @@ void create_element_adj_table_from_dual_graph(
   LocalSideTable lst;
   lst.fill(element_type_for_algo);
 
-  enum ElemType st = side_type(element_type_for_algo);
-  const int nn = elem_num_nodes(st);
   const int ns = elem_num_sides(element_type_for_algo);
 
 #pragma omp parallel
@@ -60,12 +58,13 @@ void create_element_adj_table_from_dual_graph(
 
     for (int s1 = 0; s1 < ns; s1++) {
       table[e * ns + s1] = invalid_idx<element_idx_t>();
+      const int nn1 = lst.nnxs_side[s1];
 
-      for (int j = 0; j < nn; j++) {
+      for (int j = 0; j < nn1; j++) {
         nodes1[j] = elems[lst(s1, j)][e];
       }
 
-      std::sort(nodes1, nodes1 + nn);
+      std::sort(nodes1, nodes1 + nn1);
 
       for (count_t k = 0; k < range; k++) {
         if (assigned[k])
@@ -73,14 +72,18 @@ void create_element_adj_table_from_dual_graph(
         const element_idx_t e_adj = adj_idx[begin + k];
 
         for (int s2 = 0; s2 < ns; s2++) {
-          for (int j = 0; j < nn; j++) {
+          const int nn2 = lst.nnxs_side[s2];
+          if (nn2 != nn1) {
+            continue;
+          }
+          for (int j = 0; j < nn2; j++) {
             nodes2[j] = elems[lst(s2, j)][e_adj];
           }
 
-          std::sort(nodes2, nodes2 + nn);
+          std::sort(nodes2, nodes2 + nn2);
 
           int diffs = 0;
-          for (int j = 0; j < nn; j++) {
+          for (int j = 0; j < nn1; j++) {
             diffs += nodes1[j] != nodes2[j];
           }
 
@@ -124,8 +127,6 @@ void create_element_adj_table_from_dual_graph_soa(
   idx_t * nodes2 =(idx_t *) SMESH_ALLOC(LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
   int * assigned =(int *) SMESH_ALLOC(LocalSideTable::MAX_NUM_SIDES * sizeof(int));
 
-  enum ElemType st = side_type(element_type_for_algo);
-  const int nn = elem_num_nodes(st);
   const int ns = elem_num_sides(element_type_for_algo);
 
   for (ptrdiff_t e = 0; e < n_elements; e++) {
@@ -137,12 +138,13 @@ void create_element_adj_table_from_dual_graph_soa(
 
     for (int s1 = 0; s1 < ns; s1++) {
       table[s1][e] = invalid_idx<element_idx_t>();
+      const int nn1 = lst.nnxs_side[s1];
 
-      for (int j = 0; j < nn; j++) {
+      for (int j = 0; j < nn1; j++) {
         nodes1[j] = elems[lst(s1, j)][e];
       }
 
-      std::sort(nodes1, nodes1 + nn);
+      std::sort(nodes1, nodes1 + nn1);
 
       for (count_t k = 0; k < range; k++) {
         if (assigned[k])
@@ -150,14 +152,18 @@ void create_element_adj_table_from_dual_graph_soa(
         const element_idx_t e_adj = adj_idx[begin + k];
 
         for (int s2 = 0; s2 < ns; s2++) {
-          for (int j = 0; j < nn; j++) {
+          const int nn2 = lst.nnxs_side[s2];
+          if (nn2 != nn1) {
+            continue;
+          }
+          for (int j = 0; j < nn2; j++) {
             nodes2[j] = elems[lst(s2, j)][e_adj];
           }
 
-          std::sort(nodes2, nodes2 + nn);
+          std::sort(nodes2, nodes2 + nn2);
 
           int diffs = 0;
-          for (int j = 0; j < nn; j++) {
+          for (int j = 0; j < nn1; j++) {
             diffs += nodes1[j] != nodes2[j];
           }
 
@@ -220,6 +226,15 @@ void extract_surface_connectivity_with_adj_table(
 
 {
   SMESH_TRACE_SCOPE("extract_surface_connectivity_with_adj_table");
+
+  if (!elem_sides_homogeneous(element_type)) {
+    SMESH_ERROR(
+        "extract_surface_connectivity_with_adj_table: mixed-face type %s "
+        "must use skin_sidesets (TRI/QUAD split)\n",
+        type_to_string(element_type));
+    *n_surf_elements = 0;
+    return;
+  }
 
   const int ns = elem_num_sides(element_type);
   element_idx_t *table = 0;

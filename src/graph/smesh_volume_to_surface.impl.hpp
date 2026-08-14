@@ -24,7 +24,6 @@ int extract_skin_sideset_from_n2e(
 
     const int ns = elem_num_sides(element_type);
     const int nnxe = elem_num_nodes(element_type);
-    const int nnxs = elem_num_nodes(side_type(element_type));
     unsigned char *const is_boundary =
         (unsigned char *)SMESH_ALLOC((size_t)n_elements * (size_t)ns * sizeof(unsigned char));
 
@@ -44,6 +43,7 @@ int extract_skin_sideset_from_n2e(
 
             side_nodes[0] = pivot_node;
 
+            const int nnxs = lst.nnxs_side[s];
             for (int n = 1; n < nnxs; ++n) {
                 const idx_t node = elems[lst(s, n)][e];
                 side_nodes[n] = node;

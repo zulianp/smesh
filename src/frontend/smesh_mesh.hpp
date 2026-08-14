@@ -359,6 +359,19 @@ public:
       const geom_t ymin = 0, const geom_t zmin = 0, const geom_t xmax = 1,
       const geom_t ymax = 1, const geom_t zmax = 1);
 
+  /// Serial HEX-dominant unit: HEX8 + PYRAMID5 + WEDGE6 + TET4, shared nodes.
+  static std::shared_ptr<Mesh>
+  create_hex_dominant_serial(const std::shared_ptr<Communicator> &comm);
+
+  /// HEX-dominant solid cylinder (axis +z, centerline at x=y=0).
+  /// HEX8 Cartesian core + polar HEX8 annulus; WEDGE6 only in the
+  /// square-to-circle fillets where a hex would be poorly shaped.
+  /// Requires ntheta >= 8 and ntheta % 4 == 0.
+  static std::shared_ptr<Mesh> create_hex_dominant_cylinder(
+      const std::shared_ptr<Communicator> &comm, const geom_t radius,
+      const geom_t height, const ptrdiff_t nr = 2, const ptrdiff_t ntheta = 16,
+      const ptrdiff_t nz = 4, const geom_t zmin = 0);
+
   std::vector<std::pair<block_idx_t, SharedBuffer<element_idx_t>>>
   select_elements(const std::function<bool(const geom_t, const geom_t,
                                            const geom_t)> &selector,

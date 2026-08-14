@@ -87,9 +87,9 @@ int sideset_select_propagate(
   LocalSideTable lst;
   lst.fill(element_type);
 
-  const int nnxs = elem_num_nodes(side_type(element_type));
-  const enum ElemType st = side_type(element_type);
-  const int side_dim = elem_manifold_dim(st);
+  const int side_dim = elem_manifold_dim(elem_sides_homogeneous(element_type)
+                                             ? side_type(element_type)
+                                             : TRI3);
   const int min_shared = (side_dim == 1) ? 1 : 2;
 
   for (ptrdiff_t cursor = 0; cursor < queue_size; cursor++) {
@@ -98,6 +98,7 @@ int sideset_select_propagate(
 
     const element_idx_t e = parent_element[side];
     const i16 s = side_idx[side];
+    const int nnxs = lst.nnxs_side[s];
     for (int vn = 0; vn < nnxs; ++vn) {
       const idx_t vtx = elements[lst(s, vn)][e];
       const count_t beg = n2e_ptr[vtx];
@@ -113,11 +114,12 @@ int sideset_select_propagate(
             continue;
 
           const i16 ns = side_idx[nside];
+          const int nnxs_n = lst.nnxs_side[ns];
 
           // count shared nodes (edge adjacency requires >=2)
           int shared = 0;
           for (int a = 0; a < nnxs; ++a) {
-            for (int b = 0; b < nnxs; ++b) {
+            for (int b = 0; b < nnxs_n; ++b) {
               shared += (elements[lst(s, a)][e] == elements[lst(ns, b)][esp]);
             }
           }
@@ -149,22 +151,23 @@ int extract_nodeset_from_sideset(
     const element_idx_t *const SMESH_RESTRICT parent_element,
     const int16_t *const SMESH_RESTRICT side_idx, ptrdiff_t *n_nodes_out,
     idx_t **SMESH_RESTRICT nodes_out) {
-  const enum ElemType st = side_type(element_type);
-  const int nn = elem_num_nodes(st);
-
-  const ptrdiff_t n = nn * n_surf_elements;
-  idx_t *nodes = (idx_t *)SMESH_ALLOC(n * sizeof(idx_t));
+  const ptrdiff_t n_surf = n_surf_elements;
   LocalSideTable lst;
   lst.fill(element_type);
 
-#pragma omp parallel for
-  for (ptrdiff_t i = 0; i < n_surf_elements; i++) {
+  ptrdiff_t n = 0;
+  for (ptrdiff_t i = 0; i < n_surf; i++) {
+    n += lst.nnxs_side[side_idx[i]];
+  }
+  idx_t *nodes = (idx_t *)SMESH_ALLOC((size_t)n * sizeof(idx_t));
+
+  ptrdiff_t write = 0;
+  for (ptrdiff_t i = 0; i < n_surf; i++) {
     const ptrdiff_t e = parent_element[i];
     const int s = side_idx[i];
-
+    const int nn = lst.nnxs_side[s];
     for (int k = 0; k < nn; k++) {
-      idx_t node = elems[lst(s, k)][e];
-      nodes[i * nn + k] = node;
+      nodes[write++] = elems[lst(s, k)][e];
     }
   }
 
@@ -183,34 +186,28 @@ int extract_nodeset_from_sidesets(
     idx_t **SMESH_RESTRICT nodes_out) {
   ptrdiff_t n_nodes = 0;
   for (ptrdiff_t ss = 0; ss < n_sidesets; ss++) {
-    const enum ElemType st = side_type(element_type[ss]);
-    const int nn = elem_num_nodes(st);
-    n_nodes += n_surf_elements[ss] * nn;
+    LocalSideTable lst;
+    lst.fill(element_type[ss]);
+    for (ptrdiff_t i = 0; i < n_surf_elements[ss]; i++) {
+      n_nodes += lst.nnxs_side[side_idx[ss][i]];
+    }
   }
 
   idx_t *nodes = (idx_t *)SMESH_ALLOC((size_t)n_nodes * sizeof(idx_t));
   ptrdiff_t node_offset = 0;
 
   for (ptrdiff_t ss = 0; ss < n_sidesets; ss++) {
-    const enum ElemType st = side_type(element_type[ss]);
-    const int nn = elem_num_nodes(st);
-
-    const ptrdiff_t n = nn * n_surf_elements[ss];
     LocalSideTable lst;
     lst.fill(element_type[ss]);
 
-#pragma omp parallel for
     for (ptrdiff_t i = 0; i < n_surf_elements[ss]; i++) {
       const ptrdiff_t e = parent_element[ss][i];
       const int s = side_idx[ss][i];
-
+      const int nn = lst.nnxs_side[s];
       for (int k = 0; k < nn; k++) {
-        idx_t node = elems[ss][lst(s, k)][e];
-        nodes[node_offset + i * nn + k] = node;
+        nodes[node_offset++] = elems[ss][lst(s, k)][e];
       }
     }
-
-    node_offset += n;
   }
 
   *n_nodes_out = (ptrdiff_t)sort_and_unique(nodes, (size_t)n_nodes);
@@ -229,12 +226,12 @@ int extract_surface_from_sideset(
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT sides) {
   LocalSideTable lst;
   lst.fill(element_type);
-  const int nn = elem_num_nodes(side_type(element_type));
 
 #pragma omp parallel for
   for (ptrdiff_t i = 0; i < n_surf_elements; i++) {
     const ptrdiff_t e = parent_element[i];
     const int s = side_idx[i];
+    const int nn = lst.nnxs_side[s];
 
     for (int n = 0; n < nn; n++) {
       idx_t node = elems[lst(s, n)][e];

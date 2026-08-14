@@ -27,6 +27,8 @@ quad4_names = ("quad", "quad4", "QUAD4", "QUAD")
 quad9_names = ("quad9", "QUAD9", "quadshell9", "QUADSHELL9")
 tri3_names = ("tri", "tri3", "TRI3", "TRI")
 tri6_names = ("triangle6", "TRI6")
+wedge6_names = ("wedge", "wedge6", "WEDGE6", "WEDGE", "prism", "prism6")
+pyramid5_names = ("pyramid", "pyramid5", "PYRAMID5", "PYRAMID")
 
 try:
     geom_t
@@ -63,9 +65,169 @@ def read_simple_meta(path):
     return meta
 
 
+def parse_smesh_block_list(meta_path):
+    """Parse per-block name/type from smesh multi-block meta.yaml."""
+    blocks = []
+    if not os.path.exists(meta_path):
+        return blocks
+
+    current = None
+    in_blocks = False
+    with open(meta_path, "r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.rstrip("\n")
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped == "blocks:":
+                in_blocks = True
+                continue
+            if not in_blocks:
+                continue
+            if stripped.startswith("- name:"):
+                if current:
+                    blocks.append(current)
+                current = {"name": stripped.split(":", 1)[1].strip()}
+                continue
+            if current is None:
+                continue
+            if (
+                not line.startswith(" ")
+                and not line.startswith("\t")
+                and not stripped.startswith("-")
+                and ":" in stripped
+            ):
+                blocks.append(current)
+                current = None
+                in_blocks = False
+                continue
+            if ":" not in stripped or stripped.startswith("- "):
+                continue
+            key, value = stripped.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+            if key in ("name", "element_type", "cell_type", "elem_type"):
+                current[key] = value
+            elif key in ("elem_num_nodes", "n_elements"):
+                current[key] = int(value)
+    if current:
+        blocks.append(current)
+    return blocks
+
+
+def discover_block_dirs(mesh_folder):
+    blocks_root = os.path.join(mesh_folder, "blocks")
+    if not os.path.isdir(blocks_root):
+        return []
+    names = []
+    for name in sorted(os.listdir(blocks_root)):
+        folder = os.path.join(blocks_root, name)
+        if not os.path.isdir(folder):
+            continue
+        if detect_files(f"{folder}/i0.*", ["raw", "int16", "int32", "int64"]):
+            names.append(name)
+    return names
+
+
+def load_idx_from_folder(folder, verbose=False):
+    idx = []
+    for i in range(0, max_nodes_x_element):
+        path = detect_files(
+            f"{folder}/i{i}.*", ["raw", "int16", "int32", "int64"]
+        )
+        if len(path) == 0:
+            break
+        path = path[0]
+        dtype = extension_to_dtype(extension(path))
+        if os.path.exists(path):
+            if verbose:
+                print(f"Reading {path}")
+            idx.append(np.fromfile(path, dtype=dtype))
+    return idx
+
+
+def resolve_meshio_cell_type(cell_type, nnodes, n_spatial_dim):
+    reorder = None
+    if cell_type in quad4_names:
+        cell_type = "quad"
+    if cell_type in quad9_names:
+        cell_type = "quad9"
+    if cell_type in hex8_names:
+        cell_type = "hexahedron"
+    if cell_type in hex27_names:
+        cell_type = "hexahedron27"
+    elif cell_type in proteus_hex27_names:
+        cell_type = "hexahedron27"
+        reorder = proteus_hex27_to_hexahedron27
+    if cell_type in tet4_names:
+        cell_type = "tetra"
+    if cell_type in tet10_names:
+        cell_type = "tetra10"
+    if cell_type in tri3_names:
+        cell_type = "triangle"
+    if cell_type in tri6_names:
+        cell_type = "triangle6"
+    if cell_type in wedge6_names:
+        cell_type = "wedge"
+    if cell_type in pyramid5_names:
+        cell_type = "pyramid"
+
+    if cell_type is None:
+        if nnodes == 3:
+            cell_type = "triangle"
+        elif nnodes == 6:
+            cell_type = "triangle6"
+        elif nnodes == 9:
+            cell_type = "quad9"
+        elif nnodes == 4:
+            cell_type = "quad" if n_spatial_dim == 2 else "tetra"
+        elif nnodes == 5:
+            cell_type = "pyramid"
+        elif nnodes == 8:
+            cell_type = "hexahedron"
+        elif nnodes == 27:
+            cell_type = "hexahedron27"
+        elif nnodes == 10:
+            cell_type = "tetra10"
+        elif nnodes == 2:
+            cell_type = "line"
+        elif nnodes == 1:
+            cell_type = "vertex"
+
+    if cell_type == "quad" and nnodes == 9:
+        cell_type = "quad9"
+    elif cell_type == "triangle" and nnodes == 6:
+        cell_type = "triangle6"
+    elif cell_type == "tetra" and nnodes == 10:
+        cell_type = "tetra10"
+    elif cell_type == "hexahedron" and nnodes == 27:
+        cell_type = "hexahedron27"
+
+    return cell_type, reorder
+
+
+def connectivity_to_cell_block(idx, cell_type, n_spatial_dim, verbose=False):
+    mio, reorder = resolve_meshio_cell_type(cell_type, len(idx), n_spatial_dim)
+    if mio is None:
+        raise RuntimeError(
+            f"unable to infer cell type from {len(idx)} connectivity streams"
+        )
+    cell_indices = np.array(idx).transpose()
+    if reorder is not None:
+        cell_indices = cell_indices[:, reorder]
+    if mio == "hexahedron27":
+        cell_indices = cell_indices[:, exodus_hex27_to_vtk_hex27]
+        if verbose:
+            print("Applied Exodus HEX27 -> VTK face-center node permutation")
+    return mio, cell_indices
+
+
 def element_type_from_meta(folder):
     meta_path = os.path.join(folder, "meta.yaml")
     meta = read_simple_meta(meta_path)
+    n_blocks = int(meta["n_blocks"]) if meta.get("n_blocks") else 0
+    if n_blocks > 1:
+        return None, meta, meta_path
     for key in ("element_type", "cell_type", "elem_type"):
         if key in meta and meta[key]:
             return meta[key], meta, meta_path
@@ -374,118 +536,65 @@ def raw_to_db(argv):
                 x = np.fromfile(path, dtype=dtype)
                 points.append(x)
 
-    idx = []
-    for i in range(0, max_nodes_x_element):
-        path = detect_files(
-            f"{raw_mesh_folder}/i{i}.*", ["raw", "int16", "int32", "int64"]
-        )
-        if len(path) == 0:
-            break
+    n_spatial_dim = len(points)
+    block_specs = parse_smesh_block_list(mesh_meta_path)
+    spec_by_name = {spec["name"]: spec for spec in block_specs if "name" in spec}
+    block_names = discover_block_dirs(raw_mesh_folder)
 
-        path = path[0]
-        dtype = extension_to_dtype(extension(path))
-        if os.path.exists(path):
-            if verbose:
-                print(f"Reading {path}")
-            ii = np.fromfile(path, dtype=dtype)
-            idx.append(ii)
-
-    if mesh_meta and "elem_num_nodes" in mesh_meta and len(idx) > 0:
-        expected_nnodes = int(mesh_meta["elem_num_nodes"])
-        if len(idx) != expected_nnodes:
-            raise RuntimeError(
-                f"meta.yaml elem_num_nodes={expected_nnodes} "
-                f"but found {len(idx)} connectivity streams"
+    cells = []
+    block_sizes = []
+    if block_names:
+        cli_cell_type = cell_type
+        for name in block_names:
+            folder = os.path.join(raw_mesh_folder, "blocks", name)
+            idx = load_idx_from_folder(folder, verbose)
+            if not idx:
+                print(f"Error: no connectivity in {folder}")
+                sys.exit(1)
+            spec = spec_by_name.get(name, {})
+            et = spec.get("element_type") or spec.get("cell_type") or spec.get(
+                "elem_type"
             )
+            if len(block_names) == 1 and cli_cell_type is not None:
+                et = cli_cell_type
+            if "elem_num_nodes" in spec and int(spec["elem_num_nodes"]) != len(idx):
+                raise RuntimeError(
+                    f"block '{name}' elem_num_nodes={spec['elem_num_nodes']} "
+                    f"but found {len(idx)} connectivity streams"
+                )
+            mio, cell_indices = connectivity_to_cell_block(
+                idx, et, n_spatial_dim, verbose
+            )
+            print(f"block '{name}': numnodes = {len(idx)} -> {mio}")
+            cells.append((mio, cell_indices))
+            block_sizes.append(cell_indices.shape[0])
+    else:
+        idx = load_idx_from_folder(raw_mesh_folder, verbose)
+        if mesh_meta and "elem_num_nodes" in mesh_meta and len(idx) > 0:
+            expected_nnodes = int(mesh_meta["elem_num_nodes"])
+            if len(idx) != expected_nnodes:
+                raise RuntimeError(
+                    f"meta.yaml elem_num_nodes={expected_nnodes} "
+                    f"but found {len(idx)} connectivity streams"
+                )
+        if not idx:
+            print(f"Error: no connectivity in {raw_mesh_folder}")
+            sys.exit(1)
+        mio, cell_indices = connectivity_to_cell_block(
+            idx, cell_type, n_spatial_dim, verbose
+        )
+        print(f"numnodes = {len(idx)} -> {mio}")
+        cells.append((mio, cell_indices))
+        block_sizes.append(cell_indices.shape[0])
 
-    if cell_type in quad4_names:
-        cell_type = "quad"
-
-    if cell_type in quad9_names:
-        cell_type = "quad9"
-
-    if cell_type in hex8_names:
-        cell_type = "hexahedron"
-
-    reorder = None
-    if cell_type in hex27_names:
-        cell_type = "hexahedron27"
-    elif cell_type in proteus_hex27_names:
-        cell_type = "hexahedron27"
-        reorder = proteus_hex27_to_hexahedron27
-
-    if cell_type in tet4_names:
-        cell_type = "tetra"
-
-    if cell_type in tet10_names:
-        cell_type = "tetra10"
-
-    if cell_type in tri3_names:
-        cell_type = "triangle"
-
-    if cell_type in tri6_names:
-        cell_type = "triangle6"
-
-    # Do I need to do that?
-    # if ssref > 1:
-    #     # Convert ssmesh to standard mesh or to high-order rep
-    #     assert cell_type != None
-
-    #     if cell_type == "quad":
-    #         idx, points = ssquad4_to_standard(ssref, idx, points)
-    #     elif cell_type == "hexahedron"
-    #         # Implement me!
-    #         assert False
-
-    if cell_type == None:
-        if len(idx) == 3:
-            cell_type = "triangle"
-        elif len(idx) == 6:
-            cell_type = "triangle6"
-        elif len(idx) == 9:
-            cell_type = "quad9"
-        elif len(idx) == 4:
-            if len(points) == 2:
-                cell_type = "quad"
-            else:
-                cell_type = "tetra"
-        elif len(idx) == 8:
-            cell_type = "hexahedron"
-        elif len(idx) == 27:
-            cell_type = "hexahedron27"
-        elif len(idx) == 10:
-            cell_type = "tetra10"
-        elif len(idx) == 2:
-            cell_type = "line"
-        elif len(idx) == 1:
-            cell_type = "vertex"
-
-    if cell_type == "quad" and len(idx) == 9:
-        cell_type = "quad9"
-    elif cell_type == "triangle" and len(idx) == 6:
-        cell_type = "triangle6"
-    elif cell_type == "tetra" and len(idx) == 10:
-        cell_type = "tetra10"
-    elif cell_type == "hexahedron" and len(idx) == 27:
-        cell_type = "hexahedron27"
-
-    print(f"numnodes = {len(idx)} -> {cell_type}")
     n_points = len(points[0])
-    n_cells = len(idx[0])
+    n_cells = int(sum(block_sizes))
 
     if n_points == 0 or n_cells == 0:
         print(f"Warning empty database at {raw_mesh_folder}")
         return
 
     points = np.array(points).transpose()
-    cell_indices = np.array(idx).transpose()
-    if reorder is not None:
-        cell_indices = cell_indices[:, reorder]
-    if cell_type == "hexahedron27":
-        cell_indices = cell_indices[:, exodus_hex27_to_vtk_hex27]
-        if verbose:
-            print("Applied Exodus HEX27 -> VTK face-center node permutation")
-    cells = [(cell_type, cell_indices)]
 
     if transient:
         print("Transient mode!")
@@ -504,7 +613,22 @@ def raw_to_db(argv):
         mesh = meshio.Mesh(points, cells)
 
         add_fields(point_data, mesh.point_data, n_points)
-        add_fields(cell_data, mesh.cell_data, n_cells)
+        if len(block_sizes) == 1:
+            add_fields(cell_data, mesh.cell_data, n_cells)
+        elif cell_data:
+            raw_cell = {}
+            add_fields(cell_data, raw_cell, n_cells)
+            for name, data in raw_cell.items():
+                split = []
+                offset = 0
+                for sz in block_sizes:
+                    split.append(data[offset : offset + sz])
+                    offset += sz
+                mesh.cell_data[name] = split
+        if len(block_sizes) > 1:
+            mesh.cell_data["block"] = [
+                np.full(sz, i, dtype=np.int32) for i, sz in enumerate(block_sizes)
+            ]
 
         if is_exodus_output(output_path) and verbose:
             print(

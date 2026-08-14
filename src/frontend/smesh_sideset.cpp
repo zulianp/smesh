@@ -187,16 +187,8 @@ namespace smesh {
             return create_from_selector(coarse, selector, block_names);
         }
 
-        const int     dim          = mesh->spatial_dimension();
-        auto          points       = mesh->points()->data();
-        enum ElemType element_type = mesh->element_type(0);
-
-        const enum ElemType st   = side_type(element_type);
-        const int           nnxs = elem_num_nodes(st);
-        const int           ns   = elem_num_sides(element_type);
-
-        LocalSideTable lst;
-        lst.fill(element_type);
+        const int dim    = mesh->spatial_dimension();
+        auto      points = mesh->points()->data();
 
         size_t                                n_blocks = mesh->n_blocks();
         std::vector<std::shared_ptr<Sideset>> sidesets;
@@ -207,6 +199,11 @@ namespace smesh {
                 std::find(block_names.begin(), block_names.end(), block->name()) == block_names.end()) {
                 continue;
             }
+
+            const enum ElemType element_type = block->element_type();
+            const int           ns           = elem_num_sides(element_type);
+            LocalSideTable      lst;
+            lst.fill(element_type);
 
             const ptrdiff_t nelements = block->n_elements();
             auto            elements  = block->elements()->data();
@@ -266,7 +263,7 @@ namespace smesh {
                     // Barycenter of face
                     double p[3] = {0, 0, 0};
 
-                    for (int ln = 0; ln < nnxs; ln++) {
+                    for (int ln = 0; ln < lst.nnxs_side[s]; ln++) {
                         const idx_t node = elements[lst(s, ln)][e];
 
                         for (int d = 0; d < dim; d++) {
@@ -275,7 +272,7 @@ namespace smesh {
                     }
 
                     for (int d = 0; d < dim; d++) {
-                        p[d] /= nnxs;
+                        p[d] /= lst.nnxs_side[s];
                     }
 
                     if (selector(p[0], p[1], p[2])) {
@@ -329,16 +326,8 @@ namespace smesh {
             return create_from_batch_selector(coarse, selector, block_names);
         }
 
-        const int     dim          = mesh->spatial_dimension();
-        auto          points       = mesh->points()->data();
-        enum ElemType element_type = mesh->element_type(0);
-
-        const enum ElemType st   = side_type(element_type);
-        const int           nnxs = elem_num_nodes(st);
-        const int           ns   = elem_num_sides(element_type);
-
-        LocalSideTable lst;
-        lst.fill(element_type);
+        const int dim    = mesh->spatial_dimension();
+        auto      points = mesh->points()->data();
 
         size_t                                n_blocks = mesh->n_blocks();
         std::vector<std::shared_ptr<Sideset>> sidesets;
@@ -349,6 +338,11 @@ namespace smesh {
                 std::find(block_names.begin(), block_names.end(), block->name()) == block_names.end()) {
                 continue;
             }
+
+            const enum ElemType element_type = block->element_type();
+            const int           ns           = elem_num_sides(element_type);
+            LocalSideTable      lst;
+            lst.fill(element_type);
 
             const ptrdiff_t nelements = block->n_elements();
             auto            elements  = block->elements()->data();
@@ -380,7 +374,7 @@ namespace smesh {
                         for (int s = 0; s < ns; s++) {
                             geom_t p[3] = {0, 0, 0};
 
-                            for (int ln = 0; ln < nnxs; ln++) {
+                            for (int ln = 0; ln < lst.nnxs_side[s]; ln++) {
                                 const idx_t node = elements[lst(s, ln)][e + b];
 
                                 for (int d = 0; d < dim; d++) {
@@ -389,7 +383,7 @@ namespace smesh {
                             }
 
                             for (int d = 0; d < dim; d++) {
-                                p[d] /= nnxs;
+                                p[d] /= lst.nnxs_side[s];
                             }
 
                             const ptrdiff_t idx = b * ns + s;
@@ -738,10 +732,20 @@ namespace smesh {
         }
 
         auto block = mesh->block(sideset->block_id());
-        auto st    = shell_type(side_type(block->element_type()));
-        int  nnxs  = elem_num_nodes(st);
+        const ptrdiff_t n_surf = sideset->parent()->size();
+        enum ElemType   face_st = INVALID;
+        int             nnxs    = 0;
+        if (n_surf > 0) {
+            face_st = shell_type(side_type(block->element_type(), sideset->lfi()->data()[0]));
+            nnxs    = elem_num_nodes(face_st);
+        } else if (elem_sides_homogeneous(block->element_type())) {
+            face_st = shell_type(side_type(block->element_type()));
+            nnxs    = elem_num_nodes(face_st);
+        } else {
+            return {INVALID, nullptr};
+        }
 
-        auto surface = smesh::create_host_buffer<idx_t>(nnxs, sideset->parent()->size());
+        auto surface = smesh::create_host_buffer<idx_t>(nnxs, n_surf);
 
         if (extract_surface_from_sideset(block->element_type(),
                                          block->elements()->data(),
@@ -755,7 +759,7 @@ namespace smesh {
         // printf("Type: %s->%s\n", type_to_string(block->element_type()),
         // type_to_string(st)); surface->print();
 
-        return {st, surface};
+        return {face_st, surface};
     }
 
     std::shared_ptr<Buffer<idx_t>> create_nodeset_from_sideset_semistructured(const std::shared_ptr<Mesh>    &ss,

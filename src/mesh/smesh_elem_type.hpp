@@ -32,6 +32,7 @@ namespace smesh {
         TET20           = 20,
         HEX8            = 8,
         HEX27           = 27,
+        PYRAMID5        = 1005,
         WEDGE6          = 1006,
         MACRO           = 200,
         MACRO_TRI3      = (MACRO + TRI3),
@@ -93,6 +94,7 @@ namespace smesh {
         if (!strcmp(str, "TRI6")) return TRI6;
         if (!strcmp(str, "TRI10")) return TRI10;
         if (!strcmp(str, "TRISHELL3")) return TRISHELL3;
+        if (!strcmp(str, "PYRAMID5")) return PYRAMID5;
         if (!strcmp(str, "WEDGE6")) return WEDGE6;
         if (!strcmp(str, "QUAD4")) return QUAD4;
         if (!strcmp(str, "QUAD9")) return QUAD9;
@@ -164,6 +166,8 @@ namespace smesh {
                 return "TRI3";
             case TRISHELL3:
                 return "TRISHELL3";
+            case PYRAMID5:
+                return "PYRAMID5";
             case WEDGE6:
                 return "WEDGE6";
             case QUAD4:
@@ -344,6 +348,30 @@ namespace smesh {
         }
     }
 
+    inline bool elem_sides_homogeneous(const enum ElemType type) {
+        switch (type) {
+            case WEDGE6:
+            case PYRAMID5:
+                return false;
+            default:
+                return true;
+        }
+    }
+
+    /// Per-side face type. WEDGE6/PYRAMID5 mix TRI3 and QUAD4; homogeneous types
+    /// ignore \c s and match \c side_type(type).
+    inline enum ElemType side_type(const enum ElemType type, const int s) {
+        switch (type) {
+            case WEDGE6:
+                return (s < 3) ? QUAD4 : TRI3;
+            case PYRAMID5:
+                return (s < 4) ? TRI3 : QUAD4;
+            default:
+                (void)s;
+                return side_type(type);
+        }
+    }
+
     inline enum ElemType shell_type(const enum ElemType type) {
         switch (type) {
             case TRI3:
@@ -506,6 +534,8 @@ namespace smesh {
                 return 3;
             case TRISHELL6:
                 return 6;
+            case PYRAMID5:
+                return 5;
             case WEDGE6:
                 return 6;
             case QUAD4:
@@ -638,6 +668,8 @@ namespace smesh {
                 return 4;
             case TET4:
                 return 4;
+            case PYRAMID5:
+                return 5;
             case WEDGE6:
                 return 5;
             case TRI6:
@@ -702,6 +734,8 @@ namespace smesh {
                 return 2;
             case TET4:
                 return 3;
+            case PYRAMID5:
+                return 3;
             case WEDGE6:
                 return 3;
             case TRI6:
@@ -746,6 +780,19 @@ namespace smesh {
                 SMESH_ERROR("No manifold dimension found for type: %s\n", type_to_string(type));
                 return INVALID;
             }
+        }
+    }
+
+    /// True if \c overlap is the node count of some side of \c type.
+    inline bool elem_overlap_is_full_side(const enum ElemType type, const int overlap) {
+        switch (type) {
+            case WEDGE6:
+            case PYRAMID5:
+                return overlap == 3 || overlap == 4;
+            case TET10:
+                return overlap == 3;
+            default:
+                return overlap == elem_num_nodes(side_type(type));
         }
     }
 

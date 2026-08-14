@@ -15,6 +15,7 @@
 #include "smesh_distributed_base.hpp"
 #include "smesh_dual_graph.hpp"
 #include "smesh_mesh.hpp"
+#include "smesh_semistructured.hpp"
 #include "smesh_sfc.hpp"
 #include "smesh_sideset.hpp"
 #include "smesh_test.hpp"
@@ -53,6 +54,18 @@ static void append_element_edges(const enum ElemType type, idx_t **elems,
     static const int tri3_edges[3][2] = {{0, 1}, {1, 2}, {2, 0}};
     for (int k = 0; k < 3; ++k) {
       push(elems[tri3_edges[k][0]][e], elems[tri3_edges[k][1]][e]);
+    }
+  } else if (type == WEDGE6) {
+    static const int wedge6_edges[9][2] = {
+        {0, 1}, {1, 2}, {2, 0}, {3, 4}, {4, 5}, {5, 3}, {0, 3}, {1, 4}, {2, 5}};
+    for (int k = 0; k < 9; ++k) {
+      push(elems[wedge6_edges[k][0]][e], elems[wedge6_edges[k][1]][e]);
+    }
+  } else if (type == PYRAMID5) {
+    static const int pyramid5_edges[8][2] = {
+        {0, 1}, {1, 2}, {2, 3}, {3, 0}, {0, 4}, {1, 4}, {2, 4}, {3, 4}};
+    for (int k = 0; k < 8; ++k) {
+      push(elems[pyramid5_edges[k][0]][e], elems[pyramid5_edges[k][1]][e]);
     }
   }
 }
@@ -336,6 +349,127 @@ static int test_serial_extrude_vs_single_block() {
   SMESH_TEST_EQ(static_cast<int>(multi_e->n_blocks()), 2);
   SMESH_TEST_EQ(multi_e->element_type(0), HEX8);
   SMESH_TEST_EQ(multi_e->element_type(1), HEX8);
+
+  return SMESH_TEST_SUCCESS;
+}
+
+static std::shared_ptr<Mesh> create_n_wedge6(const ptrdiff_t n_e) {
+  auto points = create_host_buffer<geom_t>(3, n_e * 6);
+  auto elems = create_host_buffer<idx_t>(6, n_e);
+  for (ptrdiff_t e = 0; e < n_e; ++e) {
+    for (int d = 0; d < 6; ++d) {
+      const idx_t node = static_cast<idx_t>(e * 6 + d);
+      elems->data()[d][e] = node;
+      points->data()[0][node] = static_cast<geom_t>(d % 3);
+      points->data()[1][node] = static_cast<geom_t>(d / 3);
+      points->data()[2][node] = static_cast<geom_t>(e);
+    }
+  }
+  std::vector<std::shared_ptr<Mesh::Block>> blocks;
+  blocks.push_back(std::make_shared<Mesh::Block>("wedge", WEDGE6, elems));
+  return std::make_shared<Mesh>(Communicator::self(), blocks, points);
+}
+
+static std::shared_ptr<Mesh> create_n_pyramid5(const ptrdiff_t n_e) {
+  auto points = create_host_buffer<geom_t>(3, n_e * 5);
+  auto elems = create_host_buffer<idx_t>(5, n_e);
+  for (ptrdiff_t e = 0; e < n_e; ++e) {
+    for (int d = 0; d < 5; ++d) {
+      const idx_t node = static_cast<idx_t>(e * 5 + d);
+      elems->data()[d][e] = node;
+      points->data()[0][node] = static_cast<geom_t>(d);
+      points->data()[1][node] = static_cast<geom_t>(e);
+      points->data()[2][node] = 0;
+    }
+  }
+  std::vector<std::shared_ptr<Mesh::Block>> blocks;
+  blocks.push_back(std::make_shared<Mesh::Block>("pyramid", PYRAMID5, elems));
+  return std::make_shared<Mesh>(Communicator::self(), blocks, points);
+}
+
+static int test_serial_hex_dominant() {
+  auto mesh = Mesh::create_hex_dominant_serial(Communicator::self());
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  SMESH_TEST_EQ(static_cast<int>(mesh->n_blocks()), 4);
+  SMESH_TEST_EQ(mesh->n_nodes(), static_cast<ptrdiff_t>(12));
+  SMESH_TEST_EQ(mesh->element_type(0), HEX8);
+  SMESH_TEST_EQ(mesh->element_type(1), PYRAMID5);
+  SMESH_TEST_EQ(mesh->element_type(2), TET4);
+  SMESH_TEST_EQ(mesh->element_type(3), WEDGE6);
+  SMESH_TEST_EQ(mesh->n_elements(0), static_cast<ptrdiff_t>(1));
+  SMESH_TEST_EQ(mesh->n_elements(1), static_cast<ptrdiff_t>(1));
+  SMESH_TEST_EQ(mesh->n_elements(2), static_cast<ptrdiff_t>(1));
+  SMESH_TEST_EQ(mesh->n_elements(3), static_cast<ptrdiff_t>(1));
+
+  SMESH_TEST_EQ(check_half_face_tables(*mesh, 1), SMESH_TEST_SUCCESS);
+
+  auto hex_hft = mesh->half_face_table(0);
+  auto hex_hnb = mesh->half_face_neighbor_block(0);
+  SMESH_TEST_EQ(hex_hnb->data()[0], static_cast<block_idx_t>(3));
+  SMESH_TEST_EQ(hex_hft->data()[0], static_cast<element_idx_t>(0));
+  SMESH_TEST_EQ(hex_hnb->data()[1], static_cast<block_idx_t>(1));
+  SMESH_TEST_EQ(hex_hft->data()[1], static_cast<element_idx_t>(0));
+
+  auto pyr_hft = mesh->half_face_table(1);
+  auto pyr_hnb = mesh->half_face_neighbor_block(1);
+  SMESH_TEST_EQ(pyr_hnb->data()[0], static_cast<block_idx_t>(2));
+  SMESH_TEST_EQ(pyr_hft->data()[0], static_cast<element_idx_t>(0));
+  SMESH_TEST_EQ(pyr_hnb->data()[4], static_cast<block_idx_t>(0));
+  SMESH_TEST_EQ(pyr_hft->data()[4], static_cast<element_idx_t>(0));
+
+  auto edge = mesh->edge_graph();
+  SMESH_TEST_ASSERT(edge != nullptr);
+  SMESH_TEST_EQ(edge->nnz(), count_unique_mesh_edges(*mesh));
+
+  auto skins = skin_sidesets(mesh);
+  SMESH_TEST_ASSERT(!skins.empty());
+  int n_ss_block[4] = {0, 0, 0, 0};
+  int n_tri_ss = 0;
+  int n_quad_ss = 0;
+  for (const auto &ss : skins) {
+    SMESH_TEST_ASSERT(ss != nullptr);
+    const block_idx_t bid = ss->block_id();
+    SMESH_TEST_ASSERT(bid >= 0 && bid < 4);
+    n_ss_block[bid]++;
+    if (ss->size() == 0) {
+      continue;
+    }
+    const enum ElemType et = mesh->element_type(bid);
+    const enum ElemType st0 = side_type(et, ss->lfi()->data()[0]);
+    for (ptrdiff_t i = 0; i < ss->size(); ++i) {
+      SMESH_TEST_EQ(side_type(et, ss->lfi()->data()[i]), st0);
+    }
+    if (st0 == TRI3) {
+      n_tri_ss++;
+    } else if (st0 == QUAD4) {
+      n_quad_ss++;
+    }
+  }
+  SMESH_TEST_EQ(n_ss_block[0], 1);
+  SMESH_TEST_EQ(n_ss_block[2], 1);
+  SMESH_TEST_ASSERT(n_ss_block[1] >= 1);
+  SMESH_TEST_ASSERT(n_ss_block[3] >= 1);
+  SMESH_TEST_ASSERT(n_tri_ss >= 1);
+  SMESH_TEST_ASSERT(n_quad_ss >= 1);
+
+  auto wedges = create_n_wedge6(2);
+  auto wedge_tets = convert_to(TET4, wedges);
+  SMESH_TEST_ASSERT(wedge_tets != nullptr);
+  SMESH_TEST_EQ(wedge_tets->n_elements(), static_cast<ptrdiff_t>(6));
+  auto wt = wedge_tets->elements(0)->data();
+  SMESH_TEST_EQ(wt[0][0], static_cast<idx_t>(0));
+  SMESH_TEST_EQ(wt[0][3], static_cast<idx_t>(6));
+
+  auto pyramids = create_n_pyramid5(2);
+  auto pyr_tets = convert_to(TET4, pyramids);
+  SMESH_TEST_ASSERT(pyr_tets != nullptr);
+  SMESH_TEST_EQ(pyr_tets->n_elements(), static_cast<ptrdiff_t>(4));
+  auto pt = pyr_tets->elements(0)->data();
+  SMESH_TEST_EQ(pt[0][0], static_cast<idx_t>(0));
+  SMESH_TEST_EQ(pt[0][2], static_cast<idx_t>(5));
+
+  auto ss = to_semistructured(2, mesh);
+  SMESH_TEST_ASSERT(ss == nullptr);
 
   return SMESH_TEST_SUCCESS;
 }
@@ -864,6 +998,7 @@ int main(int argc, char **argv) {
   SMESH_RUN_TEST(test_serial_transforms);
   SMESH_RUN_TEST(test_serial_promote_refine_vs_single_block);
   SMESH_RUN_TEST(test_serial_extrude_vs_single_block);
+  SMESH_RUN_TEST(test_serial_hex_dominant);
 #ifdef SMESH_ENABLE_MPI
   SMESH_RUN_TEST(test_mpi_sideset_redistribute_checkerboard);
   SMESH_RUN_TEST(test_mpi_skin_sidesets_checkerboard);

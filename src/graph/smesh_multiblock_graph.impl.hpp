@@ -356,7 +356,6 @@ int create_multiblock_dual_graph_from_n2e(
   block_base[n_blocks] = global_base;
 
   int *nnodesxelem = (int *)SMESH_ALLOC(n_blocks * sizeof(int));
-  int *nnodesxside = (int *)SMESH_ALLOC(n_blocks * sizeof(int));
   int *nsides = (int *)SMESH_ALLOC(n_blocks * sizeof(int));
 
   ptrdiff_t n_overestimated_connections = 0;
@@ -370,7 +369,6 @@ int create_multiblock_dual_graph_from_n2e(
 
     nsides[b] = elem_num_sides(element_type_for_algo);
     nnodesxelem[b] = elem_num_nodes(element_type_for_algo);
-    nnodesxside[b] = elem_num_nodes(side_type(element_type_for_algo));
 
     n_overestimated_connections += n_elements[b] * nsides[b];
   }
@@ -432,7 +430,6 @@ int create_multiblock_dual_graph_from_n2e(
 
       connection_counter[static_cast<ptrdiff_t>(g)] = 0;
 
-      const int required_src = nnodesxside[b];
       int actual_count = 0;
 
       for (int ec = 0; ec < count_common; ++ec) {
@@ -441,7 +438,8 @@ int create_multiblock_dual_graph_from_n2e(
         const int overlap = connection_counter[g_adj_p];
         const block_idx_t b_adj = blist[ec];
 
-        if (overlap == required_src && overlap == nnodesxside[b_adj]) {
+        if (elem_overlap_is_full_side(element_types[b], overlap) &&
+            elem_overlap_is_full_side(element_types[b_adj], overlap)) {
           elist[actual_count] = g_adj - block_base[b_adj];
           blist[actual_count] = b_adj;
           ++actual_count;
@@ -456,7 +454,6 @@ int create_multiblock_dual_graph_from_n2e(
 
   SMESH_FREE(block_base);
   SMESH_FREE(nnodesxelem);
-  SMESH_FREE(nnodesxside);
   SMESH_FREE(nsides);
   SMESH_FREE(connection_counter);
 
@@ -504,8 +501,6 @@ int create_multiblock_half_face_table_for_block(
   LocalSideTable lst_src;
   lst_src.fill(element_type);
 
-  const enum ElemType st = side_type(element_type);
-  const int nn_src = elem_num_nodes(st);
   const int ns_src = elem_num_sides(element_type);
   const ptrdiff_t n_block_elements = n_elements[target_block];
   const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems_src =
@@ -518,14 +513,12 @@ int create_multiblock_half_face_table_for_block(
 
   std::vector<LocalSideTable> lst_blocks(n_blocks);
   std::vector<int> ns_blocks(n_blocks);
-  std::vector<int> nn_blocks(n_blocks);
   for (block_idx_t b = 0; b < n_blocks; ++b) {
     enum ElemType et =
         element_type_for_adjacency<idx_t, count_t, element_idx_t>(
             element_types[b]);
     lst_blocks[b].fill(et);
     ns_blocks[b] = elem_num_sides(et);
-    nn_blocks[b] = elem_num_nodes(side_type(et));
   }
 
 #pragma omp parallel
@@ -552,10 +545,11 @@ int create_multiblock_half_face_table_for_block(
         neighbor_block[static_cast<size_t>(e) * static_cast<size_t>(ns_src) +
                        static_cast<size_t>(s1)] = target_block;
 
-        for (int j = 0; j < nn_src; ++j) {
+        const int nn1 = lst_src.nnxs_side[s1];
+        for (int j = 0; j < nn1; ++j) {
           nodes1[j] = elems_src[lst_src(s1, j)][e];
         }
-        std::sort(nodes1, nodes1 + nn_src);
+        std::sort(nodes1, nodes1 + nn1);
 
         for (count_t k = 0; k < range; ++k) {
           if (assigned[k]) {
@@ -568,20 +562,19 @@ int create_multiblock_half_face_table_for_block(
               elems[b_adj];
           const LocalSideTable &lst_adj = lst_blocks[b_adj];
           const int ns_adj = ns_blocks[b_adj];
-          const int nn_adj = nn_blocks[b_adj];
 
           for (int s2 = 0; s2 < ns_adj; ++s2) {
-            for (int j = 0; j < nn_adj; ++j) {
-              nodes2[j] = elems_adj[lst_adj(s2, j)][e_adj];
-            }
-            std::sort(nodes2, nodes2 + nn_adj);
-
-            if (nn_adj != nn_src) {
+            const int nn2 = lst_adj.nnxs_side[s2];
+            if (nn2 != nn1) {
               continue;
             }
+            for (int j = 0; j < nn2; ++j) {
+              nodes2[j] = elems_adj[lst_adj(s2, j)][e_adj];
+            }
+            std::sort(nodes2, nodes2 + nn2);
 
             int diffs = 0;
-            for (int j = 0; j < nn_src; ++j) {
+            for (int j = 0; j < nn1; ++j) {
               diffs += nodes1[j] != nodes2[j];
             }
 
@@ -691,6 +684,36 @@ int create_multiblock_edge_graph_from_n2e(
               n2nbuff[nneighs++] = n0;
             }
           }
+        } else if (element_type == WEDGE6) {
+          static int wedge6_edges[9][2] = {{0, 1}, {1, 2}, {2, 0}, {3, 4}, {4, 5},
+                                           {5, 3}, {0, 3}, {1, 4}, {2, 5}};
+          for (int e = 0; e < 9; ++e) {
+            const idx_t n0 = block_elems[wedge6_edges[e][0]][eidx];
+            const idx_t n1 = block_elems[wedge6_edges[e][1]][eidx];
+            if (n0 == static_cast<idx_t>(node) && static_cast<ptrdiff_t>(n1) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = n1;
+            }
+            if (n1 == static_cast<idx_t>(node) && static_cast<ptrdiff_t>(n0) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = n0;
+            }
+          }
+        } else if (element_type == PYRAMID5) {
+          static int pyramid5_edges[8][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0},
+                                             {0, 4}, {1, 4}, {2, 4}, {3, 4}};
+          for (int e = 0; e < 8; ++e) {
+            const idx_t n0 = block_elems[pyramid5_edges[e][0]][eidx];
+            const idx_t n1 = block_elems[pyramid5_edges[e][1]][eidx];
+            if (n0 == static_cast<idx_t>(node) && static_cast<ptrdiff_t>(n1) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = n1;
+            }
+            if (n1 == static_cast<idx_t>(node) && static_cast<ptrdiff_t>(n0) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = n0;
+            }
+          }
         } else {
           SMESH_ERROR(
               "create_multiblock_edge_graph_from_n2e: unsupported element "
@@ -774,6 +797,36 @@ int create_multiblock_edge_graph_from_n2e(
           for (int e = 0; e < 12; ++e) {
             const idx_t n0 = block_elems[hex8_edges[e][0]][eidx];
             const idx_t n1 = block_elems[hex8_edges[e][1]][eidx];
+            if (n0 == static_cast<idx_t>(node) && static_cast<ptrdiff_t>(n1) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = n1;
+            }
+            if (n1 == static_cast<idx_t>(node) && static_cast<ptrdiff_t>(n0) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = n0;
+            }
+          }
+        } else if (element_type == WEDGE6) {
+          static int wedge6_edges[9][2] = {{0, 1}, {1, 2}, {2, 0}, {3, 4}, {4, 5},
+                                           {5, 3}, {0, 3}, {1, 4}, {2, 5}};
+          for (int e = 0; e < 9; ++e) {
+            const idx_t n0 = block_elems[wedge6_edges[e][0]][eidx];
+            const idx_t n1 = block_elems[wedge6_edges[e][1]][eidx];
+            if (n0 == static_cast<idx_t>(node) && static_cast<ptrdiff_t>(n1) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = n1;
+            }
+            if (n1 == static_cast<idx_t>(node) && static_cast<ptrdiff_t>(n0) > node) {
+              SMESH_ASSERT(nneighs < 4096);
+              n2nbuff[nneighs++] = n0;
+            }
+          }
+        } else if (element_type == PYRAMID5) {
+          static int pyramid5_edges[8][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0},
+                                             {0, 4}, {1, 4}, {2, 4}, {3, 4}};
+          for (int e = 0; e < 8; ++e) {
+            const idx_t n0 = block_elems[pyramid5_edges[e][0]][eidx];
+            const idx_t n1 = block_elems[pyramid5_edges[e][1]][eidx];
             if (n0 == static_cast<idx_t>(node) && static_cast<ptrdiff_t>(n1) > node) {
               SMESH_ASSERT(nneighs < 4096);
               n2nbuff[nneighs++] = n1;

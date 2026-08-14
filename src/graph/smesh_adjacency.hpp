@@ -14,11 +14,33 @@ namespace smesh {
         static constexpr int MAX_NUM_SIDES          = 6;
         static constexpr int MAX_NUM_NODES_PER_SIDE = 9;
         int                  nnxs{-1};
+        int                  nnxs_side[MAX_NUM_SIDES];
         int                  table[MAX_NUM_SIDES * MAX_NUM_NODES_PER_SIDE];
 
+        inline int &operator()(const int side, const int node) {
+            return table[side * MAX_NUM_NODES_PER_SIDE + node];
+        }
+
+        inline int operator()(const int side, const int node) const {
+            return table[side * MAX_NUM_NODES_PER_SIDE + node];
+        }
+
+        inline void fill_side_arities(enum ElemType element_type) {
+            const int ns = elem_num_sides(element_type);
+            if (elem_sides_homogeneous(element_type)) {
+                this->nnxs = elem_num_nodes(side_type(element_type));
+                for (int s = 0; s < ns; ++s) {
+                    nnxs_side[s] = this->nnxs;
+                }
+            } else {
+                this->nnxs = -1;
+                for (int s = 0; s < ns; ++s) {
+                    nnxs_side[s] = elem_num_nodes(side_type(element_type, s));
+                }
+            }
+        }
+
         inline void fill(enum ElemType element_type) {
-            enum ElemType st = side_type(element_type);
-            this->nnxs       = elem_num_nodes(st);
             if (element_type == TET10 || element_type == TET4) {
                 (*this)(0, 0) = 1 - 1;
                 (*this)(0, 1) = 2 - 1;
@@ -179,14 +201,58 @@ namespace smesh {
                 (*this)(5, 1) = 6 - 1;
                 (*this)(5, 2) = 8 - 1;
                 (*this)(5, 3) = 7 - 1;
+            } else if (element_type == WEDGE6) {
+                // Exodus/VTK: bottom 0,1,2, top 3,4,5. Sides 0-2 QUAD4, 3-4 TRI3.
+                (*this)(0, 0) = 0;
+                (*this)(0, 1) = 1;
+                (*this)(0, 2) = 4;
+                (*this)(0, 3) = 3;
+
+                (*this)(1, 0) = 1;
+                (*this)(1, 1) = 2;
+                (*this)(1, 2) = 5;
+                (*this)(1, 3) = 4;
+
+                (*this)(2, 0) = 2;
+                (*this)(2, 1) = 0;
+                (*this)(2, 2) = 3;
+                (*this)(2, 3) = 5;
+
+                (*this)(3, 0) = 0;
+                (*this)(3, 1) = 1;
+                (*this)(3, 2) = 2;
+
+                (*this)(4, 0) = 3;
+                (*this)(4, 1) = 4;
+                (*this)(4, 2) = 5;
+            } else if (element_type == PYRAMID5) {
+                // Base 0,1,2,3 (HEX-compatible), apex 4. Sides 0-3 TRI3, side 4 QUAD4.
+                (*this)(0, 0) = 0;
+                (*this)(0, 1) = 1;
+                (*this)(0, 2) = 4;
+
+                (*this)(1, 0) = 1;
+                (*this)(1, 1) = 2;
+                (*this)(1, 2) = 4;
+
+                (*this)(2, 0) = 2;
+                (*this)(2, 1) = 3;
+                (*this)(2, 2) = 4;
+
+                (*this)(3, 0) = 3;
+                (*this)(3, 1) = 0;
+                (*this)(3, 2) = 4;
+
+                (*this)(4, 0) = 0;
+                (*this)(4, 1) = 1;
+                (*this)(4, 2) = 2;
+                (*this)(4, 3) = 3;
             } else {
                 SMESH_ERROR("fill_local_side_table: Unsupported element type: %s\n", type_to_string(element_type));
             }
+
+            fill_side_arities(element_type);
         }
-
-        inline int &operator()(const int side, const int node) { return table[side * nnxs + node]; }
-
-        inline int operator()(const int side, const int node) const { return table[side * nnxs + node]; }
     };
 
     template <typename idx_t, typename count_t, typename element_idx_t>
