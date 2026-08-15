@@ -932,7 +932,25 @@ namespace smesh {
             case PROTEUS_TET969:
                 return TET4;
             case QUAD4:
+            case QUADSHELL4:
             case PROTEUS_QUAD4:
+            case PROTEUS_QUAD9:
+            case PROTEUS_QUAD16:
+            case PROTEUS_QUAD25:
+            case PROTEUS_QUAD36:
+            case PROTEUS_QUAD49:
+            case PROTEUS_QUAD64:
+            case PROTEUS_QUAD81:
+            case PROTEUS_QUAD289:
+            case PROTEUS_QUADSHELL4:
+            case PROTEUS_QUADSHELL9:
+            case PROTEUS_QUADSHELL16:
+            case PROTEUS_QUADSHELL25:
+            case PROTEUS_QUADSHELL36:
+            case PROTEUS_QUADSHELL49:
+            case PROTEUS_QUADSHELL64:
+            case PROTEUS_QUADSHELL81:
+            case PROTEUS_QUADSHELL289:
                 return QUAD4;
             default:
                 return type;
@@ -942,6 +960,8 @@ namespace smesh {
     inline bool is_hex_ss_family(const enum ElemType type) { return ss_source_family(type) == HEX8; }
 
     inline bool is_tet_ss_family(const enum ElemType type) { return ss_source_family(type) == TET4; }
+
+    inline bool is_quad_ss_family(const enum ElemType type) { return ss_source_family(type) == QUAD4; }
 
     inline enum ElemType proteus_tet_type(const int micro_elements_per_dim) {
         switch (micro_elements_per_dim) {
@@ -969,6 +989,33 @@ namespace smesh {
         }
     }
 
+    inline enum ElemType proteus_quad_type(const int micro_elements_per_dim) {
+        switch (micro_elements_per_dim) {
+            case 1:
+                return PROTEUS_QUAD4;
+            case 2:
+                return PROTEUS_QUAD9;
+            case 3:
+                return PROTEUS_QUAD16;
+            case 4:
+                return PROTEUS_QUAD25;
+            case 5:
+                return PROTEUS_QUAD36;
+            case 6:
+                return PROTEUS_QUAD49;
+            case 7:
+                return PROTEUS_QUAD64;
+            case 8:
+                return PROTEUS_QUAD81;
+            case 16:
+                return PROTEUS_QUAD289;
+            default:
+                SMESH_ERROR("proteus_quad_type: Invalid element setup for proteus quad: %d",
+                            micro_elements_per_dim);
+                return INVALID;
+        }
+    }
+
     inline enum ElemType semistructured_type(const enum ElemType type, const int micro_elements_per_dim) {
         switch (type) {
             case HEX8: {
@@ -980,6 +1027,14 @@ namespace smesh {
             case TET4:
             case PROTEUS_TET4: {
                 return proteus_tet_type(micro_elements_per_dim);
+            }
+            case QUAD4:
+            case PROTEUS_QUAD4: {
+                return proteus_quad_type(micro_elements_per_dim);
+            }
+            case QUADSHELL4:
+            case PROTEUS_QUADSHELL4: {
+                return shell_type(proteus_quad_type(micro_elements_per_dim));
             }
             default: {
                 SMESH_ERROR("semistructured_type: Invalid element type %d", type);
@@ -1042,14 +1097,6 @@ namespace smesh {
         }
     }
 
-    /// Semi-structured refinement level encoded in Proteus types (e.g. PROTEUS_HEX27 -> 2).
-    inline int semistructured_level(const enum ElemType type) {
-        if (is_tet_ss_family(type) && is_semistructured_type(type)) {
-            return proteus_tet_micro_elements_per_dim(type);
-        }
-        return proteus_hex_micro_elements_per_dim(type);
-    }
-
     inline int proteus_quad_micro_elements_per_dim(const enum ElemType type) {
         switch (type) {
             case PROTEUS_QUAD4:
@@ -1093,6 +1140,17 @@ namespace smesh {
                 return INVALID;
             }
         }
+    }
+
+    /// Semi-structured refinement level encoded in Proteus types (e.g. PROTEUS_HEX27 -> 2).
+    inline int semistructured_level(const enum ElemType type) {
+        if (is_tet_ss_family(type) && is_semistructured_type(type)) {
+            return proteus_tet_micro_elements_per_dim(type);
+        }
+        if (is_quad_ss_family(type) && is_semistructured_type(type)) {
+            return proteus_quad_micro_elements_per_dim(type);
+        }
+        return proteus_hex_micro_elements_per_dim(type);
     }
 
     enum HEX8_Sides { HEX8_LEFT = 3, HEX8_RIGHT = 1, HEX8_BOTTOM = 4, HEX8_TOP = 5, HEX8_FRONT = 0, HEX8_BACK = 2 };

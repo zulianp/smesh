@@ -13,6 +13,14 @@ int ssquad4_to_standard_quad4_mesh(
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     idx_t *SMESH_RESTRICT *const SMESH_RESTRICT quad4_elements);
 
+template <typename idx_t, typename geom_t>
+int ssquad4_fill_points(const int                                                level,
+                        const ptrdiff_t                                          nelements,
+                        const int                                                n_dims,
+                        const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT  elements,
+                        const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT macro_mesh_points,
+                        geom_t *SMESH_RESTRICT *const SMESH_RESTRICT             points);
+
 } // namespace smesh
 
 #endif // SMESH_SSQUAD4_MESH_HPP

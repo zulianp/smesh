@@ -6,6 +6,8 @@
 #include "smesh_line_quadrature.hpp"
 #include "smesh_sshex8.hpp"
 #include "smesh_sshex8_mesh.hpp"
+#include "smesh_ssquad4.hpp"
+#include "smesh_ssquad4_mesh.hpp"
 #include "smesh_sstet4.hpp"
 #include "smesh_sstet4_mesh.hpp"
 #include "smesh_tracer.hpp"
@@ -1019,6 +1021,7 @@ static void write_tet_face(const int               L,
 }  // namespace
 
 #include "smesh_semistructured_distributed_hex_tet.inc.hpp"
+#include "smesh_semistructured_distributed_quad.inc.hpp"
 
 std::shared_ptr<Mesh> to_semistructured_distributed(const int                    level,
                                                     const std::shared_ptr<Mesh> &mesh,
@@ -1028,6 +1031,7 @@ std::shared_ptr<Mesh> to_semistructured_distributed(const int                   
 
     bool          has_hex   = false;
     bool          has_tet   = false;
+    bool          has_quad  = false;
     bool          has_other = false;
     enum ElemType other_family = INVALID;
     for (size_t b = 0; b < mesh->n_blocks(); ++b) {
@@ -1036,13 +1040,15 @@ std::shared_ptr<Mesh> to_semistructured_distributed(const int                   
             has_hex = true;
         } else if (f == TET4) {
             has_tet = true;
+        } else if (f == QUAD4) {
+            has_quad = true;
         } else {
             has_other    = true;
             other_family = f;
         }
     }
     if (has_hex && has_tet) {
-        if (has_other) {
+        if (has_other || has_quad) {
             fprintf(stderr, "to_semistructured: mixed-family semistructured conversion is not implemented\n");
             return nullptr;
         }
@@ -1052,9 +1058,20 @@ std::shared_ptr<Mesh> to_semistructured_distributed(const int                   
         }
         return to_semistructured_distributed_hex_tet(level, mesh, hierarchical_ordering);
     }
-    if (has_other && (has_hex || has_tet)) {
+    if ((has_other || has_quad) && (has_hex || has_tet)) {
         fprintf(stderr, "to_semistructured: mixed-family semistructured conversion is not implemented\n");
         return nullptr;
+    }
+    if (has_quad) {
+        if (has_other) {
+            fprintf(stderr, "to_semistructured: mixed-family semistructured conversion is not implemented\n");
+            return nullptr;
+        }
+        if (use_GLL) {
+            fprintf(stderr, "to_semistructured: GLL nodes are not implemented for QUAD SS\n");
+            return nullptr;
+        }
+        return to_semistructured_distributed_quad(level, mesh, hierarchical_ordering);
     }
 
     const enum ElemType family = has_hex ? HEX8 : (has_tet ? TET4 : other_family);

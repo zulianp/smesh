@@ -58,6 +58,9 @@ public:
   friend std::shared_ptr<Mesh> to_semistructured_distributed_hex_tet(
       const int level, const std::shared_ptr<Mesh> &mesh,
       const bool hierarchical_ordering);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_quad(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering);
 
 private:
   void set_nodes(ptrdiff_t n_global, ptrdiff_t n_owned, ptrdiff_t n_shared,
@@ -433,6 +436,9 @@ private:
       const int level, const std::shared_ptr<Mesh> &mesh, const bool use_GLL,
       const bool hierarchical_ordering);
   friend std::shared_ptr<Mesh> to_semistructured_distributed_hex_tet(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_quad(
       const int level, const std::shared_ptr<Mesh> &mesh,
       const bool hierarchical_ordering);
 

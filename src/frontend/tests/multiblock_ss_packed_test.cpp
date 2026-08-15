@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstring>
 #include <cstdint>
+#include <iterator>
 #include <set>
 #include <utility>
 #include <vector>
@@ -10,6 +11,7 @@
 #include "smesh_packed_mesh.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sshex8.hpp"
+#include "smesh_ssquad4.hpp"
 #include "smesh_sstet4.hpp"
 #include "smesh_test.hpp"
 
@@ -447,6 +449,128 @@ static int test_tet4_derefine() {
     return SMESH_TEST_SUCCESS;
 }
 
+static int test_quad4_to_semistructured() {
+    auto comm   = Communicator::self();
+    auto single = Mesh::create_quad4_square(comm, 4, 4);
+    auto multi  = split_first_half(single);
+    SMESH_TEST_ASSERT(single != nullptr);
+    SMESH_TEST_ASSERT(multi != nullptr);
+    SMESH_TEST_EQ(static_cast<int>(multi->n_blocks()), 2);
+
+    for (int L : {2, 4}) {
+        auto ss_multi  = to_semistructured(L, multi);
+        auto ss_single = to_semistructured(L, single);
+        SMESH_TEST_ASSERT(ss_multi != nullptr);
+        SMESH_TEST_ASSERT(ss_single != nullptr);
+        SMESH_TEST_EQ(static_cast<int>(ss_multi->n_blocks()), 2);
+        SMESH_TEST_EQ(ss_multi->n_nodes(), ss_single->n_nodes());
+        const ptrdiff_t expect_nnodes = (static_cast<ptrdiff_t>(L) * 4 + 1) * (static_cast<ptrdiff_t>(L) * 4 + 1);
+        SMESH_TEST_EQ(ss_single->n_nodes(), expect_nnodes);
+        SMESH_TEST_EQ(ss_multi->element_type(0), semistructured_type(QUAD4, L));
+        SMESH_TEST_EQ(ss_multi->element_type(1), semistructured_type(QUAD4, L));
+        SMESH_TEST_EQ(static_cast<int>(ss_multi->block(0)->n_nodes_per_element()), ssquad4_nxe(L));
+        SMESH_TEST_EQ(ss_multi->n_elements(0), multi->n_elements(0));
+        SMESH_TEST_EQ(ss_multi->n_elements(1), multi->n_elements(1));
+        SMESH_TEST_EQ(ss_multi->n_elements(), single->n_elements());
+
+        std::set<idx_t> ids0;
+        std::set<idx_t> ids1;
+        auto            e0 = ss_multi->block(0)->elements()->data();
+        auto            e1 = ss_multi->block(1)->elements()->data();
+        const int       nxe = ssquad4_nxe(L);
+        for (int v = 0; v < nxe; ++v) {
+            for (ptrdiff_t e = 0; e < ss_multi->n_elements(0); ++e) {
+                ids0.insert(e0[v][e]);
+            }
+            for (ptrdiff_t e = 0; e < ss_multi->n_elements(1); ++e) {
+                ids1.insert(e1[v][e]);
+            }
+        }
+        std::vector<idx_t> shared;
+        std::set_intersection(ids0.begin(), ids0.end(), ids1.begin(), ids1.end(), std::back_inserter(shared));
+        SMESH_TEST_ASSERT(!shared.empty());
+    }
+
+    return SMESH_TEST_SUCCESS;
+}
+
+static int test_quad4_to_semistructured_hierarchical() {
+    auto comm   = Communicator::self();
+    auto single = Mesh::create_quad4_square(comm, 4, 4);
+    auto multi  = split_first_half(single);
+
+    auto ss_multi  = to_semistructured(2, multi, true, false);
+    auto ss_single = to_semistructured(2, single, true, false);
+    SMESH_TEST_ASSERT(ss_multi != nullptr);
+    SMESH_TEST_ASSERT(ss_single != nullptr);
+    SMESH_TEST_EQ(ss_multi->n_nodes(), ss_single->n_nodes());
+    SMESH_TEST_EQ(static_cast<int>(ss_multi->n_blocks()), 2);
+    SMESH_TEST_EQ(ss_multi->element_type(0), semistructured_type(QUAD4, 2));
+    return SMESH_TEST_SUCCESS;
+}
+
+static int test_quad4_derefine() {
+    auto comm   = Communicator::self();
+    auto single = Mesh::create_quad4_square(comm, 4, 4);
+    auto multi  = split_first_half(single);
+
+    auto ss_multi  = to_semistructured(2, multi);
+    auto ss_single = to_semistructured(2, single);
+    auto d_multi   = derefine(ss_multi, 1);
+    auto d_single  = derefine(ss_single, 1);
+    SMESH_TEST_ASSERT(d_multi != nullptr);
+    SMESH_TEST_ASSERT(d_single != nullptr);
+    SMESH_TEST_EQ(static_cast<int>(d_multi->n_blocks()), 2);
+    SMESH_TEST_EQ(d_multi->n_nodes(), d_single->n_nodes());
+    SMESH_TEST_EQ(d_multi->element_type(0), semistructured_type(QUAD4, 1));
+    SMESH_TEST_EQ(d_multi->n_nodes(), single->n_nodes());
+    return SMESH_TEST_SUCCESS;
+}
+
+static int test_quad_mixed_rejected() {
+    auto comm = Communicator::self();
+    auto quad = Mesh::create_quad4_square(comm, 2, 2);
+    SMESH_TEST_ASSERT(quad != nullptr);
+    auto qel = quad->elements(0)->data();
+    auto tel = create_host_buffer<idx_t>(3, 1);
+    tel->data()[0][0] = qel[0][0];
+    tel->data()[1][0] = qel[1][0];
+    tel->data()[2][0] = qel[2][0];
+    std::vector<std::shared_ptr<Mesh::Block>> qt_blocks;
+    qt_blocks.push_back(std::make_shared<Mesh::Block>(quad->block(0)->name(), QUAD4, quad->elements(0)));
+    qt_blocks.push_back(std::make_shared<Mesh::Block>("tri", TRI3, tel));
+    auto quad_tri = std::make_shared<Mesh>(comm, qt_blocks, quad->points());
+    SMESH_TEST_ASSERT(to_semistructured(2, quad_tri) == nullptr);
+
+    auto hex = Mesh::create_hex8_cube(comm, 2, 2, 2);
+    SMESH_TEST_ASSERT(hex != nullptr);
+    auto hexel = hex->elements(0)->data();
+    auto qhex  = create_host_buffer<idx_t>(4, 1);
+    for (int d = 0; d < 4; ++d) {
+        qhex->data()[d][0] = hexel[d][0];
+    }
+    std::vector<std::shared_ptr<Mesh::Block>> qh_blocks;
+    qh_blocks.push_back(std::make_shared<Mesh::Block>(hex->block(0)->name(), HEX8, hex->elements(0)));
+    qh_blocks.push_back(std::make_shared<Mesh::Block>("quad", QUAD4, qhex));
+    auto quad_hex = std::make_shared<Mesh>(comm, qh_blocks, hex->points());
+    SMESH_TEST_ASSERT(to_semistructured(2, quad_hex) == nullptr);
+    return SMESH_TEST_SUCCESS;
+}
+
+static int test_quadshell4_to_semistructured() {
+    auto comm = Communicator::self();
+    auto ring = Mesh::create_quad4_ring(comm, 0.5, 1.0, 2, 8);
+    SMESH_TEST_ASSERT(ring != nullptr);
+    ring->set_element_type(0, QUADSHELL4);
+    SMESH_TEST_EQ(ring->element_type(0), QUADSHELL4);
+    auto ss = to_semistructured(2, ring);
+    SMESH_TEST_ASSERT(ss != nullptr);
+    SMESH_TEST_EQ(ss->element_type(0), semistructured_type(QUADSHELL4, 2));
+    SMESH_TEST_EQ(static_cast<int>(ss->block(0)->n_nodes_per_element()), ssquad4_nxe(2));
+    SMESH_TEST_EQ(ss->spatial_dimension(), 3);
+    return SMESH_TEST_SUCCESS;
+}
+
 static int test_packed_checkerboard() {
     auto mesh = Mesh::create_hex8_checkerboard_cube(Communicator::self(), 2, 2, 2);
     SMESH_TEST_ASSERT(mesh != nullptr);
@@ -488,6 +612,11 @@ int main(int argc, char *argv[]) {
     SMESH_RUN_TEST(test_tet4_to_semistructured);
     SMESH_RUN_TEST(test_tet4_to_semistructured_hierarchical);
     SMESH_RUN_TEST(test_tet4_derefine);
+    SMESH_RUN_TEST(test_quad4_to_semistructured);
+    SMESH_RUN_TEST(test_quad4_to_semistructured_hierarchical);
+    SMESH_RUN_TEST(test_quad4_derefine);
+    SMESH_RUN_TEST(test_quad_mixed_rejected);
+    SMESH_RUN_TEST(test_quadshell4_to_semistructured);
     SMESH_RUN_TEST(test_packed_checkerboard);
     SMESH_RUN_TEST(test_packed_hex8_tet4);
     SMESH_UNIT_TEST_FINALIZE();

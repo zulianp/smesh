@@ -36,6 +36,45 @@ int ssquad4_to_standard_quad4_mesh(
   return SMESH_SUCCESS;
 }
 
+template <typename idx_t, typename geom_t>
+int ssquad4_fill_points(const int                                                level,
+                        const ptrdiff_t                                          nelements,
+                        const int                                                n_dims,
+                        const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT  elements,
+                        const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT macro_mesh_points,
+                        geom_t *SMESH_RESTRICT *const SMESH_RESTRICT             points) {
+    const int corners[4] = {ssquad4_lidx(level, 0, 0),
+                            ssquad4_lidx(level, level, 0),
+                            ssquad4_lidx(level, level, level),
+                            ssquad4_lidx(level, 0, level)};
+
+    const geom_t h = geom_t(1) / geom_t(level);
+
+    for (int yi = 0; yi <= level; ++yi) {
+        for (int xi = 0; xi <= level; ++xi) {
+            const geom_t fx = geom_t(xi) * h;
+            const geom_t fy = geom_t(yi) * h;
+            const geom_t f[4] = {(geom_t(1) - fx) * (geom_t(1) - fy),
+                                 fx * (geom_t(1) - fy),
+                                 fx * fy,
+                                 (geom_t(1) - fx) * fy};
+            const int    lidx = ssquad4_lidx(level, xi, yi);
+
+            for (int d = 0; d < n_dims; d++) {
+                for (ptrdiff_t e = 0; e < nelements; e++) {
+                    geom_t acc = 0;
+                    for (int c = 0; c < 4; c++) {
+                        acc += macro_mesh_points[d][elements[corners[c]][e]] * f[c];
+                    }
+                    points[d][elements[lidx][e]] = acc;
+                }
+            }
+        }
+    }
+
+    return SMESH_SUCCESS;
+}
+
 } // namespace smesh
 
 #endif // SMESH_SSQUAD4_MESH_IMPL_HPP

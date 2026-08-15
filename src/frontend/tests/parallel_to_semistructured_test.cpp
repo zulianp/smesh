@@ -11,6 +11,7 @@
 #include "smesh_mesh.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sshex8.hpp"
+#include "smesh_ssquad4.hpp"
 #include "smesh_sstet4.hpp"
 #include "smesh_test.hpp"
 
@@ -607,6 +608,147 @@ static int test_mpi_mixed_hier_l4() {
 #endif
 }
 
+static std::shared_ptr<Mesh> create_quad4_square_3d(const ptrdiff_t nx, const ptrdiff_t ny) {
+    auto q2 = Mesh::create_quad4_square(Communicator::self(), nx, ny);
+    auto p2 = q2->points()->data();
+    auto p3 = create_host_buffer<geom_t>(3, q2->n_nodes());
+    for (ptrdiff_t i = 0; i < q2->n_nodes(); ++i) {
+        p3->data()[0][i] = p2[0][i];
+        p3->data()[1][i] = p2[1][i];
+        p3->data()[2][i] = 0;
+    }
+    std::vector<std::shared_ptr<Mesh::Block>> blocks;
+    for (auto &b : q2->blocks()) {
+        blocks.push_back(std::make_shared<Mesh::Block>(b->name(), b->element_type(), b->elements()));
+    }
+    return std::make_shared<Mesh>(Communicator::self(), blocks, p3);
+}
+
+static int test_mpi_quad4_to_ss() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+
+    int token = 0;
+    if (comm->rank() == 0) {
+        token = static_cast<int>(std::time(nullptr)) + 41;
+    }
+    comm->broadcast(&token, 1, 0);
+    const Path path = make_tmp_path("smesh_mpi_ss_quad4", token);
+
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    const ptrdiff_t ny = 4;
+    const int       L  = 2;
+    const ptrdiff_t serial_nnodes    = (static_cast<ptrdiff_t>(L) * nx + 1) * (static_cast<ptrdiff_t>(L) * ny + 1);
+    const ptrdiff_t serial_nelements = nx * ny;
+
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+        auto serial = create_quad4_square_3d(nx, ny);
+        SMESH_TEST_ASSERT(serial != nullptr);
+        SMESH_TEST_EQ(serial->n_elements(), serial_nelements);
+        auto ss_serial = to_semistructured(L, serial);
+        SMESH_TEST_ASSERT(ss_serial != nullptr);
+        SMESH_TEST_EQ(ss_serial->n_nodes(), serial_nnodes);
+        SMESH_TEST_ASSERT(serial->write(path) == SMESH_SUCCESS);
+    }
+    comm->barrier();
+
+    auto mesh = Mesh::create_from_file(comm, path);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    SMESH_TEST_ASSERT(mesh->is_distributed());
+
+    auto ss = to_semistructured(L, mesh);
+    SMESH_TEST_ASSERT(ss != nullptr);
+    SMESH_TEST_ASSERT(ss->is_distributed());
+    SMESH_TEST_EQ(static_cast<int>(ss->n_blocks()), 1);
+    SMESH_TEST_EQ(ss->element_type(0), semistructured_type(QUAD4, L));
+    SMESH_TEST_EQ(static_cast<int>(ss->block(0)->n_nodes_per_element()), ssquad4_nxe(L));
+    SMESH_TEST_EQ(ss->distributed()->n_nodes_global(), serial_nnodes);
+    SMESH_TEST_EQ(ss->distributed()->n_elements_global(), serial_nelements);
+    SMESH_TEST_EQ(check_block_layout_copied(*mesh, *ss), SMESH_TEST_SUCCESS);
+    SMESH_TEST_EQ(check_owned_gids_unique(*ss), SMESH_TEST_SUCCESS);
+
+    auto ss4 = to_semistructured(4, mesh);
+    SMESH_TEST_ASSERT(ss4 != nullptr);
+    const ptrdiff_t serial_nnodes4 = (static_cast<ptrdiff_t>(4) * nx + 1) * (static_cast<ptrdiff_t>(4) * ny + 1);
+    SMESH_TEST_EQ(ss4->distributed()->n_nodes_global(), serial_nnodes4);
+
+    auto ss_h = to_semistructured(L, mesh, true, false);
+    SMESH_TEST_ASSERT(ss_h != nullptr);
+    SMESH_TEST_EQ(ss_h->distributed()->n_nodes_global(), serial_nnodes);
+    SMESH_TEST_EQ(check_owned_gids_unique(*ss_h), SMESH_TEST_SUCCESS);
+    SMESH_TEST_EQ(check_owned_gid_prefix(*ss_h, mesh->distributed()->n_nodes_global()), SMESH_TEST_SUCCESS);
+
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+    }
+    return SMESH_TEST_SUCCESS;
+#endif
+}
+
+static int test_mpi_quad4_split_to_ss() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+
+    int token = 0;
+    if (comm->rank() == 0) {
+        token = static_cast<int>(std::time(nullptr)) + 43;
+    }
+    comm->broadcast(&token, 1, 0);
+    const Path path = make_tmp_path("smesh_mpi_ss_quad4_split", token);
+
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    const ptrdiff_t ny = 4;
+    const int       L  = 2;
+    ptrdiff_t       serial_nnodes = 0;
+    const int       n_blocks      = 2;
+
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+        auto serial = create_quad4_square_3d(nx, ny);
+        auto multi  = split_first_half(serial);
+        SMESH_TEST_ASSERT(multi != nullptr);
+        SMESH_TEST_EQ(static_cast<int>(multi->n_blocks()), n_blocks);
+        auto ss_serial = to_semistructured(L, multi);
+        SMESH_TEST_ASSERT(ss_serial != nullptr);
+        serial_nnodes = ss_serial->n_nodes();
+        SMESH_TEST_ASSERT(multi->write(path) == SMESH_SUCCESS);
+    }
+    comm->broadcast(&serial_nnodes, 1, 0);
+    comm->barrier();
+
+    auto mesh = Mesh::create_from_file(comm, path);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    auto ss = to_semistructured(L, mesh);
+    SMESH_TEST_ASSERT(ss != nullptr);
+    SMESH_TEST_EQ(static_cast<int>(ss->n_blocks()), n_blocks);
+    SMESH_TEST_EQ(ss->element_type(0), semistructured_type(QUAD4, L));
+    SMESH_TEST_EQ(ss->distributed()->n_nodes_global(), serial_nnodes);
+    SMESH_TEST_EQ(check_block_layout_copied(*mesh, *ss), SMESH_TEST_SUCCESS);
+    SMESH_TEST_EQ(check_owned_gids_unique(*ss), SMESH_TEST_SUCCESS);
+
+    auto ss_h = to_semistructured(4, mesh, true, false);
+    SMESH_TEST_ASSERT(ss_h != nullptr);
+    SMESH_TEST_EQ(check_owned_gid_prefix(*ss_h, mesh->distributed()->n_nodes_global()), SMESH_TEST_SUCCESS);
+    SMESH_TEST_EQ(check_owned_gids_unique(*ss_h), SMESH_TEST_SUCCESS);
+
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+    }
+    return SMESH_TEST_SUCCESS;
+#endif
+}
+
 static int test_mpi_hex8_hier_l4() {
 #ifndef SMESH_ENABLE_MPI
     return SMESH_TEST_SUCCESS;
@@ -727,6 +869,8 @@ int main(int argc, char **argv) {
     SMESH_RUN_TEST(test_mpi_hex8_cube_to_ss);
     SMESH_RUN_TEST(test_mpi_checkerboard_to_ss);
     SMESH_RUN_TEST(test_mpi_tet4_to_ss);
+    SMESH_RUN_TEST(test_mpi_quad4_to_ss);
+    SMESH_RUN_TEST(test_mpi_quad4_split_to_ss);
     SMESH_RUN_TEST(test_mpi_hex8_hier_l4);
     SMESH_RUN_TEST(test_mpi_tet4_hier_l4);
     SMESH_RUN_TEST(test_mpi_mixed_hex_tet);

@@ -16,10 +16,14 @@ inline int ssquad4_lidx(const int L, const int x, const int y) {
 
 inline int ssquad4_txe(int level) { return level * level; }
 
+inline int ssquad4_nxedge(int level) { return level > 1 ? (level - 1) : 0; }
+
+inline int ssquad4_nxface(int level) { return level > 1 ? (level - 1) * (level - 1) : 0; }
+
 inline int ssquad4_nxe(int level) {
   const int corners = 4;
-  const int edge_nodes = 4 * (level - 1);
-  const int area_nodes = (level - 1) * (level - 1);
+  const int edge_nodes = 4 * ssquad4_nxedge(level);
+  const int area_nodes = ssquad4_nxface(level);
   return corners + edge_nodes + area_nodes;
 }
 
