@@ -41,9 +41,27 @@ namespace smesh {
             IDX_T *const SMESH_RESTRICT,                                                                   \
             const bool)
 
+#define SMESH_EXPLICIT_INSTANTIATE_SSTET4_SIDESET(IDX_T, ELEM_IDX_T)                                                             \
+    template int sstet4_extract_surface_from_sideset<IDX_T, ELEM_IDX_T>(const int,                                               \
+                                                                        const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, \
+                                                                        const ptrdiff_t,                                         \
+                                                                        const ELEM_IDX_T *const SMESH_RESTRICT,                  \
+                                                                        const i16 *const        SMESH_RESTRICT,                  \
+                                                                        IDX_T **const           SMESH_RESTRICT);                           \
+    template int sstet4_extract_nodeset_from_sideset<IDX_T, ELEM_IDX_T>(const int,                                               \
+                                                                        const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, \
+                                                                        const ptrdiff_t,                                         \
+                                                                        const ELEM_IDX_T *const SMESH_RESTRICT,                  \
+                                                                        const i16 *const        SMESH_RESTRICT,                  \
+                                                                        ptrdiff_t *,                                             \
+                                                                        IDX_T **SMESH_RESTRICT)
+
     SMESH_EXPLICIT_INSTANTIATE_SSTET4_SINGLE(i32);
     SMESH_EXPLICIT_INSTANTIATE_SSTET4_SINGLE(i64);
+    SMESH_EXPLICIT_INSTANTIATE_SSTET4_SIDESET(i32, i32);
+    SMESH_EXPLICIT_INSTANTIATE_SSTET4_SIDESET(i64, i64);
 
+#undef SMESH_EXPLICIT_INSTANTIATE_SSTET4_SIDESET
 #undef SMESH_EXPLICIT_INSTANTIATE_SSTET4_SINGLE
 
 }  // namespace smesh

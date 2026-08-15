@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstring>
 #include <cstdint>
 #include <iterator>
@@ -10,6 +12,7 @@
 #include "smesh_mesh.hpp"
 #include "smesh_packed_mesh.hpp"
 #include "smesh_semistructured.hpp"
+#include "smesh_sideset.hpp"
 #include "smesh_sshex8.hpp"
 #include "smesh_ssquad4.hpp"
 #include "smesh_sstet4.hpp"
@@ -603,6 +606,187 @@ static int test_packed_hex8_tet4() {
     return SMESH_TEST_SUCCESS;
 }
 
+using NodeKey = std::array<long long, 3>;
+using FaceKey = std::vector<NodeKey>;
+
+static NodeKey quantize_node(const geom_t *const *pts, const idx_t node) {
+    return {std::llround(static_cast<double>(pts[0][node]) * 1e9),
+            std::llround(static_cast<double>(pts[1][node]) * 1e9),
+            std::llround(static_cast<double>(pts[2][node]) * 1e9)};
+}
+
+static std::set<FaceKey> collect_surface_faces(const std::shared_ptr<Mesh>                 &mesh,
+                                               const std::vector<std::shared_ptr<Sideset>> &sidesets,
+                                               enum ElemType                               *type_out) {
+    std::set<FaceKey> faces;
+    if (type_out) {
+        *type_out = INVALID;
+    }
+    auto pts = mesh->points()->data();
+    for (const auto &ss : sidesets) {
+        if (!ss || ss->size() == 0) {
+            continue;
+        }
+        auto [st, surface] = create_surface_from_sideset(mesh, ss);
+        if (type_out && *type_out == INVALID) {
+            *type_out = st;
+        }
+        if (!surface) {
+            continue;
+        }
+        const int nnxs = static_cast<int>(surface->extent(0));
+        for (ptrdiff_t e = 0; e < static_cast<ptrdiff_t>(surface->extent(1)); ++e) {
+            FaceKey key(static_cast<size_t>(nnxs));
+            for (int ln = 0; ln < nnxs; ++ln) {
+                key[static_cast<size_t>(ln)] = quantize_node(pts, surface->data()[ln][e]);
+            }
+            std::sort(key.begin(), key.end());
+            faces.insert(std::move(key));
+        }
+    }
+    return faces;
+}
+
+static int test_hex8_ss_sideset_surface_multiblock() {
+    auto comm   = Communicator::self();
+    auto multi  = Mesh::create_hex8_checkerboard_cube(comm, 2, 2, 2);
+    auto single = Mesh::create_hex8_cube(comm, 2, 2, 2);
+    SMESH_TEST_ASSERT(multi != nullptr);
+    SMESH_TEST_ASSERT(single != nullptr);
+
+    auto multi_ss  = Sideset::create_from_plane(multi, 1, 0, 0, 0.0);
+    auto single_ss = Sideset::create_from_plane(single, 1, 0, 0, 0.0);
+    SMESH_TEST_ASSERT(!multi_ss.empty());
+    SMESH_TEST_ASSERT(!single_ss.empty());
+
+    auto ss_multi  = to_semistructured(2, multi);
+    auto ss_single = to_semistructured(2, single);
+    SMESH_TEST_ASSERT(ss_multi != nullptr);
+    SMESH_TEST_ASSERT(ss_single != nullptr);
+    SMESH_TEST_EQ(static_cast<int>(ss_multi->n_blocks()), 2);
+
+    enum ElemType multi_st  = INVALID;
+    enum ElemType single_st = INVALID;
+    auto          multi_faces  = collect_surface_faces(ss_multi, multi_ss, &multi_st);
+    auto          single_faces = collect_surface_faces(ss_single, single_ss, &single_st);
+    SMESH_TEST_EQ(multi_st, PROTEUS_QUADSHELL9);
+    SMESH_TEST_EQ(single_st, PROTEUS_QUADSHELL9);
+    SMESH_TEST_EQ(elem_num_nodes(multi_st), 9);
+    SMESH_TEST_ASSERT(!multi_faces.empty());
+    SMESH_TEST_EQ(multi_faces.size(), single_faces.size());
+    SMESH_TEST_ASSERT(multi_faces == single_faces);
+    SMESH_TEST_EQ(static_cast<int>(multi_faces.begin()->size()), 9);
+
+    ptrdiff_t n_surf_multi = 0;
+    for (const auto &ss : multi_ss) {
+        n_surf_multi += ss->size();
+        auto [st, surface] = create_surface_from_sideset(ss_multi, ss);
+        SMESH_TEST_ASSERT(surface != nullptr);
+        SMESH_TEST_EQ(static_cast<ptrdiff_t>(surface->extent(0)), static_cast<ptrdiff_t>(9));
+        SMESH_TEST_EQ(static_cast<ptrdiff_t>(surface->extent(1)), ss->size());
+        auto nodeset = create_nodeset_from_sideset(ss_multi, ss);
+        SMESH_TEST_ASSERT(nodeset != nullptr);
+    }
+    ptrdiff_t n_surf_single = 0;
+    for (const auto &ss : single_ss) {
+        n_surf_single += ss->size();
+    }
+    SMESH_TEST_EQ(n_surf_multi, n_surf_single);
+    return SMESH_TEST_SUCCESS;
+}
+
+static int test_tet4_ss_sideset_surface_multiblock() {
+    auto comm   = Communicator::self();
+    auto single = Mesh::create_tet4_cube(comm, 2, 2, 2);
+    auto multi  = split_first_half(single);
+    SMESH_TEST_ASSERT(single != nullptr);
+    SMESH_TEST_ASSERT(multi != nullptr);
+    SMESH_TEST_EQ(static_cast<int>(multi->n_blocks()), 2);
+
+    auto single_ss = Sideset::create_from_plane(single, 1, 0, 0, 0.0);
+    auto multi_ss  = Sideset::create_from_plane(multi, 1, 0, 0, 0.0);
+    SMESH_TEST_ASSERT(!single_ss.empty());
+    SMESH_TEST_ASSERT(!multi_ss.empty());
+
+    {
+        auto ss_single = to_semistructured(1, single);
+        SMESH_TEST_ASSERT(ss_single != nullptr);
+        for (const auto &ss : single_ss) {
+            if (ss->size() == 0) {
+                continue;
+            }
+            auto [ust, usurf] = create_surface_from_sideset(single, ss);
+            auto [sst, ssurf] = create_surface_from_sideset(ss_single, ss);
+            SMESH_TEST_ASSERT(usurf != nullptr);
+            SMESH_TEST_ASSERT(ssurf != nullptr);
+            SMESH_TEST_EQ(sst, TRISHELL3);
+            SMESH_TEST_EQ(static_cast<ptrdiff_t>(ssurf->extent(0)), static_cast<ptrdiff_t>(3));
+            SMESH_TEST_EQ(static_cast<ptrdiff_t>(ssurf->extent(1)), ss->size());
+            SMESH_TEST_EQ(static_cast<ptrdiff_t>(usurf->extent(1)), ss->size());
+            for (ptrdiff_t e = 0; e < ss->size(); ++e) {
+                for (int ln = 0; ln < 3; ++ln) {
+                    SMESH_TEST_EQ(ssurf->data()[ln][e], usurf->data()[ln][e]);
+                }
+            }
+        }
+    }
+
+    auto ss_multi  = to_semistructured(2, multi);
+    auto ss_single = to_semistructured(2, single);
+    SMESH_TEST_ASSERT(ss_multi != nullptr);
+    SMESH_TEST_ASSERT(ss_single != nullptr);
+
+    enum ElemType multi_st  = INVALID;
+    enum ElemType single_st = INVALID;
+    auto          multi_faces  = collect_surface_faces(ss_multi, multi_ss, &multi_st);
+    auto          single_faces = collect_surface_faces(ss_single, single_ss, &single_st);
+    SMESH_TEST_EQ(multi_st, TRISHELL6);
+    SMESH_TEST_EQ(single_st, TRISHELL6);
+    SMESH_TEST_EQ(elem_num_nodes(multi_st), 6);
+    SMESH_TEST_ASSERT(!multi_faces.empty());
+    SMESH_TEST_EQ(multi_faces.size(), single_faces.size());
+    SMESH_TEST_ASSERT(multi_faces == single_faces);
+    SMESH_TEST_EQ(static_cast<int>(multi_faces.begin()->size()), 6);
+    return SMESH_TEST_SUCCESS;
+}
+
+static int test_mixed_hex_tet_ss_sideset_surfaces_separate() {
+    auto mixed = create_hex8_tet4_serial(2, 2, 2);
+    SMESH_TEST_ASSERT(mixed != nullptr);
+
+    auto hex_ss = Sideset::create_from_plane(mixed, 0, 0, 1, 0.0, 1e-6, {"hex"});
+    auto tet_ss = Sideset::create_from_plane(mixed, 0, 0, 1, 1.0, 1e-6, {"tet"});
+    if (hex_ss.empty() || hex_ss[0]->size() == 0) {
+        hex_ss = Sideset::create_from_plane(mixed, 1, 0, 0, 0.0, 1e-6, {"hex"});
+    }
+    if (tet_ss.empty() || tet_ss[0]->size() == 0) {
+        tet_ss = Sideset::create_from_plane(mixed, 1, 0, 0, 1.0, 1e-6, {"tet"});
+    }
+    SMESH_TEST_ASSERT(!hex_ss.empty());
+    SMESH_TEST_ASSERT(!tet_ss.empty());
+    SMESH_TEST_ASSERT(hex_ss[0]->size() > 0);
+    SMESH_TEST_ASSERT(tet_ss[0]->size() > 0);
+    SMESH_TEST_EQ(static_cast<int>(hex_ss[0]->block_id()), 0);
+    SMESH_TEST_EQ(static_cast<int>(tet_ss[0]->block_id()), 1);
+
+    auto ss = to_semistructured(2, mixed);
+    SMESH_TEST_ASSERT(ss != nullptr);
+    SMESH_TEST_EQ(static_cast<int>(ss->n_blocks()), 2);
+
+    auto [hex_st, hex_surf] = create_surface_from_sideset(ss, hex_ss[0]);
+    auto [tet_st, tet_surf] = create_surface_from_sideset(ss, tet_ss[0]);
+    SMESH_TEST_ASSERT(hex_surf != nullptr);
+    SMESH_TEST_ASSERT(tet_surf != nullptr);
+    SMESH_TEST_EQ(hex_st, PROTEUS_QUADSHELL9);
+    SMESH_TEST_EQ(tet_st, TRISHELL6);
+    SMESH_TEST_ASSERT(hex_st != tet_st);
+    SMESH_TEST_EQ(static_cast<ptrdiff_t>(hex_surf->extent(0)), static_cast<ptrdiff_t>(9));
+    SMESH_TEST_EQ(static_cast<ptrdiff_t>(tet_surf->extent(0)), static_cast<ptrdiff_t>(6));
+    SMESH_TEST_EQ(static_cast<ptrdiff_t>(hex_surf->extent(1)), hex_ss[0]->size());
+    SMESH_TEST_EQ(static_cast<ptrdiff_t>(tet_surf->extent(1)), tet_ss[0]->size());
+    return SMESH_TEST_SUCCESS;
+}
+
 int main(int argc, char *argv[]) {
     SMESH_UNIT_TEST_INIT(argc, argv);
     SMESH_RUN_TEST(test_checkerboard_to_semistructured);
@@ -619,6 +803,9 @@ int main(int argc, char *argv[]) {
     SMESH_RUN_TEST(test_quadshell4_to_semistructured);
     SMESH_RUN_TEST(test_packed_checkerboard);
     SMESH_RUN_TEST(test_packed_hex8_tet4);
+    SMESH_RUN_TEST(test_hex8_ss_sideset_surface_multiblock);
+    SMESH_RUN_TEST(test_tet4_ss_sideset_surface_multiblock);
+    SMESH_RUN_TEST(test_mixed_hex_tet_ss_sideset_surfaces_separate);
     SMESH_UNIT_TEST_FINALIZE();
     return SMESH_UNIT_TEST_ERR();
 }

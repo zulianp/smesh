@@ -9,6 +9,8 @@
 #include "smesh_sidesets.hpp"
 #include "smesh_sshex8_graph.hpp"
 #include "smesh_ssquad4_mesh.hpp"
+#include "smesh_sstet4.hpp"
+#include "smesh_sstet4_graph.hpp"
 #include "smesh_tracer.hpp"
 #include "smesh_write.hpp"
 
@@ -679,49 +681,66 @@ namespace smesh {
     //   return smesh::manage_host_buffer(n_nodes, nodes);
     // }
 
+    static enum ElemType sstet4_surface_type(const int L) {
+        switch (L) {
+            case 1:
+                return TRISHELL3;
+            case 2:
+                return TRISHELL6;
+            case 3:
+                return TRISHELL10;
+            default:
+                return INVALID;
+        }
+    }
+
     std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>> create_surface_from_sideset_semistructured(
             const std::shared_ptr<Mesh>    &ssmesh,
             const std::shared_ptr<Sideset> &sideset) {
-        if (ssmesh->n_blocks() != 1) {
-            SMESH_ERROR("Mesh must have exactly one block to extract surface from sideset!\n");
+        auto block = ssmesh->block(sideset->block_id());
+        if (!block) {
+            SMESH_ERROR("Unable to find block %d for sideset surface extract!\n", static_cast<int>(sideset->block_id()));
             return {INVALID, nullptr};
         }
 
-        if (!is_semistructured_type(ssmesh->element_type(0))) {
+        const enum ElemType et = block->element_type();
+        if (!is_semistructured_type(et)) {
             SMESH_ERROR("Mesh is not a semistructured mesh!\n");
             return {INVALID, nullptr};
         }
 
-        int  level    = proteus_hex_micro_elements_per_dim(ssmesh->element_type(0));
-        auto ss_sides = smesh::create_host_buffer<idx_t>((level + 1) * (level + 1), sideset->parent()->size());
+        const enum ElemType family = ss_source_family(et);
+        const int           L      = semistructured_level(et);
+        const ptrdiff_t     n_surf = sideset->parent()->size();
 
-        if (sshex8_extract_surface_from_sideset(level,
-                                                ssmesh->elements(0)->data(),
-                                                sideset->parent()->size(),
-                                                sideset->parent()->data(),
-                                                sideset->lfi()->data(),
-                                                ss_sides->data()) != SMESH_SUCCESS) {
-            SMESH_ERROR("Unable to extract surface from sideset!\n");
+        if (family == HEX8) {
+            auto ss_sides = smesh::create_host_buffer<idx_t>((L + 1) * (L + 1), n_surf);
+            if (n_surf > 0 && sshex8_extract_surface_from_sideset(L,
+                                                                  block->elements()->data(),
+                                                                  n_surf,
+                                                                  sideset->parent()->data(),
+                                                                  sideset->lfi()->data(),
+                                                                  ss_sides->data()) != SMESH_SUCCESS) {
+                SMESH_ERROR("Unable to extract surface from sideset!\n");
+            }
+            return {shell_type(side_type(et)), ss_sides};
         }
 
-        return {shell_type(side_type(ssmesh->element_type(0))), ss_sides};
+        if (family == TET4) {
+            auto ss_sides = smesh::create_host_buffer<idx_t>(sstet4_n_tri(L), n_surf);
+            if (n_surf > 0 && sstet4_extract_surface_from_sideset(L,
+                                                                  block->elements()->data(),
+                                                                  n_surf,
+                                                                  sideset->parent()->data(),
+                                                                  sideset->lfi()->data(),
+                                                                  ss_sides->data()) != SMESH_SUCCESS) {
+                SMESH_ERROR("Unable to extract surface from sideset!\n");
+            }
+            return {sstet4_surface_type(L), ss_sides};
+        }
 
-        //   idx_t *idx = nullptr;
-        //   ptrdiff_t n_contiguous = invalid_idx<ptrdiff_t>();
-        // std::vector<int> levels(sshex8_hierarchical_n_levels(level));
-
-        // FiXME harcoded for sshex8
-        // sshex8_hierarchical_mesh_levels(level, levels.size(), levels.data());
-
-        // const int nnxs = 4;
-        // const int nexs = level * level;
-        // auto surface =
-        //     smesh::create_host_buffer<idx_t>(nnxs, sideset->parent()->size() *
-        //     nexs);
-
-        // ssquad4_to_standard_quad4_mesh(level, sideset->parent()->size(),
-        //                                ss_sides->data(), surface->data());
-        // return {QUADSHELL4, surface};
+        SMESH_ERROR("create_surface_from_sideset_semistructured: family %s is not implemented\n", type_to_string(family));
+        return {INVALID, nullptr};
     }
 
     std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>> create_surface_from_sideset(
@@ -764,30 +783,58 @@ namespace smesh {
 
     std::shared_ptr<Buffer<idx_t>> create_nodeset_from_sideset_semistructured(const std::shared_ptr<Mesh>    &ss,
                                                                               const std::shared_ptr<Sideset> &sideset) {
-        if (ss->n_blocks() != 1) {
-            SMESH_ERROR("Mesh must have exactly one block to extract nodeset from sideset!\n");
+        auto block = ss->block(sideset->block_id());
+        if (!block) {
+            SMESH_ERROR("Unable to find block %d for sideset nodeset extract!\n", static_cast<int>(sideset->block_id()));
             return nullptr;
         }
-        if (!is_semistructured_type(ss->element_type(0))) {
+
+        const enum ElemType et = block->element_type();
+        if (!is_semistructured_type(et)) {
             SMESH_ERROR("Mesh is not a semistructured mesh!\n");
             return nullptr;
         }
 
-        ptrdiff_t n_nodes{0};
-        idx_t    *nodes{nullptr};
+        const enum ElemType family = ss_source_family(et);
+        const int           L      = semistructured_level(et);
+        const ptrdiff_t     n_surf = sideset->parent()->size();
+        ptrdiff_t           n_nodes{0};
+        idx_t              *nodes{nullptr};
 
-        SMESH_TRACE_SCOPE("sshex8_extract_nodeset_from_sideset");
-        if (sshex8_extract_nodeset_from_sideset(proteus_hex_micro_elements_per_dim(ss->element_type(0)),
-                                                ss->elements(0)->data(),
-                                                sideset->parent()->size(),
-                                                sideset->parent()->data(),
-                                                sideset->lfi()->data(),
-                                                &n_nodes,
-                                                &nodes) != SMESH_SUCCESS) {
-            SMESH_ERROR("Unable to extract nodeset from sideset!\n");
+        if (n_surf == 0) {
+            return smesh::manage_host_buffer(n_nodes, nodes);
         }
 
-        return smesh::manage_host_buffer(n_nodes, nodes);
+        if (family == HEX8) {
+            SMESH_TRACE_SCOPE("sshex8_extract_nodeset_from_sideset");
+            if (sshex8_extract_nodeset_from_sideset(L,
+                                                    block->elements()->data(),
+                                                    sideset->parent()->size(),
+                                                    sideset->parent()->data(),
+                                                    sideset->lfi()->data(),
+                                                    &n_nodes,
+                                                    &nodes) != SMESH_SUCCESS) {
+                SMESH_ERROR("Unable to extract nodeset from sideset!\n");
+            }
+            return smesh::manage_host_buffer(n_nodes, nodes);
+        }
+
+        if (family == TET4) {
+            SMESH_TRACE_SCOPE("sstet4_extract_nodeset_from_sideset");
+            if (sstet4_extract_nodeset_from_sideset(L,
+                                                    block->elements()->data(),
+                                                    sideset->parent()->size(),
+                                                    sideset->parent()->data(),
+                                                    sideset->lfi()->data(),
+                                                    &n_nodes,
+                                                    &nodes) != SMESH_SUCCESS) {
+                SMESH_ERROR("Unable to extract nodeset from sideset!\n");
+            }
+            return smesh::manage_host_buffer(n_nodes, nodes);
+        }
+
+        SMESH_ERROR("create_nodeset_from_sideset_semistructured: family %s is not implemented\n", type_to_string(family));
+        return nullptr;
     }
 
     std::shared_ptr<Buffer<idx_t>> create_nodeset_from_sideset(const std::shared_ptr<Mesh>    &mesh,
@@ -843,3 +890,5 @@ namespace smesh {
     }
 
 }  // namespace smesh
+
+

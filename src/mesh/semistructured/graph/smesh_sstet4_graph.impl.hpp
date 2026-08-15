@@ -836,6 +836,113 @@ namespace smesh {
         return SMESH_SUCCESS;
     }
 
+    template <typename idx_t>
+    static void sstet4_fill_side(const int                                               L,
+                                 const ptrdiff_t                                         e,
+                                 const int                                               s,
+                                 const LocalSideTable                                   &lst,
+                                 const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                                 const ptrdiff_t                                         i,
+                                 idx_t **const SMESH_RESTRICT                            sides) {
+        const int c0   = lst(s, 0);
+        const int c1   = lst(s, 1);
+        const int c2   = lst(s, 2);
+        const int P0[3] = {sstet4_corner_xyz[c0][0] * L, sstet4_corner_xyz[c0][1] * L, sstet4_corner_xyz[c0][2] * L};
+        const int P1[3] = {sstet4_corner_xyz[c1][0] * L, sstet4_corner_xyz[c1][1] * L, sstet4_corner_xyz[c1][2] * L};
+        const int P2[3] = {sstet4_corner_xyz[c2][0] * L, sstet4_corner_xyz[c2][1] * L, sstet4_corner_xyz[c2][2] * L};
+
+        int lidx = 0;
+        for (int t = 0; t <= L; ++t) {
+            for (int si = 0; si <= L - t; ++si) {
+                const int w  = L - si - t;
+                const int xi = (P0[0] * w + P1[0] * si + P2[0] * t) / L;
+                const int yi = (P0[1] * w + P1[1] * si + P2[1] * t) / L;
+                const int zi = (P0[2] * w + P1[2] * si + P2[2] * t) / L;
+                sides[lidx++][i] = elems[sstet4_lidx(L, xi, yi, zi)][e];
+            }
+        }
+    }
+
+    template <typename idx_t>
+    static void sstet4_fill_side_nodes(const int                                               L,
+                                       const ptrdiff_t                                         e,
+                                       const int                                               s,
+                                       const LocalSideTable                                   &lst,
+                                       const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                                       idx_t *const SMESH_RESTRICT                             nodes) {
+        const int c0    = lst(s, 0);
+        const int c1    = lst(s, 1);
+        const int c2    = lst(s, 2);
+        const int P0[3] = {sstet4_corner_xyz[c0][0] * L, sstet4_corner_xyz[c0][1] * L, sstet4_corner_xyz[c0][2] * L};
+        const int P1[3] = {sstet4_corner_xyz[c1][0] * L, sstet4_corner_xyz[c1][1] * L, sstet4_corner_xyz[c1][2] * L};
+        const int P2[3] = {sstet4_corner_xyz[c2][0] * L, sstet4_corner_xyz[c2][1] * L, sstet4_corner_xyz[c2][2] * L};
+
+        int lidx = 0;
+        for (int t = 0; t <= L; ++t) {
+            for (int si = 0; si <= L - t; ++si) {
+                const int w  = L - si - t;
+                const int xi = (P0[0] * w + P1[0] * si + P2[0] * t) / L;
+                const int yi = (P0[1] * w + P1[1] * si + P2[1] * t) / L;
+                const int zi = (P0[2] * w + P1[2] * si + P2[2] * t) / L;
+                nodes[lidx++] = elems[sstet4_lidx(L, xi, yi, zi)][e];
+            }
+        }
+    }
+
+    template <typename idx_t, typename element_idx_t>
+    int sstet4_extract_surface_from_sideset(const int                                               L,
+                                            const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                                            const ptrdiff_t                                         n_surf_elements,
+                                            const element_idx_t *const SMESH_RESTRICT               parent_element,
+                                            const i16 *const SMESH_RESTRICT                         side_idx,
+                                            idx_t **const SMESH_RESTRICT                            sides) {
+        LocalSideTable lst;
+        lst.fill(TET4);
+
+#pragma omp parallel for
+        for (ptrdiff_t i = 0; i < n_surf_elements; i++) {
+            const ptrdiff_t e = parent_element[i];
+            const int       s = side_idx[i];
+            SMESH_ASSERT(s >= 0 && s < 4);
+            sstet4_fill_side(L, e, s, lst, elems, i, sides);
+        }
+
+        return SMESH_SUCCESS;
+    }
+
+    template <typename idx_t, typename element_idx_t>
+    int sstet4_extract_nodeset_from_sideset(const int                                               L,
+                                            const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                                            const ptrdiff_t                                         n_surf_elements,
+                                            const element_idx_t *const SMESH_RESTRICT               parent_element,
+                                            const i16 *const SMESH_RESTRICT                         side_idx,
+                                            ptrdiff_t                                              *n_nodes_out,
+                                            idx_t **SMESH_RESTRICT                                  nodes_out) {
+        const int       nnxs = sstet4_n_tri(L);
+        const ptrdiff_t n    = static_cast<ptrdiff_t>(nnxs) * n_surf_elements;
+        if (n == 0) {
+            *n_nodes_out = 0;
+            *nodes_out   = nullptr;
+            return SMESH_SUCCESS;
+        }
+
+        idx_t          *nodes = static_cast<idx_t *>(SMESH_ALLOC(static_cast<size_t>(n) * sizeof(idx_t)));
+        LocalSideTable  lst;
+        lst.fill(TET4);
+
+#pragma omp parallel for
+        for (ptrdiff_t i = 0; i < n_surf_elements; i++) {
+            const ptrdiff_t e = parent_element[i];
+            const int       s = side_idx[i];
+            SMESH_ASSERT(s >= 0 && s < 4);
+            sstet4_fill_side_nodes(L, e, s, lst, elems, &nodes[i * nnxs]);
+        }
+
+        *n_nodes_out = static_cast<ptrdiff_t>(sort_and_unique(nodes, static_cast<size_t>(n)));
+        *nodes_out   = static_cast<idx_t *>(SMESH_REALLOC(nodes, static_cast<size_t>(*n_nodes_out) * sizeof(idx_t)));
+        return SMESH_SUCCESS;
+    }
+
 }  // namespace smesh
 
 #endif  // SMESH_SSTET4_GRAPH_IMPL_HPP

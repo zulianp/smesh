@@ -52,6 +52,23 @@ int sstet4_hierarchical_renumbering_blocks(
         idx_t *const SMESH_RESTRICT                                                   node_mapping,
         const bool                                                                    preserve_corner_ordering);
 
+template <typename idx_t, typename element_idx_t>
+int sstet4_extract_surface_from_sideset(const int                                               L,
+                                        const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                                        const ptrdiff_t                                         n_surf_elements,
+                                        const element_idx_t *const SMESH_RESTRICT               parent_element,
+                                        const i16 *const SMESH_RESTRICT                         side_idx,
+                                        idx_t **const SMESH_RESTRICT                            sides);
+
+template <typename idx_t, typename element_idx_t>
+int sstet4_extract_nodeset_from_sideset(const int                                               L,
+                                        const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                                        const ptrdiff_t                                         n_surf_elements,
+                                        const element_idx_t *const SMESH_RESTRICT               parent_element,
+                                        const i16 *const SMESH_RESTRICT                         side_idx,
+                                        ptrdiff_t                                              *n_nodes_out,
+                                        idx_t **SMESH_RESTRICT                                  nodes_out);
+
 }  // namespace smesh
 
 #endif  // SMESH_SSTET4_GRAPH_HPP
