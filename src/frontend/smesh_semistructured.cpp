@@ -797,7 +797,13 @@ namespace smesh {
             blocks.push_back(new_block);
         }
 
-        return std::make_shared<Mesh>(sshex->comm(), blocks, sshex->points());
+        auto hex = std::make_shared<Mesh>(sshex->comm(), blocks, sshex->points());
+#ifdef SMESH_ENABLE_MPI
+        if (sshex->is_distributed()) {
+            return MeshTransformsDistributed::attach_sshex_to_hex8(sshex, hex);
+        }
+#endif
+        return hex;
     }
 
     std::shared_ptr<Mesh> ssquad_to_quad4(const std::shared_ptr<Mesh> &ssquad) {
@@ -811,6 +817,19 @@ namespace smesh {
         auto ret = std::make_shared<Mesh>(ssquad->comm(), blocks, ssquad->points());
         ret->set_node_mapping(ssquad->node_mapping());
         return ret;
+    }
+
+    static std::shared_ptr<Mesh> finish_derefine(const std::shared_ptr<Mesh>                    &mesh,
+                                                 std::vector<std::shared_ptr<Mesh::Block>>      &blocks,
+                                                 const ptrdiff_t                                 n_unique_nodes) {
+#ifdef SMESH_ENABLE_MPI
+        if (mesh->is_distributed()) {
+            return MeshTransformsDistributed::derefine(mesh, blocks);
+        }
+#endif
+        int  sdim   = mesh->spatial_dimension();
+        auto points = smesh::view(mesh->points(), 0, sdim, 0, n_unique_nodes);
+        return std::make_shared<Mesh>(mesh->comm(), blocks, points);
     }
 
     std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh, const int to_level) {
@@ -895,9 +914,7 @@ namespace smesh {
             }
 
             n_unique_nodes += 1;
-            int  sdim   = mesh->spatial_dimension();
-            auto points = smesh::view(mesh->points(), 0, sdim, 0, n_unique_nodes);
-            return std::make_shared<Mesh>(mesh->comm(), blocks, points);
+            return finish_derefine(mesh, blocks, n_unique_nodes);
         }
 
         if (family == TET4) {
@@ -954,9 +971,7 @@ namespace smesh {
             }
 
             n_unique_nodes += 1;
-            int  sdim   = mesh->spatial_dimension();
-            auto points = smesh::view(mesh->points(), 0, sdim, 0, n_unique_nodes);
-            return std::make_shared<Mesh>(mesh->comm(), blocks, points);
+            return finish_derefine(mesh, blocks, n_unique_nodes);
         }
 
         if (family == QUAD4) {
@@ -1013,9 +1028,7 @@ namespace smesh {
             }
 
             n_unique_nodes += 1;
-            int  sdim   = mesh->spatial_dimension();
-            auto points = smesh::view(mesh->points(), 0, sdim, 0, n_unique_nodes);
-            return std::make_shared<Mesh>(mesh->comm(), blocks, points);
+            return finish_derefine(mesh, blocks, n_unique_nodes);
         }
 
         std::vector<std::shared_ptr<Mesh::Block>> blocks;
@@ -1072,11 +1085,7 @@ namespace smesh {
         }
 
         n_unique_nodes += 1;
-
-        int  sdim   = mesh->spatial_dimension();
-        auto points = smesh::view(mesh->points(), 0, sdim, 0, n_unique_nodes);
-
-        return std::make_shared<Mesh>(mesh->comm(), blocks, points);
+        return finish_derefine(mesh, blocks, n_unique_nodes);
     }
 
     SharedBuffer<idx_t *> sshex8_device_elements_view(const SharedBuffer<idx_t *> &fine_device_soa,

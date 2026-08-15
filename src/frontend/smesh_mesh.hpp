@@ -9,8 +9,11 @@
 
 // STL
 #include <functional>
+#include <vector>
 
 namespace smesh {
+
+class MeshTransformsDistributed;
 
 class Distributed {
 public:
@@ -61,6 +64,17 @@ public:
   friend std::shared_ptr<Mesh> to_semistructured_distributed_quad(
       const int level, const std::shared_ptr<Mesh> &mesh,
       const bool hierarchical_ordering);
+  friend class MeshTransformsDistributed;
+  friend std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex);
+  friend std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh,
+                                        const int to_level);
+  friend std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
+                                          const std::shared_ptr<Mesh> &mesh);
+  friend std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
+                                      const int levels);
+  friend std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
+                                       const geom_t height,
+                                       const ptrdiff_t nlayers);
 
 private:
   void set_nodes(ptrdiff_t n_global, ptrdiff_t n_owned, ptrdiff_t n_shared,
@@ -441,6 +455,17 @@ private:
   friend std::shared_ptr<Mesh> to_semistructured_distributed_quad(
       const int level, const std::shared_ptr<Mesh> &mesh,
       const bool hierarchical_ordering);
+  friend class MeshTransformsDistributed;
+  friend std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex);
+  friend std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh,
+                                        const int to_level);
+  friend std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
+                                          const std::shared_ptr<Mesh> &mesh);
+  friend std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
+                                      const int levels);
+  friend std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
+                                       const geom_t height,
+                                       const ptrdiff_t nlayers);
 
   void set_distributed(const std::shared_ptr<Distributed> &distributed);
 
@@ -450,6 +475,44 @@ private:
 
 using SharedMesh = std::shared_ptr<Mesh>;
 using SharedBlock = std::shared_ptr<Mesh::Block>;
+
+#ifdef SMESH_ENABLE_MPI
+class MeshTransformsDistributed {
+public:
+  static std::shared_ptr<Distributed> copy_distributed(const Distributed &src);
+  static std::shared_ptr<Distributed>
+  make_nodal_distributed(const std::shared_ptr<Communicator> &comm,
+                         ptrdiff_t n_global, ptrdiff_t n_owned, ptrdiff_t n_shared,
+                         ptrdiff_t n_ghosts, ptrdiff_t n_aura,
+                         SharedBuffer<large_idx_t> node_mapping,
+                         SharedBuffer<int> node_owner, ptrdiff_t n_elem_global,
+                         ptrdiff_t n_elem_owned, ptrdiff_t n_elem_shared,
+                         ptrdiff_t n_elem_ghosts,
+                         SharedBuffer<large_idx_t> element_mapping,
+                         SharedBuffer<large_idx_t> aura_element_mapping);
+  static std::shared_ptr<Mesh>
+  make_distributed_mesh(const std::shared_ptr<Communicator> &comm,
+                        const std::vector<std::shared_ptr<Mesh::Block>> &blocks,
+                        const SharedBuffer<geom_t *> &points,
+                        const std::shared_ptr<Distributed> &dist);
+  static void expand_element_maps(Distributed &dist, const int factor);
+  static void expand_block_elements(Mesh::Block &block, const int factor);
+  static int conversion_factor(const enum ElemType from, const enum ElemType to);
+  static std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
+                                      const int levels);
+  static std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
+                                       const geom_t height,
+                                       const ptrdiff_t nlayers);
+  static void clone_distributed(const Mesh &src, Mesh &dst);
+  static int attach_convert_distributed(const Mesh &src, Mesh &dst);
+  static std::shared_ptr<Mesh>
+  attach_sshex_to_hex8(const std::shared_ptr<Mesh> &ss,
+                       const std::shared_ptr<Mesh> &hex);
+  static std::shared_ptr<Mesh>
+  derefine(const std::shared_ptr<Mesh> &mesh,
+           std::vector<std::shared_ptr<Mesh::Block>> &blocks);
+};
+#endif
 
 std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
                                  const std::shared_ptr<Mesh> &mesh);

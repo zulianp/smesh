@@ -321,6 +321,26 @@ static int test_serial_promote_refine_vs_single_block() {
   return SMESH_TEST_SUCCESS;
 }
 
+static int test_serial_hex8_multiblock_refine() {
+  auto single = Mesh::create_hex8_cube(Communicator::self(), 2, 2, 2);
+  auto multi = Mesh::create_hex8_checkerboard_cube(Communicator::self(), 2, 2, 2);
+  SMESH_TEST_ASSERT(single != nullptr);
+  SMESH_TEST_ASSERT(multi != nullptr);
+  SMESH_TEST_EQ(static_cast<int>(multi->n_blocks()), 2);
+
+  auto single_r = refine(single, 1);
+  auto multi_r = refine(multi, 1);
+  SMESH_TEST_ASSERT(single_r != nullptr);
+  SMESH_TEST_ASSERT(multi_r != nullptr);
+  SMESH_TEST_EQ(multi_r->n_nodes(), single_r->n_nodes());
+  SMESH_TEST_EQ(multi_r->n_elements(), single_r->n_elements());
+  SMESH_TEST_EQ(static_cast<int>(multi_r->n_blocks()), 2);
+  SMESH_TEST_EQ(multi_r->element_type(0), HEX8);
+  SMESH_TEST_EQ(multi_r->element_type(1), HEX8);
+
+  return SMESH_TEST_SUCCESS;
+}
+
 static std::shared_ptr<Mesh> create_quad4_square_3d(const ptrdiff_t nx,
                                                     const ptrdiff_t ny) {
   auto q2 = Mesh::create_quad4_square(Communicator::self(), nx, ny);
@@ -997,6 +1017,7 @@ int main(int argc, char **argv) {
   SMESH_RUN_TEST(test_serial_hex8_tet4_graphs);
   SMESH_RUN_TEST(test_serial_transforms);
   SMESH_RUN_TEST(test_serial_promote_refine_vs_single_block);
+  SMESH_RUN_TEST(test_serial_hex8_multiblock_refine);
   SMESH_RUN_TEST(test_serial_extrude_vs_single_block);
   SMESH_RUN_TEST(test_serial_hex_dominant);
 #ifdef SMESH_ENABLE_MPI

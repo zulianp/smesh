@@ -3072,6 +3072,12 @@ namespace smesh {
             ret->add_block(new_block);
         }
 
+#ifdef SMESH_ENABLE_MPI
+        if (is_distributed()) {
+            MeshTransformsDistributed::clone_distributed(*this, *ret);
+        }
+#endif
+
         return ret;
     }
 
@@ -3195,7 +3201,15 @@ namespace smesh {
             blocks.push_back(new_block);
         }
 
-        return std::make_shared<Mesh>(mesh->comm(), blocks, mesh->points());
+        auto out = std::make_shared<Mesh>(mesh->comm(), blocks, mesh->points());
+#ifdef SMESH_ENABLE_MPI
+        if (mesh->is_distributed()) {
+            if (MeshTransformsDistributed::attach_convert_distributed(*mesh, *out) != SMESH_SUCCESS) {
+                return nullptr;
+            }
+        }
+#endif
+        return out;
     }
 
     std::shared_ptr<Mesh> promote_to(const enum ElemType element_type, const std::shared_ptr<Mesh> &mesh) {
@@ -3392,12 +3406,18 @@ namespace smesh {
     }
 
     std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh, const int levels) {
+#ifdef SMESH_ENABLE_MPI
+        if (mesh->is_distributed()) {
+            return MeshTransformsDistributed::refine(mesh, levels);
+        }
+#else
         if (mesh->comm()->size() > 1) {
             SMESH_ERROR("Refinement is not supported for distributed meshes\n");
             return nullptr;
         }
+#endif
 
-        const int refine_factor = [](const ElemType element_type) {
+        const int refine_factor = [](const enum ElemType element_type) {
             switch (element_type) {
                 case HEX8:
                     return 8;
@@ -3467,8 +3487,11 @@ namespace smesh {
         }
 
         if (mesh->n_blocks() > 1 && mesh->element_type(0) == HEX8) {
-            SMESH_ERROR("HEX8 multiblock refinement is not supported yet\n");
-            return nullptr;
+            auto ss = to_semistructured(1 << levels, mesh);
+            if (!ss) {
+                return nullptr;
+            }
+            return sshex_to_hex8(ss);
         }
 
         auto out = mesh;
@@ -4243,10 +4266,16 @@ namespace smesh {
     }
 
     std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh, const geom_t height, const ptrdiff_t nlayers) {
+#ifdef SMESH_ENABLE_MPI
+        if (mesh->is_distributed()) {
+            return MeshTransformsDistributed::extrude(mesh, height, nlayers);
+        }
+#else
         if (mesh->comm()->size() > 1) {
             SMESH_ERROR("Extrusion is not supported for distributed meshes\n");
             return nullptr;
         }
+#endif
 
         enum ElemType extrude_type = INVALID;
         for (size_t b = 0; b < mesh->n_blocks(); ++b) {
