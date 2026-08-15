@@ -14,6 +14,7 @@
 #include "smesh_sshex8.hpp"
 #include "smesh_sshex8_graph.hpp"
 #include "smesh_sshex8_mesh.hpp"
+#include "smesh_ssmixed_graph.hpp"
 #include "smesh_ssquad4.hpp"
 #include "smesh_ssquad4_mesh.hpp"
 #include "smesh_sstet4.hpp"
@@ -128,12 +129,7 @@ namespace smesh {
         SMESH_TRACE_SCOPE("to_semistructured");
 
         if (mesh->is_distributed()) {
-            if (hiearchical_ordering) {
-                fprintf(stderr,
-                        "to_semistructured: hierarchical ordering is not implemented for distributed meshes\n");
-                return nullptr;
-            }
-            return to_semistructured_distributed(level, mesh, use_GLL);
+            return to_semistructured_distributed(level, mesh, use_GLL, hiearchical_ordering);
         }
 
         if (mesh->n_blocks() == 1) {
@@ -258,17 +254,145 @@ namespace smesh {
             return std::make_shared<Mesh>(mesh->comm(), blocks, p);
         }
 
-        enum ElemType family = INVALID;
+        bool has_hex   = false;
+        bool has_tet   = false;
+        bool has_other = false;
+        enum ElemType other_family = INVALID;
         for (size_t b = 0; b < mesh->n_blocks(); ++b) {
             const enum ElemType f = ss_source_family(mesh->element_type(static_cast<block_idx_t>(b)));
-            if (family == INVALID) {
-                family = f;
-            } else if (f != family) {
+            if (f == HEX8) {
+                has_hex = true;
+            } else if (f == TET4) {
+                has_tet = true;
+            } else {
+                has_other    = true;
+                other_family = f;
+            }
+        }
+
+        if (has_hex && has_tet) {
+            if (has_other) {
                 fprintf(stderr,
                         "to_semistructured: mixed-family semistructured conversion is not implemented\n");
                 return nullptr;
             }
+            if (use_GLL) {
+                fprintf(stderr, "to_semistructured: GLL nodes are not implemented for mixed HEX+TET SS\n");
+                return nullptr;
+            }
+            if (level < 1) {
+                fprintf(stderr, "to_semistructured: mixed HEX+TET SS requires level >= 1\n");
+                return nullptr;
+            }
+
+            const ptrdiff_t n_blocks = static_cast<ptrdiff_t>(mesh->n_blocks());
+            std::vector<enum ElemType>                block_types(static_cast<size_t>(n_blocks));
+            std::vector<ptrdiff_t>                    n_e(static_cast<size_t>(n_blocks));
+            std::vector<const idx_t *const *>         coarse_soa(static_cast<size_t>(n_blocks));
+            std::vector<idx_t **>                     ss_soa(static_cast<size_t>(n_blocks));
+            std::vector<std::shared_ptr<Mesh::Block>> ss_blocks(static_cast<size_t>(n_blocks));
+            std::vector<const element_idx_t *>        hft(static_cast<size_t>(n_blocks));
+            std::vector<const block_idx_t *>          hnbb(static_cast<size_t>(n_blocks));
+            std::vector<SharedBuffer<element_idx_t>>  hft_keep(static_cast<size_t>(n_blocks));
+            std::vector<SharedBuffer<block_idx_t>>    hnbb_keep(static_cast<size_t>(n_blocks));
+
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                auto                block  = mesh->block(static_cast<size_t>(b));
+                const enum ElemType family = ss_source_family(block->element_type());
+                const size_t        bi     = static_cast<size_t>(b);
+                block_types[bi]            = family;
+                n_e[bi]                    = block->n_elements();
+                coarse_soa[bi]             = block->elements()->data();
+
+                int nxe = 0;
+                if (family == HEX8) {
+                    if (block->n_nodes_per_element() != 8) {
+                        fprintf(stderr,
+                                "to_semistructured: HEX family block '%s' does not have 8 nodes per element\n",
+                                block->name().c_str());
+                        return nullptr;
+                    }
+                    nxe = sshex8_nxe(level);
+                } else {
+                    if (block->n_nodes_per_element() != 4) {
+                        fprintf(stderr,
+                                "to_semistructured: TET family block '%s' does not have 4 nodes per element\n",
+                                block->name().c_str());
+                        return nullptr;
+                    }
+                    nxe = sstet4_nxe(level);
+                }
+
+                auto ss_elems = create_host_buffer<idx_t>(nxe, static_cast<size_t>(n_e[bi]));
+                ss_soa[bi]    = ss_elems->data();
+
+                auto ss_block = std::make_shared<Mesh::Block>();
+                ss_block->set_name(block->name());
+                ss_block->set_element_type(semistructured_type(family, level));
+                ss_block->set_elements(ss_elems);
+                ss_blocks[bi] = ss_block;
+
+                hft_keep[bi]  = mesh->half_face_table(static_cast<block_idx_t>(b));
+                hnbb_keep[bi] = mesh->half_face_neighbor_block(static_cast<block_idx_t>(b));
+                hft[bi]       = hft_keep[bi]->data();
+                hnbb[bi]      = hnbb_keep[bi]->data();
+            }
+
+            ptrdiff_t n_unique_nodes{-1};
+            ptrdiff_t interior_start{-1};
+            ssmixed_hex_tet_generate_elements_blocks(level,
+                                                     n_blocks,
+                                                     block_types.data(),
+                                                     n_e.data(),
+                                                     mesh->n_nodes(),
+                                                     coarse_soa.data(),
+                                                     ss_soa.data(),
+                                                     hft.data(),
+                                                     hnbb.data(),
+                                                     &n_unique_nodes,
+                                                     &interior_start);
+
+            if (hiearchical_ordering) {
+                const int        nlevels = sshex8_hierarchical_n_levels(level);
+                std::vector<int> levels(static_cast<size_t>(nlevels));
+                sshex8_hierarchical_mesh_levels(level, nlevels, levels.data());
+                auto node_mapping = create_host_buffer<idx_t>(n_unique_nodes);
+                ssmixed_hex_tet_hierarchical_renumbering_blocks(level,
+                                                                nlevels,
+                                                                levels.data(),
+                                                                n_blocks,
+                                                                block_types.data(),
+                                                                n_e.data(),
+                                                                n_unique_nodes,
+                                                                ss_soa.data(),
+                                                                node_mapping->data(),
+                                                                true);
+            }
+
+            auto p       = smesh::create_host_buffer<geom_t>(mesh->spatial_dimension(), n_unique_nodes);
+            auto macro_p = mesh->points()->data();
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                if (block_types[static_cast<size_t>(b)] == HEX8) {
+                    sshex8_fill_points(level, n_e[static_cast<size_t>(b)], ss_soa[static_cast<size_t>(b)], macro_p, p->data());
+                }
+            }
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                if (block_types[static_cast<size_t>(b)] == TET4) {
+                    sstet4_fill_points(level, n_e[static_cast<size_t>(b)], ss_soa[static_cast<size_t>(b)], macro_p, p->data());
+                }
+            }
+
+            return std::make_shared<Mesh>(mesh->comm(), ss_blocks, p);
         }
+
+        if (has_other) {
+            fprintf(stderr,
+                    "to_semistructured: SS family %s is not implemented\n",
+                    other_family == INVALID ? "INVALID" : type_to_string(other_family));
+            return nullptr;
+        }
+
+        const enum ElemType family = has_hex ? HEX8 : (has_tet ? TET4 : INVALID);
 
         if (family == HEX8) {
         const ptrdiff_t n_blocks = static_cast<ptrdiff_t>(mesh->n_blocks());
@@ -499,6 +623,12 @@ namespace smesh {
     }
 
     std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex) {
+        for (auto &block : sshex->blocks()) {
+            if (!is_hex_ss_family(block->element_type())) {
+                fprintf(stderr, "sshex_to_hex8: mixed-family or non-HEX SS conversion is not implemented\n");
+                return nullptr;
+            }
+        }
         std::vector<std::shared_ptr<Mesh::Block>> blocks;
         for (auto &block : sshex->blocks()) {
             auto new_block = std::make_shared<Mesh::Block>();
@@ -528,12 +658,85 @@ namespace smesh {
             return nullptr;
         }
 
+        bool                mixed  = false;
         const enum ElemType family = ss_source_family(mesh->element_type(0));
         for (size_t b = 1; b < mesh->n_blocks(); ++b) {
             if (ss_source_family(mesh->element_type(static_cast<block_idx_t>(b))) != family) {
-                fprintf(stderr, "derefine: mixed-family meshes are not implemented\n");
-                return nullptr;
+                mixed = true;
             }
+        }
+
+        if (mixed) {
+            std::vector<std::shared_ptr<Mesh::Block>> blocks;
+            ptrdiff_t                                 n_unique_nodes{-1};
+            for (auto &block : mesh->blocks()) {
+                const enum ElemType bf = ss_source_family(block->element_type());
+                if (!is_semistructured_type(block->element_type()) || (bf != HEX8 && bf != TET4)) {
+                    fprintf(stderr, "derefine: mixed-family SS supports HEX and TET blocks only\n");
+                    return nullptr;
+                }
+
+                const int from_level = semistructured_level(block->element_type());
+                if (to_level <= 0 || from_level < to_level || (from_level % to_level) != 0) {
+                    fprintf(stderr, "derefine: invalid levels from=%d to=%d\n", from_level, to_level);
+                    return nullptr;
+                }
+                const int step_factor = from_level / to_level;
+                const int nxe         = (bf == HEX8) ? ((to_level + 1) * (to_level + 1) * (to_level + 1))
+                                                     : sstet4_nxe(to_level);
+
+                auto elements = block->elements();
+                auto view     = std::make_shared<Buffer<idx_t *>>(
+                        nxe,
+                        block->n_elements(),
+                        (idx_t **)SMESH_ALLOC(nxe * sizeof(idx_t *)),
+                        [keep_alive = elements](int, void **v) {
+                            (void)keep_alive;
+                            SMESH_FREE(v);
+                        },
+                        elements->mem_space());
+
+                if (bf == HEX8) {
+                    for (int zi = 0; zi <= to_level; zi++) {
+                        for (int yi = 0; yi <= to_level; yi++) {
+                            for (int xi = 0; xi <= to_level; xi++) {
+                                const int from_lidx = sshex8_lidx(from_level, xi * step_factor, yi * step_factor, zi * step_factor);
+                                const int to_lidx   = sshex8_lidx(to_level, xi, yi, zi);
+                                view->data()[to_lidx] = elements->data()[from_lidx];
+                            }
+                        }
+                    }
+                } else {
+                    for (int z = 0; z <= to_level; ++z) {
+                        for (int y = 0; y <= to_level - z; ++y) {
+                            for (int x = 0; x <= to_level - z - y; ++x) {
+                                const int from_lidx = sstet4_lidx(from_level, x * step_factor, y * step_factor, z * step_factor);
+                                const int to_lidx   = sstet4_lidx(to_level, x, y, z);
+                                view->data()[to_lidx] = elements->data()[from_lidx];
+                            }
+                        }
+                    }
+                }
+
+                auto derefined_block = std::make_shared<Mesh::Block>();
+                derefined_block->set_name(block->name());
+                derefined_block->set_element_type(semistructured_type(bf, to_level));
+                derefined_block->set_elements(view);
+                blocks.push_back(derefined_block);
+
+                auto            vv        = view->data();
+                const ptrdiff_t nelements = block->n_elements();
+                for (size_t v = 0; v < view->extent(0); v++) {
+                    for (ptrdiff_t e = 0; e < nelements; e++) {
+                        n_unique_nodes = std::max(static_cast<ptrdiff_t>(vv[v][e]), n_unique_nodes);
+                    }
+                }
+            }
+
+            n_unique_nodes += 1;
+            int  sdim   = mesh->spatial_dimension();
+            auto points = smesh::view(mesh->points(), 0, sdim, 0, n_unique_nodes);
+            return std::make_shared<Mesh>(mesh->comm(), blocks, points);
         }
 
         if (family == TET4) {

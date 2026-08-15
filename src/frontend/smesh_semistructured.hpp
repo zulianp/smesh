@@ -39,7 +39,8 @@ namespace smesh {
 
     std::shared_ptr<Mesh> to_semistructured_distributed(const int                    level,
                                                         const std::shared_ptr<Mesh> &mesh,
-                                                        const bool                   use_GLL);
+                                                        const bool                   use_GLL,
+                                                        const bool                   hierarchical_ordering = false);
     std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex);
     std::shared_ptr<Mesh> ssquad_to_quad4(const std::shared_ptr<Mesh> &ssquad);
     std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh, const int to_level);

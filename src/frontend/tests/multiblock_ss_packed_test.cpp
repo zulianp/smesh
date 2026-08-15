@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <cstring>
 #include <cstdint>
+#include <set>
+#include <utility>
 #include <vector>
 
 #include "smesh_conversion.hpp"
@@ -126,10 +128,264 @@ static int test_checkerboard_derefine() {
     return SMESH_TEST_SUCCESS;
 }
 
-static int test_mixed_to_semistructured_rejected() {
+static int hex_edge_ss_ids(const int                    L,
+                           const idx_t *const *         coarse,
+                           const idx_t *const *         ss,
+                           const ptrdiff_t              n_e,
+                           const idx_t                  lo,
+                           const idx_t                  hi,
+                           std::vector<idx_t>          &ids) {
+    static const int hex_edges[12][2] = {{0, 1}, {0, 3}, {0, 4}, {1, 2}, {1, 5}, {2, 3},
+                                         {2, 6}, {3, 7}, {4, 5}, {4, 7}, {5, 6}, {6, 7}};
+    ids.clear();
+    for (ptrdiff_t e = 0; e < n_e; ++e) {
+        for (int k = 0; k < 12; ++k) {
+            const idx_t a = coarse[hex_edges[k][0]][e];
+            const idx_t b = coarse[hex_edges[k][1]][e];
+            const idx_t u = std::min(a, b);
+            const idx_t v = std::max(a, b);
+            if (u != lo || v != hi) {
+                continue;
+            }
+            const int c0 = (a == lo) ? hex_edges[k][0] : hex_edges[k][1];
+            const int c1 = (a == lo) ? hex_edges[k][1] : hex_edges[k][0];
+            static const int xyz[8][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
+                                          {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}};
+            const int P1[3] = {xyz[c0][0] * L, xyz[c0][1] * L, xyz[c0][2] * L};
+            const int P2[3] = {xyz[c1][0] * L, xyz[c1][1] * L, xyz[c1][2] * L};
+            ids.resize(static_cast<size_t>(L > 1 ? (L - 1) : 0));
+            for (int t = 1; t < L; ++t) {
+                const int xi = (P1[0] * (L - t) + P2[0] * t) / L;
+                const int yi = (P1[1] * (L - t) + P2[1] * t) / L;
+                const int zi = (P1[2] * (L - t) + P2[2] * t) / L;
+                ids[static_cast<size_t>(t - 1)] = ss[sshex8_lidx(L, xi, yi, zi)][e];
+            }
+            return SMESH_TEST_SUCCESS;
+        }
+    }
+    return SMESH_TEST_FAILURE;
+}
+
+static int tet_edge_ss_ids(const int                    L,
+                           const idx_t *const *         coarse,
+                           const idx_t *const *         ss,
+                           const ptrdiff_t              n_e,
+                           const idx_t                  lo,
+                           const idx_t                  hi,
+                           std::vector<idx_t>          &ids) {
+    ids.clear();
+    for (ptrdiff_t e = 0; e < n_e; ++e) {
+        int c0 = -1;
+        int c1 = -1;
+        for (int d = 0; d < 4; ++d) {
+            if (coarse[d][e] == lo) {
+                c0 = d;
+            }
+            if (coarse[d][e] == hi) {
+                c1 = d;
+            }
+        }
+        if (c0 < 0 || c1 < 0) {
+            continue;
+        }
+        static const int xyz[4][3] = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+        const int P1[3] = {xyz[c0][0] * L, xyz[c0][1] * L, xyz[c0][2] * L};
+        const int P2[3] = {xyz[c1][0] * L, xyz[c1][1] * L, xyz[c1][2] * L};
+        ids.resize(static_cast<size_t>(L > 1 ? (L - 1) : 0));
+        for (int t = 1; t < L; ++t) {
+            const int xi = (P1[0] * (L - t) + P2[0] * t) / L;
+            const int yi = (P1[1] * (L - t) + P2[1] * t) / L;
+            const int zi = (P1[2] * (L - t) + P2[2] * t) / L;
+            ids[static_cast<size_t>(t - 1)] = ss[sstet4_lidx(L, xi, yi, zi)][e];
+        }
+        return SMESH_TEST_SUCCESS;
+    }
+    return SMESH_TEST_FAILURE;
+}
+
+static void collect_hex_edges(const std::shared_ptr<Mesh> &mesh, std::set<std::pair<idx_t, idx_t>> &edges) {
+    static const int hex_edges[12][2] = {{0, 1}, {0, 3}, {0, 4}, {1, 2}, {1, 5}, {2, 3},
+                                         {2, 6}, {3, 7}, {4, 5}, {4, 7}, {5, 6}, {6, 7}};
+    auto             coarse           = mesh->elements(0)->data();
+    const ptrdiff_t  n_e              = mesh->n_elements(0);
+    for (ptrdiff_t e = 0; e < n_e; ++e) {
+        for (int k = 0; k < 12; ++k) {
+            const idx_t a = coarse[hex_edges[k][0]][e];
+            const idx_t b = coarse[hex_edges[k][1]][e];
+            edges.emplace(std::min(a, b), std::max(a, b));
+        }
+    }
+}
+
+static void collect_tet_edges(const std::shared_ptr<Mesh> &mesh, std::set<std::pair<idx_t, idx_t>> &edges) {
+    auto            coarse = mesh->elements(1)->data();
+    const ptrdiff_t n_e    = mesh->n_elements(1);
+    for (ptrdiff_t e = 0; e < n_e; ++e) {
+        for (int i = 0; i < 4; ++i) {
+            for (int j = i + 1; j < 4; ++j) {
+                const idx_t a = coarse[i][e];
+                const idx_t b = coarse[j][e];
+                edges.emplace(std::min(a, b), std::max(a, b));
+            }
+        }
+    }
+}
+
+static int test_mixed_to_semistructured() {
     auto mixed = create_hex8_tet4_serial(2, 2, 2);
     SMESH_TEST_ASSERT(mixed != nullptr);
-    SMESH_TEST_ASSERT(to_semistructured(2, mixed) == nullptr);
+    SMESH_TEST_EQ(static_cast<int>(mixed->n_blocks()), 2);
+    SMESH_TEST_EQ(mixed->element_type(0), HEX8);
+    SMESH_TEST_EQ(mixed->element_type(1), TET4);
+
+    SMESH_TEST_ASSERT(to_semistructured(2, mixed, false, true) == nullptr);
+
+    std::set<std::pair<idx_t, idx_t>> hex_edges;
+    std::set<std::pair<idx_t, idx_t>> tet_edges;
+    collect_hex_edges(mixed, hex_edges);
+    collect_tet_edges(mixed, tet_edges);
+    std::set<std::pair<idx_t, idx_t>> shared;
+    for (const auto &e : hex_edges) {
+        if (tet_edges.count(e)) {
+            shared.insert(e);
+        }
+    }
+    SMESH_TEST_ASSERT(!shared.empty());
+
+    std::vector<std::shared_ptr<Mesh::Block>> hex_blocks = {mixed->block(0)};
+    std::vector<std::shared_ptr<Mesh::Block>> tet_blocks = {mixed->block(1)};
+    auto hex_only = std::make_shared<Mesh>(mixed->comm(), hex_blocks, mixed->points());
+    auto tet_only = std::make_shared<Mesh>(mixed->comm(), tet_blocks, mixed->points());
+
+    const ptrdiff_t n_corners = mixed->n_nodes();
+    auto            hex_c     = mixed->elements(0)->data();
+    auto            tet_c     = mixed->elements(1)->data();
+
+    for (int L : {1, 2, 4}) {
+        auto ss = to_semistructured(L, mixed);
+        SMESH_TEST_ASSERT(ss != nullptr);
+        SMESH_TEST_EQ(static_cast<int>(ss->n_blocks()), 2);
+        SMESH_TEST_ASSERT(ss->block(0)->name() == "hex");
+        SMESH_TEST_ASSERT(ss->block(1)->name() == "tet");
+        SMESH_TEST_EQ(ss->element_type(0), semistructured_type(HEX8, L));
+        SMESH_TEST_EQ(ss->element_type(1), semistructured_type(TET4, L));
+        SMESH_TEST_EQ(ss->n_elements(0), mixed->n_elements(0));
+        SMESH_TEST_EQ(ss->n_elements(1), mixed->n_elements(1));
+        SMESH_TEST_EQ(static_cast<int>(ss->block(0)->n_nodes_per_element()), sshex8_nxe(L));
+        SMESH_TEST_EQ(static_cast<int>(ss->block(1)->n_nodes_per_element()), sstet4_nxe(L));
+
+        auto hex_ss = ss->elements(0)->data();
+        auto tet_ss = ss->elements(1)->data();
+        const int hex_cidx[8] = {sshex8_lidx(L, 0, 0, 0),
+                                 sshex8_lidx(L, L, 0, 0),
+                                 sshex8_lidx(L, L, L, 0),
+                                 sshex8_lidx(L, 0, L, 0),
+                                 sshex8_lidx(L, 0, 0, L),
+                                 sshex8_lidx(L, L, 0, L),
+                                 sshex8_lidx(L, L, L, L),
+                                 sshex8_lidx(L, 0, L, L)};
+        const int tet_cidx[4] = {sstet4_lidx(L, 0, 0, 0),
+                                 sstet4_lidx(L, L, 0, 0),
+                                 sstet4_lidx(L, 0, L, 0),
+                                 sstet4_lidx(L, 0, 0, L)};
+        for (ptrdiff_t e = 0; e < mixed->n_elements(0); ++e) {
+            for (int d = 0; d < 8; ++d) {
+                SMESH_TEST_EQ(hex_ss[hex_cidx[d]][e], hex_c[d][e]);
+            }
+        }
+        for (ptrdiff_t e = 0; e < mixed->n_elements(1); ++e) {
+            for (int d = 0; d < 4; ++d) {
+                SMESH_TEST_EQ(tet_ss[tet_cidx[d]][e], tet_c[d][e]);
+            }
+        }
+
+        if (L == 1) {
+            SMESH_TEST_EQ(ss->n_nodes(), n_corners);
+            continue;
+        }
+
+        for (const auto &edge : shared) {
+            std::vector<idx_t> hex_ids;
+            std::vector<idx_t> tet_ids;
+            SMESH_TEST_EQ(hex_edge_ss_ids(L, hex_c, hex_ss, mixed->n_elements(0), edge.first, edge.second, hex_ids),
+                          SMESH_TEST_SUCCESS);
+            SMESH_TEST_EQ(tet_edge_ss_ids(L, tet_c, tet_ss, mixed->n_elements(1), edge.first, edge.second, tet_ids),
+                          SMESH_TEST_SUCCESS);
+            SMESH_TEST_EQ(hex_ids.size(), tet_ids.size());
+            for (size_t i = 0; i < hex_ids.size(); ++i) {
+                SMESH_TEST_EQ(hex_ids[i], tet_ids[i]);
+            }
+        }
+
+        auto ss_hex = to_semistructured(L, hex_only);
+        auto ss_tet = to_semistructured(L, tet_only);
+        SMESH_TEST_ASSERT(ss_hex != nullptr);
+        SMESH_TEST_ASSERT(ss_tet != nullptr);
+        const ptrdiff_t expected =
+                ss_hex->n_nodes() + ss_tet->n_nodes() - n_corners -
+                static_cast<ptrdiff_t>(shared.size()) * static_cast<ptrdiff_t>(L - 1);
+        SMESH_TEST_EQ(ss->n_nodes(), expected);
+    }
+
+    auto ss2 = to_semistructured(2, mixed);
+    SMESH_TEST_ASSERT(ss2 != nullptr);
+    auto ss2h = to_semistructured(2, mixed, true, false);
+    SMESH_TEST_ASSERT(ss2h != nullptr);
+    SMESH_TEST_EQ(ss2h->n_blocks(), ss2->n_blocks());
+    SMESH_TEST_EQ(ss2h->n_nodes(), ss2->n_nodes());
+    SMESH_TEST_EQ(ss2h->element_type(0), semistructured_type(HEX8, 2));
+    SMESH_TEST_EQ(ss2h->element_type(1), semistructured_type(TET4, 2));
+    {
+        auto hex_ss = ss2h->elements(0)->data();
+        auto tet_ss = ss2h->elements(1)->data();
+        auto hex_c  = mixed->elements(0)->data();
+        auto tet_c  = mixed->elements(1)->data();
+        const int hex_cidx[8] = {sshex8_lidx(2, 0, 0, 0),
+                                 sshex8_lidx(2, 2, 0, 0),
+                                 sshex8_lidx(2, 2, 2, 0),
+                                 sshex8_lidx(2, 0, 2, 0),
+                                 sshex8_lidx(2, 0, 0, 2),
+                                 sshex8_lidx(2, 2, 0, 2),
+                                 sshex8_lidx(2, 2, 2, 2),
+                                 sshex8_lidx(2, 0, 2, 2)};
+        const int tet_cidx[4] = {sstet4_lidx(2, 0, 0, 0),
+                                 sstet4_lidx(2, 2, 0, 0),
+                                 sstet4_lidx(2, 0, 2, 0),
+                                 sstet4_lidx(2, 0, 0, 2)};
+        for (ptrdiff_t e = 0; e < mixed->n_elements(0); ++e) {
+            for (int d = 0; d < 8; ++d) {
+                SMESH_TEST_EQ(hex_ss[hex_cidx[d]][e], hex_c[d][e]);
+            }
+        }
+        for (ptrdiff_t e = 0; e < mixed->n_elements(1); ++e) {
+            for (int d = 0; d < 4; ++d) {
+                SMESH_TEST_EQ(tet_ss[tet_cidx[d]][e], tet_c[d][e]);
+            }
+        }
+        for (const auto &edge : shared) {
+            std::vector<idx_t> hex_ids;
+            std::vector<idx_t> tet_ids;
+            SMESH_TEST_EQ(hex_edge_ss_ids(2, hex_c, hex_ss, mixed->n_elements(0), edge.first, edge.second, hex_ids),
+                          SMESH_TEST_SUCCESS);
+            SMESH_TEST_EQ(tet_edge_ss_ids(2, tet_c, tet_ss, mixed->n_elements(1), edge.first, edge.second, tet_ids),
+                          SMESH_TEST_SUCCESS);
+            SMESH_TEST_EQ(hex_ids.size(), tet_ids.size());
+            for (size_t i = 0; i < hex_ids.size(); ++i) {
+                SMESH_TEST_EQ(hex_ids[i], tet_ids[i]);
+            }
+        }
+    }
+
+    auto d = derefine(ss2, 1);
+    SMESH_TEST_ASSERT(d != nullptr);
+    SMESH_TEST_EQ(static_cast<int>(d->n_blocks()), 2);
+    SMESH_TEST_ASSERT(d->block(0)->name() == "hex");
+    SMESH_TEST_ASSERT(d->block(1)->name() == "tet");
+    SMESH_TEST_EQ(d->element_type(0), semistructured_type(HEX8, 1));
+    SMESH_TEST_EQ(d->element_type(1), semistructured_type(TET4, 1));
+    SMESH_TEST_EQ(d->n_nodes(), mixed->n_nodes());
+    SMESH_TEST_ASSERT(sshex_to_hex8(ss2) == nullptr);
+
     return SMESH_TEST_SUCCESS;
 }
 
@@ -228,7 +484,7 @@ int main(int argc, char *argv[]) {
     SMESH_RUN_TEST(test_checkerboard_to_semistructured);
     SMESH_RUN_TEST(test_checkerboard_to_semistructured_hierarchical);
     SMESH_RUN_TEST(test_checkerboard_derefine);
-    SMESH_RUN_TEST(test_mixed_to_semistructured_rejected);
+    SMESH_RUN_TEST(test_mixed_to_semistructured);
     SMESH_RUN_TEST(test_tet4_to_semistructured);
     SMESH_RUN_TEST(test_tet4_to_semistructured_hierarchical);
     SMESH_RUN_TEST(test_tet4_derefine);

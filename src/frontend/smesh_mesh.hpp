@@ -53,7 +53,11 @@ public:
   to_semistructured(const int level, const std::shared_ptr<Mesh> &mesh,
                     const bool hiearchical_ordering, const bool use_GLL);
   friend std::shared_ptr<Mesh> to_semistructured_distributed(
-      const int level, const std::shared_ptr<Mesh> &mesh, const bool use_GLL);
+      const int level, const std::shared_ptr<Mesh> &mesh, const bool use_GLL,
+      const bool hierarchical_ordering);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_hex_tet(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering);
 
 private:
   void set_nodes(ptrdiff_t n_global, ptrdiff_t n_owned, ptrdiff_t n_shared,
@@ -426,7 +430,11 @@ private:
   to_semistructured(const int level, const std::shared_ptr<Mesh> &mesh,
                     const bool hiearchical_ordering, const bool use_GLL);
   friend std::shared_ptr<Mesh> to_semistructured_distributed(
-      const int level, const std::shared_ptr<Mesh> &mesh, const bool use_GLL);
+      const int level, const std::shared_ptr<Mesh> &mesh, const bool use_GLL,
+      const bool hierarchical_ordering);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_hex_tet(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering);
 
   void set_distributed(const std::shared_ptr<Distributed> &distributed);
 

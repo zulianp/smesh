@@ -236,7 +236,7 @@ namespace smesh {
                                   const ptrdiff_t                                         e,
                                   const int                                               f,
                                   idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT       elements) {
-        static const int nnxs = 3;
+        static const int nnxs = LocalSideTable::MAX_NUM_NODES_PER_SIDE;
         int              argmin = 0;
         idx_t            valmin = m_elements[local_side_table[f * nnxs + 0]][e];
         for (int i = 1; i < 3; i++) {

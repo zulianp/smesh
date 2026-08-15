@@ -537,19 +537,235 @@ static void count_entity_nodes(const ptrdiff_t n_uniq,
     }
 }
 
-static void pack_entity_nodes(const ptrdiff_t    n_uniq,
-                              const int          n_per,
-                              const large_idx_t  base,
-                              const large_idx_t *const gid,
+static int hier_first_layer(const int L, const int nlevels, const int *const levels, const int x, const int y,
+                            const int z) {
+    for (int k = 0; k < nlevels; ++k) {
+        const int step = L / levels[k];
+        if ((x % step) == 0 && (y % step) == 0 && (z % step) == 0) {
+            return k;
+        }
+    }
+    return nlevels - 1;
+}
+
+static void hier_slot_ranks(const int n_slots, const int *const layer, const int nlevels, int *const rank,
+                            int *const n_t) {
+    for (int k = 0; k < nlevels; ++k) {
+        n_t[k] = 0;
+    }
+    for (int t = 0; t < n_slots; ++t) {
+        rank[t] = n_t[layer[t]]++;
+    }
+}
+
+static void hier_fill_edge_layers(const int L, const int nxedge, const int nlevels, const int *const levels,
+                                  int *const layer) {
+    for (int t = 0; t < nxedge; ++t) {
+        layer[t] = hier_first_layer(L, nlevels, levels, t + 1, 0, 0);
+    }
+}
+
+static void hier_fill_face_layers(const enum ElemType family,
+                                  const int           L,
+                                  const int           nxf,
+                                  const int           nlevels,
+                                  const int          *const levels,
+                                  int                *const layer) {
+    int t = 0;
+    if (family == HEX8) {
+        const int Lm1 = L - 1;
+        for (int v = 0; v < Lm1; ++v) {
+            for (int u = 0; u < Lm1; ++u) {
+                layer[t++] = hier_first_layer(L, nlevels, levels, u + 1, v + 1, 0);
+            }
+        }
+    } else {
+        for (int tt = 1; tt <= L - 2; ++tt) {
+            for (int s = 1; s <= L - 1 - tt; ++s) {
+                const int w = L - s - tt;
+                layer[t++]  = hier_first_layer(L, nlevels, levels, w, s, tt);
+            }
+        }
+    }
+    SMESH_ASSERT(t == nxf);
+}
+
+static void hier_fill_vol_layers(const enum ElemType family,
+                                 const int           L,
+                                 const int           nlevels,
+                                 const int          *const levels,
+                                 int                *const layer) {
+    if (family == HEX8) {
+        const int Lm1 = L - 1;
+        for (int zi = 1; zi < L; ++zi) {
+            for (int yi = 1; yi < L; ++yi) {
+                for (int xi = 1; xi < L; ++xi) {
+                    const int t = (zi - 1) * Lm1 * Lm1 + (yi - 1) * Lm1 + (xi - 1);
+                    layer[t]    = hier_first_layer(L, nlevels, levels, xi, yi, zi);
+                }
+            }
+        }
+    } else {
+        for (int z = 1; z <= L - 3; ++z) {
+            for (int y = 1; y <= L - 2 - z; ++y) {
+                for (int x = 1; x <= L - 1 - z - y; ++x) {
+                    const int t = sstet4_lidx(L - 4, x - 1, y - 1, z - 1);
+                    layer[t]    = hier_first_layer(L, nlevels, levels, x, y, z);
+                }
+            }
+        }
+    }
+}
+
+static void fill_flat_node_gids(const ptrdiff_t          n_uniq,
+                                const int                n_per,
+                                const large_idx_t        base,
+                                const large_idx_t *const gid,
+                                large_idx_t             *const out) {
+    for (ptrdiff_t u = 0; u < n_uniq; ++u) {
+        for (int t = 0; t < n_per; ++t) {
+            out[u * (ptrdiff_t)n_per + t] = base + gid[u] * (large_idx_t)n_per + (large_idx_t)t;
+        }
+    }
+}
+
+static void fill_hier_node_gids(const ptrdiff_t          n_uniq,
+                                const int                n_per,
+                                const int                kind,
+                                const large_idx_t *const entity_gid,
+                                const int         *const slot_layer,
+                                const int         *const slot_rank,
+                                const int         *const n_edge_t,
+                                const int         *const n_face_t,
+                                const int         *const n_vol_t,
+                                const large_idx_t *const layer_base,
+                                const ptrdiff_t          n_edges,
+                                const ptrdiff_t          n_faces,
+                                large_idx_t             *const out) {
+    for (ptrdiff_t u = 0; u < n_uniq; ++u) {
+        for (int t = 0; t < n_per; ++t) {
+            const int         k  = slot_layer[t];
+            const int         tr = slot_rank[t];
+            large_idx_t       g  = layer_base[k];
+            if (kind == 0) {
+                g += entity_gid[u] * (large_idx_t)n_edge_t[k] + (large_idx_t)tr;
+            } else if (kind == 1) {
+                g += (large_idx_t)n_edges * (large_idx_t)n_edge_t[k] + entity_gid[u] * (large_idx_t)n_face_t[k] +
+                     (large_idx_t)tr;
+            } else {
+                g += (large_idx_t)n_edges * (large_idx_t)n_edge_t[k] +
+                     (large_idx_t)n_faces * (large_idx_t)n_face_t[k] + entity_gid[u] * (large_idx_t)n_vol_t[k] +
+                     (large_idx_t)tr;
+            }
+            out[u * (ptrdiff_t)n_per + t] = g;
+        }
+    }
+}
+
+/// kind: 0 edge, 1 HEX face, 2 TET face, 3 HEX vol, 4 TET vol
+static void fill_hier_mixed_node_gids(const ptrdiff_t          n_uniq,
+                                      const int                n_per,
+                                      const int                kind,
+                                      const large_idx_t *const entity_gid,
+                                      const int         *const slot_layer,
+                                      const int         *const slot_rank,
+                                      const int         *const n_edge_t,
+                                      const int         *const n_hex_face_t,
+                                      const int         *const n_tet_face_t,
+                                      const int         *const n_hex_vol_t,
+                                      const int         *const n_tet_vol_t,
+                                      const large_idx_t *const layer_base,
+                                      const ptrdiff_t          n_edges,
+                                      const ptrdiff_t          n_hex_faces,
+                                      const ptrdiff_t          n_tet_faces,
+                                      const ptrdiff_t          n_hex_elem,
+                                      large_idx_t             *const out) {
+    for (ptrdiff_t u = 0; u < n_uniq; ++u) {
+        for (int t = 0; t < n_per; ++t) {
+            const int   k  = slot_layer[t];
+            const int   tr = slot_rank[t];
+            large_idx_t g  = layer_base[k];
+            if (kind == 0) {
+                g += entity_gid[u] * (large_idx_t)n_edge_t[k] + (large_idx_t)tr;
+            } else if (kind == 1) {
+                g += (large_idx_t)n_edges * (large_idx_t)n_edge_t[k] +
+                     entity_gid[u] * (large_idx_t)n_hex_face_t[k] + (large_idx_t)tr;
+            } else if (kind == 2) {
+                g += (large_idx_t)n_edges * (large_idx_t)n_edge_t[k] +
+                     (large_idx_t)n_hex_faces * (large_idx_t)n_hex_face_t[k] +
+                     entity_gid[u] * (large_idx_t)n_tet_face_t[k] + (large_idx_t)tr;
+            } else if (kind == 3) {
+                g += (large_idx_t)n_edges * (large_idx_t)n_edge_t[k] +
+                     (large_idx_t)n_hex_faces * (large_idx_t)n_hex_face_t[k] +
+                     (large_idx_t)n_tet_faces * (large_idx_t)n_tet_face_t[k] +
+                     entity_gid[u] * (large_idx_t)n_hex_vol_t[k] + (large_idx_t)tr;
+            } else {
+                g += (large_idx_t)n_edges * (large_idx_t)n_edge_t[k] +
+                     (large_idx_t)n_hex_faces * (large_idx_t)n_hex_face_t[k] +
+                     (large_idx_t)n_tet_faces * (large_idx_t)n_tet_face_t[k] +
+                     (large_idx_t)n_hex_elem * (large_idx_t)n_hex_vol_t[k] +
+                     entity_gid[u] * (large_idx_t)n_tet_vol_t[k] + (large_idx_t)tr;
+            }
+            out[u * (ptrdiff_t)n_per + t] = g;
+        }
+    }
+}
+
+static int unique_inc_tuples(MPI_Comm           comm,
+                             const ptrdiff_t    n_space,
+                             const ptrdiff_t    n_inc,
+                             large_idx_t       *keys,
+                             large_idx_t       *aux,
+                             idx_t             *loc,
+                             const ptrdiff_t    n_index,
+                             ptrdiff_t         *const n_uniq,
+                             ptrdiff_t        **const inc_to_uniq,
+                             large_idx_t      **const gid,
+                             int              **const owner,
+                             int              **const shared,
+                             ptrdiff_t         *const n_global) {
+    large_idx_t *uniq_keys = nullptr;
+    large_idx_t *uniq_aux  = nullptr;
+    if (local_unique_by_index(n_inc, keys, aux, loc, n_index, n_uniq, &uniq_keys, &uniq_aux, inc_to_uniq) !=
+        SMESH_SUCCESS) {
+        return SMESH_FAILURE;
+    }
+    SMESH_FREE(keys);
+    SMESH_FREE(aux);
+    SMESH_FREE(loc);
+    *gid    = (large_idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(*n_uniq, 1) * sizeof(large_idx_t));
+    *owner  = (int *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(*n_uniq, 1) * sizeof(int));
+    *shared = (int *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(*n_uniq, 1) * sizeof(int));
+    if (unique_tuples(comm, n_space, *n_uniq, uniq_keys, uniq_aux, *gid, *owner, *shared, n_global) !=
+        SMESH_SUCCESS) {
+        SMESH_FREE(uniq_keys);
+        SMESH_FREE(uniq_aux);
+        return SMESH_FAILURE;
+    }
+    SMESH_FREE(uniq_keys);
+    SMESH_FREE(uniq_aux);
+    return SMESH_SUCCESS;
+}
+
+static large_idx_t *alloc_entity_node_gids(const ptrdiff_t n_uniq, const int n_per) {
+    if (n_uniq <= 0 || n_per <= 0) {
+        return nullptr;
+    }
+    return (large_idx_t *)SMESH_ALLOC((size_t)n_uniq * (size_t)n_per * sizeof(large_idx_t));
+}
+
+static void pack_entity_nodes(const ptrdiff_t          n_uniq,
+                              const int                n_per,
+                              const large_idx_t *const node_gid,
                               const int         *const owner,
                               const int         *const shared,
                               const int         *const uo,
                               const int         *const ua,
-                              const int          rank,
-                              ptrdiff_t          cur[4],
-                              large_idx_t       *const nmap,
-                              int               *const nown,
-                              idx_t             *const ss_local) {
+                              const int                rank,
+                              ptrdiff_t                cur[4],
+                              large_idx_t             *const nmap,
+                              int                     *const nown,
+                              idx_t                   *const ss_local) {
     for (ptrdiff_t u = 0; u < n_uniq; ++u) {
         if (!uo[u] && !ua[u]) {
             continue;
@@ -557,9 +773,9 @@ static void pack_entity_nodes(const ptrdiff_t    n_uniq,
         const int b = node_bucket(rank, owner[u], shared[u], uo[u], ua[u]);
         for (int t = 0; t < n_per; ++t) {
             const ptrdiff_t w = cur[b]++;
-            nmap[w]           = base + gid[u] * (large_idx_t)n_per + (large_idx_t)t;
+            nmap[w]           = node_gid[u * (ptrdiff_t)n_per + t];
             nown[w]           = owner[u];
-            ss_local[u * n_per + t] = (idx_t)w;
+            ss_local[u * (ptrdiff_t)n_per + t] = (idx_t)w;
         }
     }
 }
@@ -802,21 +1018,46 @@ static void write_tet_face(const int               L,
 
 }  // namespace
 
+#include "smesh_semistructured_distributed_hex_tet.inc.hpp"
+
 std::shared_ptr<Mesh> to_semistructured_distributed(const int                    level,
                                                     const std::shared_ptr<Mesh> &mesh,
-                                                    const bool                   use_GLL) {
+                                                    const bool                   use_GLL,
+                                                    const bool                   hierarchical_ordering) {
     SMESH_TRACE_SCOPE("to_semistructured_distributed");
 
-    enum ElemType family = INVALID;
+    bool          has_hex   = false;
+    bool          has_tet   = false;
+    bool          has_other = false;
+    enum ElemType other_family = INVALID;
     for (size_t b = 0; b < mesh->n_blocks(); ++b) {
         const enum ElemType f = ss_source_family(mesh->element_type(static_cast<block_idx_t>(b)));
-        if (family == INVALID) {
-            family = f;
-        } else if (f != family) {
+        if (f == HEX8) {
+            has_hex = true;
+        } else if (f == TET4) {
+            has_tet = true;
+        } else {
+            has_other    = true;
+            other_family = f;
+        }
+    }
+    if (has_hex && has_tet) {
+        if (has_other) {
             fprintf(stderr, "to_semistructured: mixed-family semistructured conversion is not implemented\n");
             return nullptr;
         }
+        if (use_GLL) {
+            fprintf(stderr, "to_semistructured: GLL nodes are not implemented for mixed HEX+TET SS\n");
+            return nullptr;
+        }
+        return to_semistructured_distributed_hex_tet(level, mesh, hierarchical_ordering);
     }
+    if (has_other && (has_hex || has_tet)) {
+        fprintf(stderr, "to_semistructured: mixed-family semistructured conversion is not implemented\n");
+        return nullptr;
+    }
+
+    const enum ElemType family = has_hex ? HEX8 : (has_tet ? TET4 : other_family);
     if (family != HEX8 && family != TET4) {
         fprintf(stderr,
                 "to_semistructured: SS family %s is not implemented\n",
@@ -1158,6 +1399,63 @@ std::shared_ptr<Mesh> to_semistructured_distributed(const int                   
         return nullptr;
     }
 
+    const int nlevels = hierarchical_ordering ? sshex8_hierarchical_n_levels(level) : 0;
+    int *levels       = nullptr;
+    int *edge_layer   = nullptr;
+    int *edge_trank   = nullptr;
+    int *face_layer   = nullptr;
+    int *face_trank   = nullptr;
+    int *vol_layer    = nullptr;
+    int *vol_trank    = nullptr;
+    int *n_edge_t     = nullptr;
+    int *n_face_t     = nullptr;
+    int *n_vol_t      = nullptr;
+    large_idx_t *layer_base = nullptr;
+    if (hierarchical_ordering) {
+        if (nlevels < 1) {
+            fprintf(stderr, "to_semistructured: hierarchical mesh levels cannot be formed\n");
+            return nullptr;
+        }
+        levels     = (int *)SMESH_ALLOC((size_t)nlevels * sizeof(int));
+        n_edge_t   = (int *)SMESH_CALLOC((size_t)nlevels, sizeof(int));
+        n_face_t   = (int *)SMESH_CALLOC((size_t)nlevels, sizeof(int));
+        n_vol_t    = (int *)SMESH_CALLOC((size_t)nlevels, sizeof(int));
+        layer_base = (large_idx_t *)SMESH_ALLOC((size_t)(nlevels + 1) * sizeof(large_idx_t));
+        sshex8_hierarchical_mesh_levels(level, nlevels, levels);
+        if (nxedge > 0) {
+            edge_layer = (int *)SMESH_ALLOC((size_t)nxedge * sizeof(int));
+            edge_trank = (int *)SMESH_ALLOC((size_t)nxedge * sizeof(int));
+            hier_fill_edge_layers(level, nxedge, nlevels, levels, edge_layer);
+            hier_slot_ranks(nxedge, edge_layer, nlevels, edge_trank, n_edge_t);
+        }
+        if (nxf > 0) {
+            face_layer = (int *)SMESH_ALLOC((size_t)nxf * sizeof(int));
+            face_trank = (int *)SMESH_ALLOC((size_t)nxf * sizeof(int));
+            hier_fill_face_layers(family, level, nxf, nlevels, levels, face_layer);
+            hier_slot_ranks(nxf, face_layer, nlevels, face_trank, n_face_t);
+        }
+        if (nxvol > 0) {
+            vol_layer = (int *)SMESH_ALLOC((size_t)nxvol * sizeof(int));
+            vol_trank = (int *)SMESH_ALLOC((size_t)nxvol * sizeof(int));
+            hier_fill_vol_layers(family, level, nlevels, levels, vol_layer);
+            hier_slot_ranks(nxvol, vol_layer, nlevels, vol_trank, n_vol_t);
+        }
+        layer_base[0] = 0;
+        layer_base[1] = (large_idx_t)n_coarse_global;
+        for (int k = 1; k < nlevels; ++k) {
+            layer_base[k + 1] = layer_base[k] + (large_idx_t)n_edges_global * (large_idx_t)n_edge_t[k] +
+                                (large_idx_t)n_faces_global * (large_idx_t)n_face_t[k] +
+                                (large_idx_t)n_elem_global * (large_idx_t)n_vol_t[k];
+        }
+        if ((ptrdiff_t)layer_base[nlevels] != n_ss_global) {
+            fprintf(stderr,
+                    "to_semistructured: hierarchical SS gid count %ld does not match A8 count %ld\n",
+                    (long)layer_base[nlevels],
+                    (long)n_ss_global);
+            return nullptr;
+        }
+    }
+
     int *edge_uo = (int *)SMESH_CALLOC((size_t)std::max<ptrdiff_t>(n_edge_uniq, 1), sizeof(int));
     int *edge_ua = (int *)SMESH_CALLOC((size_t)std::max<ptrdiff_t>(n_edge_uniq, 1), sizeof(int));
     int *face_uo = (int *)SMESH_CALLOC((size_t)std::max<ptrdiff_t>(n_face_uniq, 1), sizeof(int));
@@ -1275,15 +1573,84 @@ std::shared_ptr<Mesh> to_semistructured_distributed(const int                   
             p[d][w] = coarse_p[d][i];
         }
     }
+
+    large_idx_t *edge_node_gid = alloc_entity_node_gids(n_edge_uniq, nxedge);
+    large_idx_t *face_node_gid = alloc_entity_node_gids(n_face_uniq, nxf);
+    large_idx_t *vol_node_gid  = alloc_entity_node_gids(n_e_tot, nxvol);
     if (nxedge > 0) {
-        pack_entity_nodes(n_edge_uniq, nxedge, edge_base, edge_gid, edge_owner, edge_shared, edge_uo, edge_ua, rank, cur, nmap, nown, edge_ss);
+        if (hierarchical_ordering) {
+            fill_hier_node_gids(n_edge_uniq,
+                                nxedge,
+                                0,
+                                edge_gid,
+                                edge_layer,
+                                edge_trank,
+                                n_edge_t,
+                                n_face_t,
+                                n_vol_t,
+                                layer_base,
+                                n_edges_global,
+                                n_faces_global,
+                                edge_node_gid);
+        } else {
+            fill_flat_node_gids(n_edge_uniq, nxedge, edge_base, edge_gid, edge_node_gid);
+        }
+        pack_entity_nodes(n_edge_uniq, nxedge, edge_node_gid, edge_owner, edge_shared, edge_uo, edge_ua, rank, cur, nmap, nown, edge_ss);
     }
     if (nxf > 0) {
-        pack_entity_nodes(n_face_uniq, nxf, face_base, face_gid, face_owner, face_shared, face_uo, face_ua, rank, cur, nmap, nown, face_ss);
+        if (hierarchical_ordering) {
+            fill_hier_node_gids(n_face_uniq,
+                                nxf,
+                                1,
+                                face_gid,
+                                face_layer,
+                                face_trank,
+                                n_edge_t,
+                                n_face_t,
+                                n_vol_t,
+                                layer_base,
+                                n_edges_global,
+                                n_faces_global,
+                                face_node_gid);
+        } else {
+            fill_flat_node_gids(n_face_uniq, nxf, face_base, face_gid, face_node_gid);
+        }
+        pack_entity_nodes(n_face_uniq, nxf, face_node_gid, face_owner, face_shared, face_uo, face_ua, rank, cur, nmap, nown, face_ss);
     }
     if (nxvol > 0) {
-        pack_entity_nodes(n_e_tot, nxvol, vol_base, vol_gid, vol_owner, vol_shared, vol_uo, vol_ua, rank, cur, nmap, nown, vol_ss);
+        if (hierarchical_ordering) {
+            fill_hier_node_gids(n_e_tot,
+                                nxvol,
+                                2,
+                                vol_gid,
+                                vol_layer,
+                                vol_trank,
+                                n_edge_t,
+                                n_face_t,
+                                n_vol_t,
+                                layer_base,
+                                n_edges_global,
+                                n_faces_global,
+                                vol_node_gid);
+        } else {
+            fill_flat_node_gids(n_e_tot, nxvol, vol_base, vol_gid, vol_node_gid);
+        }
+        pack_entity_nodes(n_e_tot, nxvol, vol_node_gid, vol_owner, vol_shared, vol_uo, vol_ua, rank, cur, nmap, nown, vol_ss);
     }
+    SMESH_FREE(edge_node_gid);
+    SMESH_FREE(face_node_gid);
+    SMESH_FREE(vol_node_gid);
+    SMESH_FREE(levels);
+    SMESH_FREE(edge_layer);
+    SMESH_FREE(edge_trank);
+    SMESH_FREE(face_layer);
+    SMESH_FREE(face_trank);
+    SMESH_FREE(vol_layer);
+    SMESH_FREE(vol_trank);
+    SMESH_FREE(n_edge_t);
+    SMESH_FREE(n_face_t);
+    SMESH_FREE(n_vol_t);
+    SMESH_FREE(layer_base);
 
     int *coords[3] = {nullptr, nullptr, nullptr};
     if (family == HEX8) {
@@ -1495,7 +1862,8 @@ std::shared_ptr<Mesh> to_semistructured_distributed(const int                   
 
 std::shared_ptr<Mesh> to_semistructured_distributed(const int /*level*/,
                                                     const std::shared_ptr<Mesh> & /*mesh*/,
-                                                    const bool /*use_GLL*/) {
+                                                    const bool /*use_GLL*/,
+                                                    const bool /*hierarchical_ordering*/) {
     return nullptr;
 }
 

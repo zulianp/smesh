@@ -323,9 +323,10 @@ namespace smesh {
                            const int                                               f,
                            idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT       elements) {
         int   argmin = 0;
-        idx_t valmin = m_elements[local_side_table[f * 4 + 0]][e];
+        const int nnxs   = LocalSideTable::MAX_NUM_NODES_PER_SIDE;
+        idx_t     valmin = m_elements[local_side_table[f * nnxs + 0]][e];
         for (int i = 0; i < 4; i++) {
-            idx_t temp = m_elements[local_side_table[f * 4 + i]][e];
+            idx_t temp = m_elements[local_side_table[f * nnxs + i]][e];
             if (temp < valmin) {
                 argmin = i;
                 valmin = temp;
@@ -335,16 +336,16 @@ namespace smesh {
         int lst_o = argmin;
         int lst_u = ((lst_o + 1) % 4);
         int lst_v = ((lst_o + 3) % 4);
-        if (m_elements[local_side_table[f * 4 + lst_u]][e] > m_elements[local_side_table[f * 4 + lst_v]][e]) {
+        if (m_elements[local_side_table[f * nnxs + lst_u]][e] > m_elements[local_side_table[f * nnxs + lst_v]][e]) {
             int temp = lst_v;
             lst_v    = lst_u;
             lst_u    = temp;
         }
 
         // o, u, v are sorted based on global indices
-        int lidx_o = lagr_to_proteus_corners[local_side_table[f * 4 + lst_o]];
-        int lidx_u = lagr_to_proteus_corners[local_side_table[f * 4 + lst_u]];
-        int lidx_v = lagr_to_proteus_corners[local_side_table[f * 4 + lst_v]];
+        int lidx_o = lagr_to_proteus_corners[local_side_table[f * nnxs + lst_o]];
+        int lidx_u = lagr_to_proteus_corners[local_side_table[f * nnxs + lst_u]];
+        int lidx_v = lagr_to_proteus_corners[local_side_table[f * nnxs + lst_v]];
 
         int o_start[3];
         int u_len[3], u_dir[3];
