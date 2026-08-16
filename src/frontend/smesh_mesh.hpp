@@ -391,6 +391,14 @@ public:
       const geom_t ymin = 0, const geom_t zmin = 0, const geom_t xmax = 1,
       const geom_t ymax = 1, const geom_t zmax = 1);
 
+  /// HEX8 cube with the second half of hexes converted to 6 TET4 each.
+  /// Blocks `"hex"` / `"tet"` share unique nodes.
+  static std::shared_ptr<Mesh> create_hex8_tet4_cube(
+      const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx = 2,
+      const ptrdiff_t ny = 2, const ptrdiff_t nz = 2, const geom_t xmin = 0,
+      const geom_t ymin = 0, const geom_t zmin = 0, const geom_t xmax = 1,
+      const geom_t ymax = 1, const geom_t zmax = 1);
+
   static std::shared_ptr<Mesh> create_hex8_bidomain_cube(
       const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx = 2,
       const ptrdiff_t ny = 2, const ptrdiff_t nz = 2, const geom_t xmin = 0,
@@ -468,6 +476,44 @@ private:
                                        const ptrdiff_t nlayers);
 
   void set_distributed(const std::shared_ptr<Distributed> &distributed);
+
+#ifdef SMESH_ENABLE_MPI
+  static int adopt_parallel_arrays(Mesh *mesh, enum ElemType element_type,
+                                   const char *block_name, int nnodesxelem,
+                                   ptrdiff_t n_global_elements,
+                                   ptrdiff_t n_owned_elements,
+                                   ptrdiff_t n_shared_elements,
+                                   ptrdiff_t n_ghost_elements,
+                                   large_idx_t *element_mapping,
+                                   large_idx_t *aura_element_mapping,
+                                   idx_t **elements, int spatial_dim,
+                                   ptrdiff_t n_global_nodes,
+                                   ptrdiff_t n_owned_nodes,
+                                   ptrdiff_t n_shared_nodes,
+                                   ptrdiff_t n_ghost_nodes,
+                                   ptrdiff_t n_aura_nodes,
+                                   large_idx_t *node_mapping, geom_t **points,
+                                   int *node_owner, ptrdiff_t *node_offsets,
+                                   idx_t *ghosts);
+  static std::shared_ptr<Mesh>
+  wrap_create_parallel(const std::shared_ptr<Communicator> &comm,
+                       enum ElemType element_type, int nnodesxelem,
+                       ptrdiff_t n_local_elements, ptrdiff_t n_global_elements,
+                       idx_t **elems, int spatial_dim, ptrdiff_t n_local_nodes,
+                       ptrdiff_t n_global_nodes, geom_t **points);
+  static std::shared_ptr<Mesh> with_nodal_distributed(
+      const std::shared_ptr<Mesh> &src,
+      const std::vector<std::shared_ptr<Block>> &blocks,
+      ptrdiff_t n_elements_global, ptrdiff_t n_owned, ptrdiff_t n_shared,
+      ptrdiff_t n_ghosts, SharedBuffer<large_idx_t> element_mapping,
+      SharedBuffer<large_idx_t> aura_element_mapping);
+  static std::shared_ptr<Mesh>
+  split_hex8_checkerboard_distributed(const std::shared_ptr<Mesh> &hex_mesh,
+                                      const ptrdiff_t nx, const ptrdiff_t ny);
+  static std::shared_ptr<Mesh>
+  split_hex8_tet4_distributed(const std::shared_ptr<Mesh> &hex_mesh,
+                              const ptrdiff_t n_hex_all);
+#endif
 
   class Impl;
   std::unique_ptr<Impl> impl_;

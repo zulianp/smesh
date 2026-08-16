@@ -31,6 +31,7 @@
 #include "smesh_alltoallv.impl.hpp"
 #include "smesh_decompose.hpp"
 #include "smesh_distributed_base.hpp"
+#include "smesh_distributed_create.hpp"
 #include "smesh_distributed_read.hpp"
 #include "smesh_distributed_reorder.hpp"
 #include "smesh_distributed_write.hpp"
@@ -46,6 +47,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <cstring>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -1883,6 +1885,418 @@ namespace smesh {
     //   return this->node_to_node_graph()->colidx();
     // }
 
+#ifdef SMESH_ENABLE_MPI
+    int Mesh::adopt_parallel_arrays(Mesh *mesh, enum ElemType element_type, const char *block_name,
+                                    int nnodesxelem, ptrdiff_t n_global_elements, ptrdiff_t n_owned_elements,
+                                    ptrdiff_t n_shared_elements, ptrdiff_t n_ghost_elements,
+                                    large_idx_t *element_mapping, large_idx_t *aura_element_mapping,
+                                    idx_t **elements, int spatial_dim, ptrdiff_t n_global_nodes,
+                                    ptrdiff_t n_owned_nodes, ptrdiff_t n_shared_nodes, ptrdiff_t n_ghost_nodes,
+                                    ptrdiff_t n_aura_nodes, large_idx_t *node_mapping, geom_t **points,
+                                    int *node_owner, ptrdiff_t *node_offsets, idx_t *ghosts) {
+        auto dist = std::make_shared<Distributed>();
+        dist->set_nodes(n_global_nodes,
+                        n_owned_nodes,
+                        n_shared_nodes,
+                        n_ghost_nodes,
+                        n_aura_nodes,
+                        manage_host_buffer<large_idx_t>(n_owned_nodes + n_ghost_nodes + n_aura_nodes, node_mapping),
+                        manage_host_buffer<int>(n_owned_nodes + n_ghost_nodes + n_aura_nodes, node_owner),
+                        manage_host_buffer<ptrdiff_t>(static_cast<size_t>(mesh->comm()->size()) + 1, node_offsets),
+                        manage_host_buffer<idx_t>(n_ghost_nodes + n_aura_nodes, ghosts));
+        dist->set_elements(n_global_elements,
+                           n_owned_elements,
+                           n_shared_elements,
+                           n_ghost_elements,
+                           manage_host_buffer<large_idx_t>(n_owned_elements, element_mapping),
+                           manage_host_buffer<large_idx_t>(n_ghost_elements, aura_element_mapping));
+
+        auto elements_buffer = manage_host_buffer<idx_t>(nnodesxelem, dist->n_elements_local(), elements);
+        mesh->set_points(manage_host_buffer<geom_t>(spatial_dim, dist->n_nodes_local(), points));
+
+        auto default_block = std::make_shared<Mesh::Block>();
+        default_block->set_name(block_name);
+        default_block->set_element_type(element_type);
+        default_block->set_elements(elements_buffer);
+        default_block->set_distributed_elements(dist->n_elements_owned(),
+                                                dist->n_elements_shared(),
+                                                dist->n_elements_ghosts(),
+                                                dist->element_mapping(),
+                                                dist->aura_element_mapping());
+        mesh->add_block(default_block);
+        mesh->set_distributed(dist);
+        return SMESH_SUCCESS;
+    }
+
+    std::shared_ptr<Mesh> Mesh::wrap_create_parallel(const std::shared_ptr<Communicator> &comm,
+                                                           enum ElemType                        element_type,
+                                                           int                                  nnodesxelem,
+                                                           ptrdiff_t                            n_local_elements,
+                                                           ptrdiff_t                            n_global_elements,
+                                                           idx_t                              **elems,
+                                                           int                                  spatial_dim,
+                                                           ptrdiff_t                            n_local_nodes,
+                                                           ptrdiff_t                            n_global_nodes,
+                                                           geom_t                             **points) {
+        auto        mesh = std::make_shared<Mesh>(comm);
+        int         nxe_out = 0, sdim_out = 0;
+        ptrdiff_t   nge = 0, noe = 0, nse = 0, ngelem_ghost = 0;
+        large_idx_t *emap = nullptr, *amap = nullptr;
+        idx_t      **elements = nullptr;
+        ptrdiff_t    ngn = 0, non = 0, nsn = 0, nghostn = 0, nan = 0;
+        large_idx_t *nmap     = nullptr;
+        geom_t     **pts      = nullptr;
+        int         *owner    = nullptr;
+        ptrdiff_t   *offsets  = nullptr;
+        idx_t       *ghosts   = nullptr;
+
+        if (mesh_create_parallel<idx_t, geom_t, large_idx_t>(comm->get(),
+                                                             comm->size(),
+                                                             comm->rank(),
+                                                             nnodesxelem,
+                                                             elems,
+                                                             n_local_elements,
+                                                             n_global_elements,
+                                                             spatial_dim,
+                                                             points,
+                                                             n_local_nodes,
+                                                             n_global_nodes,
+                                                             nullptr,
+                                                             &nxe_out,
+                                                             &nge,
+                                                             &noe,
+                                                             &nse,
+                                                             &ngelem_ghost,
+                                                             &emap,
+                                                             &amap,
+                                                             &elements,
+                                                             &sdim_out,
+                                                             &ngn,
+                                                             &non,
+                                                             &nsn,
+                                                             &nghostn,
+                                                             &nan,
+                                                             &nmap,
+                                                             &pts,
+                                                             &owner,
+                                                             &offsets,
+                                                             &ghosts) != SMESH_SUCCESS) {
+            return nullptr;
+        }
+
+        if (Mesh::adopt_parallel_arrays(mesh.get(),
+                                      element_type,
+                                      "default",
+                                      nxe_out,
+                                      nge,
+                                      noe,
+                                      nse,
+                                      ngelem_ghost,
+                                      emap,
+                                      amap,
+                                      elements,
+                                      sdim_out,
+                                      ngn,
+                                      non,
+                                      nsn,
+                                      nghostn,
+                                      nan,
+                                      nmap,
+                                      pts,
+                                      owner,
+                                      offsets,
+                                      ghosts) != SMESH_SUCCESS) {
+            return nullptr;
+        }
+        return mesh;
+    }
+
+    static int hex8_gid_color(const large_idx_t gid, const ptrdiff_t nx, const ptrdiff_t ny) {
+        const ptrdiff_t exy = nx * ny;
+        const ptrdiff_t zi  = static_cast<ptrdiff_t>(gid) / exy;
+        const ptrdiff_t rem = static_cast<ptrdiff_t>(gid) - zi * exy;
+        const ptrdiff_t yi  = rem / nx;
+        const ptrdiff_t xi  = rem - yi * nx;
+        return static_cast<int>((xi + yi + zi) & 1);
+    }
+
+    static void copy_hex8_element(idx_t **dst, const ptrdiff_t di, idx_t **src, const ptrdiff_t si) {
+        for (int v = 0; v < 8; ++v) {
+            dst[v][di] = src[v][si];
+        }
+    }
+
+    std::shared_ptr<Mesh> Mesh::with_nodal_distributed(const std::shared_ptr<Mesh>                    &src,
+                                                             const std::vector<std::shared_ptr<Mesh::Block>> &blocks,
+                                                             ptrdiff_t n_elements_global, ptrdiff_t n_owned,
+                                                             ptrdiff_t n_shared, ptrdiff_t n_ghosts,
+                                                             SharedBuffer<large_idx_t> element_mapping,
+                                                             SharedBuffer<large_idx_t> aura_element_mapping) {
+        auto out  = std::make_shared<Mesh>(src->comm(), blocks, src->points());
+        auto dist = std::make_shared<Distributed>();
+        auto sd   = src->distributed();
+        dist->set_nodes(sd->n_nodes_global(),
+                        sd->n_nodes_owned(),
+                        sd->n_nodes_shared(),
+                        sd->n_nodes_ghosts(),
+                        sd->n_nodes_aura(),
+                        sd->node_mapping(),
+                        sd->node_owner(),
+                        sd->node_offsets(),
+                        sd->ghosts_and_aura());
+        dist->set_elements(n_elements_global, n_owned, n_shared, n_ghosts, std::move(element_mapping),
+                           std::move(aura_element_mapping));
+        out->set_distributed(dist);
+        return out;
+    }
+
+    static std::shared_ptr<Mesh::Block> make_hex8_color_block(const char *name, idx_t **src, const large_idx_t *owned_map,
+                                                              const large_idx_t *aura_map, const ptrdiff_t n_ons,
+                                                              const ptrdiff_t n_owned, const ptrdiff_t n_ghosts,
+                                                              const int color, const ptrdiff_t nx, const ptrdiff_t ny) {
+        ptrdiff_t n_ons_c = 0, n_shared_c = 0, n_ghosts_c = 0;
+        const ptrdiff_t n_shared = n_owned - n_ons;
+        for (ptrdiff_t i = 0; i < n_ons; ++i) {
+            n_ons_c += (hex8_gid_color(owned_map[i], nx, ny) == color);
+        }
+        for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
+            n_shared_c += (hex8_gid_color(owned_map[i], nx, ny) == color);
+        }
+        for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
+            n_ghosts_c += (hex8_gid_color(aura_map[i], nx, ny) == color);
+        }
+        SMESH_UNUSED(n_shared);
+
+        const ptrdiff_t n_owned_c = n_ons_c + n_shared_c;
+        const ptrdiff_t n_local_c = n_owned_c + n_ghosts_c;
+        auto            elems     = create_host_buffer<idx_t>(8, static_cast<size_t>(n_local_c));
+        auto            emap      = create_host_buffer<large_idx_t>(static_cast<size_t>(n_owned_c));
+        auto            amap      = create_host_buffer<large_idx_t>(static_cast<size_t>(n_ghosts_c));
+        idx_t         **ed        = elems->data();
+        large_idx_t    *emd       = n_owned_c ? emap->data() : nullptr;
+        large_idx_t    *amd       = n_ghosts_c ? amap->data() : nullptr;
+
+        ptrdiff_t w = 0;
+        for (ptrdiff_t i = 0; i < n_ons; ++i) {
+            if (hex8_gid_color(owned_map[i], nx, ny) != color) {
+                continue;
+            }
+            copy_hex8_element(ed, w, src, i);
+            emd[w] = owned_map[i];
+            ++w;
+        }
+        for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
+            if (hex8_gid_color(owned_map[i], nx, ny) != color) {
+                continue;
+            }
+            copy_hex8_element(ed, w, src, i);
+            emd[w] = owned_map[i];
+            ++w;
+        }
+        ptrdiff_t wa = 0;
+        for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
+            if (hex8_gid_color(aura_map[i], nx, ny) != color) {
+                continue;
+            }
+            copy_hex8_element(ed, n_owned_c + wa, src, n_owned + i);
+            amd[wa] = aura_map[i];
+            ++wa;
+        }
+
+        auto block = std::make_shared<Mesh::Block>();
+        block->set_name(name);
+        block->set_element_type(HEX8);
+        block->set_elements(elems);
+        block->set_distributed_elements(n_owned_c, n_shared_c, n_ghosts_c, emap, amap);
+        return block;
+    }
+
+    std::shared_ptr<Mesh> Mesh::split_hex8_checkerboard_distributed(const std::shared_ptr<Mesh> &hex_mesh,
+                                                                     const ptrdiff_t nx, const ptrdiff_t ny) {
+        auto            hex_block = hex_mesh->block(0);
+        idx_t         **src       = hex_block->elements()->data();
+        const ptrdiff_t n_owned   = hex_block->n_elements_owned();
+        const ptrdiff_t n_shared  = hex_block->n_elements_shared();
+        const ptrdiff_t n_ghosts  = hex_block->n_elements_ghosts();
+        const ptrdiff_t n_ons     = n_owned - n_shared;
+        const large_idx_t *owned_map = hex_block->element_mapping()->data();
+        const large_idx_t *aura_map =
+                (n_ghosts > 0 && hex_block->aura_element_mapping()) ? hex_block->aura_element_mapping()->data() : nullptr;
+
+        auto white = make_hex8_color_block("white", src, owned_map, aura_map, n_ons, n_owned, n_ghosts, 0, nx, ny);
+        auto black = make_hex8_color_block("black", src, owned_map, aura_map, n_ons, n_owned, n_ghosts, 1, nx, ny);
+
+        std::vector<std::shared_ptr<Mesh::Block>> blocks;
+        blocks.push_back(white);
+        blocks.push_back(black);
+
+        auto sd = hex_mesh->distributed();
+        return Mesh::with_nodal_distributed(hex_mesh, blocks, sd->n_elements_global(), sd->n_elements_owned(),
+                                           sd->n_elements_shared(), sd->n_elements_ghosts(), sd->element_mapping(),
+                                           sd->aura_element_mapping());
+    }
+
+    static void hex8_to_six_tets(idx_t **hex_src, const ptrdiff_t si, idx_t **tet_dst, const ptrdiff_t di0) {
+        idx_t  hex_one[8];
+        idx_t *hex_ptr[8];
+        idx_t  tet_one[4][6];
+        idx_t *tet_ptr[4];
+        for (int v = 0; v < 8; ++v) {
+            hex_one[v] = hex_src[v][si];
+            hex_ptr[v] = &hex_one[v];
+        }
+        for (int v = 0; v < 4; ++v) {
+            tet_ptr[v] = tet_one[v];
+        }
+        mesh_hex8_to_6x_tet4<idx_t>(1, hex_ptr, tet_ptr);
+        for (int k = 0; k < 6; ++k) {
+            for (int v = 0; v < 4; ++v) {
+                tet_dst[v][di0 + k] = tet_ptr[v][k];
+            }
+        }
+    }
+
+    std::shared_ptr<Mesh> Mesh::split_hex8_tet4_distributed(const std::shared_ptr<Mesh> &hex_mesh,
+                                                             const ptrdiff_t n_hex_all) {
+        auto              hex_block  = hex_mesh->block(0);
+        idx_t           **src        = hex_block->elements()->data();
+        const ptrdiff_t   n_owned    = hex_block->n_elements_owned();
+        const ptrdiff_t   n_shared   = hex_block->n_elements_shared();
+        const ptrdiff_t   n_ghosts   = hex_block->n_elements_ghosts();
+        const ptrdiff_t   n_ons      = n_owned - n_shared;
+        const large_idx_t n_hex_keep = static_cast<large_idx_t>(n_hex_all / 2);
+        const large_idx_t *owned_map = hex_block->element_mapping()->data();
+        const large_idx_t *aura_map =
+                (n_ghosts > 0 && hex_block->aura_element_mapping()) ? hex_block->aura_element_mapping()->data() : nullptr;
+
+        ptrdiff_t hex_ons = 0, hex_shared = 0, hex_ghosts = 0;
+        ptrdiff_t tet_ons_hex = 0, tet_shared_hex = 0, tet_ghosts_hex = 0;
+        for (ptrdiff_t i = 0; i < n_ons; ++i) {
+            if (owned_map[i] < n_hex_keep) {
+                ++hex_ons;
+            } else {
+                ++tet_ons_hex;
+            }
+        }
+        for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
+            if (owned_map[i] < n_hex_keep) {
+                ++hex_shared;
+            } else {
+                ++tet_shared_hex;
+            }
+        }
+        for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
+            if (aura_map[i] < n_hex_keep) {
+                ++hex_ghosts;
+            } else {
+                ++tet_ghosts_hex;
+            }
+        }
+
+        const ptrdiff_t hex_owned_c = hex_ons + hex_shared;
+        const ptrdiff_t tet_ons     = tet_ons_hex * 6;
+        const ptrdiff_t tet_shared  = tet_shared_hex * 6;
+        const ptrdiff_t tet_ghosts  = tet_ghosts_hex * 6;
+        const ptrdiff_t tet_owned_c = tet_ons + tet_shared;
+
+        auto hex_elems = create_host_buffer<idx_t>(8, static_cast<size_t>(hex_owned_c + hex_ghosts));
+        auto hex_emap  = create_host_buffer<large_idx_t>(static_cast<size_t>(hex_owned_c));
+        auto hex_amap  = create_host_buffer<large_idx_t>(static_cast<size_t>(hex_ghosts));
+        auto tet_elems = create_host_buffer<idx_t>(4, static_cast<size_t>(tet_owned_c + tet_ghosts));
+        auto tet_emap  = create_host_buffer<large_idx_t>(static_cast<size_t>(tet_owned_c));
+        auto tet_amap  = create_host_buffer<large_idx_t>(static_cast<size_t>(tet_ghosts));
+
+        idx_t      **he = hex_elems->data();
+        idx_t      **te = tet_elems->data();
+        large_idx_t *hem = hex_owned_c ? hex_emap->data() : nullptr;
+        large_idx_t *ham = hex_ghosts ? hex_amap->data() : nullptr;
+        large_idx_t *tem = tet_owned_c ? tet_emap->data() : nullptr;
+        large_idx_t *tam = tet_ghosts ? tet_amap->data() : nullptr;
+
+        auto tet_gid = [n_hex_keep](const large_idx_t hex_gid, const int k) -> large_idx_t {
+            return (hex_gid - n_hex_keep) * 6 + k;
+        };
+
+        ptrdiff_t hw = 0, tw = 0;
+        for (ptrdiff_t i = 0; i < n_ons; ++i) {
+            if (owned_map[i] < n_hex_keep) {
+                copy_hex8_element(he, hw, src, i);
+                hem[hw] = owned_map[i];
+                ++hw;
+            } else {
+                hex8_to_six_tets(src, i, te, tw);
+                for (int k = 0; k < 6; ++k) {
+                    tem[tw + k] = tet_gid(owned_map[i], k);
+                }
+                tw += 6;
+            }
+        }
+        for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
+            if (owned_map[i] < n_hex_keep) {
+                copy_hex8_element(he, hw, src, i);
+                hem[hw] = owned_map[i];
+                ++hw;
+            } else {
+                hex8_to_six_tets(src, i, te, tw);
+                for (int k = 0; k < 6; ++k) {
+                    tem[tw + k] = tet_gid(owned_map[i], k);
+                }
+                tw += 6;
+            }
+        }
+        ptrdiff_t hwa = 0, twa = 0;
+        for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
+            if (aura_map[i] < n_hex_keep) {
+                copy_hex8_element(he, hex_owned_c + hwa, src, n_owned + i);
+                ham[hwa] = aura_map[i];
+                ++hwa;
+            } else {
+                hex8_to_six_tets(src, n_owned + i, te, tet_owned_c + twa);
+                for (int k = 0; k < 6; ++k) {
+                    tam[twa + k] = tet_gid(aura_map[i], k);
+                }
+                twa += 6;
+            }
+        }
+
+        auto hex_out = std::make_shared<Mesh::Block>();
+        hex_out->set_name("hex");
+        hex_out->set_element_type(HEX8);
+        hex_out->set_elements(hex_elems);
+        hex_out->set_distributed_elements(hex_owned_c, hex_shared, hex_ghosts, hex_emap, hex_amap);
+
+        auto tet_out = std::make_shared<Mesh::Block>();
+        tet_out->set_name("tet");
+        tet_out->set_element_type(TET4);
+        tet_out->set_elements(tet_elems);
+        tet_out->set_distributed_elements(tet_owned_c, tet_shared, tet_ghosts, tet_emap, tet_amap);
+
+        std::vector<std::shared_ptr<Mesh::Block>> blocks;
+        blocks.push_back(hex_out);
+        blocks.push_back(tet_out);
+
+        const ptrdiff_t n_hex_keep_g = n_hex_all / 2;
+        const ptrdiff_t n_tet_g      = (n_hex_all - n_hex_keep_g) * 6;
+        auto            concat_owned = create_host_buffer<large_idx_t>(static_cast<size_t>(hex_owned_c + tet_owned_c));
+        auto            concat_aura  = create_host_buffer<large_idx_t>(static_cast<size_t>(hex_ghosts + tet_ghosts));
+        if (hex_owned_c && hem) {
+            std::memcpy(concat_owned->data(), hem, static_cast<size_t>(hex_owned_c) * sizeof(large_idx_t));
+        }
+        if (tet_owned_c && tem) {
+            std::memcpy(concat_owned->data() + hex_owned_c, tem, static_cast<size_t>(tet_owned_c) * sizeof(large_idx_t));
+        }
+        if (hex_ghosts && ham) {
+            std::memcpy(concat_aura->data(), ham, static_cast<size_t>(hex_ghosts) * sizeof(large_idx_t));
+        }
+        if (tet_ghosts && tam) {
+            std::memcpy(concat_aura->data() + hex_ghosts, tam, static_cast<size_t>(tet_ghosts) * sizeof(large_idx_t));
+        }
+
+        return Mesh::with_nodal_distributed(hex_mesh, blocks, n_hex_keep_g + n_tet_g, hex_owned_c + tet_owned_c,
+                                           hex_shared + tet_shared, hex_ghosts + tet_ghosts, concat_owned, concat_aura);
+    }
+#endif  // SMESH_ENABLE_MPI
+
     std::shared_ptr<Mesh> Mesh::create_hex8_cube(const std::shared_ptr<Communicator> &comm,
                                                  const ptrdiff_t                      nx,
                                                  const ptrdiff_t                      ny,
@@ -1893,6 +2307,36 @@ namespace smesh {
                                                  const geom_t                         xmax,
                                                  const geom_t                         ymax,
                                                  const geom_t                         zmax) {
+#ifdef SMESH_ENABLE_MPI
+        if (comm && comm->size() > 1) {
+            int       nxe = 0, sdim = 0;
+            ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
+            idx_t   **elems  = nullptr;
+            geom_t  **points = nullptr;
+            if (hex8_cube_create_distributed<idx_t, geom_t>(comm->get(),
+                                                            nx,
+                                                            ny,
+                                                            nz,
+                                                            xmin,
+                                                            ymin,
+                                                            zmin,
+                                                            xmax,
+                                                            ymax,
+                                                            zmax,
+                                                            &nxe,
+                                                            &n_local_e,
+                                                            &n_global_e,
+                                                            &elems,
+                                                            &sdim,
+                                                            &n_local_n,
+                                                            &n_global_n,
+                                                            &points) != SMESH_SUCCESS) {
+                return nullptr;
+            }
+            return Mesh::wrap_create_parallel(comm, HEX8, nxe, n_local_e, n_global_e, elems, sdim, n_local_n, n_global_n,
+                                             points);
+        }
+#endif
         auto            ret       = std::make_shared<Mesh>(comm);
         const ptrdiff_t nelements = nx * ny * nz;
         const ptrdiff_t nnodes    = (nx + 1) * (ny + 1) * (nz + 1);
@@ -2000,6 +2444,33 @@ namespace smesh {
                                                     const geom_t                         ymin,
                                                     const geom_t                         xmax,
                                                     const geom_t                         ymax) {
+#ifdef SMESH_ENABLE_MPI
+        if (comm && comm->size() > 1) {
+            int       nxe = 0, sdim = 0;
+            ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
+            idx_t   **elems  = nullptr;
+            geom_t  **points = nullptr;
+            if (quad4_square_create_distributed<idx_t, geom_t>(comm->get(),
+                                                               nx,
+                                                               ny,
+                                                               xmin,
+                                                               ymin,
+                                                               xmax,
+                                                               ymax,
+                                                               &nxe,
+                                                               &n_local_e,
+                                                               &n_global_e,
+                                                               &elems,
+                                                               &sdim,
+                                                               &n_local_n,
+                                                               &n_global_n,
+                                                               &points) != SMESH_SUCCESS) {
+                return nullptr;
+            }
+            return Mesh::wrap_create_parallel(comm, QUAD4, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
+                                             n_global_n, points);
+        }
+#endif
         auto            ret       = std::make_shared<Mesh>(comm);
         const ptrdiff_t nelements = nx * ny;
         const ptrdiff_t nnodes    = (nx + 1) * (ny + 1);
@@ -2364,13 +2835,23 @@ namespace smesh {
                                                               const geom_t                         xmax,
                                                               const geom_t                         ymax,
                                                               const geom_t                         zmax) {
-        auto            ret       = std::make_shared<Mesh>(comm);
-        const ptrdiff_t nelements = nx * ny * nz;
-        const ptrdiff_t nnodes    = (nx + 1) * (ny + 1) * (nz + 1);
-
         if (nx % 2 != 0 || ny % 2 != 0 || nz % 2 != 0) {
             SMESH_ERROR("nx, ny, and nz must be even");
         }
+
+#ifdef SMESH_ENABLE_MPI
+        if (comm && comm->size() > 1) {
+            auto hex = create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
+            if (!hex) {
+                return nullptr;
+            }
+            return Mesh::split_hex8_checkerboard_distributed(hex, nx, ny);
+        }
+#endif
+
+        auto            ret       = std::make_shared<Mesh>(comm);
+        const ptrdiff_t nelements = nx * ny * nz;
+        const ptrdiff_t nnodes    = (nx + 1) * (ny + 1) * (nz + 1);
 
         ret->set_points(create_host_buffer<geom_t>(3, nnodes));
         auto white_elements_buffer = create_host_buffer<idx_t>(8, nelements / 2);
@@ -2395,6 +2876,46 @@ namespace smesh {
         black_block->set_elements(black_elements_buffer);
         ret->add_block(black_block);
         return ret;
+    }
+
+    std::shared_ptr<Mesh> Mesh::create_hex8_tet4_cube(const std::shared_ptr<Communicator> &comm,
+                                                     const ptrdiff_t                      nx,
+                                                     const ptrdiff_t                      ny,
+                                                     const ptrdiff_t                      nz,
+                                                     const geom_t                         xmin,
+                                                     const geom_t                         ymin,
+                                                     const geom_t                         zmin,
+                                                     const geom_t                         xmax,
+                                                     const geom_t                         ymax,
+                                                     const geom_t                         zmax) {
+#ifdef SMESH_ENABLE_MPI
+        if (comm && comm->size() > 1) {
+            auto hex = create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
+            if (!hex) {
+                return nullptr;
+            }
+            return Mesh::split_hex8_tet4_distributed(hex, nx * ny * nz);
+        }
+#endif
+        auto            cube       = create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
+        const ptrdiff_t n_hex_all  = cube->n_elements();
+        const ptrdiff_t n_hex_keep = n_hex_all / 2;
+        const ptrdiff_t n_hex_conv = n_hex_all - n_hex_keep;
+        auto            hex_src    = cube->elements(0)->data();
+        auto            hex_keep   = create_host_buffer<idx_t>(8, static_cast<size_t>(n_hex_keep));
+        for (int d = 0; d < 8; ++d) {
+            std::memcpy(hex_keep->data()[d], hex_src[d], static_cast<size_t>(n_hex_keep) * sizeof(idx_t));
+        }
+        idx_t *hex_tail[8];
+        for (int d = 0; d < 8; ++d) {
+            hex_tail[d] = hex_src[d] + n_hex_keep;
+        }
+        auto tet_buf = create_host_buffer<idx_t>(4, static_cast<size_t>(n_hex_conv * 6));
+        mesh_hex8_to_6x_tet4<idx_t>(n_hex_conv, hex_tail, tet_buf->data());
+        std::vector<std::shared_ptr<Block>> blocks;
+        blocks.push_back(std::make_shared<Block>("hex", HEX8, hex_keep));
+        blocks.push_back(std::make_shared<Block>("tet", TET4, tet_buf));
+        return std::make_shared<Mesh>(comm, blocks, cube->points());
     }
 
     std::shared_ptr<Mesh> Mesh::create_hex8_bidomain_cube(const std::shared_ptr<Communicator> &comm,
@@ -2587,6 +3108,36 @@ namespace smesh {
                                                  const geom_t                         xmax,
                                                  const geom_t                         ymax,
                                                  const geom_t                         zmax) {
+#ifdef SMESH_ENABLE_MPI
+        if (comm && comm->size() > 1) {
+            int       nxe = 0, sdim = 0;
+            ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
+            idx_t   **elems  = nullptr;
+            geom_t  **points = nullptr;
+            if (tet4_cube_create_distributed<idx_t, geom_t>(comm->get(),
+                                                            nx,
+                                                            ny,
+                                                            nz,
+                                                            xmin,
+                                                            ymin,
+                                                            zmin,
+                                                            xmax,
+                                                            ymax,
+                                                            zmax,
+                                                            &nxe,
+                                                            &n_local_e,
+                                                            &n_global_e,
+                                                            &elems,
+                                                            &sdim,
+                                                            &n_local_n,
+                                                            &n_global_n,
+                                                            &points) != SMESH_SUCCESS) {
+                return nullptr;
+            }
+            return Mesh::wrap_create_parallel(comm, TET4, nxe, n_local_e, n_global_e, elems, sdim, n_local_n, n_global_n,
+                                             points);
+        }
+#endif
         auto            ret             = std::make_shared<Mesh>(comm);
         const ptrdiff_t nelements       = nx * ny * nz;
         const ptrdiff_t nnodes_vertices = (nx + 1) * (ny + 1) * (nz + 1);

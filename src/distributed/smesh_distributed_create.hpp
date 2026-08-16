@@ -34,6 +34,32 @@ int hex8_cube_create_distributed(
     int *spatial_dim_out, ptrdiff_t *n_local_nodes_out,
     ptrdiff_t *n_global_nodes_out, geom_t ***points_out);
 
+// Rank-split of the arrays `mesh_fill_tet4_cube` would write:
+//   n_global_elements = 12 * nx * ny * nz
+//   n_global_nodes    = (nx+1)*(ny+1)*(nz+1) + nx*ny*nz
+template <typename idx_t, typename geom_t>
+int tet4_cube_create_distributed(
+    MPI_Comm comm, const ptrdiff_t nx, const ptrdiff_t ny, const ptrdiff_t nz,
+    const geom_t xmin, const geom_t ymin, const geom_t zmin, const geom_t xmax,
+    const geom_t ymax, const geom_t zmax,
+    int *nnodesxelem_out, ptrdiff_t *n_local_elements_out,
+    ptrdiff_t *n_global_elements_out, idx_t ***elems_out,
+    int *spatial_dim_out, ptrdiff_t *n_local_nodes_out,
+    ptrdiff_t *n_global_nodes_out, geom_t ***points_out);
+
+// Rank-split of the arrays `mesh_fill_quad4_square` would write:
+//   n_global_elements = nx * ny
+//   n_global_nodes    = (nx+1) * (ny+1)
+//   spatial_dim       = 2
+template <typename idx_t, typename geom_t>
+int quad4_square_create_distributed(
+    MPI_Comm comm, const ptrdiff_t nx, const ptrdiff_t ny, const geom_t xmin,
+    const geom_t ymin, const geom_t xmax, const geom_t ymax,
+    int *nnodesxelem_out, ptrdiff_t *n_local_elements_out,
+    ptrdiff_t *n_global_elements_out, idx_t ***elems_out,
+    int *spatial_dim_out, ptrdiff_t *n_local_nodes_out,
+    ptrdiff_t *n_global_nodes_out, geom_t ***points_out);
+
 } // namespace smesh
 
 #endif // SMESH_DISTRIBUTED_CREATE_HPP
