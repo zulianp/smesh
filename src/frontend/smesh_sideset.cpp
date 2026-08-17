@@ -21,6 +21,7 @@
 #include "smesh_distributed_write.hpp"
 #endif
 
+#include <algorithm>
 #include <cstddef>
 #include <cstring>
 #include <fstream>
@@ -630,6 +631,39 @@ namespace smesh {
 
         if (sidesets.size() == 1) {
             return create_nodeset_from_sideset(mesh, sidesets[0]);
+        }
+
+        bool any_ss = false;
+        for (const auto &ss : sidesets) {
+            if (is_semistructured_type(mesh->element_type(ss->block_id()))) {
+                any_ss = true;
+                break;
+            }
+        }
+
+        // extract_nodeset_from_sidesets uses LocalSideTable, which only knows HEX8/HEX27/
+        // PROTEUS_HEX8 corners — not PROTEUS_HEX27/64/125/... Full SS faces go through
+        // sshex8_extract_nodeset_from_sideset (create_nodeset_from_sideset).
+        if (any_ss) {
+            std::vector<idx_t> ids;
+            for (const auto &ss : sidesets) {
+                auto ns = create_nodeset_from_sideset(mesh, ss);
+                if (!ns || ns->size() == 0) {
+                    continue;
+                }
+                auto d = ns->data();
+                ids.insert(ids.end(), d, d + ns->size());
+            }
+            std::sort(ids.begin(), ids.end());
+            ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+
+            const ptrdiff_t n     = static_cast<ptrdiff_t>(ids.size());
+            idx_t          *nodes = nullptr;
+            if (n > 0) {
+                nodes = (idx_t *)SMESH_ALLOC(static_cast<size_t>(n) * sizeof(idx_t));
+                std::memcpy(nodes, ids.data(), static_cast<size_t>(n) * sizeof(idx_t));
+            }
+            return smesh::manage_host_buffer(n, nodes);
         }
 
         block_idx_t                  n_sidesets = sidesets.size();

@@ -214,7 +214,7 @@ std::shared_ptr<Mesh> to_semistructured_distributed_hex_tet(const int           
                         edge_keys[ie * 4 + 1] = gc[d2];
                         edge_keys[ie * 4 + 2] = k_key_pad;
                         edge_keys[ie * 4 + 3] = k_key_pad;
-                        edge_aux[ie]          = (large_idx_t)rank;
+                        edge_aux[ie]          = owned_pref_rank_aux(from_owned, rank, size);
                         edge_loc[ie]          = lc[d1];
                         ie++;
                     }
@@ -237,7 +237,7 @@ std::shared_ptr<Mesh> to_semistructured_distributed_hex_tet(const int           
                     hex_face_keys[ihf * 4 + 1] = fk[1];
                     hex_face_keys[ihf * 4 + 2] = fk[2];
                     hex_face_keys[ihf * 4 + 3] = fk[3];
-                    hex_face_aux[ihf]          = element_gid(*block, hex_concat0[b], e);
+                    hex_face_aux[ihf]          = owned_pref_eid_aux(from_owned, element_gid(*block, hex_concat0[b], e), n_elem_global);
                     hex_face_loc[ihf]          = loc_min;
                     ihf++;
                 }
@@ -258,7 +258,7 @@ std::shared_ptr<Mesh> to_semistructured_distributed_hex_tet(const int           
                     tet_face_keys[itf * 4 + 1] = fk[1];
                     tet_face_keys[itf * 4 + 2] = fk[2];
                     tet_face_keys[itf * 4 + 3] = fk[3];
-                    tet_face_aux[itf]          = element_gid(*block, tet_concat0[b], e);
+                    tet_face_aux[itf]          = owned_pref_eid_aux(from_owned, element_gid(*block, tet_concat0[b], e), n_elem_global);
                     tet_face_loc[itf]          = loc_min;
                     itf++;
                 }

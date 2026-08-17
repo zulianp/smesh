@@ -557,6 +557,32 @@ std::shared_ptr<Mesh> to_semistructured_distributed(const int                   
         SMESH_ASSERT((ptrdiff_t)acc == n_elem_global);
     }
 
+    // File-read blocks store per-block gids in [0, n_global_b). A17 checkerboard split
+    // keeps parent-cube gids in [0, n_elem_global); adding concat0 overflows rank_owner.
+    int *eid_mesh_wide = (int *)SMESH_CALLOC((size_t)n_blocks, sizeof(int));
+    for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+        auto block = mesh->block((size_t)b);
+        auto check = [&](const SharedBuffer<large_idx_t> &map, const ptrdiff_t n) {
+            if (!map || n <= 0) {
+                return;
+            }
+            auto d = map->data();
+            for (ptrdiff_t i = 0; i < n; ++i) {
+                if ((ptrdiff_t)d[i] >= n_global_b[b]) {
+                    eid_mesh_wide[b] = 1;
+                    return;
+                }
+            }
+        };
+        check(block->element_mapping(), block->n_elements_owned());
+        check(block->aura_element_mapping(), block->n_elements_ghosts());
+    }
+    SMESH_MPI_CATCH(MPI_Allreduce(MPI_IN_PLACE, eid_mesh_wide, (int)n_blocks, MPI_INT, MPI_MAX, comm->get()));
+    large_idx_t *eid_base = (large_idx_t *)SMESH_ALLOC((size_t)n_blocks * sizeof(large_idx_t));
+    for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+        eid_base[b] = eid_mesh_wide[b] ? (large_idx_t)0 : concat0[b];
+    }
+
     ptrdiff_t             *n_e        = (ptrdiff_t *)SMESH_ALLOC((size_t)n_blocks * sizeof(ptrdiff_t));
     const idx_t *const   **coarse_soa = (const idx_t *const **)SMESH_ALLOC((size_t)n_blocks * sizeof(const idx_t *const *));
     ptrdiff_t              n_e_tot    = 0;
@@ -673,7 +699,7 @@ std::shared_ptr<Mesh> to_semistructured_distributed(const int                   
                         edge_keys[ie * 4 + 1] = gc[d2];
                         edge_keys[ie * 4 + 2] = k_key_pad;
                         edge_keys[ie * 4 + 3] = k_key_pad;
-                        edge_aux[ie]          = (large_idx_t)rank;
+                        edge_aux[ie]          = owned_pref_rank_aux(from_owned, rank, size);
                         edge_loc[ie]          = lc[d1];
                         ie++;
                     }
@@ -696,13 +722,13 @@ std::shared_ptr<Mesh> to_semistructured_distributed(const int                   
                     face_keys[iff * 4 + 1] = fk[1];
                     face_keys[iff * 4 + 2] = fk[2];
                     face_keys[iff * 4 + 3] = fk[3];
-                    face_aux[iff]          = element_gid(*block, concat0[b], e);
+                    face_aux[iff]          = owned_pref_eid_aux(from_owned, element_gid(*block, eid_base[b], e), n_elem_global);
                     face_loc[iff]          = loc_min;
                     iff++;
                 }
             }
             if (nxvol > 0) {
-                vol_ids[iv] = element_gid(*block, concat0[b], e);
+                vol_ids[iv] = element_gid(*block, eid_base[b], e);
                 vol_aux[iv] = from_owned ? 0 : 1;
                 iv++;
             }

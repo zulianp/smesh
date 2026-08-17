@@ -26,6 +26,16 @@ sshex8_lidx(const int L, const int x, const int y, const int z) {
   return ret;
 }
 
+/// HEX8 VTK SoA (`sshex8_to_standard_hex8_mesh`) reindexed as `sshex8_lidx(1, xi, yi, zi)`.
+/// VTK HEX8 nodes 2↔3 and 6↔7 swap relative to lexicographic sshex8 order.
+template <typename idx_t>
+static SMESH_INLINE void hex8_elements_as_sshex8_level1(idx_t *const *const hex8_els, idx_t **const sshex_els) {
+    static const int hex8_from_sshex[8] = {0, 1, 3, 2, 4, 5, 7, 6};
+    for (int i = 0; i < 8; ++i) {
+        sshex_els[i] = hex8_els[hex8_from_sshex[i]];
+    }
+}
+
 template <typename T>
 static SMESH_INLINE SMESH_HOST_DEVICE void
 hex8_sub_adj_0(const T *const SMESH_RESTRICT adjugate, const T determinant,

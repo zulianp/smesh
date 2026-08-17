@@ -167,6 +167,7 @@ static std::shared_ptr<Mesh> refine_edges_once(const std::shared_ptr<Mesh> &mesh
 
     auto              comm          = mesh->comm();
     const int         rank          = comm->rank();
+    const int         size          = comm->size();
     auto              dist          = mesh->distributed();
     const ptrdiff_t   n_coarse_local = mesh->n_nodes();
     const ptrdiff_t   n_coarse_owned = dist->n_nodes_owned();
@@ -229,7 +230,7 @@ static std::shared_ptr<Mesh> refine_edges_once(const std::shared_ptr<Mesh> &mesh
                 edge_keys[ie * 4 + 1] = gc[b2];
                 edge_keys[ie * 4 + 2] = k_key_pad;
                 edge_keys[ie * 4 + 3] = k_key_pad;
-                edge_aux[ie]          = (large_idx_t)rank;
+                edge_aux[ie]          = owned_pref_rank_aux(from_owned, rank, size);
                 edge_loc[ie]          = lc[a];
                 edge_a[ie]            = lc[a];
                 edge_b[ie]            = lc[b2];

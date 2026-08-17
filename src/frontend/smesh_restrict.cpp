@@ -1,6 +1,7 @@
 #include "smesh_restrict.hpp"
 #include "smesh_buffer.hpp"
 #include "smesh_device_buffer.hpp"
+#include "smesh_exchange.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_restriction.hpp"
 #include "smesh_semistructured.hpp"
@@ -9,6 +10,8 @@
 #include "smesh_ssquad4.hpp"
 #include "smesh_ssquad4_restriction.hpp"
 #include "smesh_tracer.hpp"
+
+#include <algorithm>
 
 #ifdef SMESH_ENABLE_CUDA
 #include "smesh_sshex8_restriction.cuh"
@@ -21,13 +24,19 @@ namespace smesh {
     template <typename T>
     class Restrict<T>::Impl {
     public:
-        std::shared_ptr<Mesh>  from_mesh;
-        std::shared_ptr<Mesh>  to_mesh;
-        ExecutionSpace         es;
-        SharedBuffer<uint16_t> element_to_node_incidence_count;
-        int                    block_size;
+        std::shared_ptr<Mesh>     from_mesh;
+        std::shared_ptr<Mesh>     to_mesh;
+        ExecutionSpace            es;
+        SharedBuffer<uint16_t>    element_to_node_incidence_count;
+        int                       block_size;
+        std::shared_ptr<Exchange> from_exchange;
+        std::shared_ptr<Exchange> to_exchange;
 
         std::function<int(const T *const x, T *const y)> actual_op;
+
+        static bool is_mpi_distributed(const std::shared_ptr<Mesh> &mesh) {
+            return mesh && mesh->is_distributed() && mesh->comm() && mesh->comm()->size() > 1;
+        }
 
         void init() {
             if (!from_mesh || !to_mesh) {
@@ -68,8 +77,10 @@ namespace smesh {
             {
                 auto buff = element_to_node_incidence_count->data();
                 for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
-                    auto            block     = from_mesh->block(b);
-                    const ptrdiff_t nelements = block->n_elements();
+                    auto block = from_mesh->block(b);
+                    // Owned elements only: aura copies would double-count after scatter-add.
+                    const ptrdiff_t nelements =
+                            is_mpi_distributed(from_mesh) ? block->n_elements_owned() : block->n_elements();
                     if (nelements == 0) {
                         continue;
                     }
@@ -81,6 +92,27 @@ namespace smesh {
                         }
                     }
                 }
+            }
+
+            if (is_mpi_distributed(from_mesh)) {
+                from_exchange = Exchange::create_nodal(from_mesh, Exchange::ExchangeScope::GhostsAndAura);
+                const ptrdiff_t nn   = from_mesh->n_nodes();
+                auto            cnt  = create_host_buffer<i32>(nn);
+                auto            buff = element_to_node_incidence_count->data();
+                for (ptrdiff_t i = 0; i < nn; ++i) {
+                    cnt->data()[i] = static_cast<i32>(buff[i]);
+                }
+                if (from_exchange->scatter_add(cnt->data()) != SMESH_SUCCESS ||
+                    from_exchange->gather(cnt->data()) != SMESH_SUCCESS) {
+                    SMESH_ERROR("Restrict: incidence scatter-add/gather failed\n");
+                }
+                for (ptrdiff_t i = 0; i < nn; ++i) {
+                    const i32 v = cnt->data()[i];
+                    buff[i]     = static_cast<uint16_t>(std::min<i32>(v, 65535));
+                }
+            }
+            if (is_mpi_distributed(to_mesh)) {
+                to_exchange = Exchange::create_nodal(to_mesh, Exchange::ExchangeScope::GhostsAndAura);
             }
 
 #ifdef SMESH_ENABLE_CUDA
@@ -196,6 +228,38 @@ namespace smesh {
             {
                 if (from_ss) {
                     if (!to_ss) {
+                        if (is_mpi_distributed(from_mesh) || is_mpi_distributed(to_mesh)) {
+                            actual_op = [=](const T *const from, T *const to) -> int {
+                                SMESH_TRACE_SCOPE("sshex8_restrict_to_hex8");
+                                const int from_level = semistructured_level(*from_mesh);
+                                auto      count      = element_to_node_incidence_count->data();
+                                int       err        = SMESH_SUCCESS;
+                                for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
+                                    auto            from_b = from_mesh->block(b);
+                                    auto            to_b   = to_mesh->block(b);
+                                    const ptrdiff_t ne     = from_b->n_elements_owned();
+                                    if (ne == 0) {
+                                        continue;
+                                    }
+                                    idx_t *to_sshex[8];
+                                    hex8_elements_as_sshex8_level1(to_b->elements()->data(), to_sshex);
+                                    err |= sshex8_restrict(ne,
+                                                           from_level,
+                                                           1,
+                                                           from_b->elements()->data(),
+                                                           count,
+                                                           1,
+                                                           1,
+                                                           to_sshex,
+                                                           block_size,
+                                                           from,
+                                                           to);
+                                }
+                                return err;
+                            };
+                            return;
+                        }
+
                         actual_op = [=](const T *const from, T *const to) -> int {
                             SMESH_TRACE_SCOPE("sshex8_hierarchical_restriction");
                             const int from_level = semistructured_level(*from_mesh);
@@ -224,7 +288,8 @@ namespace smesh {
                         for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
                             auto            from_b = from_mesh->block(b);
                             auto            to_b   = to_mesh->block(b);
-                            const ptrdiff_t ne     = from_b->n_elements();
+                            const ptrdiff_t ne     = is_mpi_distributed(from_mesh) ? from_b->n_elements_owned()
+                                                                                   : from_b->n_elements();
                             if (ne == 0) {
                                 continue;
                             }
@@ -265,7 +330,34 @@ namespace smesh {
             init();
         }
 
-        int apply(const T *const x, T *const y) { return actual_op(x, y); }
+        int apply(const T *const x, T *const y) {
+            if ((from_exchange || to_exchange) && es == EXECUTION_SPACE_DEVICE) {
+                SMESH_ERROR("Restrict: distributed DEVICE apply is not implemented\n");
+                return SMESH_FAILURE;
+            }
+
+            T *const x_mut = const_cast<T *>(x);
+            if (from_exchange) {
+                if (from_exchange->gather(x_mut, block_size) != SMESH_SUCCESS) {
+                    return SMESH_FAILURE;
+                }
+            }
+
+            const int err = actual_op(x, y);
+            if (err != SMESH_SUCCESS) {
+                return err;
+            }
+
+            if (to_exchange) {
+                if (to_exchange->scatter_add(y, block_size) != SMESH_SUCCESS) {
+                    return SMESH_FAILURE;
+                }
+                if (to_exchange->gather(y, block_size) != SMESH_SUCCESS) {
+                    return SMESH_FAILURE;
+                }
+            }
+            return SMESH_SUCCESS;
+        }
     };
 
     template <typename T>

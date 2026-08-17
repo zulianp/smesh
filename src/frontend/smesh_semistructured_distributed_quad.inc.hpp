@@ -139,7 +139,7 @@ std::shared_ptr<Mesh> to_semistructured_distributed_quad(const int              
                         edge_keys[ie * 4 + 1] = gc[d2];
                         edge_keys[ie * 4 + 2] = k_key_pad;
                         edge_keys[ie * 4 + 3] = k_key_pad;
-                        edge_aux[ie]          = (large_idx_t)rank;
+                        edge_aux[ie]          = owned_pref_rank_aux(from_owned, rank, size);
                         edge_loc[ie]          = lc[d1];
                         ie++;
                     }

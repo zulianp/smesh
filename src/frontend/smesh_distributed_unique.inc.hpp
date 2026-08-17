@@ -5,6 +5,16 @@
 constexpr i64 k_alltoall_chunk = static_cast<i64>(1) << 20;
 constexpr large_idx_t k_key_pad = static_cast<large_idx_t>(-1);
 
+/// unique_tuples / unique_by_id pick the min aux incidence as owner. Aura-only
+/// hits on a low rank must not win over owned-element hits on another rank.
+static large_idx_t owned_pref_rank_aux(const int from_owned, const int rank, const int comm_size) {
+    return from_owned ? (large_idx_t)rank : (large_idx_t)rank + (large_idx_t)comm_size;
+}
+
+static large_idx_t owned_pref_eid_aux(const int from_owned, const large_idx_t eid, const ptrdiff_t n_elem_global) {
+    return from_owned ? eid : eid + (large_idx_t)n_elem_global;
+}
+
 static void sort4(large_idx_t *v, const int n) {
     for (int i = 1; i < n; ++i) {
         const large_idx_t x = v[i];
