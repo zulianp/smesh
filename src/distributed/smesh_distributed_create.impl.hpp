@@ -91,10 +91,10 @@ int hex8_cube_create_distributed(
     }
   }
 
-  // Coordinates: file ordering is node = xi + yi*(nx+1) + zi*(ny+1)*(nx+1).
-  const geom_t hx = (xmax - xmin) / static_cast<geom_t>(nx);
-  const geom_t hy = (ymax - ymin) / static_cast<geom_t>(ny);
-  const geom_t hz = (zmax - zmin) / static_cast<geom_t>(nz);
+  // Match serial `mesh_fill_hex8_cube`: double spacing, then cast to geom_t.
+  const double hx = (xmax - xmin) * 1. / nx;
+  const double hy = (ymax - ymin) * 1. / ny;
+  const double hz = (zmax - zmin) * 1. / nz;
 
   for (ptrdiff_t ln = 0; ln < n_local_nodes; ++ln) {
     const ptrdiff_t gn = n_start + ln;
@@ -103,9 +103,9 @@ int hex8_cube_create_distributed(
     const ptrdiff_t yi = rem / nx1;
     const ptrdiff_t xi = rem - yi * nx1;
 
-    points[0][ln] = static_cast<geom_t>(xmin + static_cast<geom_t>(xi) * hx);
-    points[1][ln] = static_cast<geom_t>(ymin + static_cast<geom_t>(yi) * hy);
-    points[2][ln] = static_cast<geom_t>(zmin + static_cast<geom_t>(zi) * hz);
+    points[0][ln] = (geom_t)(xmin + xi * hx);
+    points[1][ln] = (geom_t)(ymin + yi * hy);
+    points[2][ln] = (geom_t)(zmin + zi * hz);
   }
 
   *nnodesxelem_out = kNodesPerHex;

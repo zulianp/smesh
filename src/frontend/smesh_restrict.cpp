@@ -30,32 +30,55 @@ namespace smesh {
         std::function<int(const T *const x, T *const y)> actual_op;
 
         void init() {
-            auto from_element = from_mesh->element_type(0);
-            auto to_element   = to_mesh->element_type(0);
-
-            ptrdiff_t nnodes   = 0;
-            idx_t   **elements = nullptr;
-            int       nxe;
-            if (is_semistructured_type(from_element)) {
-                nxe      = sshex8_nxe(semistructured_level(*from_mesh));
-                elements = from_mesh->elements(0)->data();
-                nnodes   = from_mesh->n_nodes();
-            } else {
-                nxe      = elem_num_nodes(from_element);
-                elements = from_mesh->elements(0)->data();
-                nnodes   = from_mesh->n_nodes();
+            if (!from_mesh || !to_mesh) {
+                SMESH_ERROR("Restrict: null mesh\n");
+            }
+            if (from_mesh->n_blocks() != to_mesh->n_blocks()) {
+                SMESH_ERROR("Restrict: from/to n_blocks mismatch (%zu vs %zu)\n",
+                            from_mesh->n_blocks(),
+                            to_mesh->n_blocks());
             }
 
-            element_to_node_incidence_count = create_host_buffer<uint16_t>(nnodes);
+            const auto from_element = from_mesh->element_type(0);
+            const auto to_element   = to_mesh->element_type(0);
+            const bool from_ss      = is_semistructured_type(from_element);
+            const bool to_ss        = is_semistructured_type(to_element);
+
+            if (from_ss) {
+                for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
+                    const auto bid = static_cast<block_idx_t>(b);
+                    if (!is_hex_ss_family(from_mesh->element_type(bid))) {
+                        SMESH_ERROR(
+                                "Restrict: SS restriction is HEX-family only (TET/QUAD B5.5, mixed B5.6); "
+                                "from block %zu type %s\n",
+                                b,
+                                type_to_string(from_mesh->element_type(bid)));
+                    }
+                    if (!is_hex_ss_family(to_mesh->element_type(bid))) {
+                        SMESH_ERROR("Restrict: to-mesh block %zu is not HEX-family (type %s)\n",
+                                    b,
+                                    type_to_string(to_mesh->element_type(bid)));
+                    }
+                }
+            } else if (from_mesh->n_blocks() > 1) {
+                SMESH_ERROR("Restrict: unstructured multi-block restriction is not implemented\n");
+            }
+
+            element_to_node_incidence_count = create_host_buffer<uint16_t>(from_mesh->n_nodes());
             {
                 auto buff = element_to_node_incidence_count->data();
-
-                // #pragma omp parallel for // BAD performance with parallel for
-                const ptrdiff_t nelements = from_mesh->n_elements();
-                for (int d = 0; d < nxe; d++) {
-                    for (ptrdiff_t i = 0; i < nelements; ++i) {
-                        // #pragma omp atomic update
-                        buff[elements[d][i]]++;
+                for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
+                    auto            block     = from_mesh->block(b);
+                    const ptrdiff_t nelements = block->n_elements();
+                    if (nelements == 0) {
+                        continue;
+                    }
+                    const int     nxe      = block->n_nodes_per_element();
+                    idx_t **const elements = block->elements()->data();
+                    for (int d = 0; d < nxe; d++) {
+                        for (ptrdiff_t i = 0; i < nelements; ++i) {
+                            buff[elements[d][i]]++;
+                        }
                     }
                 }
             }
@@ -64,48 +87,73 @@ namespace smesh {
             if (EXECUTION_SPACE_DEVICE == es) {
                 auto dbuff = to_device(element_to_node_incidence_count);
 
-                auto elements = from_mesh->block(0)->device_elements_SoA();
-                if (elements->mem_space() != MEMORY_SPACE_DEVICE) {
-                    SMESH_ERROR("Elements are not on the device");
-                    return;
-                }
-
-                if (is_semistructured_type(from_element)) {
-                    if (is_semistructured_type(to_element)) {
-                        // FIXME make sure to reuse fine level elements and strides
-                        auto to_elements = to_mesh->block(0)->device_elements_SoA();
-                        if (to_elements->mem_space() != MEMORY_SPACE_DEVICE) {
-                            SMESH_ERROR("To elements are not on the device");
+                if (from_ss) {
+                    for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
+                        if (from_mesh->block(b)->n_elements() == 0) {
+                            continue;
+                        }
+                        auto from_els = from_mesh->block(b)->device_elements_SoA();
+                        if (from_els->mem_space() != MEMORY_SPACE_DEVICE) {
+                            SMESH_ERROR("Elements are not on the device");
                             return;
                         }
+                        if (to_ss && to_mesh->block(b)->n_elements() > 0) {
+                            auto to_els = to_mesh->block(b)->device_elements_SoA();
+                            if (to_els->mem_space() != MEMORY_SPACE_DEVICE) {
+                                SMESH_ERROR("To elements are not on the device");
+                                return;
+                            }
+                        }
+                    }
 
+                    if (to_ss) {
                         actual_op = [=](const real_t *const from, real_t *const to) -> int {
                             SMESH_TRACE_SCOPE("cu_sshex8_restrict");
-                            return smesh::cu_sshex8_restrict(from_mesh->n_elements(),
-                                                             semistructured_level(*from_mesh),
-                                                             1,
-                                                             elements->data(),
-                                                             dbuff->data(),
-                                                             semistructured_level(*to_mesh),
-                                                             1,
-                                                             to_elements->data(),
-                                                             block_size,
-                                                             SMESH_DEFAULT,
-                                                             1,
-                                                             from,
-                                                             SMESH_DEFAULT,
-                                                             1,
-                                                             to,
-                                                             SMESH_DEFAULT_STREAM);
+                            const int from_level = semistructured_level(*from_mesh);
+                            const int to_level   = semistructured_level(*to_mesh);
+                            int       err        = SMESH_SUCCESS;
+                            for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
+                                auto            from_b = from_mesh->block(b);
+                                auto            to_b   = to_mesh->block(b);
+                                const ptrdiff_t ne     = from_b->n_elements();
+                                if (ne == 0) {
+                                    continue;
+                                }
+                                err |= smesh::cu_sshex8_restrict(ne,
+                                                                 from_level,
+                                                                 1,
+                                                                 from_b->device_elements_SoA()->data(),
+                                                                 dbuff->data(),
+                                                                 to_level,
+                                                                 1,
+                                                                 to_b->device_elements_SoA()->data(),
+                                                                 block_size,
+                                                                 SMESH_DEFAULT,
+                                                                 1,
+                                                                 from,
+                                                                 SMESH_DEFAULT,
+                                                                 1,
+                                                                 to,
+                                                                 SMESH_DEFAULT_STREAM);
+                            }
+                            return err;
                         };
                         return;
-                    } else {
-                        actual_op = [=](const real_t *const from, real_t *const to) -> int {
-                            SMESH_TRACE_SCOPE("cu_sshex8_hierarchical_restriction");
+                    }
 
-                            return cu_sshex8_hierarchical_restriction(semistructured_level(*from_mesh),
-                                                                      from_mesh->n_elements(),
-                                                                      elements->data(),
+                    actual_op = [=](const real_t *const from, real_t *const to) -> int {
+                        SMESH_TRACE_SCOPE("cu_sshex8_hierarchical_restriction");
+                        const int from_level = semistructured_level(*from_mesh);
+                        int       err        = SMESH_SUCCESS;
+                        for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
+                            auto            from_b = from_mesh->block(b);
+                            const ptrdiff_t ne     = from_b->n_elements();
+                            if (ne == 0) {
+                                continue;
+                            }
+                            err |= cu_sshex8_hierarchical_restriction(from_level,
+                                                                      ne,
+                                                                      from_b->device_elements_SoA()->data(),
                                                                       dbuff->data(),
                                                                       block_size,
                                                                       SMESH_DEFAULT,
@@ -115,77 +163,100 @@ namespace smesh {
                                                                       1,
                                                                       to,
                                                                       SMESH_DEFAULT_STREAM);
-                        };
-                        return;
-                    }
-                } else {
-                    actual_op = [=](const real_t *const from, real_t *const to) -> int {
-                        SMESH_TRACE_SCOPE("cu_macrotet4_to_tet4_restriction_element_based");
-
-                        return cu_macrotet4_to_tet4_restriction_element_based(from_mesh->n_elements(),
-                                                                              elements->data(),
-                                                                              dbuff->data(),
-                                                                              block_size,
-                                                                              SMESH_DEFAULT,
-                                                                              1,
-                                                                              from,
-                                                                              SMESH_DEFAULT,
-                                                                              1,
-                                                                              to,
-                                                                              SMESH_DEFAULT_STREAM);
+                        }
+                        return err;
                     };
                     return;
                 }
+
+                auto elements = from_mesh->block(0)->device_elements_SoA();
+                if (elements->mem_space() != MEMORY_SPACE_DEVICE) {
+                    SMESH_ERROR("Elements are not on the device");
+                    return;
+                }
+
+                actual_op = [=](const real_t *const from, real_t *const to) -> int {
+                    SMESH_TRACE_SCOPE("cu_macrotet4_to_tet4_restriction_element_based");
+
+                    return cu_macrotet4_to_tet4_restriction_element_based(from_mesh->n_elements(),
+                                                                          elements->data(),
+                                                                          dbuff->data(),
+                                                                          block_size,
+                                                                          SMESH_DEFAULT,
+                                                                          1,
+                                                                          from,
+                                                                          SMESH_DEFAULT,
+                                                                          1,
+                                                                          to,
+                                                                          SMESH_DEFAULT_STREAM);
+                };
+                return;
             } else
 #endif
             {
-                if (is_semistructured_type(from_element)) {
-                    if (!is_semistructured_type(to_element)) {
-                        actual_op = [=](const real_t *const from, real_t *const to) -> int {
+                if (from_ss) {
+                    if (!to_ss) {
+                        actual_op = [=](const T *const from, T *const to) -> int {
                             SMESH_TRACE_SCOPE("sshex8_hierarchical_restriction");
-
-                            return sshex8_hierarchical_restriction(semistructured_level(*from_mesh),
-                                                                   from_mesh->n_elements(),
-                                                                   from_mesh->elements(0)->data(),
-                                                                   element_to_node_incidence_count->data(),
-                                                                   block_size,
-                                                                   from,
-                                                                   to);
-                        };
-                        return;
-                    } else {
-                        actual_op = [=](const real_t *const from, real_t *const to) -> int {
-                            SMESH_TRACE_SCOPE("sshex8_restrict");
-
-                            return sshex8_restrict(from_mesh->n_elements(),           // nelements,
-                                                   semistructured_level(*from_mesh),  // from_level
-                                                   1,                                 // from_level_stride
-                                                   from_mesh->elements(0)->data(),    // from_elements
-                                                   element_to_node_incidence_count->data(),
-                                                   semistructured_level(*to_mesh),  // to_level
-                                                   1,                               // to_level_stride
-                                                   to_mesh->elements(0)->data(),    // to_elements
-                                                   block_size,                      // vec_size
-                                                   from,
-                                                   to);
+                            const int from_level = semistructured_level(*from_mesh);
+                            auto      count      = element_to_node_incidence_count->data();
+                            int       err        = SMESH_SUCCESS;
+                            for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
+                                auto            from_b = from_mesh->block(b);
+                                const ptrdiff_t ne     = from_b->n_elements();
+                                if (ne == 0) {
+                                    continue;
+                                }
+                                err |= sshex8_hierarchical_restriction(
+                                        from_level, ne, from_b->elements()->data(), count, block_size, from, to);
+                            }
+                            return err;
                         };
                         return;
                     }
-                } else {
-                    actual_op = [=](const real_t *const from, real_t *const to) -> int {
-                        SMESH_TRACE_SCOPE("hierarchical_restriction_with_counting");
 
-                        return hierarchical_restriction(from_element,
-                                                        to_element,
-                                                        from_mesh->n_elements(),
-                                                        from_mesh->elements(0)->data(),
-                                                        element_to_node_incidence_count->data(),
-                                                        block_size,
-                                                        from,
-                                                        to);
+                    actual_op = [=](const T *const from, T *const to) -> int {
+                        SMESH_TRACE_SCOPE("sshex8_restrict");
+                        const int from_level = semistructured_level(*from_mesh);
+                        const int to_level   = semistructured_level(*to_mesh);
+                        auto      count      = element_to_node_incidence_count->data();
+                        int       err        = SMESH_SUCCESS;
+                        for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
+                            auto            from_b = from_mesh->block(b);
+                            auto            to_b   = to_mesh->block(b);
+                            const ptrdiff_t ne     = from_b->n_elements();
+                            if (ne == 0) {
+                                continue;
+                            }
+                            err |= sshex8_restrict(ne,
+                                                   from_level,
+                                                   1,
+                                                   from_b->elements()->data(),
+                                                   count,
+                                                   to_level,
+                                                   1,
+                                                   to_b->elements()->data(),
+                                                   block_size,
+                                                   from,
+                                                   to);
+                        }
+                        return err;
                     };
                     return;
                 }
+
+                actual_op = [=](const T *const from, T *const to) -> int {
+                    SMESH_TRACE_SCOPE("hierarchical_restriction_with_counting");
+
+                    return hierarchical_restriction(from_element,
+                                                    to_element,
+                                                    from_mesh->n_elements(),
+                                                    from_mesh->elements(0)->data(),
+                                                    element_to_node_incidence_count->data(),
+                                                    block_size,
+                                                    from,
+                                                    to);
+                };
             }
         }
 
@@ -396,3 +467,4 @@ namespace smesh {
     template class SurfaceRestrict<real_t>;
 
 }  // namespace smesh
+
