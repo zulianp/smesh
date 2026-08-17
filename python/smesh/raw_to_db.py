@@ -409,6 +409,44 @@ def add_fields(field_data, storage, check_len):
                 storage[field.name] = field.data
 
 
+def merge_cells_by_type(cell_blocks, cell_data):
+    """One connectivity array per VTK cell type so ParaView attaches CELL_DATA."""
+    types = []
+    conn_by_type = {}
+    index_by_type = {}
+    for i, block in enumerate(cell_blocks):
+        cell_type = block.type if hasattr(block, "type") else block[0]
+        conn = block.data if hasattr(block, "data") else block[1]
+        if cell_type not in conn_by_type:
+            types.append(cell_type)
+            conn_by_type[cell_type] = []
+            index_by_type[cell_type] = []
+        conn_by_type[cell_type].append(np.asarray(conn))
+        index_by_type[cell_type].append(i)
+
+    new_cells = [(t, np.concatenate(conn_by_type[t], axis=0)) for t in types]
+    new_cell_data = {}
+    for name, pieces in cell_data.items():
+        seq = pieces if isinstance(pieces, (list, tuple)) else [pieces]
+        merged = []
+        for t in types:
+            parts = [np.asarray(seq[i]) for i in index_by_type[t] if i < len(seq)]
+            merged.append(np.concatenate(parts, axis=0))
+        new_cell_data[name] = merged
+    return new_cells, new_cell_data
+
+
+def write_paraview_mesh(mesh, output_path):
+    # VTK 5.1 FIELD + OFFSETS often hides cell arrays in ParaView.
+    ext = os.path.splitext(output_path)[1].lower()
+    if ext == ".vtk":
+        import meshio.vtk as meshio_vtk
+
+        meshio_vtk.write(output_path, mesh, fmt_version="4.2")
+    else:
+        mesh.write(output_path)
+
+
 def raw_to_db(argv):
     usage = f"usage: {argv[0]} <input_folder> <output_mesh>"
 
@@ -636,7 +674,14 @@ def raw_to_db(argv):
                 "use raw_to_exodusII for FEM/IOSS PATRAN ordering"
             )
 
-        mesh.write(output_path)
+        cells, cell_data_out = merge_cells_by_type(mesh.cells, mesh.cell_data)
+        mesh = meshio.Mesh(
+            mesh.points,
+            cells,
+            point_data=mesh.point_data,
+            cell_data=cell_data_out,
+        )
+        write_paraview_mesh(mesh, output_path)
 
 
 # Example usage
