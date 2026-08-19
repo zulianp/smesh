@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 #include <exception>
 #include <iostream>
 
@@ -53,22 +54,41 @@ static void smesh_print_test_info() {
     }
 }
 
-#define SMESH_UNIT_TEST_INIT(argc, argv)  \
-    smesh::Context context__(argc, argv); \
-    smesh_print_test_info();              \
-    int err = 0;
+static inline int smesh_test_should_run(const int argc, char **argv, const char *test_name) {
+    if (argc <= 1) {
+        return 1;
+    }
+
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], test_name) == 0) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+#define SMESH_UNIT_TEST_INIT(argc, argv)       \
+    smesh::Context context__(argc, argv);      \
+    smesh_print_test_info();                   \
+    const int smesh_test_argc__ = argc;        \
+    char **smesh_test_argv__    = argv;        \
+    int err                     = 0;
 
 #define SMESH_RUN_TEST(test_)                                                                                   \
     do {                                                                                                        \
-        SMESH_TRACE_SCOPE(#test_);                                                                              \
-        int this_test = 0;                                                                                      \
-        try {                                                                                                   \
-            if ((this_test = test_())) fprintf(stderr, "TEST: %s failed! %s:%d\n", #test_, __FILE__, __LINE__); \
-        } catch (const std::exception &ex) {                                                                    \
-            fprintf(stderr, "Exception: %s, in test %s! %s:%d\n", ex.what(), #test_, __FILE__, __LINE__);       \
-            this_test = SMESH_TEST_FAILURE;                                                                     \
+        if (smesh_test_should_run(smesh_test_argc__, smesh_test_argv__, #test_)) {                              \
+            SMESH_TRACE_SCOPE(#test_);                                                                          \
+            int this_test = 0;                                                                                  \
+            try {                                                                                               \
+                if ((this_test = test_()))                                                                      \
+                    fprintf(stderr, "TEST: %s failed! %s:%d\n", #test_, __FILE__, __LINE__);                   \
+            } catch (const std::exception &ex) {                                                                \
+                fprintf(stderr, "Exception: %s, in test %s! %s:%d\n", ex.what(), #test_, __FILE__, __LINE__);   \
+                this_test = SMESH_TEST_FAILURE;                                                                 \
+            }                                                                                                   \
+            err += this_test;                                                                                   \
         }                                                                                                       \
-        err += this_test;                                                                                       \
     } while (0)
 
 #define SMESH_UNIT_TEST_FINALIZE()                                                    \

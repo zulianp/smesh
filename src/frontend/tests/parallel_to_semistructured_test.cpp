@@ -302,10 +302,23 @@ static int test_mpi_tet4_to_ss() {
 #endif
 }
 
-static std::shared_ptr<Mesh> repeat_block_elements(const std::shared_ptr<Mesh> &mesh, const ptrdiff_t copies) {
+static std::shared_ptr<Mesh> repeat_mesh_components(const std::shared_ptr<Mesh> &mesh, const ptrdiff_t copies) {
     if (!mesh || copies < 1) {
         return nullptr;
     }
+    const int       dim          = mesh->spatial_dimension();
+    const ptrdiff_t n_nodes      = mesh->n_nodes();
+    const geom_t    copy_spacing = geom_t(2);
+    auto            points       = create_host_buffer<geom_t>(static_cast<size_t>(dim), static_cast<size_t>(n_nodes * copies));
+    for (ptrdiff_t c = 0; c < copies; ++c) {
+        const geom_t x_shift = copy_spacing * static_cast<geom_t>(c);
+        for (int d = 0; d < dim; ++d) {
+            for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+                points->data()[d][c * n_nodes + i] = mesh->points()->data()[d][i] + (d == 0 ? x_shift : geom_t(0));
+            }
+        }
+    }
+
     std::vector<std::shared_ptr<Mesh::Block>> blocks;
     for (size_t b = 0; b < mesh->n_blocks(); ++b) {
         auto            src = mesh->block(b);
@@ -315,12 +328,51 @@ static std::shared_ptr<Mesh> repeat_block_elements(const std::shared_ptr<Mesh> &
         auto            dst = create_host_buffer<idx_t>(static_cast<size_t>(nxe), static_cast<size_t>(n1));
         for (int d = 0; d < nxe; ++d) {
             for (ptrdiff_t c = 0; c < copies; ++c) {
-                std::memcpy(dst->data()[d] + c * n0, src->elements()->data()[d], static_cast<size_t>(n0) * sizeof(idx_t));
+                const idx_t node_offset = static_cast<idx_t>(c * n_nodes);
+                for (ptrdiff_t e = 0; e < n0; ++e) {
+                    dst->data()[d][c * n0 + e] = src->elements()->data()[d][e] + node_offset;
+                }
             }
         }
         blocks.push_back(std::make_shared<Mesh::Block>(src->name(), src->element_type(), dst));
     }
-    return std::make_shared<Mesh>(mesh->comm(), blocks, mesh->points());
+    return std::make_shared<Mesh>(mesh->comm(), blocks, points);
+}
+
+static std::shared_ptr<Mesh> create_pyramid_pairs_serial(const ptrdiff_t pairs) {
+    if (pairs < 1) {
+        return nullptr;
+    }
+
+    auto points = create_host_buffer<geom_t>(3, static_cast<size_t>(6 * pairs));
+    auto elems  = create_host_buffer<idx_t>(5, static_cast<size_t>(2 * pairs));
+    for (ptrdiff_t p = 0; p < pairs; ++p) {
+        const geom_t x0 = static_cast<geom_t>(2 * p);
+        const idx_t  n0 = static_cast<idx_t>(6 * p);
+        const idx_t  e0 = static_cast<idx_t>(2 * p);
+        const geom_t coords[6][3] = {{x0, 0, 0},
+                                     {x0 + 1, 0, 0},
+                                     {x0 + 1, 1, 0},
+                                     {x0, 1, 0},
+                                     {x0 + geom_t(0.5), geom_t(0.5), 1},
+                                     {x0 + geom_t(0.5), geom_t(0.5), -1}};
+        for (int i = 0; i < 6; ++i) {
+            points->data()[0][n0 + i] = coords[i][0];
+            points->data()[1][n0 + i] = coords[i][1];
+            points->data()[2][n0 + i] = coords[i][2];
+        }
+
+        const idx_t p0[5] = {n0 + 0, n0 + 1, n0 + 2, n0 + 3, n0 + 4};
+        const idx_t p1[5] = {n0 + 0, n0 + 3, n0 + 2, n0 + 1, n0 + 5};
+        for (int d = 0; d < 5; ++d) {
+            elems->data()[d][e0 + 0] = p0[d];
+            elems->data()[d][e0 + 1] = p1[d];
+        }
+    }
+
+    std::vector<std::shared_ptr<Mesh::Block>> blocks;
+    blocks.push_back(std::make_shared<Mesh::Block>("pyramid", PYRAMID5, elems));
+    return std::make_shared<Mesh>(Communicator::self(), blocks, points);
 }
 
 static int test_mpi_mixed_hex_tet() {
@@ -363,7 +415,7 @@ static int test_mpi_mixed_hex_tet() {
         SMESH_TEST_ASSERT(mixed->write(mixed_path) == SMESH_SUCCESS);
         auto hexdom = Mesh::create_hex_dominant_serial(Communicator::self());
         SMESH_TEST_ASSERT(hexdom != nullptr);
-        hexdom = repeat_block_elements(hexdom, std::max<ptrdiff_t>(2 * comm->size(), 4));
+        hexdom = repeat_mesh_components(hexdom, std::max<ptrdiff_t>(2 * comm->size(), 4));
         SMESH_TEST_ASSERT(hexdom != nullptr);
         auto hexdom_ss = to_semistructured(2, hexdom);
         SMESH_TEST_ASSERT(hexdom_ss != nullptr);
@@ -948,24 +1000,7 @@ static int test_mpi_pyramid_to_ss() {
     ptrdiff_t serial_nnodes = 0;
     if (comm->rank() == 0) {
         std::filesystem::remove_all(path.to_string());
-        auto points = create_host_buffer<geom_t>(3, 6);
-        const geom_t coords[6][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}, {0.5, 0.5, 1}, {0.5, 0.5, -1}};
-        for (int i = 0; i < 6; ++i) {
-            points->data()[0][i] = coords[i][0];
-            points->data()[1][i] = coords[i][1];
-            points->data()[2][i] = coords[i][2];
-        }
-        auto elems = create_host_buffer<idx_t>(5, 2);
-        const idx_t p0[5] = {0, 1, 2, 3, 4};
-        const idx_t p1[5] = {0, 3, 2, 1, 5};
-        for (int d = 0; d < 5; ++d) {
-            elems->data()[d][0] = p0[d];
-            elems->data()[d][1] = p1[d];
-        }
-        std::vector<std::shared_ptr<Mesh::Block>> blocks;
-        blocks.push_back(std::make_shared<Mesh::Block>("pyramid", PYRAMID5, elems));
-        auto pyr = std::make_shared<Mesh>(Communicator::self(), blocks, points);
-        pyr      = repeat_block_elements(pyr, std::max<ptrdiff_t>(2 * comm->size(), 4));
+        auto pyr = create_pyramid_pairs_serial(std::max<ptrdiff_t>(comm->size(), 2));
         SMESH_TEST_ASSERT(pyr != nullptr);
         auto ss = to_semistructured(L, pyr);
         SMESH_TEST_ASSERT(ss != nullptr);
@@ -1055,4 +1090,3 @@ int main(int argc, char **argv) {
     SMESH_UNIT_TEST_FINALIZE();
     return SMESH_UNIT_TEST_ERR();
 }
-

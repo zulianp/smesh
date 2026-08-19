@@ -489,7 +489,13 @@ static int test_serial_hex_dominant() {
   SMESH_TEST_EQ(pt[0][2], static_cast<idx_t>(5));
 
   auto ss = to_semistructured(2, mesh);
-  SMESH_TEST_ASSERT(ss == nullptr);
+  SMESH_TEST_ASSERT(ss != nullptr);
+  SMESH_TEST_EQ(static_cast<int>(ss->n_blocks()), 4);
+  SMESH_TEST_EQ(ss->element_type(0), semistructured_type(HEX8, 2));
+  SMESH_TEST_EQ(ss->element_type(1), semistructured_type(PYRAMID5, 2));
+  SMESH_TEST_EQ(ss->element_type(2), semistructured_type(TET4, 2));
+  SMESH_TEST_EQ(ss->element_type(3), semistructured_type(WEDGE6, 2));
+  SMESH_TEST_ASSERT(ss->n_nodes() > mesh->n_nodes());
 
   return SMESH_TEST_SUCCESS;
 }
