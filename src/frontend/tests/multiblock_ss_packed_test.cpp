@@ -905,7 +905,7 @@ static int test_wedge_to_semistructured() {
         auto d = derefine(ss, 1);
         SMESH_TEST_ASSERT(d != nullptr);
         SMESH_TEST_EQ(d->n_nodes(), n_coarse);
-        SMESH_TEST_EQ(d->element_type(0), WEDGE6);
+        SMESH_TEST_EQ(d->element_type(0), semistructured_type(WEDGE6, 1));
     }
     auto one = Mesh::create_tri3_square(Communicator::self(), 1, 1);
     auto one_w = extrude(one, 1.0, 1);
@@ -939,7 +939,7 @@ static int test_pyramid_to_semistructured() {
         auto d = derefine(ss, 1);
         SMESH_TEST_ASSERT(d != nullptr);
         SMESH_TEST_EQ(d->n_nodes(), n_coarse);
-        SMESH_TEST_EQ(d->element_type(0), PYRAMID5);
+        SMESH_TEST_EQ(d->element_type(0), semistructured_type(PYRAMID5, 1));
         if (L >= 2) {
             auto pyr_ss = ss->elements(0)->data();
             const auto a = collect_ids(pyr_ss, 0, pyr_base_interior_lidx(L));

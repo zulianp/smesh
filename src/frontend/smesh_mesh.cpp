@@ -4841,6 +4841,18 @@ namespace smesh {
 
         if (extrude_type == QUAD4 || extrude_type == QUADSHELL4) {
             auto hex8_points = create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
+            auto source_points = mesh->points();
+
+            // FIXME: avoid copying just for this, pass dim to extrude function instead
+            if (mesh->spatial_dimension() < 3) {
+                auto p3 = create_host_buffer<geom_t>(3, mesh->n_nodes());
+                for (int d = 0; d < 3; ++d) {
+                    for (ptrdiff_t i = 0; i < mesh->n_nodes(); ++i) {
+                        p3->data()[d][i] = d < mesh->spatial_dimension() ? source_points->data()[d][i] : geom_t(0);
+                    }
+                }
+                source_points = p3;
+            }
             std::vector<std::shared_ptr<Mesh::Block>> blocks;
             blocks.reserve(mesh->n_blocks());
 
@@ -4853,7 +4865,7 @@ namespace smesh {
                     quad4_to_hex8_extrude(block->n_elements(),
                                           mesh->n_nodes(),
                                           block->elements()->data(),
-                                          mesh->points()->data(),
+                                          source_points->data(),
                                           nlayers,
                                           height,
                                           hex8_elements->data(),
@@ -4862,7 +4874,7 @@ namespace smesh {
                     quad4_to_hex8_extrude(block->n_elements(),
                                           mesh->n_nodes(),
                                           block->elements()->data(),
-                                          mesh->points()->data(),
+                                          source_points->data(),
                                           nlayers,
                                           height,
                                           hex8_elements->data(),
@@ -4881,6 +4893,18 @@ namespace smesh {
 
         if (extrude_type == TRI3) {
             auto wedge6_points = create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
+            auto source_points = mesh->points();
+
+            // FIXME: avoid copying just for this, pass dim to extrude function instead
+            if (mesh->spatial_dimension() < 3) {
+                auto p3 = create_host_buffer<geom_t>(3, mesh->n_nodes());
+                for (int d = 0; d < 3; ++d) {
+                    for (ptrdiff_t i = 0; i < mesh->n_nodes(); ++i) {
+                        p3->data()[d][i] = d < mesh->spatial_dimension() ? source_points->data()[d][i] : geom_t(0);
+                    }
+                }
+                source_points = p3;
+            }
             std::vector<std::shared_ptr<Mesh::Block>> blocks;
             blocks.reserve(mesh->n_blocks());
 
@@ -4892,7 +4916,7 @@ namespace smesh {
                 tri3_to_wedge6_extrude(block->n_elements(),
                                        mesh->n_nodes(),
                                        block->elements()->data(),
-                                       mesh->points()->data(),
+                                       source_points->data(),
                                        nlayers,
                                        height,
                                        wedge6_elements->data(),
@@ -5016,4 +5040,3 @@ namespace smesh {
     }
 
 }  // namespace smesh
-

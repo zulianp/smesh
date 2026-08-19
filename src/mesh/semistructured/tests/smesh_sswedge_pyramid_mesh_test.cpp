@@ -85,7 +85,7 @@ static int test_sswedge_two_prisms_shared_quad() {
                                                     ss_elems->data(),
                                                     &n_unique,
                                                     &interior) == SMESH_SUCCESS);
-        const int n_edges = 13;
+        const int n_edges = 14;
         const int n_tri   = 4;
         const int n_quad  = 5;
         const ptrdiff_t expected = nnodes + static_cast<ptrdiff_t>(n_edges) * sswedge_nxedge(L) +
