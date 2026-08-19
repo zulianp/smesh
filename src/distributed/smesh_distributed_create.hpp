@@ -60,6 +60,32 @@ int quad4_square_create_distributed(
     int *spatial_dim_out, ptrdiff_t *n_local_nodes_out,
     ptrdiff_t *n_global_nodes_out, geom_t ***points_out);
 
+// Rank-split of the arrays `mesh_fill_tri3_square` would write:
+//   n_global_elements = 2 * nx * ny
+//   n_global_nodes    = (nx+1) * (ny+1)
+//   spatial_dim       = 2
+template <typename idx_t, typename geom_t>
+int tri3_square_create_distributed(
+    MPI_Comm comm, const ptrdiff_t nx, const ptrdiff_t ny, const geom_t xmin,
+    const geom_t ymin, const geom_t xmax, const geom_t ymax,
+    int *nnodesxelem_out, ptrdiff_t *n_local_elements_out,
+    ptrdiff_t *n_global_elements_out, idx_t ***elems_out,
+    int *spatial_dim_out, ptrdiff_t *n_local_nodes_out,
+    ptrdiff_t *n_global_nodes_out, geom_t ***points_out);
+
+// Rank-split of the arrays `mesh_fill_quad4_ring` would write:
+//   n_global_elements = nlayers * nelements
+//   n_global_nodes    = (nlayers+1) * nelements
+//   spatial_dim       = 3
+template <typename idx_t, typename geom_t>
+int quad4_ring_create_distributed(
+    MPI_Comm comm, const geom_t inner_radius, const geom_t outer_radius,
+    const ptrdiff_t nlayers, const ptrdiff_t nelements,
+    int *nnodesxelem_out, ptrdiff_t *n_local_elements_out,
+    ptrdiff_t *n_global_elements_out, idx_t ***elems_out,
+    int *spatial_dim_out, ptrdiff_t *n_local_nodes_out,
+    ptrdiff_t *n_global_nodes_out, geom_t ***points_out);
+
 } // namespace smesh
 
 #endif // SMESH_DISTRIBUTED_CREATE_HPP

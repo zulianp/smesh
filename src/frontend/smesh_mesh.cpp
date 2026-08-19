@@ -2136,6 +2136,148 @@ namespace smesh {
                                            sd->aura_element_mapping());
     }
 
+    static int hex8_gid_bidomain_side(const large_idx_t gid, const ptrdiff_t nx, const ptrdiff_t ny,
+                                      const ptrdiff_t split) {
+        const ptrdiff_t exy = nx * ny;
+        const ptrdiff_t zi  = static_cast<ptrdiff_t>(gid) / exy;
+        const ptrdiff_t rem = static_cast<ptrdiff_t>(gid) - zi * exy;
+        const ptrdiff_t yi  = rem / nx;
+        const ptrdiff_t xi  = rem - yi * nx;
+        SMESH_UNUSED(zi);
+        SMESH_UNUSED(yi);
+        return xi < split ? 0 : 1;
+    }
+
+    static large_idx_t hex8_gid_bidomain_local(const large_idx_t gid, const ptrdiff_t nx, const ptrdiff_t ny,
+                                               const ptrdiff_t split) {
+        const ptrdiff_t exy = nx * ny;
+        const ptrdiff_t zi  = static_cast<ptrdiff_t>(gid) / exy;
+        const ptrdiff_t rem = static_cast<ptrdiff_t>(gid) - zi * exy;
+        const ptrdiff_t yi  = rem / nx;
+        const ptrdiff_t xi  = rem - yi * nx;
+        if (xi < split) {
+            return static_cast<large_idx_t>(zi * ny * split + yi * split + xi);
+        }
+        const ptrdiff_t nx_right = nx - split;
+        return static_cast<large_idx_t>(zi * ny * nx_right + yi * nx_right + (xi - split));
+    }
+
+    static std::shared_ptr<Mesh::Block> make_hex8_bidomain_block(const char *name, idx_t **src,
+                                                                 const large_idx_t *owned_map,
+                                                                 const large_idx_t *aura_map,
+                                                                 const ptrdiff_t n_ons,
+                                                                 const ptrdiff_t n_owned,
+                                                                 const ptrdiff_t n_ghosts,
+                                                                 const int side,
+                                                                 const ptrdiff_t nx,
+                                                                 const ptrdiff_t ny,
+                                                                 const ptrdiff_t split) {
+        ptrdiff_t n_ons_c = 0, n_shared_c = 0, n_ghosts_c = 0;
+        for (ptrdiff_t i = 0; i < n_ons; ++i) {
+            n_ons_c += (hex8_gid_bidomain_side(owned_map[i], nx, ny, split) == side);
+        }
+        for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
+            n_shared_c += (hex8_gid_bidomain_side(owned_map[i], nx, ny, split) == side);
+        }
+        for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
+            n_ghosts_c += (hex8_gid_bidomain_side(aura_map[i], nx, ny, split) == side);
+        }
+
+        const ptrdiff_t n_owned_c = n_ons_c + n_shared_c;
+        const ptrdiff_t n_local_c = n_owned_c + n_ghosts_c;
+        auto            elems     = create_host_buffer<idx_t>(8, static_cast<size_t>(n_local_c));
+        auto            emap      = create_host_buffer<large_idx_t>(static_cast<size_t>(n_owned_c));
+        auto            amap      = create_host_buffer<large_idx_t>(static_cast<size_t>(n_ghosts_c));
+        idx_t         **ed        = elems->data();
+        large_idx_t    *emd       = n_owned_c ? emap->data() : nullptr;
+        large_idx_t    *amd       = n_ghosts_c ? amap->data() : nullptr;
+
+        ptrdiff_t w = 0;
+        for (ptrdiff_t i = 0; i < n_ons; ++i) {
+            if (hex8_gid_bidomain_side(owned_map[i], nx, ny, split) != side) {
+                continue;
+            }
+            copy_hex8_element(ed, w, src, i);
+            emd[w] = hex8_gid_bidomain_local(owned_map[i], nx, ny, split);
+            ++w;
+        }
+        for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
+            if (hex8_gid_bidomain_side(owned_map[i], nx, ny, split) != side) {
+                continue;
+            }
+            copy_hex8_element(ed, w, src, i);
+            emd[w] = hex8_gid_bidomain_local(owned_map[i], nx, ny, split);
+            ++w;
+        }
+        ptrdiff_t wa = 0;
+        for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
+            if (hex8_gid_bidomain_side(aura_map[i], nx, ny, split) != side) {
+                continue;
+            }
+            copy_hex8_element(ed, n_owned_c + wa, src, n_owned + i);
+            amd[wa] = hex8_gid_bidomain_local(aura_map[i], nx, ny, split);
+            ++wa;
+        }
+
+        auto block = std::make_shared<Mesh::Block>();
+        block->set_name(name);
+        block->set_element_type(HEX8);
+        block->set_elements(elems);
+        block->set_distributed_elements(n_owned_c, n_shared_c, n_ghosts_c, emap, amap);
+        return block;
+    }
+
+    std::shared_ptr<Mesh> Mesh::split_hex8_bidomain_distributed(const std::shared_ptr<Mesh> &hex_mesh,
+                                                                 const ptrdiff_t nx,
+                                                                 const ptrdiff_t ny,
+                                                                 const ptrdiff_t nz,
+                                                                 const ptrdiff_t split) {
+        auto                 hex_block = hex_mesh->block(0);
+        idx_t              **src       = hex_block->elements()->data();
+        const ptrdiff_t      n_owned   = hex_block->n_elements_owned();
+        const ptrdiff_t      n_shared  = hex_block->n_elements_shared();
+        const ptrdiff_t      n_ghosts  = hex_block->n_elements_ghosts();
+        const ptrdiff_t      n_ons     = n_owned - n_shared;
+        const large_idx_t   *owned_map = hex_block->element_mapping()->data();
+        const large_idx_t   *aura_map =
+                (n_ghosts > 0 && hex_block->aura_element_mapping()) ? hex_block->aura_element_mapping()->data() : nullptr;
+
+        auto left  = make_hex8_bidomain_block("left", src, owned_map, aura_map, n_ons, n_owned, n_ghosts, 0, nx, ny, split);
+        auto right = make_hex8_bidomain_block("right", src, owned_map, aura_map, n_ons, n_owned, n_ghosts, 1, nx, ny, split);
+
+        std::vector<std::shared_ptr<Mesh::Block>> blocks;
+        blocks.push_back(left);
+        blocks.push_back(right);
+
+        const ptrdiff_t n_left_global = split * ny * nz;
+        auto            concat_owned  = create_host_buffer<large_idx_t>(static_cast<size_t>(n_owned));
+        auto            concat_aura   = create_host_buffer<large_idx_t>(static_cast<size_t>(n_ghosts));
+        const ptrdiff_t n_left_owned  = left->n_elements_owned();
+        const ptrdiff_t n_right_owned = right->n_elements_owned();
+        const ptrdiff_t n_left_ghosts = left->n_elements_ghosts();
+        const ptrdiff_t n_right_ghosts = right->n_elements_ghosts();
+        if (n_left_owned) {
+            std::memcpy(concat_owned->data(), left->element_mapping()->data(), static_cast<size_t>(n_left_owned) * sizeof(large_idx_t));
+        }
+        if (n_right_owned) {
+            for (ptrdiff_t i = 0; i < n_right_owned; ++i) {
+                concat_owned->data()[n_left_owned + i] = n_left_global + right->element_mapping()->data()[i];
+            }
+        }
+        if (n_left_ghosts) {
+            std::memcpy(concat_aura->data(), left->aura_element_mapping()->data(), static_cast<size_t>(n_left_ghosts) * sizeof(large_idx_t));
+        }
+        if (n_right_ghosts) {
+            for (ptrdiff_t i = 0; i < n_right_ghosts; ++i) {
+                concat_aura->data()[n_left_ghosts + i] = n_left_global + right->aura_element_mapping()->data()[i];
+            }
+        }
+        SMESH_ASSERT(n_left_owned + n_right_owned == n_owned);
+        SMESH_ASSERT(n_left_ghosts + n_right_ghosts == n_ghosts);
+
+        return Mesh::with_nodal_distributed(hex_mesh, blocks, nx * ny * nz, n_owned, n_shared, n_ghosts, concat_owned, concat_aura);
+    }
+
     static void hex8_to_six_tets(idx_t **hex_src, const ptrdiff_t si, idx_t **tet_dst, const ptrdiff_t di0) {
         idx_t  hex_one[8];
         idx_t *hex_ptr[8];
@@ -2370,6 +2512,15 @@ namespace smesh {
                                                                const geom_t                         xmax,
                                                                const geom_t                         ymax,
                                                                const geom_t                         zmax) {
+#ifdef SMESH_ENABLE_MPI
+        if (comm && comm->size() > 1) {
+            auto hex = create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
+            if (!hex) {
+                return nullptr;
+            }
+            return to_semistructured(micro_elements_per_dim, hex, false, false);
+        }
+#endif
         auto            ret       = std::make_shared<Mesh>(comm);
         const ptrdiff_t nelements = (nx) * (ny) * (nz);
 
@@ -2415,6 +2566,33 @@ namespace smesh {
                                                    const geom_t                         ymin,
                                                    const geom_t                         xmax,
                                                    const geom_t                         ymax) {
+#ifdef SMESH_ENABLE_MPI
+        if (comm && comm->size() > 1) {
+            int       nxe = 0, sdim = 0;
+            ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
+            idx_t   **elems  = nullptr;
+            geom_t  **points = nullptr;
+            if (tri3_square_create_distributed<idx_t, geom_t>(comm->get(),
+                                                              nx,
+                                                              ny,
+                                                              xmin,
+                                                              ymin,
+                                                              xmax,
+                                                              ymax,
+                                                              &nxe,
+                                                              &n_local_e,
+                                                              &n_global_e,
+                                                              &elems,
+                                                              &sdim,
+                                                              &n_local_n,
+                                                              &n_global_n,
+                                                              &points) != SMESH_SUCCESS) {
+                return nullptr;
+            }
+            return Mesh::wrap_create_parallel(comm, TRI3, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
+                                             n_global_n, points);
+        }
+#endif
         auto            ret       = std::make_shared<Mesh>(comm);
         const ptrdiff_t nelements = 2 * nx * ny;
         const ptrdiff_t nnodes    = (nx + 1) * (ny + 1);
@@ -2521,6 +2699,31 @@ namespace smesh {
                                                   const geom_t                         outer_radius,
                                                   const ptrdiff_t                      nlayers,
                                                   const ptrdiff_t                      nelements) {
+#ifdef SMESH_ENABLE_MPI
+        if (comm && comm->size() > 1) {
+            int       nxe = 0, sdim = 0;
+            ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
+            idx_t   **elems  = nullptr;
+            geom_t  **points = nullptr;
+            if (quad4_ring_create_distributed<idx_t, geom_t>(comm->get(),
+                                                             inner_radius,
+                                                             outer_radius,
+                                                             nlayers,
+                                                             nelements,
+                                                             &nxe,
+                                                             &n_local_e,
+                                                             &n_global_e,
+                                                             &elems,
+                                                             &sdim,
+                                                             &n_local_n,
+                                                             &n_global_n,
+                                                             &points) != SMESH_SUCCESS) {
+                return nullptr;
+            }
+            return Mesh::wrap_create_parallel(comm, QUAD4, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
+                                             n_global_n, points);
+        }
+#endif
         auto elements = create_host_buffer<idx_t>(4, nlayers * nelements);
         auto points   = create_host_buffer<geom_t>(3, (nlayers + 1) * nelements);
         mesh_fill_quad4_ring<idx_t, geom_t>(inner_radius, outer_radius, nlayers, nelements, elements->data(), points->data());
@@ -2552,6 +2755,158 @@ namespace smesh {
                                                         const ptrdiff_t                      nx,
                                                         const ptrdiff_t                      ny,
                                                         const ptrdiff_t                      nz) {
+#ifdef SMESH_ENABLE_MPI
+        if (comm && comm->size() > 1) {
+            const ptrdiff_t ncells     = nx * ny * nz;
+            const ptrdiff_t nvertices  = (nx + 1) * (ny + 1) * (nz + 1);
+            const ptrdiff_t nfaces_x   = (nx + 1) * ny * nz;
+            const ptrdiff_t nfaces_y   = nx * (ny + 1) * nz;
+            const ptrdiff_t nfaces_z   = nx * ny * (nz + 1);
+            const ptrdiff_t faces_x0   = nvertices;
+            const ptrdiff_t faces_y0   = faces_x0 + nfaces_x;
+            const ptrdiff_t faces_z0   = faces_y0 + nfaces_y;
+            const ptrdiff_t cell0      = faces_z0 + nfaces_z;
+            const ptrdiff_t nnodes     = cell0 + ncells;
+            const ptrdiff_t nelements  = ncells * 24;
+            const int       comm_size  = comm->size();
+            const int       comm_rank  = comm->rank();
+            if (nelements < comm_size || nnodes < comm_size) {
+                SMESH_ERROR("Mesh::create_tet4_half_sphere: mesh too small for communicator\n");
+                return nullptr;
+            }
+
+            const ptrdiff_t e_start = rank_start(nelements, comm_size, comm_rank);
+            const ptrdiff_t n_local_e = rank_split(nelements, comm_size, comm_rank);
+            const ptrdiff_t n_start = rank_start(nnodes, comm_size, comm_rank);
+            const ptrdiff_t n_local_n = rank_split(nnodes, comm_size, comm_rank);
+
+            idx_t **elems = (idx_t **)SMESH_ALLOC(4 * sizeof(idx_t *));
+            for (int d = 0; d < 4; ++d) {
+                elems[d] = (idx_t *)SMESH_ALLOC(static_cast<size_t>(n_local_e) * sizeof(idx_t));
+            }
+            geom_t **points = (geom_t **)SMESH_ALLOC(3 * sizeof(geom_t *));
+            for (int d = 0; d < 3; ++d) {
+                points[d] = (geom_t *)SMESH_ALLOC(static_cast<size_t>(n_local_n) * sizeof(geom_t));
+            }
+
+            const ptrdiff_t vertex_ldz = (ny + 1) * (nx + 1);
+            const ptrdiff_t vertex_ldy = nx + 1;
+            auto vertex = [vertex_ldy, vertex_ldz](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
+                return xi + yi * vertex_ldy + zi * vertex_ldz;
+            };
+            auto face_x = [faces_x0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
+                return faces_x0 + zi * ((nx + 1) * ny) + yi * (nx + 1) + xi;
+            };
+            auto face_y = [faces_y0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
+                return faces_y0 + zi * (nx * (ny + 1)) + yi * nx + xi;
+            };
+            auto face_z = [faces_z0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
+                return faces_z0 + zi * (nx * ny) + yi * nx + xi;
+            };
+            auto cell = [cell0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
+                return cell0 + zi * (nx * ny) + yi * nx + xi;
+            };
+            static const int face_nodes[6][4] = {{0, 1, 2, 3}, {4, 7, 6, 5}, {0, 4, 5, 1},
+                                                 {3, 2, 6, 7}, {0, 3, 7, 4}, {1, 5, 6, 2}};
+
+            const ptrdiff_t exy = nx * ny;
+            for (ptrdiff_t le = 0; le < n_local_e; ++le) {
+                const ptrdiff_t gt = e_start + le;
+                const ptrdiff_t cell_e = gt / 24;
+                const int       t = static_cast<int>(gt - cell_e * 24);
+                const int       face_id = t / 4;
+                const int       edge = t - face_id * 4;
+                const ptrdiff_t zi = cell_e / exy;
+                const ptrdiff_t rem = cell_e - zi * exy;
+                const ptrdiff_t yi = rem / nx;
+                const ptrdiff_t xi = rem - yi * nx;
+                const idx_t cube_nodes[8] = {(idx_t)vertex(xi, yi, zi),         (idx_t)vertex(xi + 1, yi, zi),
+                                             (idx_t)vertex(xi + 1, yi + 1, zi), (idx_t)vertex(xi, yi + 1, zi),
+                                             (idx_t)vertex(xi, yi, zi + 1),     (idx_t)vertex(xi + 1, yi, zi + 1),
+                                             (idx_t)vertex(xi + 1, yi + 1, zi + 1),
+                                             (idx_t)vertex(xi, yi + 1, zi + 1)};
+                const idx_t face_centers[6] = {(idx_t)face_z(xi, yi, zi),     (idx_t)face_z(xi, yi, zi + 1),
+                                               (idx_t)face_y(xi, yi, zi),     (idx_t)face_y(xi, yi + 1, zi),
+                                               (idx_t)face_x(xi, yi, zi),     (idx_t)face_x(xi + 1, yi, zi)};
+                const int  *fn          = face_nodes[face_id];
+                elems[0][le]            = cube_nodes[fn[edge]];
+                elems[1][le]            = cube_nodes[fn[(edge + 1) & 3]];
+                elems[2][le]            = face_centers[face_id];
+                elems[3][le]            = static_cast<idx_t>(cell(xi, yi, zi));
+            }
+
+            const double inv_nx = 1. / nx;
+            const double inv_ny = 1. / ny;
+            const double inv_nz = 1. / nz;
+            const double r      = radius;
+            auto set_point = [points, r](const ptrdiff_t n, const double x, const double y, const double z) {
+                const double abs_x = x < 0. ? -x : x;
+                const double abs_y = y < 0. ? -y : y;
+                const double mxy   = abs_x > abs_y ? abs_x : abs_y;
+                const double m     = mxy > z ? mxy : z;
+                if (m > 0.) {
+                    const double inv_m = 1. / m;
+                    const double qx    = x * inv_m;
+                    const double qy    = y * inv_m;
+                    const double qz    = z * inv_m;
+                    const double qx2   = qx * qx;
+                    const double qy2   = qy * qy;
+                    const double qz2   = qz * qz;
+                    const double sx    = qx * sqrt(1. - (qy2 + qz2) * 0.5 + qy2 * qz2 / 3.);
+                    const double sy    = qy * sqrt(1. - (qx2 + qz2) * 0.5 + qx2 * qz2 / 3.);
+                    const double sz    = qz * sqrt(1. - (qx2 + qy2) * 0.5 + qx2 * qy2 / 3.);
+                    points[0][n]       = static_cast<geom_t>(r * m * sx);
+                    points[1][n]       = static_cast<geom_t>(r * m * sy);
+                    points[2][n]       = static_cast<geom_t>(r * m * sz);
+                } else {
+                    points[0][n] = 0;
+                    points[1][n] = 0;
+                    points[2][n] = 0;
+                }
+            };
+
+            for (ptrdiff_t ln = 0; ln < n_local_n; ++ln) {
+                const ptrdiff_t gn = n_start + ln;
+                if (gn < nvertices) {
+                    const ptrdiff_t zi = gn / vertex_ldz;
+                    const ptrdiff_t rem = gn - zi * vertex_ldz;
+                    const ptrdiff_t yi = rem / vertex_ldy;
+                    const ptrdiff_t xi = rem - yi * vertex_ldy;
+                    set_point(ln, 2. * xi * inv_nx - 1., 2. * yi * inv_ny - 1., zi * inv_nz);
+                } else if (gn < faces_y0) {
+                    const ptrdiff_t off = gn - faces_x0;
+                    const ptrdiff_t zi = off / ((nx + 1) * ny);
+                    const ptrdiff_t rem = off - zi * ((nx + 1) * ny);
+                    const ptrdiff_t yi = rem / (nx + 1);
+                    const ptrdiff_t xi = rem - yi * (nx + 1);
+                    set_point(ln, 2. * xi * inv_nx - 1., 2. * (yi + 0.5) * inv_ny - 1., (zi + 0.5) * inv_nz);
+                } else if (gn < faces_z0) {
+                    const ptrdiff_t off = gn - faces_y0;
+                    const ptrdiff_t zi = off / (nx * (ny + 1));
+                    const ptrdiff_t rem = off - zi * (nx * (ny + 1));
+                    const ptrdiff_t yi = rem / nx;
+                    const ptrdiff_t xi = rem - yi * nx;
+                    set_point(ln, 2. * (xi + 0.5) * inv_nx - 1., 2. * yi * inv_ny - 1., (zi + 0.5) * inv_nz);
+                } else if (gn < cell0) {
+                    const ptrdiff_t off = gn - faces_z0;
+                    const ptrdiff_t zi = off / (nx * ny);
+                    const ptrdiff_t rem = off - zi * (nx * ny);
+                    const ptrdiff_t yi = rem / nx;
+                    const ptrdiff_t xi = rem - yi * nx;
+                    set_point(ln, 2. * (xi + 0.5) * inv_nx - 1., 2. * (yi + 0.5) * inv_ny - 1., zi * inv_nz);
+                } else {
+                    const ptrdiff_t off = gn - cell0;
+                    const ptrdiff_t zi = off / exy;
+                    const ptrdiff_t rem = off - zi * exy;
+                    const ptrdiff_t yi = rem / nx;
+                    const ptrdiff_t xi = rem - yi * nx;
+                    set_point(ln, 2. * (xi + 0.5) * inv_nx - 1., 2. * (yi + 0.5) * inv_ny - 1., (zi + 0.5) * inv_nz);
+                }
+            }
+
+            return Mesh::wrap_create_parallel(comm, TET4, 4, n_local_e, nelements, elems, 3, n_local_n, nnodes, points);
+        }
+#endif
         auto ret = std::make_shared<Mesh>(comm);
 
         const ptrdiff_t ncells     = nx * ny * nz;
@@ -2735,6 +3090,45 @@ namespace smesh {
                                                         const ptrdiff_t                      nx,
                                                         const ptrdiff_t                      ny,
                                                         const ptrdiff_t                      nz) {
+#ifdef SMESH_ENABLE_MPI
+        if (comm && comm->size() > 1) {
+            auto ret = create_hex8_cube(comm, nx, ny, nz, 0, 0, 0, 1, 1, 1);
+            if (!ret) {
+                return nullptr;
+            }
+            auto points = ret->points()->data();
+            const double r = radius;
+            for (ptrdiff_t n = 0; n < ret->n_nodes(); ++n) {
+                const double x     = 2. * points[0][n] - 1.;
+                const double y     = 2. * points[1][n] - 1.;
+                const double z     = points[2][n];
+                const double abs_x = x < 0. ? -x : x;
+                const double abs_y = y < 0. ? -y : y;
+                const double mxy   = abs_x > abs_y ? abs_x : abs_y;
+                const double m     = mxy > z ? mxy : z;
+                if (m > 0.) {
+                    const double inv_m = 1. / m;
+                    const double qx    = x * inv_m;
+                    const double qy    = y * inv_m;
+                    const double qz    = z * inv_m;
+                    const double qx2   = qx * qx;
+                    const double qy2   = qy * qy;
+                    const double qz2   = qz * qz;
+                    const double sx    = qx * sqrt(1. - (qy2 + qz2) * 0.5 + qy2 * qz2 / 3.);
+                    const double sy    = qy * sqrt(1. - (qx2 + qz2) * 0.5 + qx2 * qz2 / 3.);
+                    const double sz    = qz * sqrt(1. - (qx2 + qy2) * 0.5 + qx2 * qy2 / 3.);
+                    points[0][n]       = static_cast<geom_t>(r * m * sx);
+                    points[1][n]       = static_cast<geom_t>(r * m * sy);
+                    points[2][n]       = static_cast<geom_t>(r * m * sz);
+                } else {
+                    points[0][n] = 0;
+                    points[1][n] = 0;
+                    points[2][n] = 0;
+                }
+            }
+            return ret;
+        }
+#endif
         auto            ret       = std::make_shared<Mesh>(comm);
         const ptrdiff_t nelements = nx * ny * nz;
         const ptrdiff_t nnodes    = (nx + 1) * (ny + 1) * (nz + 1);
@@ -2928,6 +3322,15 @@ namespace smesh {
                                                           const geom_t                         xmax,
                                                           const geom_t                         ymax,
                                                           const geom_t                         zmax) {
+#ifdef SMESH_ENABLE_MPI
+        if (comm && comm->size() > 1) {
+            auto hex = create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
+            if (!hex) {
+                return nullptr;
+            }
+            return Mesh::split_hex8_bidomain_distributed(hex, nx, ny, nz, nx / 2);
+        }
+#endif
         auto            ret       = std::make_shared<Mesh>(comm);
         const ptrdiff_t nelements = nx * ny * nz;
         const ptrdiff_t nnodes    = (nx + 1) * (ny + 1) * (nz + 1);

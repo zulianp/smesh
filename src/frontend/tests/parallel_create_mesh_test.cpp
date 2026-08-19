@@ -60,6 +60,14 @@ static int test_create_size_one_serial() {
     SMESH_TEST_EQ(quad->spatial_dimension(), 2);
     SMESH_TEST_EQ(quad->element_type(0), QUAD4);
 
+    auto tri = Mesh::create_tri3_square(comm, 4, 3);
+    SMESH_TEST_ASSERT(tri != nullptr);
+    SMESH_TEST_ASSERT(!tri->is_distributed());
+    SMESH_TEST_EQ(tri->n_nodes(), static_cast<ptrdiff_t>(5 * 4));
+    SMESH_TEST_EQ(tri->n_elements(), static_cast<ptrdiff_t>(24));
+    SMESH_TEST_EQ(tri->spatial_dimension(), 2);
+    SMESH_TEST_EQ(tri->element_type(0), TRI3);
+
     auto cb = Mesh::create_hex8_checkerboard_cube(comm, 2, 2, 2);
     SMESH_TEST_ASSERT(cb != nullptr);
     SMESH_TEST_ASSERT(!cb->is_distributed());
@@ -82,6 +90,26 @@ static int test_create_size_one_serial() {
     SMESH_TEST_EQ(mixed->n_elements(0), static_cast<ptrdiff_t>(4));
     SMESH_TEST_EQ(mixed->n_elements(1), static_cast<ptrdiff_t>(24));
     SMESH_TEST_EQ(check_unique_node_ids(*mixed), SMESH_TEST_SUCCESS);
+
+    auto bidomain = Mesh::create_hex8_bidomain_cube(comm, 4, 2, 2);
+    SMESH_TEST_ASSERT(bidomain != nullptr);
+    SMESH_TEST_ASSERT(!bidomain->is_distributed());
+    SMESH_TEST_EQ(static_cast<int>(bidomain->n_blocks()), 2);
+    SMESH_TEST_ASSERT(bidomain->block(0)->name() == "left");
+    SMESH_TEST_ASSERT(bidomain->block(1)->name() == "right");
+    SMESH_TEST_EQ(bidomain->n_elements(0), static_cast<ptrdiff_t>(8));
+    SMESH_TEST_EQ(bidomain->n_elements(1), static_cast<ptrdiff_t>(8));
+
+    auto sshex = Mesh::create_semistructured_hex_cube(comm, 2, 2, 2, 2);
+    SMESH_TEST_ASSERT(sshex != nullptr);
+    SMESH_TEST_ASSERT(!sshex->is_distributed());
+    SMESH_TEST_EQ(sshex->element_type(0), proteus_hex_type(2));
+
+    auto ring = Mesh::create_quad4_ring(comm, 0.5, 1.0, 2, 8);
+    SMESH_TEST_ASSERT(ring != nullptr);
+    SMESH_TEST_ASSERT(!ring->is_distributed());
+    SMESH_TEST_EQ(ring->element_type(0), QUAD4);
+    SMESH_TEST_EQ(ring->n_elements(), static_cast<ptrdiff_t>(16));
 
     return SMESH_TEST_SUCCESS;
 }
@@ -185,6 +213,16 @@ static int test_create_tet4_quad4_vs_serial() {
     SMESH_TEST_EQ(quad->spatial_dimension(), 2);
     SMESH_TEST_EQ(quad->element_type(0), QUAD4);
 
+    auto tri_serial = Mesh::create_tri3_square(Communicator::self(), qnx, qny);
+    auto tri        = Mesh::create_tri3_square(comm, qnx, qny);
+    SMESH_TEST_ASSERT(tri_serial != nullptr);
+    SMESH_TEST_ASSERT(tri != nullptr);
+    SMESH_TEST_ASSERT(tri->is_distributed());
+    SMESH_TEST_EQ(tri->distributed()->n_nodes_global(), tri_serial->n_nodes());
+    SMESH_TEST_EQ(tri->distributed()->n_elements_global(), tri_serial->n_elements());
+    SMESH_TEST_EQ(tri->spatial_dimension(), 2);
+    SMESH_TEST_EQ(tri->element_type(0), TRI3);
+
     return SMESH_TEST_SUCCESS;
 #endif
 }
@@ -231,13 +269,96 @@ static int test_create_checkerboard_and_hex_tet() {
 #endif
 }
 
+static int test_create_remaining_a17_generators() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+
+    const ptrdiff_t nx = even_at_least(std::max<ptrdiff_t>(comm->size(), 4));
+    const ptrdiff_t ny = 4;
+    const ptrdiff_t nz = 2;
+
+    auto bidomain_serial = Mesh::create_hex8_bidomain_cube(Communicator::self(), nx, ny, nz);
+    auto bidomain        = Mesh::create_hex8_bidomain_cube(comm, nx, ny, nz);
+    SMESH_TEST_ASSERT(bidomain_serial != nullptr);
+    SMESH_TEST_ASSERT(bidomain != nullptr);
+    SMESH_TEST_ASSERT(bidomain->is_distributed());
+    SMESH_TEST_EQ(static_cast<int>(bidomain->n_blocks()), 2);
+    SMESH_TEST_ASSERT(bidomain->block(0)->name() == "left");
+    SMESH_TEST_ASSERT(bidomain->block(1)->name() == "right");
+    SMESH_TEST_EQ(bidomain->element_type(0), HEX8);
+    SMESH_TEST_EQ(bidomain->element_type(1), HEX8);
+    SMESH_TEST_EQ(bidomain->distributed()->n_nodes_global(), bidomain_serial->n_nodes());
+    SMESH_TEST_EQ(bidomain->distributed()->n_elements_global(), bidomain_serial->n_elements());
+
+    auto ss_serial = Mesh::create_semistructured_hex_cube(Communicator::self(), 2, 2, 2, 2);
+    auto ss        = Mesh::create_semistructured_hex_cube(comm, 2, 2, 2, 2);
+    SMESH_TEST_ASSERT(ss_serial != nullptr);
+    SMESH_TEST_ASSERT(ss != nullptr);
+    SMESH_TEST_ASSERT(ss->is_distributed());
+    SMESH_TEST_EQ(ss->distributed()->n_nodes_global(), ss_serial->n_nodes());
+    SMESH_TEST_EQ(ss->distributed()->n_elements_global(), ss_serial->n_elements());
+    SMESH_TEST_EQ(ss->element_type(0), proteus_hex_type(2));
+
+    auto ring_serial = Mesh::create_quad4_ring(Communicator::self(), 0.5, 1.0, 3, std::max<ptrdiff_t>(8, 2 * comm->size()));
+    auto ring        = Mesh::create_quad4_ring(comm, 0.5, 1.0, 3, std::max<ptrdiff_t>(8, 2 * comm->size()));
+    SMESH_TEST_ASSERT(ring_serial != nullptr);
+    SMESH_TEST_ASSERT(ring != nullptr);
+    SMESH_TEST_ASSERT(ring->is_distributed());
+    SMESH_TEST_EQ(ring->distributed()->n_nodes_global(), ring_serial->n_nodes());
+    SMESH_TEST_EQ(ring->distributed()->n_elements_global(), ring_serial->n_elements());
+    SMESH_TEST_EQ(ring->spatial_dimension(), 3);
+    SMESH_TEST_EQ(ring->element_type(0), QUAD4);
+
+    auto hump_hex_serial = Mesh::create_wall_mounted_hump(Communicator::self(), HEX8, nx, ny, nz);
+    auto hump_hex        = Mesh::create_wall_mounted_hump(comm, HEX8, nx, ny, nz);
+    SMESH_TEST_ASSERT(hump_hex_serial != nullptr);
+    SMESH_TEST_ASSERT(hump_hex != nullptr);
+    SMESH_TEST_ASSERT(hump_hex->is_distributed());
+    SMESH_TEST_ASSERT(hump_hex->block(0)->name() == "fluid");
+    SMESH_TEST_EQ(hump_hex->distributed()->n_nodes_global(), hump_hex_serial->n_nodes());
+    SMESH_TEST_EQ(hump_hex->distributed()->n_elements_global(), hump_hex_serial->n_elements());
+
+    auto hump_tet_serial = Mesh::create_wall_mounted_hump(Communicator::self(), TET4, nx, ny, nz);
+    auto hump_tet        = Mesh::create_wall_mounted_hump(comm, TET4, nx, ny, nz);
+    SMESH_TEST_ASSERT(hump_tet_serial != nullptr);
+    SMESH_TEST_ASSERT(hump_tet != nullptr);
+    SMESH_TEST_ASSERT(hump_tet->is_distributed());
+    SMESH_TEST_ASSERT(hump_tet->block(0)->name() == "fluid");
+    SMESH_TEST_EQ(hump_tet->distributed()->n_nodes_global(), hump_tet_serial->n_nodes());
+    SMESH_TEST_EQ(hump_tet->distributed()->n_elements_global(), hump_tet_serial->n_elements());
+
+    auto sphere_hex_serial = Mesh::create_half_sphere(Communicator::self(), HEX8, 1.0, nx, ny, nz);
+    auto sphere_hex        = Mesh::create_half_sphere(comm, HEX8, 1.0, nx, ny, nz);
+    SMESH_TEST_ASSERT(sphere_hex_serial != nullptr);
+    SMESH_TEST_ASSERT(sphere_hex != nullptr);
+    SMESH_TEST_ASSERT(sphere_hex->is_distributed());
+    SMESH_TEST_EQ(sphere_hex->distributed()->n_nodes_global(), sphere_hex_serial->n_nodes());
+    SMESH_TEST_EQ(sphere_hex->distributed()->n_elements_global(), sphere_hex_serial->n_elements());
+
+    auto sphere_tet_serial = Mesh::create_half_sphere(Communicator::self(), TET4, 1.0, nx, ny, nz);
+    auto sphere_tet        = Mesh::create_half_sphere(comm, TET4, 1.0, nx, ny, nz);
+    SMESH_TEST_ASSERT(sphere_tet_serial != nullptr);
+    SMESH_TEST_ASSERT(sphere_tet != nullptr);
+    SMESH_TEST_ASSERT(sphere_tet->is_distributed());
+    SMESH_TEST_EQ(sphere_tet->distributed()->n_nodes_global(), sphere_tet_serial->n_nodes());
+    SMESH_TEST_EQ(sphere_tet->distributed()->n_elements_global(), sphere_tet_serial->n_elements());
+
+    return SMESH_TEST_SUCCESS;
+#endif
+}
+
 int main(int argc, char *argv[]) {
     SMESH_UNIT_TEST_INIT(argc, argv);
     SMESH_RUN_TEST(test_create_size_one_serial);
     SMESH_RUN_TEST(test_create_hex8_matches_file);
     SMESH_RUN_TEST(test_create_tet4_quad4_vs_serial);
     SMESH_RUN_TEST(test_create_checkerboard_and_hex_tet);
+    SMESH_RUN_TEST(test_create_remaining_a17_generators);
     SMESH_UNIT_TEST_FINALIZE();
     return SMESH_UNIT_TEST_ERR();
 }
-

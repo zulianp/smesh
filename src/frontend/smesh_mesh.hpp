@@ -525,6 +525,10 @@ private:
   static std::shared_ptr<Mesh>
   split_hex8_tet4_distributed(const std::shared_ptr<Mesh> &hex_mesh,
                               const ptrdiff_t n_hex_all);
+  static std::shared_ptr<Mesh>
+  split_hex8_bidomain_distributed(const std::shared_ptr<Mesh> &hex_mesh,
+                                  const ptrdiff_t nx, const ptrdiff_t ny,
+                                  const ptrdiff_t nz, const ptrdiff_t split);
 #endif
 
   class Impl;
