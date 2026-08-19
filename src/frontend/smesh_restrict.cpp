@@ -9,6 +9,7 @@
 #include "smesh_sshex8_restriction.hpp"
 #include "smesh_ssquad4.hpp"
 #include "smesh_ssquad4_restriction.hpp"
+#include "smesh_sstet4_restriction.hpp"
 #include "smesh_tracer.hpp"
 
 #include <algorithm>
@@ -20,6 +21,48 @@
 #endif
 
 namespace smesh {
+
+    static ElemType transfer_source_family(const ElemType type) {
+        return is_semistructured_type(type) ? ss_source_family(type) : type;
+    }
+
+    static ElemType assert_supported_ss_restrict_meshes(const Mesh &from_mesh, const Mesh &to_mesh) {
+        ElemType family = INVALID;
+        for (size_t b = 0; b < from_mesh.n_blocks(); ++b) {
+            const auto bid       = static_cast<block_idx_t>(b);
+            const auto from_type = from_mesh.element_type(bid);
+            const auto to_type   = to_mesh.element_type(bid);
+            if (!is_semistructured_type(from_type)) {
+                SMESH_ERROR("Restrict: from-mesh block %zu is not semistructured (type %s)\n",
+                            b,
+                            type_to_string(from_type));
+            }
+
+            const auto from_family = ss_source_family(from_type);
+            const auto to_family   = transfer_source_family(to_type);
+            if (from_family != to_family) {
+                SMESH_ERROR("Restrict: from/to block %zu family mismatch (%s vs %s)\n",
+                            b,
+                            type_to_string(from_type),
+                            type_to_string(to_type));
+            }
+
+            if (family == INVALID) {
+                family = from_family;
+            } else if (family != from_family) {
+                SMESH_ERROR("Restrict: mixed SS families are not implemented (block %zu type %s, expected %s)\n",
+                            b,
+                            type_to_string(from_type),
+                            type_to_string(family));
+            }
+
+            if (family != HEX8 && family != QUAD4 && family != TET4) {
+                SMESH_ERROR("Restrict: SS family %s is not implemented\n", type_to_string(family));
+            }
+        }
+
+        return family;
+    }
 
     template <typename T>
     class Restrict<T>::Impl {
@@ -52,24 +95,9 @@ namespace smesh {
             const auto to_element   = to_mesh->element_type(0);
             const bool from_ss      = is_semistructured_type(from_element);
             const bool to_ss        = is_semistructured_type(to_element);
+            const auto ss_family    = from_ss ? assert_supported_ss_restrict_meshes(*from_mesh, *to_mesh) : INVALID;
 
-            if (from_ss) {
-                for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
-                    const auto bid = static_cast<block_idx_t>(b);
-                    if (!is_hex_ss_family(from_mesh->element_type(bid))) {
-                        SMESH_ERROR(
-                                "Restrict: SS restriction is HEX-family only (TET/QUAD B5.5, mixed B5.6); "
-                                "from block %zu type %s\n",
-                                b,
-                                type_to_string(from_mesh->element_type(bid)));
-                    }
-                    if (!is_hex_ss_family(to_mesh->element_type(bid))) {
-                        SMESH_ERROR("Restrict: to-mesh block %zu is not HEX-family (type %s)\n",
-                                    b,
-                                    type_to_string(to_mesh->element_type(bid)));
-                    }
-                }
-            } else if (from_mesh->n_blocks() > 1) {
+            if (!from_ss && from_mesh->n_blocks() > 1) {
                 SMESH_ERROR("Restrict: unstructured multi-block restriction is not implemented\n");
             }
 
@@ -120,6 +148,9 @@ namespace smesh {
                 auto dbuff = to_device(element_to_node_incidence_count);
 
                 if (from_ss) {
+                    if (ss_family != HEX8) {
+                        SMESH_ERROR("Restrict: DEVICE SS restriction is implemented for HEX-family only\n");
+                    }
                     for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
                         if (from_mesh->block(b)->n_elements() == 0) {
                             continue;
@@ -229,6 +260,9 @@ namespace smesh {
                 if (from_ss) {
                     if (!to_ss) {
                         if (is_mpi_distributed(from_mesh) || is_mpi_distributed(to_mesh)) {
+                            if (ss_family != HEX8) {
+                                SMESH_ERROR("Restrict: distributed SS-to-unstructured restriction is implemented for HEX-family only\n");
+                            }
                             actual_op = [=](const T *const from, T *const to) -> int {
                                 SMESH_TRACE_SCOPE("sshex8_restrict_to_hex8");
                                 const int from_level = semistructured_level(*from_mesh);
@@ -261,7 +295,7 @@ namespace smesh {
                         }
 
                         actual_op = [=](const T *const from, T *const to) -> int {
-                            SMESH_TRACE_SCOPE("sshex8_hierarchical_restriction");
+                            SMESH_TRACE_SCOPE("ss_hierarchical_restriction");
                             const int from_level = semistructured_level(*from_mesh);
                             auto      count      = element_to_node_incidence_count->data();
                             int       err        = SMESH_SUCCESS;
@@ -271,8 +305,16 @@ namespace smesh {
                                 if (ne == 0) {
                                     continue;
                                 }
-                                err |= sshex8_hierarchical_restriction(
-                                        from_level, ne, from_b->elements()->data(), count, block_size, from, to);
+                                if (ss_family == HEX8) {
+                                    err |= sshex8_hierarchical_restriction(
+                                            from_level, ne, from_b->elements()->data(), count, block_size, from, to);
+                                } else if (ss_family == QUAD4) {
+                                    err |= ssquad4_hierarchical_restriction(
+                                            from_level, ne, from_b->elements()->data(), count, block_size, from, to);
+                                } else {
+                                    err |= sstet4_hierarchical_restriction(
+                                            from_level, ne, from_b->elements()->data(), count, block_size, from, to);
+                                }
                             }
                             return err;
                         };
@@ -280,7 +322,7 @@ namespace smesh {
                     }
 
                     actual_op = [=](const T *const from, T *const to) -> int {
-                        SMESH_TRACE_SCOPE("sshex8_restrict");
+                        SMESH_TRACE_SCOPE("ss_restrict");
                         const int from_level = semistructured_level(*from_mesh);
                         const int to_level   = semistructured_level(*to_mesh);
                         auto      count      = element_to_node_incidence_count->data();
@@ -293,17 +335,43 @@ namespace smesh {
                             if (ne == 0) {
                                 continue;
                             }
-                            err |= sshex8_restrict(ne,
-                                                   from_level,
-                                                   1,
-                                                   from_b->elements()->data(),
-                                                   count,
-                                                   to_level,
-                                                   1,
-                                                   to_b->elements()->data(),
-                                                   block_size,
-                                                   from,
-                                                   to);
+                            if (ss_family == HEX8) {
+                                err |= sshex8_restrict(ne,
+                                                       from_level,
+                                                       1,
+                                                       from_b->elements()->data(),
+                                                       count,
+                                                       to_level,
+                                                       1,
+                                                       to_b->elements()->data(),
+                                                       block_size,
+                                                       from,
+                                                       to);
+                            } else if (ss_family == QUAD4) {
+                                err |= ssquad4_restrict(ne,
+                                                        from_level,
+                                                        1,
+                                                        from_b->elements()->data(),
+                                                        count,
+                                                        to_level,
+                                                        1,
+                                                        to_b->elements()->data(),
+                                                        block_size,
+                                                        from,
+                                                        to);
+                            } else {
+                                err |= sstet4_restrict(ne,
+                                                       from_level,
+                                                       1,
+                                                       from_b->elements()->data(),
+                                                       count,
+                                                       to_level,
+                                                       1,
+                                                       to_b->elements()->data(),
+                                                       block_size,
+                                                       from,
+                                                       to);
+                            }
                         }
                         return err;
                     };
@@ -559,4 +627,3 @@ namespace smesh {
     template class SurfaceRestrict<real_t>;
 
 }  // namespace smesh
-
