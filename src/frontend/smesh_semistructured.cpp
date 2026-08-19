@@ -18,9 +18,15 @@
 #include "smesh_ssquad4.hpp"
 #include "smesh_ssquad4_graph.hpp"
 #include "smesh_ssquad4_mesh.hpp"
+#include "smesh_sspyramid.hpp"
+#include "smesh_sspyramid_graph.hpp"
+#include "smesh_sspyramid_mesh.hpp"
 #include "smesh_sstet4.hpp"
 #include "smesh_sstet4_graph.hpp"
 #include "smesh_sstet4_mesh.hpp"
+#include "smesh_sswedge.hpp"
+#include "smesh_sswedge_graph.hpp"
+#include "smesh_sswedge_mesh.hpp"
 #include "smesh_tracer.hpp"
 
 namespace smesh {
@@ -48,6 +54,16 @@ namespace smesh {
         }
         if (ss_source_family(element_type) == QUAD4) {
             return ssquad4_hierarchical_renumbering(level,
+                                                   nlevels,
+                                                   levels.data(),
+                                                   elements->extent(1),
+                                                   n_nodes,
+                                                   elements->data(),
+                                                   node_mapping->data(),
+                                                   preserve_corner_ordering);
+        }
+        if (ss_source_family(element_type) == WEDGE6) {
+            return sswedge_hierarchical_renumbering(level,
                                                     nlevels,
                                                     levels.data(),
                                                     elements->extent(1),
@@ -55,6 +71,16 @@ namespace smesh {
                                                     elements->data(),
                                                     node_mapping->data(),
                                                     preserve_corner_ordering);
+        }
+        if (ss_source_family(element_type) == PYRAMID5) {
+            return sspyramid_hierarchical_renumbering(level,
+                                                      nlevels,
+                                                      levels.data(),
+                                                      elements->extent(1),
+                                                      n_nodes,
+                                                      elements->data(),
+                                                      node_mapping->data(),
+                                                      preserve_corner_ordering);
         }
 
         return sshex8_hierarchical_renumbering(level,
@@ -98,6 +124,24 @@ namespace smesh {
                                                    elements->data(),
                                                    node_mapping->data(),
                                                    preserve_corner_ordering);
+        } else if (ss_source_family(element_type) == WEDGE6) {
+            err = sswedge_hierarchical_renumbering(level,
+                                                   nlevels,
+                                                   levels.data(),
+                                                   elements->extent(1),
+                                                   n_nodes,
+                                                   elements->data(),
+                                                   node_mapping->data(),
+                                                   preserve_corner_ordering);
+        } else if (ss_source_family(element_type) == PYRAMID5) {
+            err = sspyramid_hierarchical_renumbering(level,
+                                                     nlevels,
+                                                     levels.data(),
+                                                     elements->extent(1),
+                                                     n_nodes,
+                                                     elements->data(),
+                                                     node_mapping->data(),
+                                                     preserve_corner_ordering);
         } else {
             err = sshex8_hierarchical_renumbering(level,
                                                   nlevels,
@@ -258,6 +302,84 @@ namespace smesh {
                 return std::make_shared<Mesh>(mesh->comm(), blocks, p);
             }
 
+            if (family == WEDGE6) {
+                if (use_GLL) {
+                    fprintf(stderr, "to_semistructured: GLL nodes are not implemented for WEDGE SS\n");
+                    return nullptr;
+                }
+                if (block->n_nodes_per_element() != 6) {
+                    fprintf(stderr,
+                            "to_semistructured: WEDGE family block '%s' does not have 6 nodes per element\n",
+                            block->name().c_str());
+                    return nullptr;
+                }
+
+                auto default_block = std::make_shared<Mesh::Block>();
+                default_block->set_name(block->name());
+                enum ElemType element_type = semistructured_type(WEDGE6, level);
+                default_block->set_element_type(element_type);
+                const int nxe      = sswedge_nxe(level);
+                auto      elements = create_host_buffer<idx_t>(nxe, mesh->n_elements());
+                ptrdiff_t n_unique_nodes{-1};
+                ptrdiff_t interior_start{-1};
+                sswedge_generate_elements(level,
+                                          mesh->n_elements(),
+                                          mesh->n_nodes(),
+                                          mesh->elements(0)->data(),
+                                          elements->data(),
+                                          &n_unique_nodes,
+                                          &interior_start);
+                default_block->set_elements(elements);
+                std::vector<std::shared_ptr<Mesh::Block>> blocks;
+                blocks.push_back(default_block);
+                if (hiearchical_ordering) {
+                    semistructured_hierarchical_renumbering(element_type, level, n_unique_nodes, elements, true);
+                }
+                auto p       = smesh::create_host_buffer<geom_t>(mesh->spatial_dimension(), n_unique_nodes);
+                auto macro_p = mesh->points()->data();
+                sswedge_fill_points(level, mesh->n_elements(), elements->data(), macro_p, p->data());
+                return std::make_shared<Mesh>(mesh->comm(), blocks, p);
+            }
+
+            if (family == PYRAMID5) {
+                if (use_GLL) {
+                    fprintf(stderr, "to_semistructured: GLL nodes are not implemented for PYRAMID SS\n");
+                    return nullptr;
+                }
+                if (block->n_nodes_per_element() != 5) {
+                    fprintf(stderr,
+                            "to_semistructured: PYRAMID family block '%s' does not have 5 nodes per element\n",
+                            block->name().c_str());
+                    return nullptr;
+                }
+
+                auto default_block = std::make_shared<Mesh::Block>();
+                default_block->set_name(block->name());
+                enum ElemType element_type = semistructured_type(PYRAMID5, level);
+                default_block->set_element_type(element_type);
+                const int nxe      = sspyramid_nxe(level);
+                auto      elements = create_host_buffer<idx_t>(nxe, mesh->n_elements());
+                ptrdiff_t n_unique_nodes{-1};
+                ptrdiff_t interior_start{-1};
+                sspyramid_generate_elements(level,
+                                            mesh->n_elements(),
+                                            mesh->n_nodes(),
+                                            mesh->elements(0)->data(),
+                                            elements->data(),
+                                            &n_unique_nodes,
+                                            &interior_start);
+                default_block->set_elements(elements);
+                std::vector<std::shared_ptr<Mesh::Block>> blocks;
+                blocks.push_back(default_block);
+                if (hiearchical_ordering) {
+                    semistructured_hierarchical_renumbering(element_type, level, n_unique_nodes, elements, true);
+                }
+                auto p       = smesh::create_host_buffer<geom_t>(mesh->spatial_dimension(), n_unique_nodes);
+                auto macro_p = mesh->points()->data();
+                sspyramid_fill_points(level, mesh->n_elements(), elements->data(), macro_p, p->data());
+                return std::make_shared<Mesh>(mesh->comm(), blocks, p);
+            }
+
             if (family != HEX8) {
                 fprintf(stderr,
                         "to_semistructured: SS family %s is not implemented\n",
@@ -331,10 +453,12 @@ namespace smesh {
             return std::make_shared<Mesh>(mesh->comm(), blocks, p);
         }
 
-        bool has_hex   = false;
-        bool has_tet   = false;
-        bool has_quad  = false;
-        bool has_other = false;
+        bool has_hex     = false;
+        bool has_tet     = false;
+        bool has_quad    = false;
+        bool has_wedge   = false;
+        bool has_pyramid = false;
+        bool has_other   = false;
         enum ElemType other_family = INVALID;
         for (size_t b = 0; b < mesh->n_blocks(); ++b) {
             const enum ElemType f = ss_source_family(mesh->element_type(static_cast<block_idx_t>(b)));
@@ -344,6 +468,10 @@ namespace smesh {
                 has_tet = true;
             } else if (f == QUAD4) {
                 has_quad = true;
+            } else if (f == WEDGE6) {
+                has_wedge = true;
+            } else if (f == PYRAMID5) {
+                has_pyramid = true;
             } else {
                 has_other    = true;
                 other_family = f;
@@ -356,6 +484,9 @@ namespace smesh {
                         "to_semistructured: mixed-family semistructured conversion is not implemented\n");
                 return nullptr;
             }
+            if (has_wedge || has_pyramid) {
+                // HEX-dominant mixed is handled below; do not use the HEX+TET-only kernel.
+            } else {
             if (use_GLL) {
                 fprintf(stderr, "to_semistructured: GLL nodes are not implemented for mixed HEX+TET SS\n");
                 return nullptr;
@@ -463,9 +594,10 @@ namespace smesh {
             }
 
             return std::make_shared<Mesh>(mesh->comm(), ss_blocks, p);
+            }
         }
 
-        if (has_quad && (has_hex || has_tet || has_other)) {
+        if (has_quad && (has_hex || has_tet || has_wedge || has_pyramid || has_other)) {
             fprintf(stderr, "to_semistructured: mixed-family semistructured conversion is not implemented\n");
             return nullptr;
         }
@@ -551,6 +683,263 @@ namespace smesh {
                     "to_semistructured: SS family %s is not implemented\n",
                     other_family == INVALID ? "INVALID" : type_to_string(other_family));
             return nullptr;
+        }
+
+        if ((has_wedge || has_pyramid) && (has_hex || has_tet || (has_wedge && has_pyramid))) {
+            if (use_GLL) {
+                fprintf(stderr, "to_semistructured: GLL nodes are not implemented for mixed HEX-dominant SS\n");
+                return nullptr;
+            }
+            if (level < 1) {
+                fprintf(stderr, "to_semistructured: mixed HEX-dominant SS requires level >= 1\n");
+                return nullptr;
+            }
+            const ptrdiff_t n_blocks = static_cast<ptrdiff_t>(mesh->n_blocks());
+            std::vector<enum ElemType>                block_types(static_cast<size_t>(n_blocks));
+            std::vector<ptrdiff_t>                    n_e(static_cast<size_t>(n_blocks));
+            std::vector<const idx_t *const *>         coarse_soa(static_cast<size_t>(n_blocks));
+            std::vector<idx_t **>                     ss_soa(static_cast<size_t>(n_blocks));
+            std::vector<std::shared_ptr<Mesh::Block>> ss_blocks(static_cast<size_t>(n_blocks));
+            std::vector<const element_idx_t *>        hft(static_cast<size_t>(n_blocks));
+            std::vector<const block_idx_t *>          hnbb(static_cast<size_t>(n_blocks));
+            std::vector<SharedBuffer<element_idx_t>>  hft_keep(static_cast<size_t>(n_blocks));
+            std::vector<SharedBuffer<block_idx_t>>    hnbb_keep(static_cast<size_t>(n_blocks));
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                auto                block  = mesh->block(static_cast<size_t>(b));
+                const enum ElemType family = ss_source_family(block->element_type());
+                const size_t        bi     = static_cast<size_t>(b);
+                block_types[bi]            = family;
+                n_e[bi]                    = block->n_elements();
+                coarse_soa[bi]             = block->elements()->data();
+                int nxe                    = 0;
+                int n_macro                = 0;
+                if (family == HEX8) {
+                    nxe     = sshex8_nxe(level);
+                    n_macro = 8;
+                } else if (family == TET4) {
+                    nxe     = sstet4_nxe(level);
+                    n_macro = 4;
+                } else if (family == WEDGE6) {
+                    nxe     = sswedge_nxe(level);
+                    n_macro = 6;
+                } else if (family == PYRAMID5) {
+                    nxe     = sspyramid_nxe(level);
+                    n_macro = 5;
+                } else {
+                    fprintf(stderr, "to_semistructured: mixed HEX-dominant family %s is not implemented\n", type_to_string(family));
+                    return nullptr;
+                }
+                if (block->n_nodes_per_element() != n_macro) {
+                    fprintf(stderr,
+                            "to_semistructured: block '%s' does not have %d nodes per element\n",
+                            block->name().c_str(),
+                            n_macro);
+                    return nullptr;
+                }
+                auto ss_elems = create_host_buffer<idx_t>(nxe, static_cast<size_t>(n_e[bi]));
+                ss_soa[bi]    = ss_elems->data();
+                auto ss_block = std::make_shared<Mesh::Block>();
+                ss_block->set_name(block->name());
+                ss_block->set_element_type(semistructured_type(family, level));
+                ss_block->set_elements(ss_elems);
+                ss_blocks[bi] = ss_block;
+                hft_keep[bi]  = mesh->half_face_table(static_cast<block_idx_t>(b));
+                hnbb_keep[bi] = mesh->half_face_neighbor_block(static_cast<block_idx_t>(b));
+                hft[bi]       = hft_keep[bi]->data();
+                hnbb[bi]      = hnbb_keep[bi]->data();
+            }
+            ptrdiff_t n_unique_nodes{-1};
+            ptrdiff_t interior_start{-1};
+            ssmixed_hex_dominant_generate_elements_blocks(level,
+                                                          n_blocks,
+                                                          block_types.data(),
+                                                          n_e.data(),
+                                                          mesh->n_nodes(),
+                                                          coarse_soa.data(),
+                                                          ss_soa.data(),
+                                                          hft.data(),
+                                                          hnbb.data(),
+                                                          &n_unique_nodes,
+                                                          &interior_start);
+            if (hiearchical_ordering) {
+                const int        nlevels = sshex8_hierarchical_n_levels(level);
+                std::vector<int> levels(static_cast<size_t>(nlevels));
+                sshex8_hierarchical_mesh_levels(level, nlevels, levels.data());
+                auto node_mapping = create_host_buffer<idx_t>(n_unique_nodes);
+                ssmixed_hex_dominant_hierarchical_renumbering_blocks(level,
+                                                                     nlevels,
+                                                                     levels.data(),
+                                                                     n_blocks,
+                                                                     block_types.data(),
+                                                                     n_e.data(),
+                                                                     n_unique_nodes,
+                                                                     ss_soa.data(),
+                                                                     node_mapping->data(),
+                                                                     true);
+            }
+            auto p       = smesh::create_host_buffer<geom_t>(mesh->spatial_dimension(), n_unique_nodes);
+            auto macro_p = mesh->points()->data();
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                const enum ElemType f = block_types[static_cast<size_t>(b)];
+                if (f == HEX8) {
+                    sshex8_fill_points(level, n_e[static_cast<size_t>(b)], ss_soa[static_cast<size_t>(b)], macro_p, p->data());
+                } else if (f == TET4) {
+                    sstet4_fill_points(level, n_e[static_cast<size_t>(b)], ss_soa[static_cast<size_t>(b)], macro_p, p->data());
+                } else if (f == WEDGE6) {
+                    sswedge_fill_points(level, n_e[static_cast<size_t>(b)], ss_soa[static_cast<size_t>(b)], macro_p, p->data());
+                } else {
+                    sspyramid_fill_points(level, n_e[static_cast<size_t>(b)], ss_soa[static_cast<size_t>(b)], macro_p, p->data());
+                }
+            }
+            return std::make_shared<Mesh>(mesh->comm(), ss_blocks, p);
+        }
+
+        if (has_wedge) {
+            if (use_GLL) {
+                fprintf(stderr, "to_semistructured: GLL nodes are not implemented for WEDGE SS\n");
+                return nullptr;
+            }
+            const ptrdiff_t n_blocks = static_cast<ptrdiff_t>(mesh->n_blocks());
+            std::vector<ptrdiff_t>                    n_e(static_cast<size_t>(n_blocks));
+            std::vector<const idx_t *const *>         coarse_soa(static_cast<size_t>(n_blocks));
+            std::vector<idx_t **>                     ss_soa(static_cast<size_t>(n_blocks));
+            std::vector<std::shared_ptr<Mesh::Block>> ss_blocks(static_cast<size_t>(n_blocks));
+            std::vector<const element_idx_t *>        hft(static_cast<size_t>(n_blocks));
+            std::vector<const block_idx_t *>          hnbb(static_cast<size_t>(n_blocks));
+            std::vector<SharedBuffer<element_idx_t>>  hft_keep(static_cast<size_t>(n_blocks));
+            std::vector<SharedBuffer<block_idx_t>>    hnbb_keep(static_cast<size_t>(n_blocks));
+            const enum ElemType ss_element_type = semistructured_type(WEDGE6, level);
+            const int           nxe             = sswedge_nxe(level);
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                auto block = mesh->block(static_cast<size_t>(b));
+                if (block->n_nodes_per_element() != 6) {
+                    fprintf(stderr,
+                            "to_semistructured: WEDGE family block '%s' does not have 6 nodes per element\n",
+                            block->name().c_str());
+                    return nullptr;
+                }
+                const size_t bi = static_cast<size_t>(b);
+                n_e[bi]         = block->n_elements();
+                coarse_soa[bi]  = block->elements()->data();
+                auto ss_elems   = create_host_buffer<idx_t>(nxe, static_cast<size_t>(n_e[bi]));
+                ss_soa[bi]      = ss_elems->data();
+                auto ss_block   = std::make_shared<Mesh::Block>();
+                ss_block->set_name(block->name());
+                ss_block->set_element_type(ss_element_type);
+                ss_block->set_elements(ss_elems);
+                ss_blocks[bi] = ss_block;
+                hft_keep[bi]  = mesh->half_face_table(static_cast<block_idx_t>(b));
+                hnbb_keep[bi] = mesh->half_face_neighbor_block(static_cast<block_idx_t>(b));
+                hft[bi]       = hft_keep[bi]->data();
+                hnbb[bi]      = hnbb_keep[bi]->data();
+            }
+            ptrdiff_t n_unique_nodes{-1};
+            ptrdiff_t interior_start{-1};
+            sswedge_generate_elements_blocks(level,
+                                             n_blocks,
+                                             n_e.data(),
+                                             mesh->n_nodes(),
+                                             coarse_soa.data(),
+                                             ss_soa.data(),
+                                             hft.data(),
+                                             hnbb.data(),
+                                             &n_unique_nodes,
+                                             &interior_start);
+            if (hiearchical_ordering) {
+                const int        nlevels = sshex8_hierarchical_n_levels(level);
+                std::vector<int> levels(static_cast<size_t>(nlevels));
+                sshex8_hierarchical_mesh_levels(level, nlevels, levels.data());
+                auto node_mapping = create_host_buffer<idx_t>(n_unique_nodes);
+                sswedge_hierarchical_renumbering_blocks(level,
+                                                        nlevels,
+                                                        levels.data(),
+                                                        n_blocks,
+                                                        n_e.data(),
+                                                        n_unique_nodes,
+                                                        ss_soa.data(),
+                                                        node_mapping->data(),
+                                                        true);
+            }
+            auto p       = smesh::create_host_buffer<geom_t>(mesh->spatial_dimension(), n_unique_nodes);
+            auto macro_p = mesh->points()->data();
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                sswedge_fill_points(level, n_e[static_cast<size_t>(b)], ss_soa[static_cast<size_t>(b)], macro_p, p->data());
+            }
+            return std::make_shared<Mesh>(mesh->comm(), ss_blocks, p);
+        }
+
+        if (has_pyramid) {
+            if (use_GLL) {
+                fprintf(stderr, "to_semistructured: GLL nodes are not implemented for PYRAMID SS\n");
+                return nullptr;
+            }
+            const ptrdiff_t n_blocks = static_cast<ptrdiff_t>(mesh->n_blocks());
+            std::vector<ptrdiff_t>                    n_e(static_cast<size_t>(n_blocks));
+            std::vector<const idx_t *const *>         coarse_soa(static_cast<size_t>(n_blocks));
+            std::vector<idx_t **>                     ss_soa(static_cast<size_t>(n_blocks));
+            std::vector<std::shared_ptr<Mesh::Block>> ss_blocks(static_cast<size_t>(n_blocks));
+            std::vector<const element_idx_t *>        hft(static_cast<size_t>(n_blocks));
+            std::vector<const block_idx_t *>          hnbb(static_cast<size_t>(n_blocks));
+            std::vector<SharedBuffer<element_idx_t>>  hft_keep(static_cast<size_t>(n_blocks));
+            std::vector<SharedBuffer<block_idx_t>>    hnbb_keep(static_cast<size_t>(n_blocks));
+            const enum ElemType ss_element_type = semistructured_type(PYRAMID5, level);
+            const int           nxe             = sspyramid_nxe(level);
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                auto block = mesh->block(static_cast<size_t>(b));
+                if (block->n_nodes_per_element() != 5) {
+                    fprintf(stderr,
+                            "to_semistructured: PYRAMID family block '%s' does not have 5 nodes per element\n",
+                            block->name().c_str());
+                    return nullptr;
+                }
+                const size_t bi = static_cast<size_t>(b);
+                n_e[bi]         = block->n_elements();
+                coarse_soa[bi]  = block->elements()->data();
+                auto ss_elems   = create_host_buffer<idx_t>(nxe, static_cast<size_t>(n_e[bi]));
+                ss_soa[bi]      = ss_elems->data();
+                auto ss_block   = std::make_shared<Mesh::Block>();
+                ss_block->set_name(block->name());
+                ss_block->set_element_type(ss_element_type);
+                ss_block->set_elements(ss_elems);
+                ss_blocks[bi] = ss_block;
+                hft_keep[bi]  = mesh->half_face_table(static_cast<block_idx_t>(b));
+                hnbb_keep[bi] = mesh->half_face_neighbor_block(static_cast<block_idx_t>(b));
+                hft[bi]       = hft_keep[bi]->data();
+                hnbb[bi]      = hnbb_keep[bi]->data();
+            }
+            ptrdiff_t n_unique_nodes{-1};
+            ptrdiff_t interior_start{-1};
+            sspyramid_generate_elements_blocks(level,
+                                               n_blocks,
+                                               n_e.data(),
+                                               mesh->n_nodes(),
+                                               coarse_soa.data(),
+                                               ss_soa.data(),
+                                               hft.data(),
+                                               hnbb.data(),
+                                               &n_unique_nodes,
+                                               &interior_start);
+            if (hiearchical_ordering) {
+                const int        nlevels = sshex8_hierarchical_n_levels(level);
+                std::vector<int> levels(static_cast<size_t>(nlevels));
+                sshex8_hierarchical_mesh_levels(level, nlevels, levels.data());
+                auto node_mapping = create_host_buffer<idx_t>(n_unique_nodes);
+                sspyramid_hierarchical_renumbering_blocks(level,
+                                                          nlevels,
+                                                          levels.data(),
+                                                          n_blocks,
+                                                          n_e.data(),
+                                                          n_unique_nodes,
+                                                          ss_soa.data(),
+                                                          node_mapping->data(),
+                                                          true);
+            }
+            auto p       = smesh::create_host_buffer<geom_t>(mesh->spatial_dimension(), n_unique_nodes);
+            auto macro_p = mesh->points()->data();
+            for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+                sspyramid_fill_points(level, n_e[static_cast<size_t>(b)], ss_soa[static_cast<size_t>(b)], macro_p, p->data());
+            }
+            return std::make_shared<Mesh>(mesh->comm(), ss_blocks, p);
         }
 
         const enum ElemType family = has_hex ? HEX8 : (has_tet ? TET4 : INVALID);
@@ -851,8 +1240,9 @@ namespace smesh {
             ptrdiff_t                                 n_unique_nodes{-1};
             for (auto &block : mesh->blocks()) {
                 const enum ElemType bf = ss_source_family(block->element_type());
-                if (!is_semistructured_type(block->element_type()) || (bf != HEX8 && bf != TET4)) {
-                    fprintf(stderr, "derefine: mixed-family SS supports HEX and TET blocks only\n");
+                if (!is_semistructured_type(block->element_type()) ||
+                    (bf != HEX8 && bf != TET4 && bf != WEDGE6 && bf != PYRAMID5)) {
+                    fprintf(stderr, "derefine: mixed-family SS supports HEX, TET, WEDGE, and PYRAMID blocks only\n");
                     return nullptr;
                 }
 
@@ -862,8 +1252,14 @@ namespace smesh {
                     return nullptr;
                 }
                 const int step_factor = from_level / to_level;
-                const int nxe         = (bf == HEX8) ? ((to_level + 1) * (to_level + 1) * (to_level + 1))
-                                                     : sstet4_nxe(to_level);
+                int       nxe         = sstet4_nxe(to_level);
+                if (bf == HEX8) {
+                    nxe = (to_level + 1) * (to_level + 1) * (to_level + 1);
+                } else if (bf == WEDGE6) {
+                    nxe = sswedge_nxe(to_level);
+                } else if (bf == PYRAMID5) {
+                    nxe = sspyramid_nxe(to_level);
+                }
 
                 auto elements = block->elements();
                 auto view     = std::make_shared<Buffer<idx_t *>>(
@@ -886,12 +1282,34 @@ namespace smesh {
                             }
                         }
                     }
-                } else {
+                } else if (bf == TET4) {
                     for (int z = 0; z <= to_level; ++z) {
                         for (int y = 0; y <= to_level - z; ++y) {
                             for (int x = 0; x <= to_level - z - y; ++x) {
                                 const int from_lidx = sstet4_lidx(from_level, x * step_factor, y * step_factor, z * step_factor);
                                 const int to_lidx   = sstet4_lidx(to_level, x, y, z);
+                                view->data()[to_lidx] = elements->data()[from_lidx];
+                            }
+                        }
+                    }
+                } else if (bf == WEDGE6) {
+                    for (int z = 0; z <= to_level; ++z) {
+                        for (int y = 0; y <= to_level; ++y) {
+                            for (int x = 0; x <= to_level - y; ++x) {
+                                const int from_lidx =
+                                        sswedge_lidx(from_level, x * step_factor, y * step_factor, z * step_factor);
+                                const int to_lidx     = sswedge_lidx(to_level, x, y, z);
+                                view->data()[to_lidx] = elements->data()[from_lidx];
+                            }
+                        }
+                    }
+                } else {
+                    for (int k = 0; k <= to_level; ++k) {
+                        for (int j = 0; j <= to_level - k; ++j) {
+                            for (int i = 0; i <= to_level - k; ++i) {
+                                const int from_lidx =
+                                        sspyramid_lidx(from_level, i * step_factor, j * step_factor, k * step_factor);
+                                const int to_lidx     = sspyramid_lidx(to_level, i, j, k);
                                 view->data()[to_lidx] = elements->data()[from_lidx];
                             }
                         }
@@ -1027,6 +1445,110 @@ namespace smesh {
                 }
             }
 
+            n_unique_nodes += 1;
+            return finish_derefine(mesh, blocks, n_unique_nodes);
+        }
+
+        if (family == WEDGE6) {
+            std::vector<std::shared_ptr<Mesh::Block>> blocks;
+            ptrdiff_t                                 n_unique_nodes{-1};
+            for (auto &block : mesh->blocks()) {
+                if (!is_semistructured_type(block->element_type()) || !is_wedge_ss_family(block->element_type())) {
+                    fprintf(stderr, "derefine: only WEDGE-family semistructured blocks are implemented\n");
+                    return nullptr;
+                }
+                const int from_level = semistructured_level(block->element_type());
+                if (to_level <= 0 || from_level < to_level || (from_level % to_level) != 0) {
+                    fprintf(stderr, "derefine: invalid levels from=%d to=%d\n", from_level, to_level);
+                    return nullptr;
+                }
+                const int step_factor = from_level / to_level;
+                const int nxe         = sswedge_nxe(to_level);
+                auto      elements    = block->elements();
+                auto      view        = std::make_shared<Buffer<idx_t *>>(
+                        nxe,
+                        block->n_elements(),
+                        (idx_t **)SMESH_ALLOC(nxe * sizeof(idx_t *)),
+                        [keep_alive = elements](int, void **v) {
+                            (void)keep_alive;
+                            SMESH_FREE(v);
+                        },
+                        elements->mem_space());
+                for (int z = 0; z <= to_level; ++z) {
+                    for (int y = 0; y <= to_level; ++y) {
+                        for (int x = 0; x <= to_level - y; ++x) {
+                            const int from_lidx =
+                                    sswedge_lidx(from_level, x * step_factor, y * step_factor, z * step_factor);
+                            const int to_lidx     = sswedge_lidx(to_level, x, y, z);
+                            view->data()[to_lidx] = elements->data()[from_lidx];
+                        }
+                    }
+                }
+                auto derefined_block = std::make_shared<Mesh::Block>();
+                derefined_block->set_name(block->name());
+                derefined_block->set_element_type(semistructured_type(WEDGE6, to_level));
+                derefined_block->set_elements(view);
+                blocks.push_back(derefined_block);
+                auto            vv        = view->data();
+                const ptrdiff_t nelements = block->n_elements();
+                for (size_t v = 0; v < view->extent(0); v++) {
+                    for (ptrdiff_t e = 0; e < nelements; e++) {
+                        n_unique_nodes = std::max(static_cast<ptrdiff_t>(vv[v][e]), n_unique_nodes);
+                    }
+                }
+            }
+            n_unique_nodes += 1;
+            return finish_derefine(mesh, blocks, n_unique_nodes);
+        }
+
+        if (family == PYRAMID5) {
+            std::vector<std::shared_ptr<Mesh::Block>> blocks;
+            ptrdiff_t                                 n_unique_nodes{-1};
+            for (auto &block : mesh->blocks()) {
+                if (!is_semistructured_type(block->element_type()) || !is_pyramid_ss_family(block->element_type())) {
+                    fprintf(stderr, "derefine: only PYRAMID-family semistructured blocks are implemented\n");
+                    return nullptr;
+                }
+                const int from_level = semistructured_level(block->element_type());
+                if (to_level <= 0 || from_level < to_level || (from_level % to_level) != 0) {
+                    fprintf(stderr, "derefine: invalid levels from=%d to=%d\n", from_level, to_level);
+                    return nullptr;
+                }
+                const int step_factor = from_level / to_level;
+                const int nxe         = sspyramid_nxe(to_level);
+                auto      elements    = block->elements();
+                auto      view        = std::make_shared<Buffer<idx_t *>>(
+                        nxe,
+                        block->n_elements(),
+                        (idx_t **)SMESH_ALLOC(nxe * sizeof(idx_t *)),
+                        [keep_alive = elements](int, void **v) {
+                            (void)keep_alive;
+                            SMESH_FREE(v);
+                        },
+                        elements->mem_space());
+                for (int k = 0; k <= to_level; ++k) {
+                    for (int j = 0; j <= to_level - k; ++j) {
+                        for (int i = 0; i <= to_level - k; ++i) {
+                            const int from_lidx =
+                                    sspyramid_lidx(from_level, i * step_factor, j * step_factor, k * step_factor);
+                            const int to_lidx     = sspyramid_lidx(to_level, i, j, k);
+                            view->data()[to_lidx] = elements->data()[from_lidx];
+                        }
+                    }
+                }
+                auto derefined_block = std::make_shared<Mesh::Block>();
+                derefined_block->set_name(block->name());
+                derefined_block->set_element_type(semistructured_type(PYRAMID5, to_level));
+                derefined_block->set_elements(view);
+                blocks.push_back(derefined_block);
+                auto            vv        = view->data();
+                const ptrdiff_t nelements = block->n_elements();
+                for (size_t v = 0; v < view->extent(0); v++) {
+                    for (ptrdiff_t e = 0; e < nelements; e++) {
+                        n_unique_nodes = std::max(static_cast<ptrdiff_t>(vv[v][e]), n_unique_nodes);
+                    }
+                }
+            }
             n_unique_nodes += 1;
             return finish_derefine(mesh, blocks, n_unique_nodes);
         }

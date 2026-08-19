@@ -78,6 +78,26 @@ namespace smesh {
         PROTEUS_TET120         = 1200000,
         PROTEUS_TET165         = 1650000,
         PROTEUS_TET969         = 9690000,
+        // PROTEUS_WEDGE{N} / PROTEUS_PYRAMID{N}: N = lattice nodes. L=1 uses 100006 / 100005
+        // (next to TET4/HEX8). L>=2 uses dedicated bands (N*10000 collides, e.g. WEDGE40=QUAD4).
+        PROTEUS_WEDGE6         = 100006,
+        PROTEUS_WEDGE18        = 8000018,
+        PROTEUS_WEDGE40        = 8000040,
+        PROTEUS_WEDGE75        = 8000075,
+        PROTEUS_WEDGE126       = 8000126,
+        PROTEUS_WEDGE196       = 8000196,
+        PROTEUS_WEDGE288       = 8000288,
+        PROTEUS_WEDGE405       = 8000405,
+        PROTEUS_WEDGE2601      = 8002601,
+        PROTEUS_PYRAMID5       = 100005,
+        PROTEUS_PYRAMID14      = 9000014,
+        PROTEUS_PYRAMID30      = 9000030,
+        PROTEUS_PYRAMID55      = 9000055,
+        PROTEUS_PYRAMID91      = 9000091,
+        PROTEUS_PYRAMID140     = 9000140,
+        PROTEUS_PYRAMID204     = 9000204,
+        PROTEUS_PYRAMID285     = 9000285,
+        PROTEUS_PYRAMID1785    = 9001785,
         INVALID                = -1
     };
 
@@ -144,6 +164,24 @@ namespace smesh {
         if (!strcmp(str, "PROTEUS_TET120")) return PROTEUS_TET120;
         if (!strcmp(str, "PROTEUS_TET165")) return PROTEUS_TET165;
         if (!strcmp(str, "PROTEUS_TET969")) return PROTEUS_TET969;
+        if (!strcmp(str, "PROTEUS_WEDGE6")) return PROTEUS_WEDGE6;
+        if (!strcmp(str, "PROTEUS_WEDGE18")) return PROTEUS_WEDGE18;
+        if (!strcmp(str, "PROTEUS_WEDGE40")) return PROTEUS_WEDGE40;
+        if (!strcmp(str, "PROTEUS_WEDGE75")) return PROTEUS_WEDGE75;
+        if (!strcmp(str, "PROTEUS_WEDGE126")) return PROTEUS_WEDGE126;
+        if (!strcmp(str, "PROTEUS_WEDGE196")) return PROTEUS_WEDGE196;
+        if (!strcmp(str, "PROTEUS_WEDGE288")) return PROTEUS_WEDGE288;
+        if (!strcmp(str, "PROTEUS_WEDGE405")) return PROTEUS_WEDGE405;
+        if (!strcmp(str, "PROTEUS_WEDGE2601")) return PROTEUS_WEDGE2601;
+        if (!strcmp(str, "PROTEUS_PYRAMID5")) return PROTEUS_PYRAMID5;
+        if (!strcmp(str, "PROTEUS_PYRAMID14")) return PROTEUS_PYRAMID14;
+        if (!strcmp(str, "PROTEUS_PYRAMID30")) return PROTEUS_PYRAMID30;
+        if (!strcmp(str, "PROTEUS_PYRAMID55")) return PROTEUS_PYRAMID55;
+        if (!strcmp(str, "PROTEUS_PYRAMID91")) return PROTEUS_PYRAMID91;
+        if (!strcmp(str, "PROTEUS_PYRAMID140")) return PROTEUS_PYRAMID140;
+        if (!strcmp(str, "PROTEUS_PYRAMID204")) return PROTEUS_PYRAMID204;
+        if (!strcmp(str, "PROTEUS_PYRAMID285")) return PROTEUS_PYRAMID285;
+        if (!strcmp(str, "PROTEUS_PYRAMID1785")) return PROTEUS_PYRAMID1785;
         SMESH_ERROR("No element type found for string: %s\n", str);
         return INVALID;
     }
@@ -274,6 +312,42 @@ namespace smesh {
                 return "PROTEUS_TET165";
             case PROTEUS_TET969:
                 return "PROTEUS_TET969";
+            case PROTEUS_WEDGE6:
+                return "PROTEUS_WEDGE6";
+            case PROTEUS_WEDGE18:
+                return "PROTEUS_WEDGE18";
+            case PROTEUS_WEDGE40:
+                return "PROTEUS_WEDGE40";
+            case PROTEUS_WEDGE75:
+                return "PROTEUS_WEDGE75";
+            case PROTEUS_WEDGE126:
+                return "PROTEUS_WEDGE126";
+            case PROTEUS_WEDGE196:
+                return "PROTEUS_WEDGE196";
+            case PROTEUS_WEDGE288:
+                return "PROTEUS_WEDGE288";
+            case PROTEUS_WEDGE405:
+                return "PROTEUS_WEDGE405";
+            case PROTEUS_WEDGE2601:
+                return "PROTEUS_WEDGE2601";
+            case PROTEUS_PYRAMID5:
+                return "PROTEUS_PYRAMID5";
+            case PROTEUS_PYRAMID14:
+                return "PROTEUS_PYRAMID14";
+            case PROTEUS_PYRAMID30:
+                return "PROTEUS_PYRAMID30";
+            case PROTEUS_PYRAMID55:
+                return "PROTEUS_PYRAMID55";
+            case PROTEUS_PYRAMID91:
+                return "PROTEUS_PYRAMID91";
+            case PROTEUS_PYRAMID140:
+                return "PROTEUS_PYRAMID140";
+            case PROTEUS_PYRAMID204:
+                return "PROTEUS_PYRAMID204";
+            case PROTEUS_PYRAMID285:
+                return "PROTEUS_PYRAMID285";
+            case PROTEUS_PYRAMID1785:
+                return "PROTEUS_PYRAMID1785";
             default: {
                 SMESH_ERROR("No element type found for type: %d\n", type);
                 return "INVALID";
@@ -352,6 +426,24 @@ namespace smesh {
         switch (type) {
             case WEDGE6:
             case PYRAMID5:
+            case PROTEUS_WEDGE6:
+            case PROTEUS_WEDGE18:
+            case PROTEUS_WEDGE40:
+            case PROTEUS_WEDGE75:
+            case PROTEUS_WEDGE126:
+            case PROTEUS_WEDGE196:
+            case PROTEUS_WEDGE288:
+            case PROTEUS_WEDGE405:
+            case PROTEUS_WEDGE2601:
+            case PROTEUS_PYRAMID5:
+            case PROTEUS_PYRAMID14:
+            case PROTEUS_PYRAMID30:
+            case PROTEUS_PYRAMID55:
+            case PROTEUS_PYRAMID91:
+            case PROTEUS_PYRAMID140:
+            case PROTEUS_PYRAMID204:
+            case PROTEUS_PYRAMID285:
+            case PROTEUS_PYRAMID1785:
                 return false;
             default:
                 return true;
@@ -363,8 +455,26 @@ namespace smesh {
     inline enum ElemType side_type(const enum ElemType type, const int s) {
         switch (type) {
             case WEDGE6:
+            case PROTEUS_WEDGE6:
+            case PROTEUS_WEDGE18:
+            case PROTEUS_WEDGE40:
+            case PROTEUS_WEDGE75:
+            case PROTEUS_WEDGE126:
+            case PROTEUS_WEDGE196:
+            case PROTEUS_WEDGE288:
+            case PROTEUS_WEDGE405:
+            case PROTEUS_WEDGE2601:
                 return (s < 3) ? QUAD4 : TRI3;
             case PYRAMID5:
+            case PROTEUS_PYRAMID5:
+            case PROTEUS_PYRAMID14:
+            case PROTEUS_PYRAMID30:
+            case PROTEUS_PYRAMID55:
+            case PROTEUS_PYRAMID91:
+            case PROTEUS_PYRAMID140:
+            case PROTEUS_PYRAMID204:
+            case PROTEUS_PYRAMID285:
+            case PROTEUS_PYRAMID1785:
                 return (s < 4) ? TRI3 : QUAD4;
             default:
                 (void)s;
@@ -634,6 +744,42 @@ namespace smesh {
                 return 165;
             case PROTEUS_TET969:
                 return 969;
+            case PROTEUS_WEDGE6:
+                return 6;
+            case PROTEUS_WEDGE18:
+                return 18;
+            case PROTEUS_WEDGE40:
+                return 40;
+            case PROTEUS_WEDGE75:
+                return 75;
+            case PROTEUS_WEDGE126:
+                return 126;
+            case PROTEUS_WEDGE196:
+                return 196;
+            case PROTEUS_WEDGE288:
+                return 288;
+            case PROTEUS_WEDGE405:
+                return 405;
+            case PROTEUS_WEDGE2601:
+                return 2601;
+            case PROTEUS_PYRAMID5:
+                return 5;
+            case PROTEUS_PYRAMID14:
+                return 14;
+            case PROTEUS_PYRAMID30:
+                return 30;
+            case PROTEUS_PYRAMID55:
+                return 55;
+            case PROTEUS_PYRAMID91:
+                return 91;
+            case PROTEUS_PYRAMID140:
+                return 140;
+            case PROTEUS_PYRAMID204:
+                return 204;
+            case PROTEUS_PYRAMID285:
+                return 285;
+            case PROTEUS_PYRAMID1785:
+                return 1785;
             default: {
                 SMESH_ERROR("No number of nodes found for type: %s\n", type_to_string(type));
                 return 0;
@@ -706,6 +852,25 @@ namespace smesh {
             case PROTEUS_TET165:
             case PROTEUS_TET969:
                 return 4;
+            case PROTEUS_WEDGE6:
+            case PROTEUS_WEDGE18:
+            case PROTEUS_WEDGE40:
+            case PROTEUS_WEDGE75:
+            case PROTEUS_WEDGE126:
+            case PROTEUS_WEDGE196:
+            case PROTEUS_WEDGE288:
+            case PROTEUS_WEDGE405:
+            case PROTEUS_WEDGE2601:
+            case PROTEUS_PYRAMID5:
+            case PROTEUS_PYRAMID14:
+            case PROTEUS_PYRAMID30:
+            case PROTEUS_PYRAMID55:
+            case PROTEUS_PYRAMID91:
+            case PROTEUS_PYRAMID140:
+            case PROTEUS_PYRAMID204:
+            case PROTEUS_PYRAMID285:
+            case PROTEUS_PYRAMID1785:
+                return 5;
             default: {
                 SMESH_ERROR("No number of sides found for type: %s\n", type_to_string(type));
                 return 0;
@@ -776,6 +941,25 @@ namespace smesh {
             case PROTEUS_TET165:
             case PROTEUS_TET969:
                 return 3;
+            case PROTEUS_WEDGE6:
+            case PROTEUS_WEDGE18:
+            case PROTEUS_WEDGE40:
+            case PROTEUS_WEDGE75:
+            case PROTEUS_WEDGE126:
+            case PROTEUS_WEDGE196:
+            case PROTEUS_WEDGE288:
+            case PROTEUS_WEDGE405:
+            case PROTEUS_WEDGE2601:
+            case PROTEUS_PYRAMID5:
+            case PROTEUS_PYRAMID14:
+            case PROTEUS_PYRAMID30:
+            case PROTEUS_PYRAMID55:
+            case PROTEUS_PYRAMID91:
+            case PROTEUS_PYRAMID140:
+            case PROTEUS_PYRAMID204:
+            case PROTEUS_PYRAMID285:
+            case PROTEUS_PYRAMID1785:
+                return 3;
             default: {
                 SMESH_ERROR("No manifold dimension found for type: %s\n", type_to_string(type));
                 return INVALID;
@@ -788,6 +972,24 @@ namespace smesh {
         switch (type) {
             case WEDGE6:
             case PYRAMID5:
+            case PROTEUS_WEDGE6:
+            case PROTEUS_WEDGE18:
+            case PROTEUS_WEDGE40:
+            case PROTEUS_WEDGE75:
+            case PROTEUS_WEDGE126:
+            case PROTEUS_WEDGE196:
+            case PROTEUS_WEDGE288:
+            case PROTEUS_WEDGE405:
+            case PROTEUS_WEDGE2601:
+            case PROTEUS_PYRAMID5:
+            case PROTEUS_PYRAMID14:
+            case PROTEUS_PYRAMID30:
+            case PROTEUS_PYRAMID55:
+            case PROTEUS_PYRAMID91:
+            case PROTEUS_PYRAMID140:
+            case PROTEUS_PYRAMID204:
+            case PROTEUS_PYRAMID285:
+            case PROTEUS_PYRAMID1785:
                 return overlap == 3 || overlap == 4;
             case TET10:
                 return overlap == 3;
@@ -952,6 +1154,28 @@ namespace smesh {
             case PROTEUS_QUADSHELL81:
             case PROTEUS_QUADSHELL289:
                 return QUAD4;
+            case WEDGE6:
+            case PROTEUS_WEDGE6:
+            case PROTEUS_WEDGE18:
+            case PROTEUS_WEDGE40:
+            case PROTEUS_WEDGE75:
+            case PROTEUS_WEDGE126:
+            case PROTEUS_WEDGE196:
+            case PROTEUS_WEDGE288:
+            case PROTEUS_WEDGE405:
+            case PROTEUS_WEDGE2601:
+                return WEDGE6;
+            case PYRAMID5:
+            case PROTEUS_PYRAMID5:
+            case PROTEUS_PYRAMID14:
+            case PROTEUS_PYRAMID30:
+            case PROTEUS_PYRAMID55:
+            case PROTEUS_PYRAMID91:
+            case PROTEUS_PYRAMID140:
+            case PROTEUS_PYRAMID204:
+            case PROTEUS_PYRAMID285:
+            case PROTEUS_PYRAMID1785:
+                return PYRAMID5;
             default:
                 return type;
         }
@@ -962,6 +1186,10 @@ namespace smesh {
     inline bool is_tet_ss_family(const enum ElemType type) { return ss_source_family(type) == TET4; }
 
     inline bool is_quad_ss_family(const enum ElemType type) { return ss_source_family(type) == QUAD4; }
+
+    inline bool is_wedge_ss_family(const enum ElemType type) { return ss_source_family(type) == WEDGE6; }
+
+    inline bool is_pyramid_ss_family(const enum ElemType type) { return ss_source_family(type) == PYRAMID5; }
 
     inline enum ElemType proteus_tet_type(const int micro_elements_per_dim) {
         switch (micro_elements_per_dim) {
@@ -1016,6 +1244,60 @@ namespace smesh {
         }
     }
 
+    inline enum ElemType proteus_wedge_type(const int micro_elements_per_dim) {
+        switch (micro_elements_per_dim) {
+            case 1:
+                return PROTEUS_WEDGE6;
+            case 2:
+                return PROTEUS_WEDGE18;
+            case 3:
+                return PROTEUS_WEDGE40;
+            case 4:
+                return PROTEUS_WEDGE75;
+            case 5:
+                return PROTEUS_WEDGE126;
+            case 6:
+                return PROTEUS_WEDGE196;
+            case 7:
+                return PROTEUS_WEDGE288;
+            case 8:
+                return PROTEUS_WEDGE405;
+            case 16:
+                return PROTEUS_WEDGE2601;
+            default:
+                SMESH_ERROR("proteus_wedge_type: Invalid element setup for proteus wedge: %d",
+                            micro_elements_per_dim);
+                return INVALID;
+        }
+    }
+
+    inline enum ElemType proteus_pyramid_type(const int micro_elements_per_dim) {
+        switch (micro_elements_per_dim) {
+            case 1:
+                return PROTEUS_PYRAMID5;
+            case 2:
+                return PROTEUS_PYRAMID14;
+            case 3:
+                return PROTEUS_PYRAMID30;
+            case 4:
+                return PROTEUS_PYRAMID55;
+            case 5:
+                return PROTEUS_PYRAMID91;
+            case 6:
+                return PROTEUS_PYRAMID140;
+            case 7:
+                return PROTEUS_PYRAMID204;
+            case 8:
+                return PROTEUS_PYRAMID285;
+            case 16:
+                return PROTEUS_PYRAMID1785;
+            default:
+                SMESH_ERROR("proteus_pyramid_type: Invalid element setup for proteus pyramid: %d",
+                            micro_elements_per_dim);
+                return INVALID;
+        }
+    }
+
     inline enum ElemType semistructured_type(const enum ElemType type, const int micro_elements_per_dim) {
         switch (type) {
             case HEX8: {
@@ -1035,6 +1317,14 @@ namespace smesh {
             case QUADSHELL4:
             case PROTEUS_QUADSHELL4: {
                 return shell_type(proteus_quad_type(micro_elements_per_dim));
+            }
+            case WEDGE6:
+            case PROTEUS_WEDGE6: {
+                return proteus_wedge_type(micro_elements_per_dim);
+            }
+            case PYRAMID5:
+            case PROTEUS_PYRAMID5: {
+                return proteus_pyramid_type(micro_elements_per_dim);
             }
             default: {
                 SMESH_ERROR("semistructured_type: Invalid element type %d", type);
@@ -1142,6 +1432,62 @@ namespace smesh {
         }
     }
 
+    inline int proteus_wedge_micro_elements_per_dim(const enum ElemType type) {
+        switch (type) {
+            case PROTEUS_WEDGE6:
+                return 1;
+            case PROTEUS_WEDGE18:
+                return 2;
+            case PROTEUS_WEDGE40:
+                return 3;
+            case PROTEUS_WEDGE75:
+                return 4;
+            case PROTEUS_WEDGE126:
+                return 5;
+            case PROTEUS_WEDGE196:
+                return 6;
+            case PROTEUS_WEDGE288:
+                return 7;
+            case PROTEUS_WEDGE405:
+                return 8;
+            case PROTEUS_WEDGE2601:
+                return 16;
+            default: {
+                SMESH_ERROR("proteus_wedge_micro_elements_per_dim: Invalid element type %s",
+                            type_to_string(type));
+                return INVALID;
+            }
+        }
+    }
+
+    inline int proteus_pyramid_micro_elements_per_dim(const enum ElemType type) {
+        switch (type) {
+            case PROTEUS_PYRAMID5:
+                return 1;
+            case PROTEUS_PYRAMID14:
+                return 2;
+            case PROTEUS_PYRAMID30:
+                return 3;
+            case PROTEUS_PYRAMID55:
+                return 4;
+            case PROTEUS_PYRAMID91:
+                return 5;
+            case PROTEUS_PYRAMID140:
+                return 6;
+            case PROTEUS_PYRAMID204:
+                return 7;
+            case PROTEUS_PYRAMID285:
+                return 8;
+            case PROTEUS_PYRAMID1785:
+                return 16;
+            default: {
+                SMESH_ERROR("proteus_pyramid_micro_elements_per_dim: Invalid element type %s",
+                            type_to_string(type));
+                return INVALID;
+            }
+        }
+    }
+
     /// Semi-structured refinement level encoded in Proteus types (e.g. PROTEUS_HEX27 -> 2).
     inline int semistructured_level(const enum ElemType type) {
         if (is_tet_ss_family(type) && is_semistructured_type(type)) {
@@ -1149,6 +1495,12 @@ namespace smesh {
         }
         if (is_quad_ss_family(type) && is_semistructured_type(type)) {
             return proteus_quad_micro_elements_per_dim(type);
+        }
+        if (is_wedge_ss_family(type) && is_semistructured_type(type)) {
+            return proteus_wedge_micro_elements_per_dim(type);
+        }
+        if (is_pyramid_ss_family(type) && is_semistructured_type(type)) {
+            return proteus_pyramid_micro_elements_per_dim(type);
         }
         return proteus_hex_micro_elements_per_dim(type);
     }

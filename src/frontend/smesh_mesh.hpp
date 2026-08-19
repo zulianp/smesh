@@ -64,6 +64,12 @@ public:
   friend std::shared_ptr<Mesh> to_semistructured_distributed_quad(
       const int level, const std::shared_ptr<Mesh> &mesh,
       const bool hierarchical_ordering);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_wedge_pyramid(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering, const enum ElemType family);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_hex_dominant(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering);
   friend class MeshTransformsDistributed;
   friend std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex);
   friend std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh,
@@ -461,6 +467,12 @@ private:
       const int level, const std::shared_ptr<Mesh> &mesh,
       const bool hierarchical_ordering);
   friend std::shared_ptr<Mesh> to_semistructured_distributed_quad(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_wedge_pyramid(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering, const enum ElemType family);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_hex_dominant(
       const int level, const std::shared_ptr<Mesh> &mesh,
       const bool hierarchical_ordering);
   friend class MeshTransformsDistributed;

@@ -8,8 +8,12 @@
 #include "smesh_sshex8_mesh.hpp"
 #include "smesh_ssquad4.hpp"
 #include "smesh_ssquad4_mesh.hpp"
+#include "smesh_sspyramid.hpp"
+#include "smesh_sspyramid_mesh.hpp"
 #include "smesh_sstet4.hpp"
 #include "smesh_sstet4_mesh.hpp"
+#include "smesh_sswedge.hpp"
+#include "smesh_sswedge_mesh.hpp"
 #include "smesh_tracer.hpp"
 
 #include <algorithm>
@@ -429,10 +433,246 @@ static void write_tet_face(const int               L,
     }
 }
 
+using ss_lidx_fn = int (*)(const int L, const int x, const int y, const int z);
+
+static int lidx_wedge(const int L, const int x, const int y, const int z) { return sswedge_lidx(L, x, y, z); }
+static int lidx_pyr(const int L, const int x, const int y, const int z) { return sspyramid_lidx(L, x, y, z); }
+static int lidx_hex(const int L, const int x, const int y, const int z) { return sshex8_lidx(L, x, y, z); }
+static int lidx_tet(const int L, const int x, const int y, const int z) { return sstet4_lidx(L, x, y, z); }
+
+static void write_lin_edge(const int          L,
+                           const int         *lagr_to_proteus,
+                           int              **coords,
+                           ss_lidx_fn         lidx,
+                           const int          d1,
+                           const int          d2,
+                           const idx_t        edge_start,
+                           const ptrdiff_t    e,
+                           idx_t **const      ss) {
+    const int lid1 = lagr_to_proteus[d1];
+    const int lid2 = lagr_to_proteus[d2];
+    int       P1[3], P2[3];
+    for (int d = 0; d < 3; ++d) {
+        P1[d] = coords[d][lid1];
+        P2[d] = coords[d][lid2];
+    }
+    for (int t = 1; t < L; ++t) {
+        const int xi   = (P1[0] * (L - t) + P2[0] * t) / L;
+        const int yi   = (P1[1] * (L - t) + P2[1] * t) / L;
+        const int zi   = (P1[2] * (L - t) + P2[2] * t) / L;
+        ss[lidx(L, xi, yi, zi)][e] = edge_start + (t - 1);
+    }
+}
+
+static void write_bary_tri_face(const int               L,
+                                const large_idx_t      *corners,
+                                const LocalSideTable   &lst,
+                                const int              *lagr_to_proteus,
+                                int                   **coords,
+                                ss_lidx_fn              lidx,
+                                const idx_t             face_offset,
+                                const ptrdiff_t         e,
+                                const int               f,
+                                idx_t **const           ss) {
+    int         argmin = 0;
+    large_idx_t valmin = corners[lst(f, 0)];
+    for (int i = 1; i < 3; ++i) {
+        if (corners[lst(f, i)] < valmin) {
+            argmin = i;
+            valmin = corners[lst(f, i)];
+        }
+    }
+    int lst_o = argmin;
+    int lst_u = (argmin + 1) % 3;
+    int lst_v = (argmin + 2) % 3;
+    if (corners[lst(f, lst_u)] > corners[lst(f, lst_v)]) {
+        const int tmp = lst_v;
+        lst_v         = lst_u;
+        lst_u         = tmp;
+    }
+    int Po[3], Pu[3], Pv[3];
+    const int lidx_o = lagr_to_proteus[lst(f, lst_o)];
+    const int lidx_u = lagr_to_proteus[lst(f, lst_u)];
+    const int lidx_v = lagr_to_proteus[lst(f, lst_v)];
+    for (int d = 0; d < 3; ++d) {
+        Po[d] = coords[d][lidx_o];
+        Pu[d] = coords[d][lidx_u];
+        Pv[d] = coords[d][lidx_v];
+    }
+    int local_offset = 0;
+    for (int t = 1; t <= L - 2; ++t) {
+        for (int s = 1; s <= L - 1 - t; ++s) {
+            const int w  = L - s - t;
+            const int xi = (Po[0] * w + Pu[0] * s + Pv[0] * t) / L;
+            const int yi = (Po[1] * w + Pu[1] * s + Pv[1] * t) / L;
+            const int zi = (Po[2] * w + Pu[2] * s + Pv[2] * t) / L;
+            ss[lidx(L, xi, yi, zi)][e] = face_offset + local_offset++;
+        }
+    }
+}
+
+static void write_bilinear_quad_face(const int               L,
+                                     const large_idx_t      *corners,
+                                     const LocalSideTable   &lst,
+                                     const int              *lagr_to_proteus,
+                                     int                   **coords,
+                                     ss_lidx_fn              lidx,
+                                     const idx_t             face_offset,
+                                     const ptrdiff_t         e,
+                                     const int               f,
+                                     idx_t **const           ss) {
+    int         argmin = 0;
+    large_idx_t valmin = corners[lst(f, 0)];
+    for (int i = 1; i < 4; ++i) {
+        if (corners[lst(f, i)] < valmin) {
+            argmin = i;
+            valmin = corners[lst(f, i)];
+        }
+    }
+    int lst_o = argmin;
+    int lst_u = (lst_o + 1) % 4;
+    int lst_v = (lst_o + 3) % 4;
+    if (corners[lst(f, lst_u)] > corners[lst(f, lst_v)]) {
+        const int tmp = lst_v;
+        lst_v         = lst_u;
+        lst_u         = tmp;
+    }
+    int Po[3], Pu[3], Pv[3];
+    const int lidx_o = lagr_to_proteus[lst(f, lst_o)];
+    const int lidx_u = lagr_to_proteus[lst(f, lst_u)];
+    const int lidx_v = lagr_to_proteus[lst(f, lst_v)];
+    for (int d = 0; d < 3; ++d) {
+        Po[d] = coords[d][lidx_o];
+        Pu[d] = coords[d][lidx_u];
+        Pv[d] = coords[d][lidx_v];
+    }
+    int local_offset = 0;
+    for (int t = 1; t < L; ++t) {
+        for (int s = 1; s < L; ++s) {
+            const int xi = Po[0] + ((Pu[0] - Po[0]) * s + (Pv[0] - Po[0]) * t) / L;
+            const int yi = Po[1] + ((Pu[1] - Po[1]) * s + (Pv[1] - Po[1]) * t) / L;
+            const int zi = Po[2] + ((Pu[2] - Po[2]) * s + (Pv[2] - Po[2]) * t) / L;
+            ss[lidx(L, xi, yi, zi)][e] = face_offset + local_offset++;
+        }
+    }
+}
+
+/// kind: 0 edge, 1 tri, 2 quad, 3 vol
+static void fill_hier_prism_node_gids(const ptrdiff_t          n_uniq,
+                                      const int                n_per,
+                                      const int                kind,
+                                      const large_idx_t *const entity_gid,
+                                      const int         *const slot_layer,
+                                      const int         *const slot_rank,
+                                      const int         *const n_edge_t,
+                                      const int         *const n_tri_t,
+                                      const int         *const n_quad_t,
+                                      const int         *const n_vol_t,
+                                      const large_idx_t *const layer_base,
+                                      const ptrdiff_t          n_edges,
+                                      const ptrdiff_t          n_tri,
+                                      const ptrdiff_t          n_quad,
+                                      large_idx_t             *const out) {
+    for (ptrdiff_t u = 0; u < n_uniq; ++u) {
+        for (int t = 0; t < n_per; ++t) {
+            const int   k  = slot_layer[t];
+            const int   tr = slot_rank[t];
+            large_idx_t g  = layer_base[k];
+            if (kind == 0) {
+                g += entity_gid[u] * (large_idx_t)n_edge_t[k] + (large_idx_t)tr;
+            } else if (kind == 1) {
+                g += (large_idx_t)n_edges * (large_idx_t)n_edge_t[k] + entity_gid[u] * (large_idx_t)n_tri_t[k] +
+                     (large_idx_t)tr;
+            } else if (kind == 2) {
+                g += (large_idx_t)n_edges * (large_idx_t)n_edge_t[k] +
+                     (large_idx_t)n_tri * (large_idx_t)n_tri_t[k] + entity_gid[u] * (large_idx_t)n_quad_t[k] +
+                     (large_idx_t)tr;
+            } else {
+                g += (large_idx_t)n_edges * (large_idx_t)n_edge_t[k] +
+                     (large_idx_t)n_tri * (large_idx_t)n_tri_t[k] + (large_idx_t)n_quad * (large_idx_t)n_quad_t[k] +
+                     entity_gid[u] * (large_idx_t)n_vol_t[k] + (large_idx_t)tr;
+            }
+            out[u * (ptrdiff_t)n_per + t] = g;
+        }
+    }
+}
+
+/// kind: 0 edge, 1 tri, 2 quad, 3 hex vol, 4 tet vol, 5 wedge vol, 6 pyr vol
+static void fill_hier_hexdom_node_gids(const ptrdiff_t          n_uniq,
+                                       const int                n_per,
+                                       const int                kind,
+                                       const large_idx_t *const entity_gid,
+                                       const int         *const slot_layer,
+                                       const int         *const slot_rank,
+                                       const int         *const n_edge_t,
+                                       const int         *const n_tri_t,
+                                       const int         *const n_quad_t,
+                                       const int         *const n_hex_vol_t,
+                                       const int         *const n_tet_vol_t,
+                                       const int         *const n_wedge_vol_t,
+                                       const int         *const n_pyr_vol_t,
+                                       const large_idx_t *const layer_base,
+                                       const ptrdiff_t          n_edges,
+                                       const ptrdiff_t          n_tri,
+                                       const ptrdiff_t          n_quad,
+                                       const ptrdiff_t          n_hex_elem,
+                                       const ptrdiff_t          n_tet_elem,
+                                       const ptrdiff_t          n_wedge_elem,
+                                       large_idx_t             *const out) {
+    for (ptrdiff_t u = 0; u < n_uniq; ++u) {
+        for (int t = 0; t < n_per; ++t) {
+            const int   k  = slot_layer[t];
+            const int   tr = slot_rank[t];
+            large_idx_t g  = layer_base[k];
+            large_idx_t acc = (large_idx_t)n_edges * (large_idx_t)n_edge_t[k];
+            if (kind == 0) {
+                g += entity_gid[u] * (large_idx_t)n_edge_t[k] + (large_idx_t)tr;
+                out[u * (ptrdiff_t)n_per + t] = g;
+                continue;
+            }
+            acc = (large_idx_t)n_edges * (large_idx_t)n_edge_t[k];
+            if (kind == 1) {
+                g += acc + entity_gid[u] * (large_idx_t)n_tri_t[k] + (large_idx_t)tr;
+                out[u * (ptrdiff_t)n_per + t] = g;
+                continue;
+            }
+            acc += (large_idx_t)n_tri * (large_idx_t)n_tri_t[k];
+            if (kind == 2) {
+                g += acc + entity_gid[u] * (large_idx_t)n_quad_t[k] + (large_idx_t)tr;
+                out[u * (ptrdiff_t)n_per + t] = g;
+                continue;
+            }
+            acc += (large_idx_t)n_quad * (large_idx_t)n_quad_t[k];
+            if (kind == 3) {
+                g += acc + entity_gid[u] * (large_idx_t)n_hex_vol_t[k] + (large_idx_t)tr;
+                out[u * (ptrdiff_t)n_per + t] = g;
+                continue;
+            }
+            acc += (large_idx_t)n_hex_elem * (large_idx_t)n_hex_vol_t[k];
+            if (kind == 4) {
+                g += acc + entity_gid[u] * (large_idx_t)n_tet_vol_t[k] + (large_idx_t)tr;
+                out[u * (ptrdiff_t)n_per + t] = g;
+                continue;
+            }
+            acc += (large_idx_t)n_tet_elem * (large_idx_t)n_tet_vol_t[k];
+            if (kind == 5) {
+                g += acc + entity_gid[u] * (large_idx_t)n_wedge_vol_t[k] + (large_idx_t)tr;
+                out[u * (ptrdiff_t)n_per + t] = g;
+                continue;
+            }
+            acc += (large_idx_t)n_wedge_elem * (large_idx_t)n_wedge_vol_t[k];
+            g += acc + entity_gid[u] * (large_idx_t)n_pyr_vol_t[k] + (large_idx_t)tr;
+            out[u * (ptrdiff_t)n_per + t] = g;
+        }
+    }
+}
+
 }  // namespace
 
 #include "smesh_semistructured_distributed_hex_tet.inc.hpp"
 #include "smesh_semistructured_distributed_quad.inc.hpp"
+#include "smesh_semistructured_distributed_wedge_pyramid.inc.hpp"
+#include "smesh_semistructured_distributed_hex_dominant.inc.hpp"
 
 std::shared_ptr<Mesh> to_semistructured_distributed(const int                    level,
                                                     const std::shared_ptr<Mesh> &mesh,
@@ -440,10 +680,12 @@ std::shared_ptr<Mesh> to_semistructured_distributed(const int                   
                                                     const bool                   hierarchical_ordering) {
     SMESH_TRACE_SCOPE("to_semistructured_distributed");
 
-    bool          has_hex   = false;
-    bool          has_tet   = false;
-    bool          has_quad  = false;
-    bool          has_other = false;
+    bool          has_hex      = false;
+    bool          has_tet      = false;
+    bool          has_quad     = false;
+    bool          has_wedge    = false;
+    bool          has_pyramid  = false;
+    bool          has_other    = false;
     enum ElemType other_family = INVALID;
     for (size_t b = 0; b < mesh->n_blocks(); ++b) {
         const enum ElemType f = ss_source_family(mesh->element_type(static_cast<block_idx_t>(b)));
@@ -453,12 +695,16 @@ std::shared_ptr<Mesh> to_semistructured_distributed(const int                   
             has_tet = true;
         } else if (f == QUAD4) {
             has_quad = true;
+        } else if (f == WEDGE6) {
+            has_wedge = true;
+        } else if (f == PYRAMID5) {
+            has_pyramid = true;
         } else {
             has_other    = true;
             other_family = f;
         }
     }
-    if (has_hex && has_tet) {
+    if (has_hex && has_tet && !has_wedge && !has_pyramid) {
         if (has_other || has_quad) {
             fprintf(stderr, "to_semistructured: mixed-family semistructured conversion is not implemented\n");
             return nullptr;
@@ -469,9 +715,34 @@ std::shared_ptr<Mesh> to_semistructured_distributed(const int                   
         }
         return to_semistructured_distributed_hex_tet(level, mesh, hierarchical_ordering);
     }
-    if ((has_other || has_quad) && (has_hex || has_tet)) {
+    if (has_quad && (has_hex || has_tet || has_wedge || has_pyramid || has_other)) {
         fprintf(stderr, "to_semistructured: mixed-family semistructured conversion is not implemented\n");
         return nullptr;
+    }
+    if ((has_other) && (has_hex || has_tet || has_wedge || has_pyramid || has_quad)) {
+        fprintf(stderr, "to_semistructured: mixed-family semistructured conversion is not implemented\n");
+        return nullptr;
+    }
+    if ((has_wedge || has_pyramid) && (has_hex || has_tet || (has_wedge && has_pyramid))) {
+        if (use_GLL) {
+            fprintf(stderr, "to_semistructured: GLL nodes are not implemented for mixed HEX-dominant SS\n");
+            return nullptr;
+        }
+        return to_semistructured_distributed_hex_dominant(level, mesh, hierarchical_ordering);
+    }
+    if (has_wedge) {
+        if (use_GLL) {
+            fprintf(stderr, "to_semistructured: GLL nodes are not implemented for WEDGE SS\n");
+            return nullptr;
+        }
+        return to_semistructured_distributed_wedge(level, mesh, hierarchical_ordering);
+    }
+    if (has_pyramid) {
+        if (use_GLL) {
+            fprintf(stderr, "to_semistructured: GLL nodes are not implemented for PYRAMID SS\n");
+            return nullptr;
+        }
+        return to_semistructured_distributed_pyramid(level, mesh, hierarchical_ordering);
     }
     if (has_quad) {
         if (has_other) {

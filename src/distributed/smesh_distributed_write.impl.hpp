@@ -3,15 +3,292 @@
 #include "matrixio_array.h"
 #include "smesh_alloc.hpp"
 #include "smesh_alltoallv.impl.hpp"
+#include "smesh_base.hpp"
+#include "smesh_decompose.hpp"
 #include "smesh_distributed_base.hpp"
 #include "smesh_distributed_write.hpp"
 #include "smesh_types.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <fstream>
 #include <limits>
 
 namespace smesh {
+
+// Map sparse unique GIDs onto [0, n_global) once. Same rank_owner Alltoallv
+// as unique_by_id / parallel read: occupancy lives in a GID-space slice
+// (n_space / P), not a replicated n_global buffer. No comparison sort.
+// Identity when mapping already lies in [0, n_global).
+template <typename large_idx_t>
+static int densify_file_indices_rank_owner(MPI_Comm           comm,
+                                           const ptrdiff_t    n_local,
+                                           const ptrdiff_t    n_global,
+                                           const large_idx_t *mapping,
+                                           large_idx_t       *file_idx) {
+    int rank = 0;
+    int size = 1;
+    SMESH_MPI_CATCH(MPI_Comm_rank(comm, &rank));
+    SMESH_MPI_CATCH(MPI_Comm_size(comm, &size));
+    if (n_global < 0 || n_local < 0) {
+        return SMESH_FAILURE;
+    }
+    if (n_global == 0) {
+        return n_local == 0 ? SMESH_SUCCESS : SMESH_FAILURE;
+    }
+    if (n_local > 0 && (!mapping || !file_idx)) {
+        return SMESH_FAILURE;
+    }
+
+    large_idx_t local_max = (large_idx_t)-1;
+    for (ptrdiff_t i = 0; i < n_local; ++i) {
+        if (mapping[i] > local_max) {
+            local_max = mapping[i];
+        }
+    }
+    large_idx_t gmax = (large_idx_t)-1;
+    SMESH_MPI_CATCH(MPI_Allreduce(&local_max, &gmax, 1, mpi_type<large_idx_t>(), MPI_MAX, comm));
+    if (gmax < 0) {
+        return SMESH_FAILURE;
+    }
+    if (gmax < (large_idx_t)n_global) {
+        if (n_local > 0) {
+            memcpy(file_idx, mapping, (size_t)n_local * sizeof(large_idx_t));
+        }
+        return SMESH_SUCCESS;
+    }
+
+    const ptrdiff_t n_space     = (ptrdiff_t)gmax + 1;
+    const ptrdiff_t n_space_pad = n_space >= (ptrdiff_t)size ? n_space : (ptrdiff_t)size;
+    const ptrdiff_t ids_start   = rank_start(n_space_pad, size, rank);
+    const ptrdiff_t n_owned_ids = rank_split(n_space_pad, size, rank);
+
+    constexpr i64 k_chunk = static_cast<i64>(1) << 20;
+    constexpr int k_nreq  = 2;
+    constexpr int k_nrep  = 2;
+
+    i64 *send_displs = (i64 *)SMESH_CALLOC((size_t)size + 1, sizeof(i64));
+    i64 *send_count  = (i64 *)SMESH_CALLOC((size_t)size, sizeof(i64));
+    i64 *recv_displs = (i64 *)SMESH_CALLOC((size_t)size + 1, sizeof(i64));
+    i64 *recv_count  = (i64 *)SMESH_CALLOC((size_t)size, sizeof(i64));
+    if (!send_displs || !send_count || !recv_displs || !recv_count) {
+        SMESH_FREE(send_displs);
+        SMESH_FREE(send_count);
+        SMESH_FREE(recv_displs);
+        SMESH_FREE(recv_count);
+        return SMESH_FAILURE;
+    }
+
+    for (ptrdiff_t i = 0; i < n_local; ++i) {
+        const int p = rank_owner(n_space_pad, (ptrdiff_t)mapping[i], size);
+        send_displs[p + 1]++;
+    }
+    SMESH_MPI_CATCH(MPI_Alltoall(&send_displs[1], 1, mpi_type<i64>(), recv_count, 1, mpi_type<i64>(), comm));
+    recv_displs[0] = 0;
+    for (int r = 0; r < size; ++r) {
+        recv_displs[r + 1] = recv_displs[r] + recv_count[r];
+    }
+    send_displs[0] = 0;
+    for (int r = 0; r < size; ++r) {
+        send_displs[r + 1] += send_displs[r];
+    }
+
+    const ptrdiff_t n_send = (ptrdiff_t)send_displs[size];
+    const ptrdiff_t n_recv = (ptrdiff_t)recv_displs[size];
+    large_idx_t *send_pack = (large_idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_send, 1) * k_nreq * sizeof(large_idx_t));
+    large_idx_t *recv_pack = (large_idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_recv, 1) * k_nreq * sizeof(large_idx_t));
+    if (!send_pack || !recv_pack) {
+        SMESH_FREE(send_displs);
+        SMESH_FREE(send_count);
+        SMESH_FREE(recv_displs);
+        SMESH_FREE(recv_count);
+        SMESH_FREE(send_pack);
+        SMESH_FREE(recv_pack);
+        return SMESH_FAILURE;
+    }
+
+    for (ptrdiff_t i = 0; i < n_local; ++i) {
+        const int p    = rank_owner(n_space_pad, (ptrdiff_t)mapping[i], size);
+        const i64 slot = send_displs[p] + send_count[p]++;
+        large_idx_t *row = send_pack + (ptrdiff_t)slot * k_nreq;
+        row[0] = mapping[i];
+        row[1] = (large_idx_t)i;
+    }
+
+    if (all_to_allv_64v(send_pack,
+                        send_count,
+                        send_displs,
+                        recv_pack,
+                        recv_count,
+                        recv_displs,
+                        k_nreq,
+                        comm,
+                        k_chunk) != SMESH_SUCCESS) {
+        SMESH_FREE(send_displs);
+        SMESH_FREE(send_count);
+        SMESH_FREE(recv_displs);
+        SMESH_FREE(recv_count);
+        SMESH_FREE(send_pack);
+        SMESH_FREE(recv_pack);
+        return SMESH_FAILURE;
+    }
+
+    uint8_t     *occ   = (uint8_t *)SMESH_CALLOC((size_t)n_owned_ids, sizeof(uint8_t));
+    large_idx_t *dense = (large_idx_t *)SMESH_ALLOC((size_t)n_owned_ids * sizeof(large_idx_t));
+    if (!occ || !dense) {
+        SMESH_FREE(send_displs);
+        SMESH_FREE(send_count);
+        SMESH_FREE(recv_displs);
+        SMESH_FREE(recv_count);
+        SMESH_FREE(send_pack);
+        SMESH_FREE(recv_pack);
+        SMESH_FREE(occ);
+        SMESH_FREE(dense);
+        return SMESH_FAILURE;
+    }
+
+    int dup = 0;
+    for (ptrdiff_t i = 0; i < n_recv; ++i) {
+        const ptrdiff_t off = (ptrdiff_t)recv_pack[i * k_nreq] - ids_start;
+        if (off < 0 || off >= n_owned_ids) {
+            dup = 1;
+            break;
+        }
+        if (occ[off]) {
+            dup = 1;
+            break;
+        }
+        occ[off] = 1;
+    }
+    int dup_any = 0;
+    SMESH_MPI_CATCH(MPI_Allreduce(&dup, &dup_any, 1, MPI_INT, MPI_MAX, comm));
+    if (dup_any) {
+        SMESH_ERROR("write_mapped_field: mapping is not unique\n");
+        SMESH_FREE(send_displs);
+        SMESH_FREE(send_count);
+        SMESH_FREE(recv_displs);
+        SMESH_FREE(recv_count);
+        SMESH_FREE(send_pack);
+        SMESH_FREE(recv_pack);
+        SMESH_FREE(occ);
+        SMESH_FREE(dense);
+        return SMESH_FAILURE;
+    }
+
+    ptrdiff_t n_occ = 0;
+    for (ptrdiff_t off = 0; off < n_owned_ids; ++off) {
+        n_occ += (ptrdiff_t)occ[off];
+    }
+    ptrdiff_t base = 0;
+    SMESH_MPI_CATCH(MPI_Exscan(&n_occ, &base, 1, mpi_type<ptrdiff_t>(), MPI_SUM, comm));
+    if (rank == 0) {
+        base = 0;
+    }
+    ptrdiff_t n_occ_sum = 0;
+    SMESH_MPI_CATCH(MPI_Allreduce(&n_occ, &n_occ_sum, 1, mpi_type<ptrdiff_t>(), MPI_SUM, comm));
+    if (n_occ_sum != n_global) {
+        SMESH_ERROR("write_mapped_field: unique gids %ld != n_global=%ld\n",
+                    (long)n_occ_sum,
+                    (long)n_global);
+        SMESH_FREE(send_displs);
+        SMESH_FREE(send_count);
+        SMESH_FREE(recv_displs);
+        SMESH_FREE(recv_count);
+        SMESH_FREE(send_pack);
+        SMESH_FREE(recv_pack);
+        SMESH_FREE(occ);
+        SMESH_FREE(dense);
+        return SMESH_FAILURE;
+    }
+
+    ptrdiff_t k = 0;
+    for (ptrdiff_t off = 0; off < n_owned_ids; ++off) {
+        if (occ[off]) {
+            dense[off] = (large_idx_t)(base + k);
+            ++k;
+        }
+    }
+
+    memset(send_displs, 0, ((size_t)size + 1) * sizeof(i64));
+    for (int r = 0; r < size; ++r) {
+        send_displs[r + 1] = recv_count[r];
+    }
+    send_displs[0] = 0;
+    for (int r = 0; r < size; ++r) {
+        send_displs[r + 1] += send_displs[r];
+    }
+    memcpy(send_count, recv_count, (size_t)size * sizeof(i64));
+
+    i64 *reply_recv_count  = (i64 *)SMESH_ALLOC((size_t)size * sizeof(i64));
+    i64 *reply_recv_displs = (i64 *)SMESH_ALLOC(((size_t)size + 1) * sizeof(i64));
+    SMESH_MPI_CATCH(MPI_Alltoall(send_count, 1, mpi_type<i64>(), reply_recv_count, 1, mpi_type<i64>(), comm));
+    reply_recv_displs[0] = 0;
+    for (int r = 0; r < size; ++r) {
+        reply_recv_displs[r + 1] = reply_recv_displs[r] + reply_recv_count[r];
+    }
+
+    const ptrdiff_t n_reply_send = (ptrdiff_t)send_displs[size];
+    const ptrdiff_t n_reply_recv = (ptrdiff_t)reply_recv_displs[size];
+    large_idx_t *reply_send = (large_idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_reply_send, 1) * k_nrep * sizeof(large_idx_t));
+    large_idx_t *reply_recv = (large_idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_reply_recv, 1) * k_nrep * sizeof(large_idx_t));
+
+    memset(send_count, 0, (size_t)size * sizeof(i64));
+    for (int r = 0; r < size; ++r) {
+        for (i64 j = 0; j < recv_count[r]; ++j) {
+            const ptrdiff_t i    = (ptrdiff_t)recv_displs[r] + (ptrdiff_t)j;
+            const ptrdiff_t off  = (ptrdiff_t)recv_pack[i * k_nreq] - ids_start;
+            const i64       slot = send_displs[r] + send_count[r]++;
+            large_idx_t    *row  = reply_send + (ptrdiff_t)slot * k_nrep;
+            row[0] = recv_pack[i * k_nreq + 1];
+            row[1] = dense[off];
+        }
+    }
+
+    const int reply_err = all_to_allv_64v(reply_send,
+                                          send_count,
+                                          send_displs,
+                                          reply_recv,
+                                          reply_recv_count,
+                                          reply_recv_displs,
+                                          k_nrep,
+                                          comm,
+                                          k_chunk);
+
+    SMESH_FREE(send_displs);
+    SMESH_FREE(send_count);
+    SMESH_FREE(recv_displs);
+    SMESH_FREE(recv_count);
+    SMESH_FREE(send_pack);
+    SMESH_FREE(recv_pack);
+    SMESH_FREE(occ);
+    SMESH_FREE(dense);
+    SMESH_FREE(reply_send);
+
+    if (reply_err != SMESH_SUCCESS) {
+        SMESH_FREE(reply_recv_count);
+        SMESH_FREE(reply_recv_displs);
+        SMESH_FREE(reply_recv);
+        return SMESH_FAILURE;
+    }
+
+    for (ptrdiff_t i = 0; i < n_reply_recv; ++i) {
+        const ptrdiff_t local_i = (ptrdiff_t)reply_recv[i * k_nrep];
+        if (local_i < 0 || local_i >= n_local) {
+            SMESH_ERROR("write_mapped_field: densify reply index out of range\n");
+            SMESH_FREE(reply_recv_count);
+            SMESH_FREE(reply_recv_displs);
+            SMESH_FREE(reply_recv);
+            return SMESH_FAILURE;
+        }
+        file_idx[local_i] = reply_recv[i * k_nrep + 1];
+    }
+
+    SMESH_FREE(reply_recv_count);
+    SMESH_FREE(reply_recv_displs);
+    SMESH_FREE(reply_recv);
+    return SMESH_SUCCESS;
+}
 
 template <typename FileType, typename T>
 int array_write_convert(MPI_Comm comm, const Path &path,
@@ -100,7 +377,10 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
 
   for (ptrdiff_t i = 0; i < n_local; ++i) {
     const large_idx_t idx = mapping[i];
-    int dest_rank = std::min(size - 1, (int)(idx / local_output_size_no_remainder));
+    int dest_rank = size - 1;
+    if (local_output_size_no_remainder > 0) {
+      dest_rank = std::min(size - 1, (int)(idx / (large_idx_t)local_output_size_no_remainder));
+    }
     send_count[dest_rank]++;
   }
 
@@ -125,15 +405,22 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
     recv_displs[i + 1] = recv_displs[i] + recv_count[i];
   }
 
-  large_idx_t *send_list = (large_idx_t *)SMESH_ALLOC(n_local * sizeof(large_idx_t));
+  const i64 n_send = send_displs[size - 1] + send_count[size - 1];
+  const i64 n_recv = recv_displs[size - 1] + recv_count[size - 1];
 
-  ptrdiff_t n_buff = std::max(n_local, local_output_size);
-  uint8_t *send_data_and_final_storage = (uint8_t *)SMESH_ALLOC(n_buff * type_size);
+  large_idx_t *send_list = (large_idx_t *)SMESH_ALLOC((size_t)std::max<i64>(n_send, 1) * sizeof(large_idx_t));
+
+  ptrdiff_t n_buff = std::max((ptrdiff_t)n_send, local_output_size);
+  n_buff = std::max<ptrdiff_t>(n_buff, 1);
+  uint8_t *send_data_and_final_storage = (uint8_t *)SMESH_ALLOC((size_t)n_buff * (size_t)type_size);
 
   // Pack data and indices
   for (ptrdiff_t i = 0; i < n_local; ++i) {
     const large_idx_t idx = mapping[i];
-    int dest_rank = std::min(size - 1, (int)(idx / local_output_size_no_remainder));
+    int dest_rank = size - 1;
+    if (local_output_size_no_remainder > 0) {
+      dest_rank = std::min(size - 1, (int)(idx / (large_idx_t)local_output_size_no_remainder));
+    }
     SMESH_ASSERT(dest_rank < size);
 
     // Put index and data into buffers
@@ -145,8 +432,8 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
     book_keeping[dest_rank]++;
   }
 
-  large_idx_t *recv_list = (large_idx_t *)SMESH_ALLOC(local_output_size * sizeof(large_idx_t));
-  uint8_t *recv_data = (uint8_t *)SMESH_ALLOC(local_output_size * type_size);
+  large_idx_t *recv_list = (large_idx_t *)SMESH_ALLOC((size_t)std::max<i64>(n_recv, 1) * sizeof(large_idx_t));
+  uint8_t *recv_data = (uint8_t *)SMESH_ALLOC((size_t)std::max<i64>(n_recv, 1) * (size_t)type_size);
 
   ///////////////////////////////////
   // Send indices
@@ -169,10 +456,26 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
   // Unpack indexed data
   ///////////////////////////////////
 
-  for (ptrdiff_t i = 0; i < local_output_size; ++i) {
-    ptrdiff_t dest = recv_list[i] - begin;
-    SMESH_ASSERT(dest >= 0);
-    SMESH_ASSERT(dest < local_output_size);
+  if (local_output_size > 0) {
+    memset(send_data_and_final_storage, 0, (size_t)local_output_size * (size_t)type_size);
+  }
+  for (i64 i = 0; i < n_recv; ++i) {
+    const ptrdiff_t dest = (ptrdiff_t)recv_list[i] - begin;
+    if (dest < 0 || dest >= local_output_size) {
+      SMESH_ERROR("write_mapped_field: dest %ld out of range [0, %ld)\n",
+                  (long)dest,
+                  (long)local_output_size);
+      SMESH_FREE(send_count);
+      SMESH_FREE(send_displs);
+      SMESH_FREE(recv_count);
+      SMESH_FREE(recv_displs);
+      SMESH_FREE(book_keeping);
+      SMESH_FREE(send_list);
+      SMESH_FREE(recv_list);
+      SMESH_FREE(recv_data);
+      SMESH_FREE(send_data_and_final_storage);
+      return SMESH_FAILURE;
+    }
     memcpy((void *)&send_data_and_final_storage[dest * type_size],
            (void *)&recv_data[i * type_size], type_size);
   }
@@ -220,6 +523,22 @@ int write_distributed_block_connectivity(
     int nnodesxelem, idx_t **local_elements, const large_idx_t *node_mapping) {
   SMESH_TRACE_SCOPE("write_distributed_block_connectivity");
 
+  large_idx_t *file_idx = nullptr;
+  if (n_owned_elements > 0) {
+    file_idx = (large_idx_t *)SMESH_ALLOC((size_t)n_owned_elements * sizeof(large_idx_t));
+    if (!file_idx) {
+      return SMESH_FAILURE;
+    }
+  }
+  if (densify_file_indices_rank_owner(comm,
+                                      n_owned_elements,
+                                      n_global_elements,
+                                      element_mapping,
+                                      file_idx) != SMESH_SUCCESS) {
+    SMESH_FREE(file_idx);
+    return SMESH_FAILURE;
+  }
+
   int err = SMESH_SUCCESS;
   for (int v = 0; v < nnodesxelem; ++v) {
     std::string fname =
@@ -229,6 +548,7 @@ int write_distributed_block_connectivity(
     idx_t *buffer =
         (idx_t *)SMESH_ALLOC((size_t)n_owned_elements * sizeof(idx_t));
     if (!buffer) {
+      SMESH_FREE(file_idx);
       return SMESH_FAILURE;
     }
 
@@ -239,12 +559,13 @@ int write_distributed_block_connectivity(
     }
 
     err |= write_mapped_field(comm, conn_path, n_owned_elements,
-                              n_global_elements, element_mapping,
+                              n_global_elements, file_idx,
                               smesh::mpi_type<idx_t>(), buffer);
 
     SMESH_FREE(buffer);
   }
 
+  SMESH_FREE(file_idx);
   return err == SMESH_SUCCESS ? SMESH_SUCCESS : SMESH_FAILURE;
 }
 

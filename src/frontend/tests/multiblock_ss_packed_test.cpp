@@ -14,8 +14,10 @@
 #include "smesh_semistructured.hpp"
 #include "smesh_sideset.hpp"
 #include "smesh_sshex8.hpp"
+#include "smesh_sspyramid.hpp"
 #include "smesh_ssquad4.hpp"
 #include "smesh_sstet4.hpp"
+#include "smesh_sswedge.hpp"
 #include "smesh_test.hpp"
 
 using namespace smesh;
@@ -787,6 +789,273 @@ static int test_mixed_hex_tet_ss_sideset_surfaces_separate() {
     return SMESH_TEST_SUCCESS;
 }
 
+static std::shared_ptr<Mesh> create_wedge6_serial() {
+    auto tri = Mesh::create_tri3_square(Communicator::self(), 2, 2);
+    if (tri == nullptr) {
+        return nullptr;
+    }
+    auto wedge = extrude(tri, 1.0, 1);
+    if (wedge == nullptr || wedge->element_type(0) != WEDGE6) {
+        return nullptr;
+    }
+    return wedge;
+}
+
+static std::shared_ptr<Mesh> create_two_pyramids_serial() {
+    auto points = create_host_buffer<geom_t>(3, 6);
+    const geom_t coords[6][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}, {0.5, 0.5, 1}, {0.5, 0.5, -1}};
+    for (int i = 0; i < 6; ++i) {
+        points->data()[0][i] = coords[i][0];
+        points->data()[1][i] = coords[i][1];
+        points->data()[2][i] = coords[i][2];
+    }
+    auto elems = create_host_buffer<idx_t>(5, 2);
+    const idx_t p0[5] = {0, 1, 2, 3, 4};
+    const idx_t p1[5] = {0, 3, 2, 1, 5};
+    for (int d = 0; d < 5; ++d) {
+        elems->data()[d][0] = p0[d];
+        elems->data()[d][1] = p1[d];
+    }
+    std::vector<std::shared_ptr<Mesh::Block>> blocks;
+    blocks.push_back(std::make_shared<Mesh::Block>("pyramid", PYRAMID5, elems));
+    return std::make_shared<Mesh>(Communicator::self(), blocks, points);
+}
+
+static std::set<idx_t> collect_ids(const idx_t *const *ss, const ptrdiff_t e, const std::vector<int> &lidx) {
+    std::set<idx_t> ids;
+    for (int id : lidx) {
+        ids.insert(ss[id][e]);
+    }
+    return ids;
+}
+
+static std::vector<int> hex_quad_interior_lidx(const int L, const int face) {
+    std::vector<int> ids;
+    if (L < 2) {
+        return ids;
+    }
+    for (int a = 1; a < L; ++a) {
+        for (int b = 1; b < L; ++b) {
+            if (face == 0) {
+                ids.push_back(sshex8_lidx(L, a, 0, b));
+            } else {
+                ids.push_back(sshex8_lidx(L, L, a, b));
+            }
+        }
+    }
+    return ids;
+}
+
+static std::vector<int> wedge_quad0_interior_lidx(const int L) {
+    std::vector<int> ids;
+    for (int x = 1; x < L; ++x) {
+        for (int z = 1; z < L; ++z) {
+            ids.push_back(sswedge_lidx(L, x, 0, z));
+        }
+    }
+    return ids;
+}
+
+static std::vector<int> pyr_base_interior_lidx(const int L) {
+    std::vector<int> ids;
+    for (int i = 1; i < L; ++i) {
+        for (int j = 1; j < L; ++j) {
+            ids.push_back(sspyramid_lidx(L, i, j, 0));
+        }
+    }
+    return ids;
+}
+
+static std::vector<int> pyr_side0_interior_lidx(const int L) {
+    std::vector<int> ids;
+    for (int k = 1; k <= L - 2; ++k) {
+        for (int i = 1; i <= L - 1 - k; ++i) {
+            ids.push_back(sspyramid_lidx(L, i, 0, k));
+        }
+    }
+    return ids;
+}
+
+static std::vector<int> tet_face012_interior_lidx(const int L) {
+    std::vector<int> ids;
+    for (int y = 1; y <= L - 2; ++y) {
+        for (int x = 1; x <= L - 1 - y; ++x) {
+            ids.push_back(sstet4_lidx(L, x, y, 0));
+        }
+    }
+    return ids;
+}
+
+static int test_wedge_to_semistructured() {
+    auto wedge = create_wedge6_serial();
+    SMESH_TEST_ASSERT(to_semistructured(2, wedge, false, true) == nullptr);
+    const ptrdiff_t n_coarse = wedge->n_nodes();
+    for (int L : {1, 2, 4}) {
+        auto ss = to_semistructured(L, wedge);
+        SMESH_TEST_ASSERT(ss != nullptr);
+        SMESH_TEST_EQ(ss->element_type(0), semistructured_type(WEDGE6, L));
+        SMESH_TEST_EQ(ss->n_elements(0), wedge->n_elements());
+        SMESH_TEST_EQ(static_cast<int>(ss->block(0)->n_nodes_per_element()), sswedge_nxe(L));
+        if (L == 1) {
+            SMESH_TEST_EQ(ss->n_nodes(), n_coarse);
+        }
+        auto ss_h = to_semistructured(L, wedge, true, false);
+        SMESH_TEST_ASSERT(ss_h != nullptr);
+        SMESH_TEST_EQ(ss_h->n_nodes(), ss->n_nodes());
+        auto d = derefine(ss, 1);
+        SMESH_TEST_ASSERT(d != nullptr);
+        SMESH_TEST_EQ(d->n_nodes(), n_coarse);
+        SMESH_TEST_EQ(d->element_type(0), WEDGE6);
+    }
+    auto one = Mesh::create_tri3_square(Communicator::self(), 1, 1);
+    auto one_w = extrude(one, 1.0, 1);
+    SMESH_TEST_ASSERT(one_w != nullptr);
+    SMESH_TEST_EQ(one_w->n_elements(), static_cast<ptrdiff_t>(2));
+    auto ss1 = to_semistructured(2, one_w);
+    SMESH_TEST_ASSERT(ss1 != nullptr);
+    SMESH_TEST_ASSERT(ss1->n_nodes() < static_cast<ptrdiff_t>(2) * sswedge_nxe(2));
+    SMESH_TEST_ASSERT(ss1->n_nodes() > sswedge_nxe(2));
+    return SMESH_TEST_SUCCESS;
+}
+
+static int test_pyramid_to_semistructured() {
+    auto pyr = create_two_pyramids_serial();
+    SMESH_TEST_ASSERT(to_semistructured(2, pyr, false, true) == nullptr);
+    const ptrdiff_t n_coarse = pyr->n_nodes();
+    for (int L : {1, 2, 4}) {
+        auto ss = to_semistructured(L, pyr);
+        SMESH_TEST_ASSERT(ss != nullptr);
+        SMESH_TEST_EQ(ss->element_type(0), semistructured_type(PYRAMID5, L));
+        SMESH_TEST_EQ(ss->n_elements(0), static_cast<ptrdiff_t>(2));
+        SMESH_TEST_EQ(static_cast<int>(ss->block(0)->n_nodes_per_element()), sspyramid_nxe(L));
+        const ptrdiff_t expected = n_coarse + static_cast<ptrdiff_t>(12) * sspyramid_nxedge(L) +
+                                   static_cast<ptrdiff_t>(8) * sspyramid_nx_tri_face(L) +
+                                   static_cast<ptrdiff_t>(1) * sspyramid_nx_quad_face(L) +
+                                   static_cast<ptrdiff_t>(2) * sspyramid_nxvol(L);
+        SMESH_TEST_EQ(ss->n_nodes(), expected);
+        auto ss_h = to_semistructured(L, pyr, true, false);
+        SMESH_TEST_ASSERT(ss_h != nullptr);
+        SMESH_TEST_EQ(ss_h->n_nodes(), ss->n_nodes());
+        auto d = derefine(ss, 1);
+        SMESH_TEST_ASSERT(d != nullptr);
+        SMESH_TEST_EQ(d->n_nodes(), n_coarse);
+        SMESH_TEST_EQ(d->element_type(0), PYRAMID5);
+        if (L >= 2) {
+            auto pyr_ss = ss->elements(0)->data();
+            const auto a = collect_ids(pyr_ss, 0, pyr_base_interior_lidx(L));
+            const auto b = collect_ids(pyr_ss, 1, pyr_base_interior_lidx(L));
+            SMESH_TEST_EQ(a.size(), b.size());
+            SMESH_TEST_ASSERT(a == b);
+        }
+    }
+    return SMESH_TEST_SUCCESS;
+}
+
+static int test_hex_dominant_to_semistructured() {
+    auto hexdom = Mesh::create_hex_dominant_serial(Communicator::self());
+    SMESH_TEST_ASSERT(hexdom != nullptr);
+    SMESH_TEST_EQ(static_cast<int>(hexdom->n_blocks()), 4);
+    SMESH_TEST_ASSERT(to_semistructured(2, hexdom, false, true) == nullptr);
+
+    auto mixed = create_hex8_tet4_serial(2, 2, 2);
+    auto ss_ht = to_semistructured(2, mixed);
+    SMESH_TEST_ASSERT(ss_ht != nullptr);
+    const ptrdiff_t hex_tet_n_nodes = ss_ht->n_nodes();
+
+    for (int L : {1, 2, 4}) {
+        auto ss = to_semistructured(L, hexdom);
+        SMESH_TEST_ASSERT(ss != nullptr);
+        SMESH_TEST_EQ(static_cast<int>(ss->n_blocks()), 4);
+        SMESH_TEST_EQ(ss->element_type(0), semistructured_type(HEX8, L));
+        SMESH_TEST_EQ(ss->element_type(1), semistructured_type(PYRAMID5, L));
+        SMESH_TEST_EQ(ss->element_type(2), semistructured_type(TET4, L));
+        SMESH_TEST_EQ(ss->element_type(3), semistructured_type(WEDGE6, L));
+        if (L == 1) {
+            SMESH_TEST_EQ(ss->n_nodes(), hexdom->n_nodes());
+            continue;
+        }
+        auto hex_ss = ss->elements(0)->data();
+        auto pyr_ss = ss->elements(1)->data();
+        auto tet_ss = ss->elements(2)->data();
+        auto wed_ss = ss->elements(3)->data();
+        const auto hex_pyr = collect_ids(hex_ss, 0, hex_quad_interior_lidx(L, 1));
+        const auto pyr_base = collect_ids(pyr_ss, 0, pyr_base_interior_lidx(L));
+        SMESH_TEST_EQ(hex_pyr.size(), static_cast<size_t>((L - 1) * (L - 1)));
+        SMESH_TEST_ASSERT(hex_pyr == pyr_base);
+        const auto hex_wed = collect_ids(hex_ss, 0, hex_quad_interior_lidx(L, 0));
+        const auto wed_q = collect_ids(wed_ss, 0, wedge_quad0_interior_lidx(L));
+        SMESH_TEST_ASSERT(hex_wed == wed_q);
+        if (L >= 3) {
+            const auto pyr_tri = collect_ids(pyr_ss, 0, pyr_side0_interior_lidx(L));
+            const auto tet_tri = collect_ids(tet_ss, 0, tet_face012_interior_lidx(L));
+            SMESH_TEST_EQ(pyr_tri.size(), tet_tri.size());
+            SMESH_TEST_ASSERT(pyr_tri == tet_tri);
+        }
+        auto ss_h = to_semistructured(L, hexdom, true, false);
+        SMESH_TEST_ASSERT(ss_h != nullptr);
+        SMESH_TEST_EQ(ss_h->n_nodes(), ss->n_nodes());
+        auto d = derefine(ss, 1);
+        SMESH_TEST_ASSERT(d != nullptr);
+        SMESH_TEST_EQ(d->n_nodes(), hexdom->n_nodes());
+    }
+    SMESH_TEST_EQ(to_semistructured(2, mixed)->n_nodes(), hex_tet_n_nodes);
+    return SMESH_TEST_SUCCESS;
+}
+
+static int test_wedge_pyramid_ss_sideset() {
+    {
+        auto wedge = create_wedge6_serial();
+        const ptrdiff_t n = wedge->n_elements();
+        auto parents = create_host_buffer<element_idx_t>(static_cast<size_t>(n));
+        auto lfi     = create_host_buffer<i16>(static_cast<size_t>(n));
+        for (ptrdiff_t e = 0; e < n; ++e) {
+            parents->data()[e] = static_cast<element_idx_t>(e);
+            lfi->data()[e]     = 0;
+        }
+        auto sides = Sideset::create(wedge->comm(), parents, lfi, 0);
+        auto ss    = to_semistructured(2, wedge);
+        SMESH_TEST_ASSERT(ss != nullptr);
+        auto [st, surf] = create_surface_from_sideset(ss, sides);
+        SMESH_TEST_ASSERT(surf != nullptr);
+        SMESH_TEST_EQ(st, PROTEUS_QUADSHELL9);
+        SMESH_TEST_EQ(static_cast<ptrdiff_t>(surf->extent(0)), static_cast<ptrdiff_t>(9));
+        SMESH_TEST_EQ(static_cast<ptrdiff_t>(surf->extent(1)), n);
+        auto nodeset = create_nodeset_from_sideset(ss, sides);
+        SMESH_TEST_ASSERT(nodeset != nullptr);
+        for (ptrdiff_t e = 0; e < n; ++e) {
+            lfi->data()[e] = 3;
+        }
+        auto tri_sides = Sideset::create(wedge->comm(), parents, lfi, 0);
+        auto [tst, tsurf] = create_surface_from_sideset(ss, tri_sides);
+        SMESH_TEST_ASSERT(tsurf != nullptr);
+        SMESH_TEST_EQ(tst, TRISHELL6);
+        SMESH_TEST_EQ(static_cast<ptrdiff_t>(tsurf->extent(0)), static_cast<ptrdiff_t>(6));
+    }
+    {
+        auto pyr = create_two_pyramids_serial();
+        auto parents = create_host_buffer<element_idx_t>(2);
+        auto lfi     = create_host_buffer<i16>(2);
+        parents->data()[0] = 0;
+        parents->data()[1] = 1;
+        lfi->data()[0]     = 4;
+        lfi->data()[1]     = 4;
+        auto sides = Sideset::create(pyr->comm(), parents, lfi, 0);
+        auto ss    = to_semistructured(2, pyr);
+        SMESH_TEST_ASSERT(ss != nullptr);
+        auto [st, surf] = create_surface_from_sideset(ss, sides);
+        SMESH_TEST_ASSERT(surf != nullptr);
+        SMESH_TEST_EQ(st, PROTEUS_QUADSHELL9);
+        SMESH_TEST_EQ(static_cast<ptrdiff_t>(surf->extent(0)), static_cast<ptrdiff_t>(9));
+        lfi->data()[0] = 0;
+        lfi->data()[1] = 0;
+        auto tri_sides = Sideset::create(pyr->comm(), parents, lfi, 0);
+        auto [tst, tsurf] = create_surface_from_sideset(ss, tri_sides);
+        SMESH_TEST_ASSERT(tsurf != nullptr);
+        SMESH_TEST_EQ(tst, TRISHELL6);
+    }
+    return SMESH_TEST_SUCCESS;
+}
+
 int main(int argc, char *argv[]) {
     SMESH_UNIT_TEST_INIT(argc, argv);
     SMESH_RUN_TEST(test_checkerboard_to_semistructured);
@@ -806,7 +1075,10 @@ int main(int argc, char *argv[]) {
     SMESH_RUN_TEST(test_hex8_ss_sideset_surface_multiblock);
     SMESH_RUN_TEST(test_tet4_ss_sideset_surface_multiblock);
     SMESH_RUN_TEST(test_mixed_hex_tet_ss_sideset_surfaces_separate);
+    SMESH_RUN_TEST(test_wedge_to_semistructured);
+    SMESH_RUN_TEST(test_pyramid_to_semistructured);
+    SMESH_RUN_TEST(test_hex_dominant_to_semistructured);
+    SMESH_RUN_TEST(test_wedge_pyramid_ss_sideset);
     SMESH_UNIT_TEST_FINALIZE();
     return SMESH_UNIT_TEST_ERR();
 }
-

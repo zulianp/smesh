@@ -8,9 +8,11 @@
 #include "smesh_semistructured.hpp"
 #include "smesh_sidesets.hpp"
 #include "smesh_sshex8_graph.hpp"
+#include "smesh_sspyramid_graph.hpp"
 #include "smesh_ssquad4_mesh.hpp"
 #include "smesh_sstet4.hpp"
 #include "smesh_sstet4_graph.hpp"
+#include "smesh_sswedge_graph.hpp"
 #include "smesh_tracer.hpp"
 #include "smesh_write.hpp"
 
@@ -773,6 +775,66 @@ namespace smesh {
             return {sstet4_surface_type(L), ss_sides};
         }
 
+        if (family == WEDGE6 || family == PYRAMID5) {
+            if (n_surf <= 0) {
+                return {INVALID, nullptr};
+            }
+            const int  first        = sideset->lfi()->data()[0];
+            const bool is_quad_side = (family == WEDGE6) ? (first < 3) : (first >= 4);
+            for (ptrdiff_t i = 0; i < n_surf; ++i) {
+                const int s = sideset->lfi()->data()[i];
+                const bool q = (family == WEDGE6) ? (s < 3) : (s >= 4);
+                if (q != is_quad_side) {
+                    SMESH_ERROR("create_surface_from_sideset_semistructured: mixed tri/quad sideset arity\n");
+                    return {INVALID, nullptr};
+                }
+            }
+            if (is_quad_side) {
+                auto ss_sides = smesh::create_host_buffer<idx_t>((L + 1) * (L + 1), n_surf);
+                int  err      = SMESH_SUCCESS;
+                if (family == WEDGE6) {
+                    err = sswedge_extract_surface_from_sideset(L,
+                                                               block->elements()->data(),
+                                                               n_surf,
+                                                               sideset->parent()->data(),
+                                                               sideset->lfi()->data(),
+                                                               ss_sides->data());
+                } else {
+                    err = sspyramid_extract_surface_from_sideset(L,
+                                                                 block->elements()->data(),
+                                                                 n_surf,
+                                                                 sideset->parent()->data(),
+                                                                 sideset->lfi()->data(),
+                                                                 ss_sides->data());
+                }
+                if (err != SMESH_SUCCESS) {
+                    SMESH_ERROR("Unable to extract surface from sideset!\n");
+                }
+                return {shell_type(proteus_quad_type(L)), ss_sides};
+            }
+            auto ss_sides = smesh::create_host_buffer<idx_t>(sstet4_n_tri(L), n_surf);
+            int  err      = SMESH_SUCCESS;
+            if (family == WEDGE6) {
+                err = sswedge_extract_surface_from_sideset(L,
+                                                           block->elements()->data(),
+                                                           n_surf,
+                                                           sideset->parent()->data(),
+                                                           sideset->lfi()->data(),
+                                                           ss_sides->data());
+            } else {
+                err = sspyramid_extract_surface_from_sideset(L,
+                                                             block->elements()->data(),
+                                                             n_surf,
+                                                             sideset->parent()->data(),
+                                                             sideset->lfi()->data(),
+                                                             ss_sides->data());
+            }
+            if (err != SMESH_SUCCESS) {
+                SMESH_ERROR("Unable to extract surface from sideset!\n");
+            }
+            return {sstet4_surface_type(L), ss_sides};
+        }
+
         SMESH_ERROR("create_surface_from_sideset_semistructured: family %s is not implemented\n", type_to_string(family));
         return {INVALID, nullptr};
     }
@@ -862,6 +924,34 @@ namespace smesh {
                                                     sideset->lfi()->data(),
                                                     &n_nodes,
                                                     &nodes) != SMESH_SUCCESS) {
+                SMESH_ERROR("Unable to extract nodeset from sideset!\n");
+            }
+            return smesh::manage_host_buffer(n_nodes, nodes);
+        }
+
+        if (family == WEDGE6) {
+            SMESH_TRACE_SCOPE("sswedge_extract_nodeset_from_sideset");
+            if (sswedge_extract_nodeset_from_sideset(L,
+                                                     block->elements()->data(),
+                                                     sideset->parent()->size(),
+                                                     sideset->parent()->data(),
+                                                     sideset->lfi()->data(),
+                                                     &n_nodes,
+                                                     &nodes) != SMESH_SUCCESS) {
+                SMESH_ERROR("Unable to extract nodeset from sideset!\n");
+            }
+            return smesh::manage_host_buffer(n_nodes, nodes);
+        }
+
+        if (family == PYRAMID5) {
+            SMESH_TRACE_SCOPE("sspyramid_extract_nodeset_from_sideset");
+            if (sspyramid_extract_nodeset_from_sideset(L,
+                                                       block->elements()->data(),
+                                                       sideset->parent()->size(),
+                                                       sideset->parent()->data(),
+                                                       sideset->lfi()->data(),
+                                                       &n_nodes,
+                                                       &nodes) != SMESH_SUCCESS) {
                 SMESH_ERROR("Unable to extract nodeset from sideset!\n");
             }
             return smesh::manage_host_buffer(n_nodes, nodes);
