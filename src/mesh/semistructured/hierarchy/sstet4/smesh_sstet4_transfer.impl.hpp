@@ -7,6 +7,8 @@
 namespace smesh {
 namespace sstet4_transfer {
 
+    static SMESH_INLINE bool is_power_of_two(const int x) { return x > 0 && (x & (x - 1)) == 0; }
+
     static SMESH_INLINE void fill_lattice_coords(const int L, int *const x, int *const y, int *const z) {
         for (int zi = 0; zi <= L; ++zi) {
             for (int yi = 0; yi <= L - zi; ++yi) {
@@ -20,9 +22,78 @@ namespace sstet4_transfer {
         }
     }
 
+    static SMESH_INLINE void midpoint(const int *const a, const int *const b, int *const m) {
+        m[0] = (a[0] + b[0]) / 2;
+        m[1] = (a[1] + b[1]) / 2;
+        m[2] = (a[2] + b[2]) / 2;
+    }
+
+    template <typename Func>
+    static SMESH_INLINE void for_each_red_microtet_rec(const int global_L,
+                                                       const int edge_L,
+                                                       const int *const p0,
+                                                       const int *const p1,
+                                                       const int *const p2,
+                                                       const int *const p3,
+                                                       Func &func) {
+        if (edge_L == 1) {
+            int ev[4] = {sstet4_lidx(global_L, p0[0], p0[1], p0[2]),
+                         sstet4_lidx(global_L, p1[0], p1[1], p1[2]),
+                         sstet4_lidx(global_L, p2[0], p2[1], p2[2]),
+                         sstet4_lidx(global_L, p3[0], p3[1], p3[2])};
+            func(ev);
+            return;
+        }
+
+        const int half_L = edge_L / 2;
+        int       m01[3], m12[3], m02[3], m03[3], m13[3], m23[3];
+        midpoint(p0, p1, m01);
+        midpoint(p1, p2, m12);
+        midpoint(p0, p2, m02);
+        midpoint(p0, p3, m03);
+        midpoint(p1, p3, m13);
+        midpoint(p2, p3, m23);
+
+        const int *const pts[10] = {p0, p1, p2, p3, m01, m12, m02, m03, m13, m23};
+        static const int pattern[8][4] = {{0, 4, 6, 7},
+                                          {4, 1, 5, 8},
+                                          {6, 5, 2, 9},
+                                          {7, 8, 9, 3},
+                                          {4, 5, 6, 8},
+                                          {7, 4, 6, 8},
+                                          {6, 5, 9, 8},
+                                          {7, 6, 9, 8}};
+
+        for (int e = 0; e < 8; ++e) {
+            for_each_red_microtet_rec(global_L,
+                                      half_L,
+                                      pts[pattern[e][0]],
+                                      pts[pattern[e][1]],
+                                      pts[pattern[e][2]],
+                                      pts[pattern[e][3]],
+                                      func);
+        }
+    }
+
+    template <typename Func>
+    static SMESH_INLINE void for_each_red_microtet(const int L, Func &func) {
+        const int p0[3] = {0, 0, 0};
+        const int p1[3] = {L, 0, 0};
+        const int p2[3] = {0, L, 0};
+        const int p3[3] = {0, 0, L};
+        for_each_red_microtet_rec(L, L, p0, p1, p2, p3, func);
+    }
+
     template <typename Func>
     static SMESH_INLINE void for_each_microtet(const int L, Func &&func) {
         int ev[4];
+
+        if (is_power_of_two(L)) {
+            for_each_red_microtet(L, func);
+            return;
+        }
+
+        const int n = L + 1;
 
         if (L == 1) {
             ev[0] = sstet4_lidx(1, 0, 0, 0);
@@ -35,13 +106,13 @@ namespace sstet4_transfer {
 
         {
             int p = 0;
-            for (int i = 0; i < L - 1; i++) {
-                const int layer_items = (L - i + 1) * (L - i) / 2;
-                for (int j = 0; j < L - i - 1; j++) {
-                    for (int k = 0; k < L - i - j - 1; k++) {
+            for (int i = 0; i < n - 1; i++) {
+                const int layer_items = (n - i + 1) * (n - i) / 2;
+                for (int j = 0; j < n - i - 1; j++) {
+                    for (int k = 0; k < n - i - j - 1; k++) {
                         ev[0] = p;
                         ev[1] = p + 1;
-                        ev[2] = p + L - i - j;
+                        ev[2] = p + n - i - j;
                         ev[3] = p + layer_items - j;
                         func(ev);
                         p++;
@@ -54,15 +125,15 @@ namespace sstet4_transfer {
 
         {
             int p = 0;
-            for (int i = 0; i < L - 1; i++) {
-                const int layer_items = (L - i) * (L - i - 1) / 2;
-                for (int j = 0; j < L - i - 1; j++) {
+            for (int i = 0; i < n - 1; i++) {
+                const int layer_items = (n - i) * (n - i - 1) / 2;
+                for (int j = 0; j < n - i - 1; j++) {
                     p++;
-                    for (int k = 1; k < L - i - j - 1; k++) {
+                    for (int k = 1; k < n - i - j - 1; k++) {
                         ev[0] = p;
-                        ev[1] = p + layer_items + L - i - j - 1;
-                        ev[2] = p + layer_items + L - i - j;
-                        ev[3] = p + layer_items + L - i - j - 1 + L - i - j - 1;
+                        ev[1] = p + layer_items + n - i - j - 1;
+                        ev[2] = p + layer_items + n - i - j;
+                        ev[3] = p + layer_items + n - i - j - 1 + n - i - j - 1;
                         func(ev);
                         p++;
                     }
@@ -74,15 +145,15 @@ namespace sstet4_transfer {
 
         {
             int p = 0;
-            for (int i = 0; i < L - 1; i++) {
-                const int layer_items = (L - i) * (L - i - 1) / 2;
-                for (int j = 0; j < L - i - 1; j++) {
+            for (int i = 0; i < n - 1; i++) {
+                const int layer_items = (n - i) * (n - i - 1) / 2;
+                for (int j = 0; j < n - i - 1; j++) {
                     p++;
-                    for (int k = 1; k < L - i - j - 1; k++) {
+                    for (int k = 1; k < n - i - j - 1; k++) {
                         ev[0] = p;
-                        ev[1] = p + L - i - j;
-                        ev[2] = p + layer_items + L - i - j - 1 + L - i - j - 1;
-                        ev[3] = p + layer_items + L - i - j;
+                        ev[1] = p + n - i - j;
+                        ev[2] = p + layer_items + n - i - j - 1 + n - i - j - 1;
+                        ev[3] = p + layer_items + n - i - j;
                         func(ev);
                         p++;
                     }
@@ -94,15 +165,15 @@ namespace sstet4_transfer {
 
         {
             int p = 0;
-            for (int i = 0; i < L - 1; i++) {
-                const int layer_items = (L - i) * (L - i - 1) / 2;
-                for (int j = 0; j < L - i - 1; j++) {
+            for (int i = 0; i < n - 1; i++) {
+                const int layer_items = (n - i) * (n - i - 1) / 2;
+                for (int j = 0; j < n - i - 1; j++) {
                     p++;
-                    for (int k = 1; k < L - i - j - 1; k++) {
+                    for (int k = 1; k < n - i - j - 1; k++) {
                         ev[0] = p;
-                        ev[1] = p + L - i - j - 1;
-                        ev[2] = p + layer_items + L - i - j - 1;
-                        ev[3] = p + layer_items + L - i - j - 1 + L - i - j - 1;
+                        ev[1] = p + n - i - j - 1;
+                        ev[2] = p + layer_items + n - i - j - 1;
+                        ev[3] = p + layer_items + n - i - j - 1 + n - i - j - 1;
                         func(ev);
                         p++;
                     }
@@ -114,16 +185,16 @@ namespace sstet4_transfer {
 
         {
             int p = 0;
-            for (int i = 1; i < L - 1; i++) {
-                p += L - i + 1;
-                const int layer_items = (L - i) * (L - i - 1) / 2;
-                for (int j = 0; j < L - i - 1; j++) {
+            for (int i = 1; i < n - 1; i++) {
+                p += n - i + 1;
+                const int layer_items = (n - i) * (n - i - 1) / 2;
+                for (int j = 0; j < n - i - 1; j++) {
                     p++;
-                    for (int k = 1; k < L - i - j - 1; k++) {
+                    for (int k = 1; k < n - i - j - 1; k++) {
                         ev[0] = p;
-                        ev[1] = p + layer_items + L - i;
-                        ev[2] = p + layer_items + L - i - j + L - i;
-                        ev[3] = p + layer_items + L - i - j + L - i - 1;
+                        ev[1] = p + layer_items + n - i;
+                        ev[2] = p + layer_items + n - i - j + n - i;
+                        ev[3] = p + layer_items + n - i - j + n - i - 1;
                         func(ev);
                         p++;
                     }
@@ -135,15 +206,15 @@ namespace sstet4_transfer {
 
         {
             int p = 0;
-            for (int i = 0; i < L - 1; i++) {
-                const int layer_items = (L - i) * (L - i - 1) / 2;
-                for (int j = 0; j < L - i - 1; j++) {
+            for (int i = 0; i < n - 1; i++) {
+                const int layer_items = (n - i) * (n - i - 1) / 2;
+                for (int j = 0; j < n - i - 1; j++) {
                     p++;
-                    for (int k = 1; k < L - i - j - 1; k++) {
+                    for (int k = 1; k < n - i - j - 1; k++) {
                         ev[0] = p;
-                        ev[1] = p + L - i - j - 1;
-                        ev[2] = p + layer_items + L - i - j - 1 + L - i - j - 1;
-                        ev[3] = p + L - i - j;
+                        ev[1] = p + n - i - j - 1;
+                        ev[2] = p + layer_items + n - i - j - 1 + n - i - j - 1;
+                        ev[3] = p + n - i - j;
                         func(ev);
                         p++;
                     }

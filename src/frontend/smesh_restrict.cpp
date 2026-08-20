@@ -260,34 +260,39 @@ namespace smesh {
                 if (from_ss) {
                     if (!to_ss) {
                         if (is_mpi_distributed(from_mesh) || is_mpi_distributed(to_mesh)) {
-                            if (ss_family != HEX8) {
-                                SMESH_ERROR("Restrict: distributed SS-to-unstructured restriction is implemented for HEX-family only\n");
-                            }
                             actual_op = [=](const T *const from, T *const to) -> int {
-                                SMESH_TRACE_SCOPE("sshex8_restrict_to_hex8");
+                                SMESH_TRACE_SCOPE("mpi_ss_hierarchical_restriction");
                                 const int from_level = semistructured_level(*from_mesh);
                                 auto      count      = element_to_node_incidence_count->data();
                                 int       err        = SMESH_SUCCESS;
                                 for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
                                     auto            from_b = from_mesh->block(b);
-                                    auto            to_b   = to_mesh->block(b);
                                     const ptrdiff_t ne     = from_b->n_elements_owned();
                                     if (ne == 0) {
                                         continue;
                                     }
-                                    idx_t *to_sshex[8];
-                                    hex8_elements_as_sshex8_level1(to_b->elements()->data(), to_sshex);
-                                    err |= sshex8_restrict(ne,
-                                                           from_level,
-                                                           1,
-                                                           from_b->elements()->data(),
-                                                           count,
-                                                           1,
-                                                           1,
-                                                           to_sshex,
-                                                           block_size,
-                                                           from,
-                                                           to);
+                                    if (ss_family == HEX8) {
+                                        auto   to_b = to_mesh->block(b);
+                                        idx_t *to_sshex[8];
+                                        hex8_elements_as_sshex8_level1(to_b->elements()->data(), to_sshex);
+                                        err |= sshex8_restrict(ne,
+                                                               from_level,
+                                                               1,
+                                                               from_b->elements()->data(),
+                                                               count,
+                                                               1,
+                                                               1,
+                                                               to_sshex,
+                                                               block_size,
+                                                               from,
+                                                               to);
+                                    } else if (ss_family == QUAD4) {
+                                        err |= ssquad4_hierarchical_restriction(
+                                                from_level, ne, from_b->elements()->data(), count, block_size, from, to);
+                                    } else {
+                                        err |= sstet4_hierarchical_restriction(
+                                                from_level, ne, from_b->elements()->data(), count, block_size, from, to);
+                                    }
                                 }
                                 return err;
                             };

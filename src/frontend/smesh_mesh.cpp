@@ -4115,6 +4115,16 @@ namespace smesh {
         cmap[std::make_pair(PROTEUS_HEX512, HEX8)] = sshex_block_to_hex8_block;
         cmap[std::make_pair(PROTEUS_HEX729, HEX8)] = sshex_block_to_hex8_block;
 
+        cmap[std::make_pair(PROTEUS_TET4, TET4)]   = sstet_block_to_tet4_block;
+        cmap[std::make_pair(PROTEUS_TET10, TET4)]  = sstet_block_to_tet4_block;
+        cmap[std::make_pair(PROTEUS_TET20, TET4)]  = sstet_block_to_tet4_block;
+        cmap[std::make_pair(PROTEUS_TET35, TET4)]  = sstet_block_to_tet4_block;
+        cmap[std::make_pair(PROTEUS_TET56, TET4)]  = sstet_block_to_tet4_block;
+        cmap[std::make_pair(PROTEUS_TET84, TET4)]  = sstet_block_to_tet4_block;
+        cmap[std::make_pair(PROTEUS_TET120, TET4)] = sstet_block_to_tet4_block;
+        cmap[std::make_pair(PROTEUS_TET165, TET4)] = sstet_block_to_tet4_block;
+        cmap[std::make_pair(PROTEUS_TET969, TET4)] = sstet_block_to_tet4_block;
+
         cmap[std::make_pair(PROTEUS_QUAD4, QUAD4)]            = ssquad_block_to_quad4_block;
         cmap[std::make_pair(PROTEUS_QUAD9, QUAD4)]            = ssquad_block_to_quad4_block;
         cmap[std::make_pair(PROTEUS_QUAD16, QUAD4)]           = ssquad_block_to_quad4_block;

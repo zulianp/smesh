@@ -7,6 +7,12 @@
 
 namespace smesh {
 
+template <typename idx_t>
+int sstet4_to_standard_tet4_mesh(const int                                                level,
+                                 const ptrdiff_t                                          nelements,
+                                 const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT  elements,
+                                 idx_t *SMESH_RESTRICT *const SMESH_RESTRICT              tet4_elements);
+
 template <typename idx_t, typename geom_t>
 int sstet4_fill_points(const int                                                 level,
                        const ptrdiff_t                                           nelements,

@@ -1,10 +1,33 @@
 #ifndef SMESH_SSTET4_MESH_IMPL_HPP
 #define SMESH_SSTET4_MESH_IMPL_HPP
 
+#include "hierarchy/sstet4/smesh_sstet4_transfer.impl.hpp"
 #include "smesh_sstet4.hpp"
 #include "smesh_sstet4_mesh.hpp"
 
 namespace smesh {
+
+template <typename idx_t>
+int sstet4_to_standard_tet4_mesh(const int                                               level,
+                                 const ptrdiff_t                                         nelements,
+                                 const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                 idx_t *SMESH_RESTRICT *const SMESH_RESTRICT             tet4_elements) {
+    const int txe = sstet4_txe(level);
+
+    ptrdiff_t le = 0;
+    sstet4_transfer::for_each_microtet(level, [&](const int *const ev) {
+        SMESH_ASSERT(le < txe);
+        for (int l = 0; l < 4; ++l) {
+            for (ptrdiff_t e = 0; e < nelements; ++e) {
+                tet4_elements[l][e * txe + le] = elements[ev[l]][e];
+            }
+        }
+        ++le;
+    });
+
+    SMESH_ASSERT(le == txe);
+    return SMESH_SUCCESS;
+}
 
 template <typename idx_t, typename geom_t>
 int sstet4_fill_points(const int                                                level,

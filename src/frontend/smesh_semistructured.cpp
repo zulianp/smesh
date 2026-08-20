@@ -1172,6 +1172,18 @@ namespace smesh {
         new_block.set_element_type(QUAD4);
     }
 
+    void sstet_block_to_tet4_block(const Mesh::Block &block, Mesh::Block &new_block) {
+        const int       level            = semistructured_level(block.element_type());
+        const ptrdiff_t n_micro_elements = block.n_elements() * sstet4_txe(level);
+        auto            tet4_elements    = smesh::create_host_buffer<idx_t>(4, n_micro_elements);
+
+        sstet4_to_standard_tet4_mesh(level, block.n_elements(), block.elements()->data(), tet4_elements->data());
+
+        new_block.set_name(block.name());
+        new_block.set_elements(tet4_elements);
+        new_block.set_element_type(TET4);
+    }
+
     std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex) {
         for (auto &block : sshex->blocks()) {
             if (!is_hex_ss_family(block->element_type())) {
