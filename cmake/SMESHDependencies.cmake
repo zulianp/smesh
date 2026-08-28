@@ -16,6 +16,39 @@ macro(SMESH_FETCHCONTENT_USE_LOCAL_OR_DOWNLOAD_if_AVAILABLE dep_name)
     endif()
 endmacro()
 
+function(SMESH_MPISORT_SOURCES_AVAILABLE out_var mpi_sort_dir)
+    set(_smesh_mpi_sort_required_sources
+        "${mpi_sort_dir}/include/mpi-sort.h"
+        "${mpi_sort_dir}/lib/radix.cxx"
+        "${mpi_sort_dir}/lib/sparse.c"
+        "${mpi_sort_dir}/lib/dispatch.c"
+        "${mpi_sort_dir}/lib/common.c"
+        "${mpi_sort_dir}/lib/drange.c"
+        "${mpi_sort_dir}/lib/xtract.c"
+        "${mpi_sort_dir}/lib/lsort.cxx"
+        "${mpi_sort_dir}/lib/a2av.c")
+
+    set(_smesh_mpi_sort_available TRUE)
+    foreach(_smesh_mpi_sort_source IN LISTS _smesh_mpi_sort_required_sources)
+        if(NOT EXISTS "${_smesh_mpi_sort_source}")
+            set(_smesh_mpi_sort_available FALSE)
+            break()
+        endif()
+    endforeach()
+
+    set("${out_var}" "${_smesh_mpi_sort_available}" PARENT_SCOPE)
+endfunction()
+
+function(SMESH_REQUIRE_MPISORT_SOURCES mpi_sort_dir)
+    SMESH_MPISORT_SOURCES_AVAILABLE(_smesh_mpi_sort_available "${mpi_sort_dir}")
+    if(NOT _smesh_mpi_sort_available)
+        message(FATAL_ERROR
+            "Incomplete mpi-sort checkout at ${mpi_sort_dir}. "
+            "Run `git submodule update --init --recursive external/smesh/external/mpi-sort` "
+            "from the SFEM source tree before configuring with SMESH_ENABLE_MPI.")
+    endif()
+endfunction()
+
 if(SMESH_ENABLE_RYAML)
     set(RYML_REPO_URL https://github.com/biojppm/rapidyaml CACHE STRING "")
     set(RYML_BRANCH_NAME master CACHE STRING "")
@@ -87,6 +120,14 @@ endif()
 
 
 if(SMESH_ENABLE_CUDA)
+    if(NOT DEFINED CMAKE_CUDA_HOST_COMPILER AND DEFINED CMAKE_CXX_COMPILER)
+        set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}" CACHE FILEPATH "CUDA host compiler")
+    endif()
+
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        set(CMAKE_CUDA_ARCHITECTURES 90 CACHE STRING "CUDA architectures")
+    endif()
+
     enable_language(CUDA)
 
     if(NOT DEFINED CMAKE_CUDA_STANDARD)
@@ -205,7 +246,8 @@ if(SMESH_ENABLE_MPI)
     list(APPEND SMESH_SUBMODULES matrixio::matrixio)
 
     set(_smesh_mpi_sort_dir "${CMAKE_CURRENT_SOURCE_DIR}/external/mpi-sort")
-    if(EXISTS "${_smesh_mpi_sort_dir}/include/mpi-sort.h" AND NOT SMESH_ENABLE_MPISORT)
+    SMESH_REQUIRE_MPISORT_SOURCES("${_smesh_mpi_sort_dir}")
+    if(NOT SMESH_ENABLE_MPISORT)
         foreach(_mpi_sort_obj IN ITEMS
             smesh_mpi_sort_radix_uint8
             smesh_mpi_sort_radix_uint16
@@ -336,6 +378,7 @@ endif()
 
 set(_SMESH_MPISORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/mpi-sort")
 if(EXISTS "${_SMESH_MPISORT_DIR}/include/mpi-sort.h")
+    SMESH_REQUIRE_MPISORT_SOURCES("${_SMESH_MPISORT_DIR}")
     foreach(_mpi_sort_obj IN ITEMS
         smesh_mpi_sort_radix_uint8
         smesh_mpi_sort_radix_uint16

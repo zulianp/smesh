@@ -290,9 +290,27 @@ def write_transient_data(
     time_whole,
     time_step_format,
 ):
+    def read_transient_field(path, center_size):
+        data = np.fromfile(path, dtype=extension_to_dtype(extension(path)))
+        if ".vec3." in os.path.basename(path):
+            if len(data) != 3 * center_size:
+                print(
+                    f"Invalid vec3 field length {len(data)} for {path}; expected {3 * center_size}"
+                )
+                sys.exit(1)
+            data = data.reshape((center_size, 3))
+        return data
+
+    def transient_field_name(path):
+        name = os.path.basename(path)
+        name = os.path.splitext(os.path.splitext(name)[0])[0]
+        name = name.replace(".vec3", "")
+        return name.replace(".", "_")
 
     with meshio.xdmf.TimeSeriesWriter(output_path) as writer:
         writer.write_points_cells(points, cells)
+        n_points = len(points)
+        n_cells = sum(block[1].shape[0] for block in cells)
         cell_data_steps = [None] * n_time_steps
 
         if cell_data:
@@ -350,10 +368,8 @@ def write_transient_data(
             if cds:
                 has_point_data = True
                 for cd in cds:
-                    data = np.fromfile(cd, dtype=extension_to_dtype(extension(cd)))
-                    name = os.path.basename(cd)
-                    name = os.path.splitext(os.path.splitext(name)[0])[0]
-                    name = name.replace(".", "_")
+                    data = read_transient_field(cd, n_points)
+                    name = transient_field_name(cd)
                     name_to_point_data[name] = data
 
                     if len(data) != len(data):
@@ -368,10 +384,8 @@ def write_transient_data(
             if cds:
                 has_cell_data = True
                 for cd in cds:
-                    data = np.fromfile(cd, dtype=extension_to_dtype(extension(cd)))
-                    name = os.path.basename(cd)
-                    name = os.path.splitext(os.path.splitext(name)[0])[0]
-                    name = name.replace(".", "_")
+                    data = read_transient_field(cd, n_cells)
+                    name = transient_field_name(cd)
                     name_to_cell_data[name] = data
 
                     if len(data) != len(data):
