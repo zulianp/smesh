@@ -13,6 +13,8 @@
 #include "smesh_tracer.hpp"
 
 #include <algorithm>
+#include <cstring>
+#include <vector>
 
 #ifdef SMESH_ENABLE_CUDA
 #include "smesh_sshex8_restriction.cuh"
@@ -26,8 +28,71 @@ namespace smesh {
         return is_semistructured_type(type) ? ss_source_family(type) : type;
     }
 
-    static ElemType assert_supported_ss_restrict_meshes(const Mesh &from_mesh, const Mesh &to_mesh) {
-        ElemType family = INVALID;
+    static ElemType ss_block_family(const Mesh &mesh, const size_t b) {
+        return ss_source_family(mesh.element_type(static_cast<block_idx_t>(b)));
+    }
+
+    static bool ss_all_hex_family(const Mesh &mesh) {
+        for (size_t b = 0; b < mesh.n_blocks(); ++b) {
+            if (ss_block_family(mesh, b) != HEX8) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool ss_has_hex_and_tet(const Mesh &mesh) {
+        bool has_hex = false;
+        bool has_tet = false;
+        for (size_t b = 0; b < mesh.n_blocks(); ++b) {
+            const auto fam = ss_block_family(mesh, b);
+            has_hex |= fam == HEX8;
+            has_tet |= fam == TET4;
+        }
+        return has_hex && has_tet;
+    }
+
+    static void add_block_incidence(const Mesh::Block &block, const ptrdiff_t nelements, uint16_t *const buff) {
+        if (nelements == 0) {
+            return;
+        }
+        const int     nxe      = block.n_nodes_per_element();
+        idx_t **const elements = block.elements()->data();
+        for (int d = 0; d < nxe; d++) {
+            for (ptrdiff_t i = 0; i < nelements; ++i) {
+                buff[elements[d][i]]++;
+            }
+        }
+    }
+
+    static void mark_family_nodes(const Mesh &mesh, const ElemType family, std::vector<char> &mask) {
+        mask.assign((size_t)mesh.n_nodes(), 0);
+        for (size_t b = 0; b < mesh.n_blocks(); ++b) {
+            if (ss_block_family(mesh, b) != family) {
+                continue;
+            }
+            auto            block = mesh.block(b);
+            const ptrdiff_t ne    = block->n_elements();
+            if (ne == 0) {
+                continue;
+            }
+            const int     nxe      = block->n_nodes_per_element();
+            idx_t **const elements = block->elements()->data();
+            for (int d = 0; d < nxe; d++) {
+                for (ptrdiff_t e = 0; e < ne; ++e) {
+                    const idx_t n = elements[d][e];
+                    if (n >= 0 && (size_t)n < mask.size()) {
+                        mask[(size_t)n] = 1;
+                    }
+                }
+            }
+        }
+    }
+
+    static void assert_supported_ss_restrict_meshes(const Mesh &from_mesh, const Mesh &to_mesh) {
+        bool has_hex  = false;
+        bool has_tet  = false;
+        bool has_quad = false;
         for (size_t b = 0; b < from_mesh.n_blocks(); ++b) {
             const auto bid       = static_cast<block_idx_t>(b);
             const auto from_type = from_mesh.element_type(bid);
@@ -47,21 +112,18 @@ namespace smesh {
                             type_to_string(to_type));
             }
 
-            if (family == INVALID) {
-                family = from_family;
-            } else if (family != from_family) {
-                SMESH_ERROR("Restrict: mixed SS families are not implemented (block %zu type %s, expected %s)\n",
-                            b,
-                            type_to_string(from_type),
-                            type_to_string(family));
+            if (from_family != HEX8 && from_family != QUAD4 && from_family != TET4) {
+                SMESH_ERROR("Restrict: SS family %s is not implemented\n", type_to_string(from_family));
             }
 
-            if (family != HEX8 && family != QUAD4 && family != TET4) {
-                SMESH_ERROR("Restrict: SS family %s is not implemented\n", type_to_string(family));
-            }
+            has_hex |= from_family == HEX8;
+            has_tet |= from_family == TET4;
+            has_quad |= from_family == QUAD4;
         }
 
-        return family;
+        if (has_quad && (has_hex || has_tet)) {
+            SMESH_ERROR("Restrict: mixed SS families with QUAD are not implemented\n");
+        }
     }
 
     template <typename T>
@@ -71,6 +133,12 @@ namespace smesh {
         std::shared_ptr<Mesh>     to_mesh;
         ExecutionSpace            es;
         SharedBuffer<uint16_t>    element_to_node_incidence_count;
+        SharedBuffer<uint16_t>    hex_incidence;
+        SharedBuffer<uint16_t>    tet_incidence;
+        SharedBuffer<T>           tet_to_work;
+        std::vector<char>         hex_nodes_coarse;
+        std::vector<char>         tet_nodes_coarse;
+        bool                      mixed_hex_tet{false};
         int                       block_size;
         std::shared_ptr<Exchange> from_exchange;
         std::shared_ptr<Exchange> to_exchange;
@@ -95,7 +163,9 @@ namespace smesh {
             const auto to_element   = to_mesh->element_type(0);
             const bool from_ss      = is_semistructured_type(from_element);
             const bool to_ss        = is_semistructured_type(to_element);
-            const auto ss_family    = from_ss ? assert_supported_ss_restrict_meshes(*from_mesh, *to_mesh) : INVALID;
+            if (from_ss) {
+                assert_supported_ss_restrict_meshes(*from_mesh, *to_mesh);
+            }
 
             if (!from_ss && from_mesh->n_blocks() > 1) {
                 SMESH_ERROR("Restrict: unstructured multi-block restriction is not implemented\n");
@@ -143,12 +213,50 @@ namespace smesh {
                 to_exchange = Exchange::create_nodal(to_mesh, Exchange::ExchangeScope::GhostsAndAura);
             }
 
+            mixed_hex_tet = from_ss && ss_has_hex_and_tet(*from_mesh);
+            if (mixed_hex_tet) {
+                const bool mpi_from = is_mpi_distributed(from_mesh);
+                auto       fill_family_incidence = [&](const ElemType family) {
+                    auto buf  = create_host_buffer<uint16_t>(from_mesh->n_nodes());
+                    auto buff = buf->data();
+                    for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
+                        if (ss_block_family(*from_mesh, b) != family) {
+                            continue;
+                        }
+                        auto            block = from_mesh->block(b);
+                        const ptrdiff_t ne    = mpi_from ? block->n_elements_owned() : block->n_elements();
+                        add_block_incidence(*block, ne, buff);
+                    }
+                    if (mpi_from && from_exchange) {
+                        const ptrdiff_t nn  = from_mesh->n_nodes();
+                        auto            cnt = create_host_buffer<i32>(nn);
+                        for (ptrdiff_t i = 0; i < nn; ++i) {
+                            cnt->data()[i] = static_cast<i32>(buff[i]);
+                        }
+                        if (from_exchange->scatter_add(cnt->data()) != SMESH_SUCCESS ||
+                            from_exchange->gather(cnt->data()) != SMESH_SUCCESS) {
+                            SMESH_ERROR("Restrict: mixed-family incidence scatter-add/gather failed\n");
+                        }
+                        for (ptrdiff_t i = 0; i < nn; ++i) {
+                            const i32 v = cnt->data()[i];
+                            buff[i]     = static_cast<uint16_t>(std::min<i32>(v, 65535));
+                        }
+                    }
+                    return buf;
+                };
+                hex_incidence = fill_family_incidence(HEX8);
+                tet_incidence = fill_family_incidence(TET4);
+                mark_family_nodes(*to_mesh, HEX8, hex_nodes_coarse);
+                mark_family_nodes(*to_mesh, TET4, tet_nodes_coarse);
+                tet_to_work = create_host_buffer<T>((ptrdiff_t)to_mesh->n_nodes() * (ptrdiff_t)block_size);
+            }
+
 #ifdef SMESH_ENABLE_CUDA
             if (EXECUTION_SPACE_DEVICE == es) {
                 auto dbuff = to_device(element_to_node_incidence_count);
 
                 if (from_ss) {
-                    if (ss_family != HEX8) {
+                    if (!ss_all_hex_family(*from_mesh)) {
                         SMESH_ERROR("Restrict: DEVICE SS restriction is implemented for HEX-family only\n");
                     }
                     for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
@@ -271,7 +379,8 @@ namespace smesh {
                                     if (ne == 0) {
                                         continue;
                                     }
-                                    if (ss_family == HEX8) {
+                                    const auto fam = ss_block_family(*from_mesh, b);
+                                    if (fam == HEX8) {
                                         auto   to_b = to_mesh->block(b);
                                         idx_t *to_sshex[8];
                                         hex8_elements_as_sshex8_level1(to_b->elements()->data(), to_sshex);
@@ -286,7 +395,7 @@ namespace smesh {
                                                                block_size,
                                                                from,
                                                                to);
-                                    } else if (ss_family == QUAD4) {
+                                    } else if (fam == QUAD4) {
                                         err |= ssquad4_hierarchical_restriction(
                                                 from_level, ne, from_b->elements()->data(), count, block_size, from, to);
                                     } else {
@@ -310,10 +419,11 @@ namespace smesh {
                                 if (ne == 0) {
                                     continue;
                                 }
-                                if (ss_family == HEX8) {
+                                const auto fam = ss_block_family(*from_mesh, b);
+                                if (fam == HEX8) {
                                     err |= sshex8_hierarchical_restriction(
                                             from_level, ne, from_b->elements()->data(), count, block_size, from, to);
-                                } else if (ss_family == QUAD4) {
+                                } else if (fam == QUAD4) {
                                     err |= ssquad4_hierarchical_restriction(
                                             from_level, ne, from_b->elements()->data(), count, block_size, from, to);
                                 } else {
@@ -330,8 +440,73 @@ namespace smesh {
                         SMESH_TRACE_SCOPE("ss_restrict");
                         const int from_level = semistructured_level(*from_mesh);
                         const int to_level   = semistructured_level(*to_mesh);
-                        auto      count      = element_to_node_incidence_count->data();
-                        int       err        = SMESH_SUCCESS;
+                        const int bs         = block_size;
+
+                        auto restrict_family = [&](const ElemType family, const uint16_t *const count, T *const out) {
+                            int err = SMESH_SUCCESS;
+                            for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
+                                if (ss_block_family(*from_mesh, b) != family) {
+                                    continue;
+                                }
+                                auto            from_b = from_mesh->block(b);
+                                auto            to_b   = to_mesh->block(b);
+                                const ptrdiff_t ne     = is_mpi_distributed(from_mesh) ? from_b->n_elements_owned()
+                                                                                       : from_b->n_elements();
+                                if (ne == 0) {
+                                    continue;
+                                }
+                                if (family == HEX8) {
+                                    err |= sshex8_restrict(ne,
+                                                           from_level,
+                                                           1,
+                                                           from_b->elements()->data(),
+                                                           count,
+                                                           to_level,
+                                                           1,
+                                                           to_b->elements()->data(),
+                                                           bs,
+                                                           from,
+                                                           out);
+                                } else {
+                                    err |= sstet4_restrict(ne,
+                                                           from_level,
+                                                           1,
+                                                           from_b->elements()->data(),
+                                                           count,
+                                                           to_level,
+                                                           1,
+                                                           to_b->elements()->data(),
+                                                           bs,
+                                                           from,
+                                                           out);
+                                }
+                            }
+                            return err;
+                        };
+
+                        if (mixed_hex_tet) {
+                            auto            tet_out = tet_to_work->data();
+                            const ptrdiff_t nn      = to_mesh->n_nodes();
+                            std::memset(tet_out, 0, (size_t)nn * (size_t)bs * sizeof(T));
+                            int err = restrict_family(HEX8, hex_incidence->data(), to);
+                            err |= restrict_family(TET4, tet_incidence->data(), tet_out);
+                            for (ptrdiff_t i = 0; i < nn; ++i) {
+                                const bool hx = hex_nodes_coarse[(size_t)i] != 0;
+                                const bool te = tet_nodes_coarse[(size_t)i] != 0;
+                                for (int d = 0; d < bs; ++d) {
+                                    const ptrdiff_t idx = i * (ptrdiff_t)bs + d;
+                                    if (hx && te) {
+                                        to[idx] = (to[idx] + tet_out[idx]) / T(2);
+                                    } else if (te) {
+                                        to[idx] = tet_out[idx];
+                                    }
+                                }
+                            }
+                            return err;
+                        }
+
+                        auto count = element_to_node_incidence_count->data();
+                        int  err   = SMESH_SUCCESS;
                         for (size_t b = 0; b < from_mesh->n_blocks(); ++b) {
                             auto            from_b = from_mesh->block(b);
                             auto            to_b   = to_mesh->block(b);
@@ -340,7 +515,8 @@ namespace smesh {
                             if (ne == 0) {
                                 continue;
                             }
-                            if (ss_family == HEX8) {
+                            const auto fam = ss_block_family(*from_mesh, b);
+                            if (fam == HEX8) {
                                 err |= sshex8_restrict(ne,
                                                        from_level,
                                                        1,
@@ -349,10 +525,10 @@ namespace smesh {
                                                        to_level,
                                                        1,
                                                        to_b->elements()->data(),
-                                                       block_size,
+                                                       bs,
                                                        from,
                                                        to);
-                            } else if (ss_family == QUAD4) {
+                            } else if (fam == QUAD4) {
                                 err |= ssquad4_restrict(ne,
                                                         from_level,
                                                         1,
@@ -361,7 +537,7 @@ namespace smesh {
                                                         to_level,
                                                         1,
                                                         to_b->elements()->data(),
-                                                        block_size,
+                                                        bs,
                                                         from,
                                                         to);
                             } else {
@@ -373,7 +549,7 @@ namespace smesh {
                                                        to_level,
                                                        1,
                                                        to_b->elements()->data(),
-                                                       block_size,
+                                                       bs,
                                                        from,
                                                        to);
                             }
@@ -632,3 +808,4 @@ namespace smesh {
     template class SurfaceRestrict<real_t>;
 
 }  // namespace smesh
+

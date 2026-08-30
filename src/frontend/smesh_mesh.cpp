@@ -1643,12 +1643,20 @@ namespace smesh {
 
     std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::create_node_to_node_graph(const enum ElemType element_type) {
         if (is_semistructured_type(element_type)) {
-            if (n_blocks() != 1) {
-                SMESH_ERROR(
-                    "Semistructured create_node_to_node_graph override is not "
-                    "supported for multi-block meshes!\n");
+            const enum ElemType want = ss_source_family(element_type);
+            if (want != HEX8 && want != TET4 && want != QUAD4) {
+                SMESH_ERROR("create_node_to_node_graph: SS family %s is not implemented\n",
+                            type_to_string(want));
                 return nullptr;
             }
+            for (size_t b = 0; b < n_blocks(); ++b) {
+                const enum ElemType t = this->element_type(static_cast<block_idx_t>(b));
+                if (!is_semistructured_type(t) || ss_source_family(t) != want) {
+                    SMESH_ERROR("create_node_to_node_graph: mixed SS families are not supported\n");
+                    return nullptr;
+                }
+            }
+            return node_to_node_graph();
         }
 
         bool all_same_type = true;
@@ -1733,8 +1741,31 @@ namespace smesh {
                         this->element_type(0), this->n_elements(0), this->n_nodes(), this->elements(0)->data(), &rowptr, &colidx);
             }
         } else {
-            if (is_semistructured_type(this->element_type(0))) {
-                SMESH_ERROR("Semistructured meshes are not supported for multi-block meshes");
+            bool          all_ss    = true;
+            bool          any_ss    = false;
+            bool          mixed_ss  = false;
+            enum ElemType ss_family = INVALID;
+            for (auto &block : impl_->blocks) {
+                const enum ElemType t = block->element_type();
+                if (is_semistructured_type(t)) {
+                    any_ss                   = true;
+                    const enum ElemType family = ss_source_family(t);
+                    if (ss_family == INVALID) {
+                        ss_family = family;
+                    } else if (family != ss_family) {
+                        mixed_ss = true;
+                    }
+                } else {
+                    all_ss = false;
+                }
+            }
+
+            if (any_ss && !all_ss) {
+                SMESH_ERROR("Mixed semi-structured and unstructured blocks are not supported for node_to_node_graph\n");
+                return SMESH_FAILURE;
+            }
+            if (all_ss && (mixed_ss || (ss_family != HEX8 && ss_family != TET4 && ss_family != QUAD4))) {
+                SMESH_ERROR("Semistructured multi-block graph is implemented for homogeneous HEX/TET/QUAD only\n");
                 return SMESH_FAILURE;
             }
             // AoS to SoA
@@ -1872,8 +1903,14 @@ namespace smesh {
     }
 
     int Mesh::convert_to_macro_element_mesh() {
-        if (!impl_->blocks.empty() && impl_->blocks[0]) {
-            impl_->blocks[0]->set_element_type(macro_type_variant(impl_->blocks[0]->element_type()));
+        for (auto &block : impl_->blocks) {
+            if (!block) {
+                continue;
+            }
+            const enum ElemType t = block->element_type();
+            if (t == TET10 || t == TRI6) {
+                block->set_element_type(macro_type_variant(t));
+            }
         }
         return SMESH_SUCCESS;
     }
