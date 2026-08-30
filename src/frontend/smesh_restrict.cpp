@@ -9,7 +9,10 @@
 #include "smesh_sshex8_restriction.hpp"
 #include "smesh_ssquad4.hpp"
 #include "smesh_ssquad4_restriction.hpp"
+#include "smesh_ssedge_restriction.hpp"
+#include "smesh_sstet4.hpp"
 #include "smesh_sstet4_restriction.hpp"
+#include "smesh_sstri_restriction.hpp"
 #include "smesh_tracer.hpp"
 
 #include <algorithm>
@@ -695,8 +698,13 @@ namespace smesh {
               block_size(block_size) {}
 
         int apply(const T *const x, T *const y) {
+            const auto family = is_semistructured_type(from_elem_type) ? ss_source_family(from_elem_type) : from_elem_type;
 #ifdef SMESH_ENABLE_CUDA
             if (es == EXECUTION_SPACE_DEVICE) {
+                if (family != HEX8 && family != QUADSHELL4) {
+                    SMESH_ERROR("SurfaceRestrict: device restriction is implemented for HEX SSQUAD faces only\n");
+                    return SMESH_FAILURE;
+                }
                 cu_ssquad4_restrict(from_sides->extent(1),
                                     from_level,
                                     1,
@@ -716,6 +724,35 @@ namespace smesh {
                 return SMESH_SUCCESS;
             }
 #endif
+            if (family == TET4 || family == TRISHELL3) {
+                sstri_restrict(from_sides->extent(1),
+                               from_level,
+                               1,
+                               from_sides->data(),
+                               from_count->data(),
+                               to_level,
+                               1,
+                               to_sides->data(),
+                               block_size,
+                               x,
+                               y);
+                return SMESH_SUCCESS;
+            }
+            if (family == QUAD4 || family == EDGE2 || family == EDGESHELL2 || family == BEAM2) {
+                ssedge_restrict(from_sides->extent(1),
+                                from_level,
+                                1,
+                                from_sides->data(),
+                                from_count->data(),
+                                to_level,
+                                1,
+                                to_sides->data(),
+                                block_size,
+                                x,
+                                y);
+                return SMESH_SUCCESS;
+            }
+
             ssquad4_restrict(from_sides->extent(1),
                              from_level,
                              1,

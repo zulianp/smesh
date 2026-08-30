@@ -359,6 +359,15 @@ namespace smesh {
         switch (type) {
             case TRI3:
             case QUAD4:
+            case PROTEUS_QUAD4:
+            case PROTEUS_QUAD9:
+            case PROTEUS_QUAD16:
+            case PROTEUS_QUAD25:
+            case PROTEUS_QUAD36:
+            case PROTEUS_QUAD49:
+            case PROTEUS_QUAD64:
+            case PROTEUS_QUAD81:
+            case PROTEUS_QUAD289:
                 return EDGE2;
             case QUAD9:
                 return EDGE3;

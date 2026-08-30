@@ -48,6 +48,21 @@ static SMESH_INLINE SMESH_HOST_DEVICE int sstet4_lidx(const int L, const int x, 
     return ret;
 }
 
+/// 2D barycentric index on a tet face lattice packed as \c sstet4_fill_side
+/// (same as the z=0 slice of \c sstet4_lidx).
+static SMESH_INLINE SMESH_HOST_DEVICE int sstri_lidx(const int L, const int x, const int y) {
+    SMESH_ASSERT(x >= 0 && y >= 0);
+    SMESH_ASSERT(x + y <= L);
+    const int ret = sstet4_n_tri(L) - sstet4_n_tri(L - y) + x;
+    SMESH_ASSERT(ret >= 0);
+    SMESH_ASSERT(ret < sstet4_n_tri(L));
+    return ret;
+}
+
+static SMESH_INLINE SMESH_HOST_DEVICE int sstri_nxe(const int L) { return sstet4_n_tri(L); }
+
+static SMESH_INLINE SMESH_HOST_DEVICE int sstri_txe(const int L) { return L * L; }
+
 }  // namespace smesh
 
 #endif  // SMESH_SSTET4_HPP

@@ -69,6 +69,16 @@ int sstet4_extract_nodeset_from_sideset(const int                               
                                         ptrdiff_t                                              *n_nodes_out,
                                         idx_t **SMESH_RESTRICT                                  nodes_out);
 
+template <typename idx_t>
+int sstri_hierarchical_remapping(const int                                         L,
+                                 const int                                         nlevels,
+                                 int *const                                        levels,
+                                 const ptrdiff_t                                   nelements,
+                                 const ptrdiff_t                                   nnodes,
+                                 idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                 idx_t **SMESH_RESTRICT                            node_mapping_out,
+                                 ptrdiff_t                                        *count_out);
+
 }  // namespace smesh
 
 #endif  // SMESH_SSTET4_GRAPH_HPP

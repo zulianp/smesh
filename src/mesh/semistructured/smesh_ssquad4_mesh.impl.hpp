@@ -75,6 +75,24 @@ int ssquad4_fill_points(const int                                               
     return SMESH_SUCCESS;
 }
 
+template <typename idx_t>
+int ssedge_to_standard_edge2_mesh(const int                                               level,
+                                  const ptrdiff_t                                         nelements,
+                                  const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                  idx_t *SMESH_RESTRICT *const SMESH_RESTRICT             edge2_elements) {
+    const int txe = ssedge_txe(level);
+    for (int xi = 0; xi < level; ++xi) {
+        const int n0 = ssedge_lidx(level, xi);
+        const int n1 = ssedge_lidx(level, xi + 1);
+        SMESH_ASSERT(xi < txe);
+        for (ptrdiff_t e = 0; e < nelements; ++e) {
+            edge2_elements[0][e * txe + xi] = elements[n0][e];
+            edge2_elements[1][e * txe + xi] = elements[n1][e];
+        }
+    }
+    return SMESH_SUCCESS;
+}
+
 } // namespace smesh
 
 #endif // SMESH_SSQUAD4_MESH_IMPL_HPP

@@ -67,6 +67,24 @@ int ssquad4_extract_nodeset_from_sideset(const int                              
                                          ptrdiff_t                                              *n_nodes_out,
                                          idx_t **SMESH_RESTRICT                                  nodes_out);
 
+template <typename idx_t, typename element_idx_t>
+int ssquad4_extract_surface_from_sideset(const int                                               L,
+                                         const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                                         const ptrdiff_t                                         n_surf_elements,
+                                         const element_idx_t *const SMESH_RESTRICT               parent_element,
+                                         const i16 *const SMESH_RESTRICT                         side_idx,
+                                         idx_t **const SMESH_RESTRICT                            sides);
+
+template <typename idx_t>
+int ssedge_hierarchical_remapping(const int                                         L,
+                                  const int                                         nlevels,
+                                  int *const                                        levels,
+                                  const ptrdiff_t                                   nelements,
+                                  const ptrdiff_t                                   nnodes,
+                                  idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                  idx_t **SMESH_RESTRICT                            node_mapping_out,
+                                  ptrdiff_t                                        *count_out);
+
 }  // namespace smesh
 
 #endif

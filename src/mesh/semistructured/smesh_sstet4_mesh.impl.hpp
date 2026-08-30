@@ -68,6 +68,44 @@ int sstet4_fill_points(const int                                                
     return SMESH_SUCCESS;
 }
 
+template <typename idx_t>
+int sstri_to_standard_tri3_mesh(const int                                               level,
+                                const ptrdiff_t                                         nelements,
+                                const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                idx_t *SMESH_RESTRICT *const SMESH_RESTRICT             tri3_elements) {
+    const int txe = sstri_txe(level);
+    ptrdiff_t le  = 0;
+
+    for (int y = 0; y < level; ++y) {
+        for (int x = 0; x < level - y; ++x) {
+            const int n0 = sstri_lidx(level, x, y);
+            const int n1 = sstri_lidx(level, x + 1, y);
+            const int n2 = sstri_lidx(level, x, y + 1);
+            SMESH_ASSERT(le < txe);
+            for (ptrdiff_t e = 0; e < nelements; ++e) {
+                tri3_elements[0][e * txe + le] = elements[n0][e];
+                tri3_elements[1][e * txe + le] = elements[n1][e];
+                tri3_elements[2][e * txe + le] = elements[n2][e];
+            }
+            ++le;
+
+            if (x + y + 1 < level) {
+                const int n3 = sstri_lidx(level, x + 1, y + 1);
+                SMESH_ASSERT(le < txe);
+                for (ptrdiff_t e = 0; e < nelements; ++e) {
+                    tri3_elements[0][e * txe + le] = elements[n1][e];
+                    tri3_elements[1][e * txe + le] = elements[n3][e];
+                    tri3_elements[2][e * txe + le] = elements[n2][e];
+                }
+                ++le;
+            }
+        }
+    }
+
+    SMESH_ASSERT(le == txe);
+    return SMESH_SUCCESS;
+}
+
 }  // namespace smesh
 
 #endif  // SMESH_SSTET4_MESH_IMPL_HPP

@@ -27,6 +27,15 @@ inline int ssquad4_nxe(int level) {
   return corners + edge_nodes + area_nodes;
 }
 
+inline int ssedge_lidx(const int L, const int x) {
+  SMESH_ASSERT(x >= 0 && x <= L);
+  return x;
+}
+
+inline int ssedge_nxe(const int L) { return L + 1; }
+
+inline int ssedge_txe(const int L) { return L; }
+
 } // namespace smesh
 
 #endif // SMESH_SSQUAD4_HPP

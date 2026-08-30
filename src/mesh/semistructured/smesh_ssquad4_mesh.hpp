@@ -21,6 +21,12 @@ int ssquad4_fill_points(const int                                               
                         const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT macro_mesh_points,
                         geom_t *SMESH_RESTRICT *const SMESH_RESTRICT             points);
 
+template <typename idx_t>
+int ssedge_to_standard_edge2_mesh(const int                                               level,
+                                  const ptrdiff_t                                         nelements,
+                                  const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                  idx_t *SMESH_RESTRICT *const SMESH_RESTRICT             edge2_elements);
+
 } // namespace smesh
 
 #endif // SMESH_SSQUAD4_MESH_HPP

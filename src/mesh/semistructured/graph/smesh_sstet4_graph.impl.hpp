@@ -9,6 +9,7 @@
 #include "smesh_sort.hpp"
 #include "smesh_sstet4.hpp"
 #include "smesh_sstet4_graph.hpp"
+#include "smesh_types.hpp"
 
 #include <algorithm>
 
@@ -940,6 +941,92 @@ namespace smesh {
 
         *n_nodes_out = static_cast<ptrdiff_t>(sort_and_unique(nodes, static_cast<size_t>(n)));
         *nodes_out   = static_cast<idx_t *>(SMESH_REALLOC(nodes, static_cast<size_t>(*n_nodes_out) * sizeof(idx_t)));
+        return SMESH_SUCCESS;
+    }
+
+    template <typename idx_t>
+    int sstri_hierarchical_remapping(const int                                         L,
+                                     const int                                         nlevels,
+                                     int *const                                        levels,
+                                     const ptrdiff_t                                   nelements,
+                                     const ptrdiff_t                                   nnodes,
+                                     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                     idx_t **SMESH_RESTRICT                            node_mapping_out,
+                                     ptrdiff_t                                        *count_out) {
+        idx_t *node_mapping = (idx_t *)SMESH_ALLOC(nnodes * sizeof(idx_t));
+
+#pragma omp parallel for
+        for (ptrdiff_t i = 0; i < nnodes; i++) {
+            node_mapping[i] = invalid_idx<idx_t>();
+        }
+
+        idx_t next_id = 0;
+
+        const int corners[3][2] = {{0, 0}, {L, 0}, {0, L}};
+        for (int c = 0; c < 3; ++c) {
+            for (ptrdiff_t e = 0; e < nelements; e++) {
+                const int   v   = sstri_lidx(L, corners[c][0], corners[c][1]);
+                const idx_t idx = elements[v][e];
+                SMESH_ASSERT(idx < nnodes);
+                if (node_mapping[idx] == invalid_idx<idx_t>()) {
+                    node_mapping[idx] = next_id++;
+                }
+            }
+        }
+
+        for (int k = 1; k < nlevels; k++) {
+            const int l           = levels[k];
+            const int step_factor = L / l;
+
+            for (ptrdiff_t e = 0; e < nelements; e++) {
+                for (int yi = 0; yi <= l; yi++) {
+                    for (int xi = 0; xi <= l - yi; xi++) {
+                        const int   v   = sstri_lidx(L, xi * step_factor, yi * step_factor);
+                        const idx_t idx = elements[v][e];
+                        SMESH_ASSERT(idx < nnodes);
+                        if (node_mapping[idx] == invalid_idx<idx_t>()) {
+                            node_mapping[idx] = next_id++;
+                        }
+                    }
+                }
+            }
+        }
+
+        for (int yi = 0; yi <= L; yi++) {
+            for (int xi = 0; xi <= L - yi; xi++) {
+                for (ptrdiff_t e = 0; e < nelements; e++) {
+                    const int   v   = sstri_lidx(L, xi, yi);
+                    const idx_t idx = elements[v][e];
+                    if (node_mapping[idx] == invalid_idx<idx_t>()) {
+                        SMESH_ERROR("Uninitialized node mapping\n");
+                    }
+                    elements[v][e] = node_mapping[idx];
+                }
+            }
+        }
+
+        *count_out        = next_id;
+        *node_mapping_out = (idx_t *)SMESH_ALLOC(*count_out * sizeof(idx_t));
+
+#ifndef NDEBUG
+        for (ptrdiff_t i = 0; i < *count_out; i++) {
+            (*node_mapping_out)[i] = invalid_idx<idx_t>();
+        }
+#endif
+
+        for (ptrdiff_t i = 0; i < nnodes; i++) {
+            if (node_mapping[i] != invalid_idx<idx_t>()) {
+                (*node_mapping_out)[node_mapping[i]] = i;
+            }
+        }
+
+#ifndef NDEBUG
+        for (ptrdiff_t i = 0; i < *count_out; i++) {
+            SMESH_ASSERT((*node_mapping_out)[i] != invalid_idx<idx_t>());
+        }
+#endif
+
+        SMESH_FREE(node_mapping);
         return SMESH_SUCCESS;
     }
 

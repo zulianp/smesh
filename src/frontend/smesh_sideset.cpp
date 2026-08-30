@@ -788,6 +788,19 @@ namespace smesh {
             return {sstet4_surface_type(L), ss_sides};
         }
 
+        if (family == QUAD4) {
+            auto ss_sides = smesh::create_host_buffer<idx_t>(L + 1, n_surf);
+            if (n_surf > 0 && ssquad4_extract_surface_from_sideset(L,
+                                                                   block->elements()->data(),
+                                                                   n_surf,
+                                                                   sideset->parent()->data(),
+                                                                   sideset->lfi()->data(),
+                                                                   ss_sides->data()) != SMESH_SUCCESS) {
+                SMESH_ERROR("Unable to extract surface from sideset!\n");
+            }
+            return {shell_type(side_type(et)), ss_sides};
+        }
+
         if (family == WEDGE6 || family == PYRAMID5) {
             if (n_surf <= 0) {
                 return {INVALID, nullptr};

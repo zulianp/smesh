@@ -19,8 +19,17 @@
             GEOM_T *SMESH_RESTRICT *const SMESH_RESTRICT)
 
 namespace smesh {
+#define SMESH_EXPLICIT_INSTANTIATE_SSTRI_TO_TRI3(IDX_T)                   \
+    template int sstri_to_standard_tri3_mesh<IDX_T>(                      \
+            const int,                                                    \
+            const ptrdiff_t,                                              \
+            const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,      \
+            IDX_T *SMESH_RESTRICT *const SMESH_RESTRICT)
+
 SMESH_EXPLICIT_INSTANTIATE_SSTET4_TO_TET4(i32);
 SMESH_EXPLICIT_INSTANTIATE_SSTET4_TO_TET4(i64);
+SMESH_EXPLICIT_INSTANTIATE_SSTRI_TO_TRI3(i32);
+SMESH_EXPLICIT_INSTANTIATE_SSTRI_TO_TRI3(i64);
 
 SMESH_EXPLICIT_INSTANTIATE_SSTET4_MESH(i16, f32);
 SMESH_EXPLICIT_INSTANTIATE_SSTET4_MESH(i32, f32);
@@ -29,5 +38,6 @@ SMESH_EXPLICIT_INSTANTIATE_SSTET4_MESH(i32, f64);
 SMESH_EXPLICIT_INSTANTIATE_SSTET4_MESH(i64, f64);
 }  // namespace smesh
 
+#undef SMESH_EXPLICIT_INSTANTIATE_SSTRI_TO_TRI3
 #undef SMESH_EXPLICIT_INSTANTIATE_SSTET4_TO_TET4
 #undef SMESH_EXPLICIT_INSTANTIATE_SSTET4_MESH
