@@ -672,6 +672,63 @@ int ssquad4_hierarchical_renumbering_blocks(
     return SMESH_SUCCESS;
 }
 
+template <typename idx_t, typename element_idx_t>
+int ssquad4_extract_nodeset_from_sideset(const int                                               L,
+                                         const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
+                                         const ptrdiff_t                                         n_surf_elements,
+                                         const element_idx_t *const SMESH_RESTRICT               parent_element,
+                                         const i16 *const SMESH_RESTRICT                         side_idx,
+                                         ptrdiff_t                                              *n_nodes_out,
+                                         idx_t **SMESH_RESTRICT                                  nodes_out) {
+    const int       nnxs = L + 1;
+    const ptrdiff_t n    = static_cast<ptrdiff_t>(nnxs) * n_surf_elements;
+    if (n == 0) {
+        *n_nodes_out = 0;
+        *nodes_out   = nullptr;
+        return SMESH_SUCCESS;
+    }
+
+    idx_t *nodes = static_cast<idx_t *>(SMESH_ALLOC(static_cast<size_t>(n) * sizeof(idx_t)));
+
+#pragma omp parallel for
+    for (ptrdiff_t i = 0; i < n_surf_elements; i++) {
+        const ptrdiff_t e = parent_element[i];
+        const int       s = side_idx[i];
+        SMESH_ASSERT(s >= 0 && s < 4);
+        idx_t *const out = &nodes[i * nnxs];
+        for (int t = 0; t <= L; ++t) {
+            int x = 0;
+            int y = 0;
+            switch (s) {
+                case 0:
+                    x = t;
+                    y = 0;
+                    break;
+                case 1:
+                    x = L;
+                    y = t;
+                    break;
+                case 2:
+                    x = L - t;
+                    y = L;
+                    break;
+                case 3:
+                    x = 0;
+                    y = L - t;
+                    break;
+                default:
+                    break;
+            }
+            out[t] = elems[ssquad4_lidx(L, x, y)][e];
+        }
+    }
+
+    *n_nodes_out = static_cast<ptrdiff_t>(sort_and_unique(nodes, static_cast<size_t>(n)));
+    *nodes_out   = static_cast<idx_t *>(SMESH_REALLOC(nodes, static_cast<size_t>(*n_nodes_out) * sizeof(idx_t)));
+    return SMESH_SUCCESS;
+}
+
 }  // namespace smesh
 
 #endif
+

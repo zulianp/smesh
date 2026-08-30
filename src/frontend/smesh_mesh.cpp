@@ -4738,6 +4738,8 @@ namespace smesh {
     }
 #endif
 
+    static std::shared_ptr<Sideset> skin_sideset_for_block(const std::shared_ptr<Mesh> &mesh, const block_idx_t block_id);
+
     std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
         SMESH_TRACE_SCOPE("skin_sideset");
         if (mesh->n_blocks() != 1) {
@@ -4745,8 +4747,8 @@ namespace smesh {
             return nullptr;
         }
 
-        if (is_semistructured_type(mesh->element_type(0)) && semistructured_level(mesh->element_type(0)) > 1) {
-            return skin_sideset(derefine(mesh, 1));
+        if (is_semistructured_type(mesh->element_type(0))) {
+            return skin_sideset_for_block(mesh, 0);
         }
 
         auto n2e_graph     = mesh->node_to_element_graph();
@@ -4806,11 +4808,6 @@ namespace smesh {
         }
 
         const enum ElemType et = block->element_type();
-        if (is_semistructured_type(et) && semistructured_level(et) > 1) {
-            SMESH_ERROR("skin_sidesets: semistructured blocks are not supported\n");
-            return nullptr;
-        }
-
         if (block->n_elements() == 0) {
             auto empty_parent = create_host_buffer<element_idx_t>(0);
             auto empty_lfi    = create_host_buffer<i16>(0);
@@ -4821,19 +4818,52 @@ namespace smesh {
                                              mesh->comm()->size() > 1 ? block->element_mapping() : nullptr);
         }
 
-        auto hft = mesh->half_face_table(block_id);
         ptrdiff_t      n_surf_elements = 0;
         element_idx_t *parent_element  = nullptr;
         i16           *side_idx        = nullptr;
 
-        if (extract_sideset_from_adj_table(et,
-                                           block->n_elements(),
-                                           hft->data(),
-                                           &n_surf_elements,
-                                           &parent_element,
-                                           &side_idx) != SMESH_SUCCESS) {
-            SMESH_ERROR("Unable to extract skin sideset for block %d\n", block_id);
-            return nullptr;
+        if (is_semistructured_type(et)) {
+            const enum ElemType family = ss_source_family(et);
+            const int           L      = semistructured_level(et);
+            int                 corners[8];
+            int                 n_corners = 0;
+            if (!ss_source_family_corners(family, L, corners, &n_corners)) {
+                SMESH_ERROR("skin_sidesets: SS family %s is not supported\n", type_to_string(family));
+                return nullptr;
+            }
+            idx_t *corner_soa[8];
+            auto   els = block->elements()->data();
+            for (int d = 0; d < n_corners; ++d) {
+                corner_soa[d] = els[corners[d]];
+            }
+            element_idx_t *adj_table = nullptr;
+            create_element_adj_table<idx_t, count_t, element_idx_t>(block->n_elements(),
+                                                                   mesh->n_nodes(),
+                                                                   family,
+                                                                   corner_soa,
+                                                                   &adj_table);
+            if (extract_sideset_from_adj_table(family,
+                                               block->n_elements(),
+                                               adj_table,
+                                               &n_surf_elements,
+                                               &parent_element,
+                                               &side_idx) != SMESH_SUCCESS) {
+                SMESH_FREE(adj_table);
+                SMESH_ERROR("Unable to extract skin sideset for SS block %d\n", block_id);
+                return nullptr;
+            }
+            SMESH_FREE(adj_table);
+        } else {
+            auto hft = mesh->half_face_table(block_id);
+            if (extract_sideset_from_adj_table(et,
+                                               block->n_elements(),
+                                               hft->data(),
+                                               &n_surf_elements,
+                                               &parent_element,
+                                               &side_idx) != SMESH_SUCCESS) {
+                SMESH_ERROR("Unable to extract skin sideset for block %d\n", block_id);
+                return nullptr;
+            }
         }
 
 #ifdef SMESH_ENABLE_MPI
@@ -5490,3 +5520,4 @@ namespace smesh {
     }
 
 }  // namespace smesh
+

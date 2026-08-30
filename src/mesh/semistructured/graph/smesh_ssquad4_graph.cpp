@@ -45,7 +45,15 @@ namespace smesh {
             const ptrdiff_t,                                                                                \
             IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT *const SMESH_RESTRICT,                        \
             IDX_T *const SMESH_RESTRICT,                                                                    \
-            const bool)
+            const bool);                                                                                    \
+    template int ssquad4_extract_nodeset_from_sideset<IDX_T, IDX_T>(                                        \
+            const int,                                                                                      \
+            const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                                        \
+            const ptrdiff_t,                                                                                \
+            const IDX_T *const SMESH_RESTRICT,                                                              \
+            const i16 *const SMESH_RESTRICT,                                                                \
+            ptrdiff_t *,                                                                                    \
+            IDX_T **SMESH_RESTRICT)
 
 SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_GRAPH(i32);
 SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_GRAPH(i64);
@@ -57,3 +65,4 @@ SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_SINGLE(i64);
 #undef SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_SINGLE
 
 }  // namespace smesh
+

@@ -8,9 +8,15 @@
 #include "smesh_buffer.hpp"
 #include "smesh_crs_graph.hpp"
 #include "smesh_elem_type.hpp"
+#include "smesh_elem_type.hpp"
 #include "smesh_forward_declarations.hpp"
 #include "smesh_mesh.hpp"
+#include "smesh_sshex8.hpp"
 #include "smesh_sshex8_graph.hpp"
+#include "smesh_sspyramid.hpp"
+#include "smesh_ssquad4.hpp"
+#include "smesh_sstet4.hpp"
+#include "smesh_sswedge.hpp"
 
 #include <memory>
 #include <vector>
@@ -56,6 +62,61 @@ namespace smesh {
     /// into \p fine_device_soa, matching \c sshex8_to_standard_hex8_mesh ordering.
     SharedBuffer<idx_t *> sshex8_to_hex8_device_elements_view(const SharedBuffer<idx_t *> &fine_device_soa,
                                                               const int                    from_level);
+
+    /// HEX8 / TET4 / QUAD4 / WEDGE6 / PYRAMID5 local node → SS SoA row (VTK/family order).
+    inline bool ss_source_family_corners(const enum ElemType family, const int L, int *const corners, int *const n_corners) {
+        if (!corners || !n_corners || L < 1) {
+            return false;
+        }
+        if (family == HEX8) {
+            corners[0] = sshex8_lidx(L, 0, 0, 0);
+            corners[1] = sshex8_lidx(L, L, 0, 0);
+            corners[2] = sshex8_lidx(L, L, L, 0);
+            corners[3] = sshex8_lidx(L, 0, L, 0);
+            corners[4] = sshex8_lidx(L, 0, 0, L);
+            corners[5] = sshex8_lidx(L, L, 0, L);
+            corners[6] = sshex8_lidx(L, L, L, L);
+            corners[7] = sshex8_lidx(L, 0, L, L);
+            *n_corners = 8;
+            return true;
+        }
+        if (family == TET4) {
+            corners[0] = sstet4_lidx(L, 0, 0, 0);
+            corners[1] = sstet4_lidx(L, L, 0, 0);
+            corners[2] = sstet4_lidx(L, 0, L, 0);
+            corners[3] = sstet4_lidx(L, 0, 0, L);
+            *n_corners = 4;
+            return true;
+        }
+        if (family == QUAD4) {
+            corners[0] = ssquad4_lidx(L, 0, 0);
+            corners[1] = ssquad4_lidx(L, L, 0);
+            corners[2] = ssquad4_lidx(L, L, L);
+            corners[3] = ssquad4_lidx(L, 0, L);
+            *n_corners = 4;
+            return true;
+        }
+        if (family == WEDGE6) {
+            corners[0] = sswedge_lidx(L, 0, 0, 0);
+            corners[1] = sswedge_lidx(L, L, 0, 0);
+            corners[2] = sswedge_lidx(L, 0, L, 0);
+            corners[3] = sswedge_lidx(L, 0, 0, L);
+            corners[4] = sswedge_lidx(L, L, 0, L);
+            corners[5] = sswedge_lidx(L, 0, L, L);
+            *n_corners = 6;
+            return true;
+        }
+        if (family == PYRAMID5) {
+            corners[0] = sspyramid_lidx(L, 0, 0, 0);
+            corners[1] = sspyramid_lidx(L, L, 0, 0);
+            corners[2] = sspyramid_lidx(L, L, L, 0);
+            corners[3] = sspyramid_lidx(L, 0, L, 0);
+            corners[4] = sspyramid_lidx(L, 0, 0, L);
+            *n_corners = 5;
+            return true;
+        }
+        return false;
+    }
 
     inline int semistructured_level(const Mesh &mesh) { return semistructured_level(mesh.element_type(0)); }
 

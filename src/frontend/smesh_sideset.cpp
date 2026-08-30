@@ -9,6 +9,7 @@
 #include "smesh_sidesets.hpp"
 #include "smesh_sshex8_graph.hpp"
 #include "smesh_sspyramid_graph.hpp"
+#include "smesh_ssquad4_graph.hpp"
 #include "smesh_ssquad4_mesh.hpp"
 #include "smesh_sstet4.hpp"
 #include "smesh_sstet4_graph.hpp"
@@ -187,11 +188,6 @@ namespace smesh {
             const std::vector<std::string>                                      &block_names) {
         SMESH_TRACE_SCOPE("Sideset::create_from_selector");
 
-        if (is_semistructured_type(mesh->element_type(0))) {
-            auto coarse = sshex_to_hex8(derefine(mesh, 1));
-            return create_from_selector(coarse, selector, block_names);
-        }
-
         const int dim    = mesh->spatial_dimension();
         auto      points = mesh->points()->data();
 
@@ -206,9 +202,19 @@ namespace smesh {
             }
 
             const enum ElemType element_type = block->element_type();
-            const int           ns           = elem_num_sides(element_type);
-            LocalSideTable      lst;
-            lst.fill(element_type);
+            const bool          is_ss        = is_semistructured_type(element_type);
+            const enum ElemType family       = is_ss ? ss_source_family(element_type) : element_type;
+            int                 corners[8];
+            int                 n_corners = 0;
+            if (is_ss && !ss_source_family_corners(family, semistructured_level(element_type), corners, &n_corners)) {
+                SMESH_ERROR("Sideset::create_from_selector: SS family %s is not supported\n", type_to_string(family));
+                return {};
+            }
+            (void)n_corners;
+
+            const int      ns = elem_num_sides(family);
+            LocalSideTable lst;
+            lst.fill(family);
 
             const ptrdiff_t nelements = block->n_elements();
             auto            elements  = block->elements()->data();
@@ -269,7 +275,8 @@ namespace smesh {
                     double p[3] = {0, 0, 0};
 
                     for (int ln = 0; ln < lst.nnxs_side[s]; ln++) {
-                        const idx_t node = elements[lst(s, ln)][e];
+                        const int   soa_row = is_ss ? corners[lst(s, ln)] : lst(s, ln);
+                        const idx_t node    = elements[soa_row][e];
 
                         for (int d = 0; d < dim; d++) {
                             p[d] += points[d][node];
@@ -326,11 +333,6 @@ namespace smesh {
             const std::vector<std::string> &block_names) {
         SMESH_TRACE_SCOPE("Sideset::create_from_batch_selector");
 
-        if (is_semistructured_type(mesh->element_type(0))) {
-            auto coarse = sshex_to_hex8(derefine(mesh, 1));
-            return create_from_batch_selector(coarse, selector, block_names);
-        }
-
         const int dim    = mesh->spatial_dimension();
         auto      points = mesh->points()->data();
 
@@ -345,9 +347,19 @@ namespace smesh {
             }
 
             const enum ElemType element_type = block->element_type();
-            const int           ns           = elem_num_sides(element_type);
-            LocalSideTable      lst;
-            lst.fill(element_type);
+            const bool          is_ss        = is_semistructured_type(element_type);
+            const enum ElemType family       = is_ss ? ss_source_family(element_type) : element_type;
+            int                 corners[8];
+            int                 n_corners = 0;
+            if (is_ss && !ss_source_family_corners(family, semistructured_level(element_type), corners, &n_corners)) {
+                SMESH_ERROR("Sideset::create_from_batch_selector: SS family %s is not supported\n", type_to_string(family));
+                return {};
+            }
+            (void)n_corners;
+
+            const int      ns = elem_num_sides(family);
+            LocalSideTable lst;
+            lst.fill(family);
 
             const ptrdiff_t nelements = block->n_elements();
             auto            elements  = block->elements()->data();
@@ -380,7 +392,8 @@ namespace smesh {
                             geom_t p[3] = {0, 0, 0};
 
                             for (int ln = 0; ln < lst.nnxs_side[s]; ln++) {
-                                const idx_t node = elements[lst(s, ln)][e + b];
+                                const int   soa_row = is_ss ? corners[lst(s, ln)] : lst(s, ln);
+                                const idx_t node    = elements[soa_row][e + b];
 
                                 for (int d = 0; d < dim; d++) {
                                     p[d] += points[d][node];
@@ -929,6 +942,20 @@ namespace smesh {
             return smesh::manage_host_buffer(n_nodes, nodes);
         }
 
+        if (family == QUAD4) {
+            SMESH_TRACE_SCOPE("ssquad4_extract_nodeset_from_sideset");
+            if (ssquad4_extract_nodeset_from_sideset(L,
+                                                     block->elements()->data(),
+                                                     sideset->parent()->size(),
+                                                     sideset->parent()->data(),
+                                                     sideset->lfi()->data(),
+                                                     &n_nodes,
+                                                     &nodes) != SMESH_SUCCESS) {
+                SMESH_ERROR("Unable to extract nodeset from sideset!\n");
+            }
+            return smesh::manage_host_buffer(n_nodes, nodes);
+        }
+
         if (family == WEDGE6) {
             SMESH_TRACE_SCOPE("sswedge_extract_nodeset_from_sideset");
             if (sswedge_extract_nodeset_from_sideset(L,
@@ -961,27 +988,110 @@ namespace smesh {
         return nullptr;
     }
 
+    // Element-owned sidesets miss constrained nodes whose owner rank only
+    // holds the incident element as a ghost. Broadcast GIDs so every rank
+    // that stores the node (owned or halo) includes it in the nodeset.
+    static std::shared_ptr<Buffer<idx_t>> synchronize_nodeset_gids(const std::shared_ptr<Mesh>          &mesh,
+                                                                   const std::shared_ptr<Buffer<idx_t>> &local) {
+#ifdef SMESH_ENABLE_MPI
+        if (!mesh || !mesh->comm() || mesh->comm()->size() <= 1 || !mesh->is_distributed() || !mesh->distributed()) {
+            return local;
+        }
+        auto nmap_buf = mesh->distributed()->node_mapping();
+        if (!nmap_buf || nmap_buf->size() == 0) {
+            return local;
+        }
+
+        const large_idx_t *const nmap           = nmap_buf->data();
+        const ptrdiff_t          n_local_nodes  = mesh->n_nodes();
+        std::vector<large_idx_t> send;
+        if (local && local->size() > 0) {
+            send.reserve(static_cast<size_t>(local->size()));
+            auto d = local->data();
+            for (ptrdiff_t i = 0; i < static_cast<ptrdiff_t>(local->size()); ++i) {
+                const idx_t n = d[i];
+                if (n >= 0 && static_cast<ptrdiff_t>(n) < n_local_nodes) {
+                    send.push_back(nmap[n]);
+                }
+            }
+            std::sort(send.begin(), send.end());
+            send.erase(std::unique(send.begin(), send.end()), send.end());
+        }
+
+        MPI_Comm comm  = mesh->comm()->get();
+        const int nsend  = static_cast<int>(send.size());
+        const int nranks = mesh->comm()->size();
+        std::vector<int> counts(static_cast<size_t>(nranks), 0);
+        std::vector<int> displs(static_cast<size_t>(nranks), 0);
+        SMESH_MPI_CATCH(MPI_Allgather(&nsend, 1, MPI_INT, counts.data(), 1, MPI_INT, comm));
+        int ntotal = 0;
+        for (int r = 0; r < nranks; ++r) {
+            displs[static_cast<size_t>(r)] = ntotal;
+            ntotal += counts[static_cast<size_t>(r)];
+        }
+        std::vector<large_idx_t> recv(static_cast<size_t>(ntotal));
+        SMESH_MPI_CATCH(MPI_Allgatherv(send.empty() ? nullptr : send.data(),
+                                       nsend,
+                                       mpi_type<large_idx_t>(),
+                                       recv.empty() ? nullptr : recv.data(),
+                                       counts.data(),
+                                       displs.data(),
+                                       mpi_type<large_idx_t>(),
+                                       comm));
+
+        std::unordered_map<large_idx_t, idx_t> gid_to_local;
+        gid_to_local.reserve(static_cast<size_t>(n_local_nodes));
+        for (ptrdiff_t i = 0; i < n_local_nodes; ++i) {
+            gid_to_local.emplace(nmap[i], static_cast<idx_t>(i));
+        }
+
+        std::vector<idx_t> out;
+        out.reserve(local ? static_cast<size_t>(local->size()) : 0);
+        for (int i = 0; i < ntotal; ++i) {
+            auto it = gid_to_local.find(recv[static_cast<size_t>(i)]);
+            if (it != gid_to_local.end()) {
+                out.push_back(it->second);
+            }
+        }
+        std::sort(out.begin(), out.end());
+        out.erase(std::unique(out.begin(), out.end()), out.end());
+
+        const ptrdiff_t n     = static_cast<ptrdiff_t>(out.size());
+        idx_t          *nodes = nullptr;
+        if (n > 0) {
+            nodes = (idx_t *)SMESH_ALLOC(static_cast<size_t>(n) * sizeof(idx_t));
+            std::memcpy(nodes, out.data(), static_cast<size_t>(n) * sizeof(idx_t));
+        }
+        return manage_host_buffer(n, nodes);
+#else
+        (void)mesh;
+        return local;
+#endif
+    }
+
     std::shared_ptr<Buffer<idx_t>> create_nodeset_from_sideset(const std::shared_ptr<Mesh>    &mesh,
                                                                const std::shared_ptr<Sideset> &sideset) {
+        std::shared_ptr<Buffer<idx_t>> local;
         if (is_semistructured_type(mesh->element_type(sideset->block_id()))) {
-            return create_nodeset_from_sideset_semistructured(mesh, sideset);
+            local = create_nodeset_from_sideset_semistructured(mesh, sideset);
+        } else {
+            auto block = mesh->block(sideset->block_id());
+
+            ptrdiff_t n_nodes{0};
+            idx_t    *nodes{nullptr};
+            if (extract_nodeset_from_sideset(block->element_type(),
+                                             block->elements()->data(),
+                                             sideset->parent()->size(),
+                                             sideset->parent()->data(),
+                                             sideset->lfi()->data(),
+                                             &n_nodes,
+                                             &nodes) != SMESH_SUCCESS) {
+                SMESH_ERROR("Unable to extract nodeset from sideset!\n");
+            }
+
+            local = smesh::manage_host_buffer(n_nodes, nodes);
         }
-
-        auto block = mesh->block(sideset->block_id());
-
-        ptrdiff_t n_nodes{0};
-        idx_t    *nodes{nullptr};
-        if (extract_nodeset_from_sideset(block->element_type(),
-                                         block->elements()->data(),
-                                         sideset->parent()->size(),
-                                         sideset->parent()->data(),
-                                         sideset->lfi()->data(),
-                                         &n_nodes,
-                                         &nodes) != SMESH_SUCCESS) {
-            SMESH_ERROR("Unable to extract nodeset from sideset!\n");
-        }
-
-        return smesh::manage_host_buffer(n_nodes, nodes);
+        return synchronize_nodeset_gids(mesh, local);
     }
 
     std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>> create_surface_from_sidesets(
