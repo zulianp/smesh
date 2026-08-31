@@ -49,6 +49,7 @@ namespace smesh {
                                                         const bool                   use_GLL,
                                                         const bool                   hierarchical_ordering = false);
     std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex);
+    std::shared_ptr<Mesh> sstet_to_tet4(const std::shared_ptr<Mesh> &sstet);
     std::shared_ptr<Mesh> ssquad_to_quad4(const std::shared_ptr<Mesh> &ssquad);
     std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh, const int to_level);
 
@@ -135,12 +136,36 @@ namespace smesh {
     }
 
     inline int semistructured_export_as_standard(const std::shared_ptr<Mesh> &mesh, const smesh::Path &path) {
-        auto standard_mesh = smesh::sshex_to_hex8(mesh);
-        if (!standard_mesh) {
+        if (!mesh) {
             return SMESH_FAILURE;
         }
 
-        return standard_mesh->write(path);
+        bool all_hex = true;
+        bool all_tet = true;
+        bool all_quad = true;
+        for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+            const auto fam = ss_source_family(mesh->element_type(static_cast<block_idx_t>(b)));
+            all_hex &= fam == HEX8;
+            all_tet &= fam == TET4;
+            all_quad &= fam == QUAD4;
+        }
+
+        std::shared_ptr<Mesh> standard;
+        if (all_hex) {
+            standard = sshex_to_hex8(mesh);
+        } else if (all_tet) {
+            standard = sstet_to_tet4(mesh);
+        } else if (all_quad) {
+            standard = ssquad_to_quad4(mesh);
+        } else {
+            fprintf(stderr, "semistructured_export_as_standard: mixed SS families are not supported\n");
+            return SMESH_FAILURE;
+        }
+        if (!standard) {
+            return SMESH_FAILURE;
+        }
+
+        return standard->write(path);
     }
 
 }  // namespace smesh

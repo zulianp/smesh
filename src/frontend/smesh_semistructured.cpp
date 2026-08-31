@@ -1207,6 +1207,30 @@ namespace smesh {
         return hex;
     }
 
+    std::shared_ptr<Mesh> sstet_to_tet4(const std::shared_ptr<Mesh> &sstet) {
+        for (auto &block : sstet->blocks()) {
+            if (!is_tet_ss_family(block->element_type())) {
+                fprintf(stderr, "sstet_to_tet4: mixed-family or non-TET SS conversion is not implemented\n");
+                return nullptr;
+            }
+        }
+        std::vector<std::shared_ptr<Mesh::Block>> blocks;
+        for (auto &block : sstet->blocks()) {
+            auto new_block = std::make_shared<Mesh::Block>();
+            sstet_block_to_tet4_block(*block, *new_block);
+            blocks.push_back(new_block);
+        }
+
+        auto tet = std::make_shared<Mesh>(sstet->comm(), blocks, sstet->points());
+#ifdef SMESH_ENABLE_MPI
+        if (sstet->is_distributed()) {
+            // Microtet count is L^3 per macrotet, same expansion as SSHEX8.
+            return MeshTransformsDistributed::attach_sshex_to_hex8(sstet, tet);
+        }
+#endif
+        return tet;
+    }
+
     std::shared_ptr<Mesh> ssquad_to_quad4(const std::shared_ptr<Mesh> &ssquad) {
         std::vector<std::shared_ptr<Mesh::Block>> blocks;
         for (auto &block : ssquad->blocks()) {
