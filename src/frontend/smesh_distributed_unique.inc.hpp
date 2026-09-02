@@ -11,10 +11,13 @@ static large_idx_t owned_pref_rank_aux(const int from_owned, const int rank, con
     return from_owned ? (large_idx_t)rank : (large_idx_t)rank + (large_idx_t)comm_size;
 }
 
+#if !defined(SMESH_DISTRIBUTED_UNIQUE_MINIMAL)
+/// WARNING: unused in mesh_transforms_distributed (SS unique-map only).
 static large_idx_t owned_pref_eid_aux(const int from_owned, const large_idx_t eid, const ptrdiff_t n_elem_global) {
     return from_owned ? eid : eid + (large_idx_t)n_elem_global;
 }
 
+/// WARNING: unused in mesh_transforms_distributed (SS unique-map only).
 static void sort4(large_idx_t *v, const int n) {
     for (int i = 1; i < n; ++i) {
         const large_idx_t x = v[i];
@@ -26,6 +29,7 @@ static void sort4(large_idx_t *v, const int n) {
         v[j] = x;
     }
 }
+#endif
 
 static ptrdiff_t id_space_size(const ptrdiff_t n, const int comm_size) {
     return n >= comm_size ? n : (ptrdiff_t)comm_size;
@@ -346,6 +350,8 @@ static int local_unique_by_index(const ptrdiff_t        n_inc,
 }
 
 /// Dense ids: gid = id. Owner/shared via rank_owner(n_space, id) SoA slots.
+#if !defined(SMESH_DISTRIBUTED_UNIQUE_MINIMAL)
+/// WARNING: unused in mesh_transforms_distributed (SS unique-map only).
 static int unique_by_id(MPI_Comm           comm,
                         const ptrdiff_t    n_space,
                         const ptrdiff_t    n_req,
@@ -504,6 +510,7 @@ static int unique_by_id(MPI_Comm           comm,
     SMESH_FREE(reply_recv);
     return SMESH_SUCCESS;
 }
+#endif
 
 static void count_entity_nodes(const ptrdiff_t n_uniq,
                                const int       n_per,
@@ -520,6 +527,8 @@ static void count_entity_nodes(const ptrdiff_t n_uniq,
         n_bkt[node_bucket(rank, owner[u], shared[u], uo[u], ua[u])] += n_per;
     }
 }
+#if !defined(SMESH_DISTRIBUTED_UNIQUE_MINIMAL)
+/// WARNING: unused in mesh_transforms_distributed (SS unique-map only).
 static void fill_flat_node_gids(const ptrdiff_t          n_uniq,
                                 const int                n_per,
                                 const large_idx_t        base,
@@ -531,6 +540,7 @@ static void fill_flat_node_gids(const ptrdiff_t          n_uniq,
         }
     }
 }
+#endif
 static int unique_inc_tuples(MPI_Comm           comm,
                              const ptrdiff_t    n_space,
                              const ptrdiff_t    n_inc,

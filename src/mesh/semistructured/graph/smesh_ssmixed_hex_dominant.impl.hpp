@@ -15,19 +15,6 @@ static int hexdom_pyr_conn[5][4]   = {{1, 3, 4, -1}, {0, 2, 4, -1}, {1, 3, 4, -1
 static const int hexdom_wedge_xyz[6][3] = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 0, 1}, {0, 1, 1}};
 static const int hexdom_pyr_ijk[5][3]   = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}, {0, 0, 1}};
 
-static int hexdom_n_macro(const enum ElemType f) {
-    if (f == HEX8) {
-        return 8;
-    }
-    if (f == TET4) {
-        return 4;
-    }
-    if (f == WEDGE6) {
-        return 6;
-    }
-    return 5;
-}
-
 static int hexdom_nsides(const enum ElemType f) {
     if (f == HEX8) {
         return 6;

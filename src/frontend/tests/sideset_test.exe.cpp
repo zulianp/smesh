@@ -1,13 +1,22 @@
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <string>
 #include <utility>
 #include <vector>
 
+#include "smesh_adjacency.hpp"
+#include "smesh_device_buffer.hpp"
+#include "smesh_device_sideset.hpp"
 #include "smesh_mask.hpp"
 #include "smesh_mesh.hpp"
+#include "smesh_semistructured.hpp"
 #include "smesh_sideset.hpp"
 #include "smesh_sidesets.impl.hpp"
 #include "smesh_test.hpp"
@@ -71,6 +80,79 @@ geom_t side_centroid_x(const std::shared_ptr<Mesh> &mesh,
   return x / static_cast<geom_t>(nn);
 }
 
+using NodeKey = std::array<long long, 3>;
+using FaceKey = std::vector<NodeKey>;
+
+NodeKey quantize_node(const geom_t *const *pts, const idx_t node) {
+  return {std::llround(static_cast<double>(pts[0][node]) * 1e9),
+          std::llround(static_cast<double>(pts[1][node]) * 1e9),
+          std::llround(static_cast<double>(pts[2][node]) * 1e9)};
+}
+
+int parse_sideset_meta_file(const Path &folder, ptrdiff_t *size_out, block_idx_t *block_id_out) {
+  std::ifstream ifs((folder / "meta.yaml").to_string());
+  if (!ifs.good()) {
+    return SMESH_FAILURE;
+  }
+  bool has_size = false;
+  bool has_block_id = false;
+  std::string line;
+  while (std::getline(ifs, line)) {
+    const auto hash = line.find('#');
+    if (hash != std::string::npos) {
+      line.resize(hash);
+    }
+    const auto start = line.find_first_not_of(" \t");
+    if (start == std::string::npos) {
+      continue;
+    }
+    line = line.substr(start);
+    if (line.compare(0, 5, "size:") == 0) {
+      has_size = true;
+      *size_out = static_cast<ptrdiff_t>(std::strtoll(line.c_str() + 5, nullptr, 10));
+    } else if (line.compare(0, 9, "block_id:") == 0) {
+      has_block_id = true;
+      *block_id_out = static_cast<block_idx_t>(std::strtol(line.c_str() + 9, nullptr, 10));
+    }
+  }
+  return (has_size && has_block_id) ? SMESH_SUCCESS : SMESH_FAILURE;
+}
+
+std::vector<FaceKey> corner_face_keys(const std::shared_ptr<Mesh> &mesh,
+                                      const std::shared_ptr<Sideset> &sideset) {
+  std::vector<FaceKey> faces;
+  auto block = mesh->block(sideset->block_id());
+  const enum ElemType et = block->element_type();
+  const bool is_ss = is_semistructured_type(et);
+  const enum ElemType family = is_ss ? ss_source_family(et) : et;
+  int corners[8] = {};
+  int n_corners = 0;
+  if (is_ss) {
+    ss_source_family_corners(family, semistructured_level(et), corners, &n_corners);
+  }
+  LocalSideTable lst;
+  lst.fill(family);
+  auto elems = block->elements()->data();
+  auto pts = mesh->points()->data();
+  const ptrdiff_t n_e = block->n_elements();
+  for (ptrdiff_t i = 0; i < sideset->size(); ++i) {
+    const element_idx_t e = sideset->parent()->data()[i];
+    const i16 s = sideset->lfi()->data()[i];
+    if (e < 0 || e >= n_e) {
+      return {};
+    }
+    FaceKey key(static_cast<size_t>(lst.nnxs_side[s]));
+    for (int ln = 0; ln < lst.nnxs_side[s]; ++ln) {
+      const int soa_row = is_ss ? corners[lst(s, ln)] : lst(s, ln);
+      key[static_cast<size_t>(ln)] = quantize_node(pts, elems[soa_row][e]);
+    }
+    std::sort(key.begin(), key.end());
+    faces.push_back(std::move(key));
+  }
+  std::sort(faces.begin(), faces.end());
+  return faces;
+}
+
 } // namespace
 
 int test_sideset_creation() {
@@ -124,10 +206,20 @@ int test_sideset_io_write_read_identity() {
 
   SMESH_TEST_ASSERT(sideset->write(path) == SMESH_SUCCESS);
 
+  ptrdiff_t meta_size = -1;
+  block_idx_t meta_block_id = static_cast<block_idx_t>(-1);
+  SMESH_TEST_ASSERT(parse_sideset_meta_file(path, &meta_size, &meta_block_id) == SMESH_SUCCESS);
+  SMESH_TEST_EQ(meta_size, sideset->size());
+  SMESH_TEST_EQ(meta_block_id, sideset->block_id());
+
   auto read_back = Sideset::create_from_file(Communicator::self(), path);
   SMESH_TEST_ASSERT(read_back != nullptr);
   SMESH_TEST_EQ(read_back->block_id(), sideset->block_id());
   SMESH_TEST_EQ(read_back->size(), sideset->size());
+
+  auto read_override = std::make_shared<Sideset>();
+  SMESH_TEST_ASSERT(read_override->read(Communicator::self(), path, 99) == SMESH_SUCCESS);
+  SMESH_TEST_EQ(read_override->block_id(), sideset->block_id());
 
   for (ptrdiff_t i = 0; i < sideset->size(); ++i) {
     SMESH_TEST_EQ(read_back->parent()->data()[i], sideset->parent()->data()[i]);
@@ -136,6 +228,99 @@ int test_sideset_io_write_read_identity() {
 
   std::filesystem::remove_all(path.to_string());
   return SMESH_TEST_SUCCESS;
+}
+
+int test_sideset_to_device_preserves_block_and_mapping() {
+  auto parent = create_host_buffer<element_idx_t>(2);
+  auto lfi = create_host_buffer<i16>(2);
+  auto mapping = create_host_buffer<large_idx_t>(4);
+  SMESH_TEST_ASSERT(parent != nullptr);
+  SMESH_TEST_ASSERT(lfi != nullptr);
+  SMESH_TEST_ASSERT(mapping != nullptr);
+  parent->data()[0] = 1;
+  parent->data()[1] = 3;
+  lfi->data()[0] = 0;
+  lfi->data()[1] = 2;
+  mapping->data()[0] = 10;
+  mapping->data()[1] = 20;
+  mapping->data()[2] = 30;
+  mapping->data()[3] = 40;
+
+  auto host = Sideset::create(Communicator::self(), parent, lfi, 2, mapping);
+  SMESH_TEST_ASSERT(host != nullptr);
+
+  auto device_ss = to_device(host);
+  SMESH_TEST_ASSERT(device_ss != nullptr);
+  SMESH_TEST_EQ(device_ss->block_id(), static_cast<block_idx_t>(2));
+  SMESH_TEST_EQ(device_ss->size(), static_cast<ptrdiff_t>(2));
+  SMESH_TEST_ASSERT(device_ss->element_mapping() != nullptr);
+  SMESH_TEST_ASSERT(device_ss->element_mapping().get() == host->element_mapping().get());
+  SMESH_TEST_EQ(device_ss->element_mapping()->data()[1], static_cast<large_idx_t>(20));
+
+  auto host_parent = to_host(device_ss->parent());
+  auto host_lfi = to_host(device_ss->lfi());
+  SMESH_TEST_ASSERT(host_parent != nullptr);
+  SMESH_TEST_ASSERT(host_lfi != nullptr);
+  SMESH_TEST_EQ(host_parent->data()[0], static_cast<element_idx_t>(1));
+  SMESH_TEST_EQ(host_parent->data()[1], static_cast<element_idx_t>(3));
+  SMESH_TEST_EQ(host_lfi->data()[0], static_cast<i16>(0));
+  SMESH_TEST_EQ(host_lfi->data()[1], static_cast<i16>(2));
+
+  return SMESH_TEST_SUCCESS;
+}
+
+static int check_ss_level_invariance(const std::shared_ptr<Mesh> &mesh,
+                                     const std::shared_ptr<Sideset> &sideset,
+                                     const int fine_level,
+                                     const int coarse_level) {
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  SMESH_TEST_ASSERT(sideset != nullptr);
+  SMESH_TEST_ASSERT(sideset->size() > 0);
+
+  auto ss_fine = to_semistructured(fine_level, mesh);
+  auto ss_coarse = to_semistructured(coarse_level, mesh);
+  SMESH_TEST_ASSERT(ss_fine != nullptr);
+  SMESH_TEST_ASSERT(ss_coarse != nullptr);
+  SMESH_TEST_EQ(ss_fine->n_elements(sideset->block_id()), mesh->n_elements(sideset->block_id()));
+  SMESH_TEST_EQ(ss_coarse->n_elements(sideset->block_id()), mesh->n_elements(sideset->block_id()));
+
+  auto [fine_st, fine_surf] = create_surface_from_sideset(ss_fine, sideset);
+  auto [coarse_st, coarse_surf] = create_surface_from_sideset(ss_coarse, sideset);
+  SMESH_TEST_ASSERT(fine_surf != nullptr);
+  SMESH_TEST_ASSERT(coarse_surf != nullptr);
+  SMESH_TEST_EQ(static_cast<ptrdiff_t>(fine_surf->extent(1)), sideset->size());
+  SMESH_TEST_EQ(static_cast<ptrdiff_t>(coarse_surf->extent(1)), sideset->size());
+  SMESH_TEST_ASSERT(fine_st != INVALID);
+  SMESH_TEST_ASSERT(coarse_st != INVALID);
+
+  const auto coarse_keys = corner_face_keys(ss_coarse, sideset);
+  const auto fine_keys = corner_face_keys(ss_fine, sideset);
+  SMESH_TEST_EQ(coarse_keys.size(), static_cast<size_t>(sideset->size()));
+  SMESH_TEST_EQ(fine_keys.size(), coarse_keys.size());
+  for (size_t i = 0; i < coarse_keys.size(); ++i) {
+    SMESH_TEST_EQ(fine_keys[i].size(), coarse_keys[i].size());
+    for (size_t k = 0; k < coarse_keys[i].size(); ++k) {
+      SMESH_TEST_EQ(fine_keys[i][k][0], coarse_keys[i][k][0]);
+      SMESH_TEST_EQ(fine_keys[i][k][1], coarse_keys[i][k][1]);
+      SMESH_TEST_EQ(fine_keys[i][k][2], coarse_keys[i][k][2]);
+    }
+  }
+  return SMESH_TEST_SUCCESS;
+}
+
+int test_sshex_sideset_level_invariance() {
+  auto mesh = make_test_mesh();
+  auto sideset = make_left_boundary_sideset(mesh);
+  return check_ss_level_invariance(mesh, sideset, 4, 2);
+}
+
+int test_sstet_sideset_level_invariance() {
+  auto mesh = Mesh::create_tet4_cube(Communicator::self(), 2, 2, 2);
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  auto sidesets = Sideset::create_from_selector(
+      mesh, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+  SMESH_TEST_EQ(sidesets.size(), static_cast<size_t>(1));
+  return check_ss_level_invariance(mesh, sidesets[0], 3, 2);
 }
 
 int test_sideset_select_propagate_cube_mesh() {
@@ -313,6 +498,9 @@ int main(int argc, char *argv[]) {
   SMESH_RUN_TEST(test_sideset_creation);
   SMESH_RUN_TEST(test_sideset_to_nodeset_conversion);
   SMESH_RUN_TEST(test_sideset_io_write_read_identity);
+  SMESH_RUN_TEST(test_sideset_to_device_preserves_block_and_mapping);
+  SMESH_RUN_TEST(test_sshex_sideset_level_invariance);
+  SMESH_RUN_TEST(test_sstet_sideset_level_invariance);
   SMESH_RUN_TEST(test_sideset_select_propagate_cube_mesh);
   SMESH_RUN_TEST(test_hex27_element_contract);
   SMESH_RUN_TEST(test_hex27_cube_uses_conventional_ordering);

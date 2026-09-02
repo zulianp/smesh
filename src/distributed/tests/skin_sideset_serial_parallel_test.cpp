@@ -1,7 +1,10 @@
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -77,6 +80,9 @@ int test_skin_sideset_matches_serial() {
   SMESH_TEST_ASSERT(parallel_skin != nullptr);
   SMESH_TEST_ASSERT(parallel_skin->write(parallel_skin_path) == SMESH_SUCCESS);
 
+  const i64 local_n = static_cast<i64>(parallel_skin->size());
+  const i64 global_n = comm->sum(local_n);
+
   comm->barrier();
 
   if (comm->rank() == 0) {
@@ -88,6 +94,27 @@ int test_skin_sideset_matches_serial() {
     SMESH_TEST_ASSERT(serial_skin != nullptr);
     SMESH_TEST_ASSERT(parallel_skin != nullptr);
     SMESH_TEST_EQ(serial_skin->size(), parallel_skin->size());
+
+    ptrdiff_t meta_size = -1;
+    block_idx_t meta_block_id = static_cast<block_idx_t>(-1);
+    std::ifstream ifs((parallel_skin_path / "meta.yaml").to_string());
+    SMESH_TEST_ASSERT(ifs.good());
+    std::string line;
+    while (std::getline(ifs, line)) {
+      const auto start = line.find_first_not_of(" \t");
+      if (start == std::string::npos) {
+        continue;
+      }
+      line = line.substr(start);
+      if (line.compare(0, 5, "size:") == 0) {
+        meta_size = static_cast<ptrdiff_t>(std::strtoll(line.c_str() + 5, nullptr, 10));
+      } else if (line.compare(0, 9, "block_id:") == 0) {
+        meta_block_id = static_cast<block_idx_t>(std::strtol(line.c_str() + 9, nullptr, 10));
+      }
+    }
+    SMESH_TEST_EQ(meta_size, serial_skin->size());
+    SMESH_TEST_EQ(meta_size, static_cast<ptrdiff_t>(global_n));
+    SMESH_TEST_EQ(meta_block_id, serial_skin->block_id());
 
     const auto serial_keys = sorted_side_keys(serial_skin);
     const auto parallel_keys = sorted_side_keys(parallel_skin);

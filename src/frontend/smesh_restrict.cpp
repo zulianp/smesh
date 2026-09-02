@@ -35,6 +35,7 @@ namespace smesh {
         return ss_source_family(mesh.element_type(static_cast<block_idx_t>(b)));
     }
 
+#ifdef SMESH_ENABLE_CUDA
     static bool ss_all_hex_family(const Mesh &mesh) {
         for (size_t b = 0; b < mesh.n_blocks(); ++b) {
             if (ss_block_family(mesh, b) != HEX8) {
@@ -43,6 +44,7 @@ namespace smesh {
         }
         return true;
     }
+#endif
 
     static bool ss_has_hex_and_tet(const Mesh &mesh) {
         bool has_hex = false;

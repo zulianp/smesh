@@ -21,6 +21,8 @@ namespace smesh {
 
 namespace {
 
+// Transforms only need edge/tuple helpers; skip SS face/vol unique helpers.
+#define SMESH_DISTRIBUTED_UNIQUE_MINIMAL 1
 #include "smesh_distributed_unique.inc.hpp"
 
 static const int tet4_refine_pattern[8][4] = {{0, 4, 6, 7},

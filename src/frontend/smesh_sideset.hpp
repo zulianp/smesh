@@ -11,6 +11,10 @@
 
 namespace smesh {
 
+    /// Lightweight `(block_id, parent[], lfi[])` side set.
+    /// Semistructured level changes keep the same `(parent, lfi)` valid (macro
+    /// element and local face index are unchanged). Unstructured refine/promote
+    /// does not remap sidesets.
     class Sideset final {
     public:
         int read(const std::shared_ptr<Communicator> &comm, const Path &path, block_idx_t block_id = 0);
@@ -21,6 +25,7 @@ namespace smesh {
         SharedBuffer<element_idx_t>     parent() const;
         SharedBuffer<i16>               lfi() const;
         block_idx_t                     block_id() const;
+        SharedBuffer<large_idx_t>       element_mapping() const;
         static std::shared_ptr<Sideset> create_from_file(const std::shared_ptr<Communicator> &comm,
                                                          const Path                          &path,
                                                          block_idx_t                          block_id = 0);

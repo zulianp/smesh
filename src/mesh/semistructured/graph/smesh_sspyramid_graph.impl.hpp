@@ -118,6 +118,7 @@ static int pyramid5_build_edge_graph_from_multiblock_n2e(
         const block_idx_t *const SMESH_RESTRICT                                        block_number,
         count_t                                                                      **out_rowptr,
         idx_t                                                                        **out_colidx) {
+    SMESH_UNUSED(n_elements);
     count_t *rowptr = (count_t *)SMESH_ALLOC((nnodes + 1) * sizeof(count_t));
     idx_t   *colidx = 0;
     rowptr[0]       = 0;
@@ -130,6 +131,8 @@ static int pyramid5_build_edge_graph_from_multiblock_n2e(
         for (count_t e = ebegin; e < eend; ++e) {
             const block_idx_t   b    = block_number[e];
             const element_idx_t eidx = elindex[e];
+            SMESH_ASSERT(b >= 0 && b < n_blocks);
+            SMESH_ASSERT(eidx < n_elements[b]);
             const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT block_elems = elems[b];
             int lidx = -1;
             for (int edof_i = 0; edof_i < 5; ++edof_i) {

@@ -8,7 +8,12 @@ namespace smesh {
             SMESH_ERROR("Input sideset is null");
         }
 
-        return std::make_shared<Sideset>(sideset->comm(), to_device(sideset->parent()), to_device(sideset->lfi()));
+        // element_mapping stays host: it is only used for MPI IO / redistribute.
+        return std::make_shared<Sideset>(sideset->comm(),
+                                         to_device(sideset->parent()),
+                                         to_device(sideset->lfi()),
+                                         sideset->block_id(),
+                                         sideset->element_mapping());
     }
 
     std::vector<std::shared_ptr<Sideset>> to_device(const std::vector<std::shared_ptr<Sideset>> &ss) {
