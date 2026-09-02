@@ -35,7 +35,10 @@ void create_element_adj_table_from_dual_graph(
   }
 
   LocalSideTable lst;
-  lst.fill(element_type_for_algo);
+  if (lst.fill(element_type_for_algo) != SMESH_SUCCESS) {
+    SMESH_ERROR("create_element_adj_table_from_dual_graph: LocalSideTable has no layout for %s\n",
+                type_to_string(element_type_for_algo));
+  }
 
   const int ns = elem_num_sides(element_type_for_algo);
 
@@ -121,7 +124,10 @@ void create_element_adj_table_from_dual_graph_soa(
   }
 
   LocalSideTable lst;
-  lst.fill(element_type_for_algo);
+  if (lst.fill(element_type_for_algo) != SMESH_SUCCESS) {
+    SMESH_ERROR("create_element_adj_table_from_dual_graph_soa: LocalSideTable has no layout for %s\n",
+                type_to_string(element_type_for_algo));
+  }
 
   idx_t * nodes1 =(idx_t *) SMESH_ALLOC(LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
   idx_t * nodes2 =(idx_t *) SMESH_ALLOC(LocalSideTable::MAX_NUM_NODES_PER_SIDE * sizeof(idx_t));
@@ -242,7 +248,10 @@ void extract_surface_connectivity_with_adj_table(
       n_elements, n_nodes, element_type, elems, &table);
 
   LocalSideTable lst;
-  lst.fill(element_type);
+  if (lst.fill(element_type) != SMESH_SUCCESS) {
+    SMESH_ERROR("extract_surface_connectivity_with_adj_table: LocalSideTable has no layout for %s\n",
+                type_to_string(element_type));
+  }
   enum ElemType st = side_type(element_type);
   const int nn = elem_num_nodes(st);
 
@@ -293,7 +302,10 @@ int extract_sideset_from_adj_table(
   SMESH_TRACE_SCOPE("extract_sideset_from_adj_table");
 
   LocalSideTable lst;
-  lst.fill(element_type);
+  if (lst.fill(element_type) != SMESH_SUCCESS) {
+    SMESH_ERROR("extract_sideset_from_adj_table: LocalSideTable has no layout for %s\n",
+                type_to_string(element_type));
+  }
   const int ns = elem_num_sides(element_type);
 
   *n_surf_elements = 0;

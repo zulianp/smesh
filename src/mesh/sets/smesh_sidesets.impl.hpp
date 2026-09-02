@@ -85,7 +85,10 @@ int sideset_select_propagate(
   queue[queue_size++] = sideset_seed;
 
   LocalSideTable lst;
-  lst.fill(element_type);
+  if (lst.fill(element_type) != SMESH_SUCCESS) {
+    LocalSideTable::report_unsupported("sideset_select_propagate", element_type);
+    return SMESH_FAILURE;
+  }
 
   const int side_dim = elem_manifold_dim(elem_sides_homogeneous(element_type)
                                              ? side_type(element_type)
@@ -153,7 +156,10 @@ int extract_nodeset_from_sideset(
     idx_t **SMESH_RESTRICT nodes_out) {
   const ptrdiff_t n_surf = n_surf_elements;
   LocalSideTable lst;
-  lst.fill(element_type);
+  if (lst.fill(element_type) != SMESH_SUCCESS) {
+    LocalSideTable::report_unsupported("extract_nodeset_from_sideset", element_type);
+    return SMESH_FAILURE;
+  }
 
   ptrdiff_t n = 0;
   for (ptrdiff_t i = 0; i < n_surf; i++) {
@@ -187,7 +193,10 @@ int extract_nodeset_from_sidesets(
   ptrdiff_t n_nodes = 0;
   for (ptrdiff_t ss = 0; ss < n_sidesets; ss++) {
     LocalSideTable lst;
-    lst.fill(element_type[ss]);
+    if (lst.fill(element_type[ss]) != SMESH_SUCCESS) {
+      LocalSideTable::report_unsupported("extract_nodeset_from_sidesets", element_type[ss]);
+      return SMESH_FAILURE;
+    }
     for (ptrdiff_t i = 0; i < n_surf_elements[ss]; i++) {
       n_nodes += lst.nnxs_side[side_idx[ss][i]];
     }
@@ -198,7 +207,10 @@ int extract_nodeset_from_sidesets(
 
   for (ptrdiff_t ss = 0; ss < n_sidesets; ss++) {
     LocalSideTable lst;
-    lst.fill(element_type[ss]);
+    if (lst.fill(element_type[ss]) != SMESH_SUCCESS) {
+      LocalSideTable::report_unsupported("extract_nodeset_from_sidesets", element_type[ss]);
+      return SMESH_FAILURE;
+    }
 
     for (ptrdiff_t i = 0; i < n_surf_elements[ss]; i++) {
       const ptrdiff_t e = parent_element[ss][i];
@@ -225,7 +237,10 @@ int extract_surface_from_sideset(
     const int16_t *const SMESH_RESTRICT side_idx,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT sides) {
   LocalSideTable lst;
-  lst.fill(element_type);
+  if (lst.fill(element_type) != SMESH_SUCCESS) {
+    LocalSideTable::report_unsupported("extract_surface_from_sideset", element_type);
+    return SMESH_FAILURE;
+  }
 
 #pragma omp parallel for
   for (ptrdiff_t i = 0; i < n_surf_elements; i++) {

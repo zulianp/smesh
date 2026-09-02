@@ -14,6 +14,7 @@
 #include "smesh_blocks_meta.hpp"
 #include "smesh_read.hpp"
 #include "smesh_refine.hpp"
+#include "smesh_reorder.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sideset.hpp"
 #include "smesh_sshex8.hpp"
@@ -53,7 +54,9 @@
 #include <limits>
 #include <list>
 #include <map>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace smesh {
@@ -526,6 +529,7 @@ namespace smesh {
     public:
         std::shared_ptr<Communicator>       comm;
         std::vector<std::shared_ptr<Block>> blocks;
+        std::vector<std::pair<std::string, std::shared_ptr<Sideset>>> sidesets;
         SharedBuffer<geom_t *>              points;
         SharedBuffer<idx_t>                 node_mapping;
 
@@ -551,6 +555,7 @@ namespace smesh {
         void clear() {
             comm = nullptr;
             blocks.clear();
+            sidesets.clear();
             points                     = nullptr;
             distributed                = nullptr;
             crs_graph                  = nullptr;
@@ -966,6 +971,68 @@ namespace smesh {
         impl_->blocks.erase(impl_->blocks.begin() + index);
     }
 
+    void Mesh::add_sideset(const std::string &name, const std::shared_ptr<Sideset> &ss) {
+        if (!ss) {
+            return;
+        }
+        impl_->sidesets.emplace_back(name, ss);
+    }
+
+    void Mesh::add_sidesets(const std::string                          &name,
+                            const std::vector<std::shared_ptr<Sideset>> &ss) {
+        for (size_t i = 0; i < ss.size(); ++i) {
+            add_sideset(name, ss[i]);
+        }
+    }
+
+    void Mesh::clear_sidesets() { impl_->sidesets.clear(); }
+
+    const std::vector<std::pair<std::string, std::shared_ptr<Sideset>>> &
+    Mesh::sidesets() const {
+        return impl_->sidesets;
+    }
+
+    std::vector<std::shared_ptr<Sideset>> Mesh::sidesets(const std::string &name) const {
+        std::vector<std::shared_ptr<Sideset>> out;
+        const auto                           &reg = impl_->sidesets;
+        for (size_t i = 0; i < reg.size(); ++i) {
+            if (reg[i].first == name) {
+                out.push_back(reg[i].second);
+            }
+        }
+        return out;
+    }
+
+    int Mesh::remap_registered_sidesets(block_idx_t                                  block_id,
+                                        const element_idx_t                         *old_to_new,
+                                        ptrdiff_t                                    n,
+                                        const std::vector<std::shared_ptr<Sideset>> &already) {
+        if (!old_to_new || n <= 0) {
+            return SMESH_SUCCESS;
+        }
+        const auto &reg = impl_->sidesets;
+        for (size_t i = 0; i < reg.size(); ++i) {
+            const auto &ss = reg[i].second;
+            if (!ss || ss->block_id() != block_id) {
+                continue;
+            }
+            int skip = 0;
+            for (size_t j = 0; j < already.size(); ++j) {
+                if (already[j].get() == ss.get()) {
+                    skip = 1;
+                    break;
+                }
+            }
+            if (skip) {
+                continue;
+            }
+            if (ss->remap_parents(old_to_new, n) != SMESH_SUCCESS) {
+                return SMESH_FAILURE;
+            }
+        }
+        return SMESH_SUCCESS;
+    }
+
     void read_meta(const std::shared_ptr<Communicator> &comm, const Path &path, enum ElemType &element_type) {
         if (!comm->rank()) {
             auto meta_file = Path(path) / "meta.yaml";
@@ -1006,8 +1073,196 @@ namespace smesh {
         }
     }
 
+    static int is_sideset_folder(const Path &folder) {
+        return folder.is_dir() && (folder / "meta.yaml").exists() ? 1 : 0;
+    }
+
+    static void collect_subdirs(const Path &dir, std::vector<Path> *out) {
+        for (auto it = dir.iter(); it; ++it) {
+            Path child = *it;
+            if (child.is_dir()) {
+                out->push_back(child);
+            }
+        }
+        std::sort(out->begin(), out->end(), [](const Path &a, const Path &b) {
+            return a.to_string() < b.to_string();
+        });
+    }
+
+    static std::shared_ptr<Mesh> mesh_nonowning_alias(Mesh *mesh) {
+        return std::shared_ptr<Mesh>(mesh, [](Mesh *) {});
+    }
+
+    static int load_one_sideset(Mesh &mesh, const std::string &name, const Path &folder) {
+        auto ss = std::make_shared<Sideset>();
+        int  err = SMESH_FAILURE;
+        if (mesh.comm()->size() > 1) {
+            err = ss->read_and_redistibute(mesh_nonowning_alias(&mesh), folder);
+        } else {
+            err = ss->read(mesh.comm(), folder);
+        }
+        if (err != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+        mesh.add_sideset(name, ss);
+        return SMESH_SUCCESS;
+    }
+
+    static int read_registered_sidesets(Mesh &mesh, const Path &path) {
+        mesh.clear_sidesets();
+        const Path root = path / "sidesets";
+        if (!root.is_dir()) {
+            return SMESH_SUCCESS;
+        }
+
+        std::vector<Path> children;
+        collect_subdirs(root, &children);
+        for (size_t i = 0; i < children.size(); ++i) {
+            const Path        &child = children[i];
+            const std::string  name  = child.file_name();
+            if (is_sideset_folder(child)) {
+                if (load_one_sideset(mesh, name, child) != SMESH_SUCCESS) {
+                    mesh.clear_sidesets();
+                    return SMESH_FAILURE;
+                }
+                continue;
+            }
+
+            std::vector<Path> members;
+            collect_subdirs(child, &members);
+            for (size_t j = 0; j < members.size(); ++j) {
+                if (!is_sideset_folder(members[j])) {
+                    continue;
+                }
+                if (load_one_sideset(mesh, name, members[j]) != SMESH_SUCCESS) {
+                    mesh.clear_sidesets();
+                    return SMESH_FAILURE;
+                }
+            }
+        }
+        return SMESH_SUCCESS;
+    }
+
+    static int write_registered_sidesets(const Mesh &mesh, const Path &path) {
+        const auto &reg = mesh.sidesets();
+        if (reg.empty()) {
+            return SMESH_SUCCESS;
+        }
+
+        std::vector<std::string>                           names;
+        std::vector<std::vector<std::shared_ptr<Sideset>>> groups;
+        for (size_t i = 0; i < reg.size(); ++i) {
+            size_t gi = names.size();
+            for (size_t g = 0; g < names.size(); ++g) {
+                if (names[g] == reg[i].first) {
+                    gi = g;
+                    break;
+                }
+            }
+            if (gi == names.size()) {
+                names.push_back(reg[i].first);
+                groups.emplace_back();
+            }
+            groups[gi].push_back(reg[i].second);
+        }
+
+        auto comm = mesh.comm();
+        int  err  = SMESH_SUCCESS;
+        if (!comm->rank()) {
+            if (create_directory(path / "sidesets") != SMESH_SUCCESS) {
+                err = SMESH_FAILURE;
+            }
+            for (size_t g = 0; err == SMESH_SUCCESS && g < names.size(); ++g) {
+                const Path name_dir = path / "sidesets" / names[g];
+                if (create_directory(name_dir) != SMESH_SUCCESS) {
+                    err = SMESH_FAILURE;
+                    break;
+                }
+                if (groups[g].size() <= 1) {
+                    continue;
+                }
+                for (size_t k = 0; k < groups[g].size(); ++k) {
+                    if (!groups[g][k]) {
+                        continue;
+                    }
+                    const Path leaf =
+                            name_dir / std::to_string(static_cast<long long>(groups[g][k]->block_id()));
+                    if (create_directory(leaf) != SMESH_SUCCESS) {
+                        err = SMESH_FAILURE;
+                        break;
+                    }
+                }
+            }
+        }
+        comm->broadcast(&err, 1, 0);
+        if (err != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+
+        for (size_t g = 0; g < names.size(); ++g) {
+            const Path name_dir = path / "sidesets" / names[g];
+            if (groups[g].size() == 1) {
+                if (!groups[g][0]) {
+                    continue;
+                }
+                if (groups[g][0]->write(name_dir) != SMESH_SUCCESS) {
+                    return SMESH_FAILURE;
+                }
+                continue;
+            }
+            for (size_t k = 0; k < groups[g].size(); ++k) {
+                if (!groups[g][k]) {
+                    continue;
+                }
+                const Path leaf =
+                        name_dir / std::to_string(static_cast<long long>(groups[g][k]->block_id()));
+                if (groups[g][k]->write(leaf) != SMESH_SUCCESS) {
+                    return SMESH_FAILURE;
+                }
+            }
+        }
+        return SMESH_SUCCESS;
+    }
+
+    static int write_topology_then_sidesets(const Mesh &mesh, const Path &path, const int topology_err) {
+        if (topology_err != SMESH_SUCCESS) {
+            return topology_err;
+        }
+        return write_registered_sidesets(mesh, path);
+    }
+
+    static std::shared_ptr<Sideset> clone_sideset(const Mesh                     &dst,
+                                                  const std::shared_ptr<Sideset> &ss) {
+        if (!ss) {
+            return nullptr;
+        }
+        const ptrdiff_t n      = ss->size();
+        auto            parent = create_host_buffer<element_idx_t>((size_t)n);
+        auto            lfi    = create_host_buffer<i16>((size_t)n);
+        if (n > 0) {
+            std::memcpy(parent->data(), ss->parent()->data(), (size_t)n * sizeof(element_idx_t));
+            std::memcpy(lfi->data(), ss->lfi()->data(), (size_t)n * sizeof(i16));
+        }
+
+        SharedBuffer<large_idx_t> mapping = nullptr;
+        if (dst.is_distributed()) {
+            auto block = dst.block(ss->block_id());
+            if (block) {
+                mapping = block->element_mapping();
+            }
+        } else if (ss->element_mapping()) {
+            const ptrdiff_t nm = ss->element_mapping()->size();
+            mapping            = create_host_buffer<large_idx_t>((size_t)nm);
+            if (nm > 0) {
+                std::memcpy(mapping->data(), ss->element_mapping()->data(), (size_t)nm * sizeof(large_idx_t));
+            }
+        }
+        return Sideset::create(dst.comm(), parent, lfi, ss->block_id(), mapping);
+    }
+
     int Mesh::read(const Path &path) {
         SMESH_TRACE_SCOPE("Mesh::read");
+        impl_->sidesets.clear();
 
         if (impl_->comm->size() == 1) {
             std::vector<std::string>   block_names;
@@ -1389,6 +1644,10 @@ namespace smesh {
         }
 #endif  // SMESH_ENABLE_MPI
 
+        if (read_registered_sidesets(*this, path) != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+
         int SMESH_USE_MACRO = 0;
         SMESH_READ_ENV(SMESH_USE_MACRO, atoi);
 
@@ -1422,13 +1681,16 @@ namespace smesh {
             }
 
             if (impl_->blocks.size() == 1) {
-                return mesh_to_folder(path,
-                                      impl_->blocks[0]->element_type(),
-                                      impl_->blocks[0]->elements()->extent(1),
-                                      impl_->blocks[0]->elements()->data(),
-                                      this->spatial_dimension(),
-                                      this->n_nodes(),
-                                      this->points()->data());
+                return write_topology_then_sidesets(
+                        *this,
+                        path,
+                        mesh_to_folder(path,
+                                       impl_->blocks[0]->element_type(),
+                                       impl_->blocks[0]->elements()->extent(1),
+                                       impl_->blocks[0]->elements()->data(),
+                                       this->spatial_dimension(),
+                                       this->n_nodes(),
+                                       this->points()->data()));
             } else {
                 std::vector<ptrdiff_t>     n_elements;
                 std::vector<enum ElemType> element_types;
@@ -1441,14 +1703,17 @@ namespace smesh {
                     elements.push_back(block->elements()->data());
                     block_names.push_back(block->name());
                 }
-                return mesh_multiblock_to_folder(path,
-                                                 block_names,
-                                                 element_types,
-                                                 n_elements,
-                                                 elements.data(),
-                                                 this->spatial_dimension(),
-                                                 this->n_nodes(),
-                                                 this->points()->data());
+                return write_topology_then_sidesets(
+                        *this,
+                        path,
+                        mesh_multiblock_to_folder(path,
+                                                  block_names,
+                                                  element_types,
+                                                  n_elements,
+                                                  elements.data(),
+                                                  this->spatial_dimension(),
+                                                  this->n_nodes(),
+                                                  this->points()->data()));
             }
         }
 #ifdef SMESH_ENABLE_MPI
@@ -1473,20 +1738,23 @@ namespace smesh {
                 const enum ElemType et  = impl_->blocks[0]->element_type();
                 const int           nxe = elem_num_nodes(et);
 
-                return write_distributed_mesh_topology(
-                        comm,
+                return write_topology_then_sidesets(
+                        *this,
                         path,
-                        et,
-                        this->spatial_dimension(),
-                        dist->n_elements_global(),
-                        dist->n_elements_owned(),
-                        dist->impl_->element_mapping->data(),
-                        nxe,
-                        impl_->blocks[0]->elements()->data(),
-                        dist->n_nodes_global(),
-                        dist->n_nodes_owned(),
-                        node_mapping,
-                        impl_->points->data());
+                        write_distributed_mesh_topology(
+                                comm,
+                                path,
+                                et,
+                                this->spatial_dimension(),
+                                dist->n_elements_global(),
+                                dist->n_elements_owned(),
+                                dist->impl_->element_mapping->data(),
+                                nxe,
+                                impl_->blocks[0]->elements()->data(),
+                                dist->n_nodes_global(),
+                                dist->n_nodes_owned(),
+                                node_mapping,
+                                impl_->points->data()));
             }
 
             const size_t n_blocks = impl_->blocks.size();
@@ -1577,7 +1845,8 @@ namespace smesh {
             }
             impl_->comm->barrier();
 
-            return err == SMESH_SUCCESS ? SMESH_SUCCESS : SMESH_FAILURE;
+            return write_topology_then_sidesets(
+                    *this, path, err == SMESH_SUCCESS ? SMESH_SUCCESS : SMESH_FAILURE);
         }
 #endif
 
@@ -3982,12 +4251,10 @@ namespace smesh {
 
             const ptrdiff_t nselected_elements = selected_element_list.size();
             auto            selected_element   = create_host_buffer<element_idx_t>(nselected_elements);
-
-            {
-                ptrdiff_t idx = 0;
-                for (auto p : selected_element_list) {
-                    selected_element->data()[idx++] = p;
-                }
+            element_idx_t  *d_sel              = nselected_elements > 0 ? selected_element->data() : nullptr;
+            ptrdiff_t       idx                = 0;
+            for (auto p : selected_element_list) {
+                d_sel[idx++] = p;
             }
 
             selected_elements.push_back(std::make_pair(b, selected_element));
@@ -3996,35 +4263,51 @@ namespace smesh {
         return selected_elements;
     }
 
-    void Mesh::reorder_elements_from_tags(const block_idx_t block_id, const SharedBuffer<idx_t> &tags) {
+    void Mesh::reorder_elements_from_tags(const block_idx_t                              block_id,
+                                          const SharedBuffer<idx_t>                     &tags,
+                                          const std::vector<std::shared_ptr<Sideset>>   &sidesets) {
         const ptrdiff_t nelems = n_elements(block_id);
-        auto            temp   = create_host_buffer<idx_t>(nelems);
-        auto            d_temp = temp->data();
-        auto            d_tags = tags->data();
+        if (nelems == 0 || !tags || tags->size() != static_cast<size_t>(nelems)) {
+            SMESH_ERROR("reorder_elements_from_tags: tags size must match n_elements\n");
+            return;
+        }
 
-        auto d_elements = elements(block_id)->data();
-
-        idx_t ntags = 0;
+        auto    d_tags = tags->data();
+        idx_t   ntags  = 0;
         for (ptrdiff_t i = 0; i < nelems; i++) {
             ntags = std::max(ntags, d_tags[i]);
         }
-
-        if (!ntags) return;
-
         ntags += 1;
 
-        auto bookkeeping = create_host_buffer<ptrdiff_t>(ntags);
-        auto d_bk        = bookkeeping->data();
-
-        int nxe = n_nodes_per_element(block_id);
-        for (int d = 0; d < nxe; d++) {
-            memcpy(d_temp, d_elements[d], nelems * sizeof(idx_t));
-
-            for (ptrdiff_t i = 0; i < nelems; i++) {
-                auto t                   = d_tags[i];
-                d_elements[d][d_bk[t]++] = d_temp[i];
-            }
+        auto counts = create_host_buffer<i64>((size_t)ntags);
+        i64 *d_counts = counts->data();
+        for (ptrdiff_t i = 0; i < nelems; i++) {
+            d_counts[d_tags[i]]++;
         }
+        auto start   = create_host_buffer<i64>((size_t)ntags);
+        i64 *d_start = start->data();
+        for (idx_t t = 1; t < ntags; ++t) {
+            d_start[t] = d_start[t - 1] + d_counts[t - 1];
+        }
+
+        auto new_to_old = create_host_buffer<element_idx_t>((size_t)nelems);
+        auto old_to_new = create_host_buffer<element_idx_t>((size_t)nelems);
+        element_idx_t *d_nto = new_to_old->data();
+        element_idx_t *d_otn = old_to_new->data();
+        for (ptrdiff_t i = 0; i < nelems; i++) {
+            const ptrdiff_t neu = (ptrdiff_t)d_start[d_tags[i]]++;
+            d_nto[neu] = (element_idx_t)i;
+            d_otn[i]   = (element_idx_t)neu;
+        }
+
+        const int nxe = n_nodes_per_element(block_id);
+        idx_t **elems = elements(block_id)->data();
+        mesh_block_reorder(nxe, nelems, elems, d_nto, elems);
+
+        if (!sidesets.empty()) {
+            remap_sidesets(sidesets, block_id, d_otn, nelems);
+        }
+        remap_registered_sidesets(block_id, d_otn, nelems, sidesets);
     }
 
     std::shared_ptr<Mesh> Mesh::clone() const {
@@ -4068,6 +4351,10 @@ namespace smesh {
             MeshTransformsDistributed::clone_distributed(*this, *ret);
         }
 #endif
+
+        for (size_t i = 0; i < impl_->sidesets.size(); ++i) {
+            ret->add_sideset(impl_->sidesets[i].first, clone_sideset(*ret, impl_->sidesets[i].second));
+        }
 
         return ret;
     }
@@ -4743,12 +5030,34 @@ namespace smesh {
     std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
         SMESH_TRACE_SCOPE("skin_sideset");
         if (mesh->n_blocks() != 1) {
-            SMESH_ERROR("Skin sideset is not supported for multiblock meshes\n");
+            auto skins = skin_sidesets(mesh);
+            std::shared_ptr<Sideset> kept;
+            int                      n_nonempty = 0;
+            for (const auto &ss : skins) {
+                if (ss && ss->size() > 0) {
+                    ++n_nonempty;
+                    kept = ss;
+                }
+            }
+            if (n_nonempty <= 1) {
+                if (kept) {
+                    return kept;
+                }
+                return skin_sideset_for_block(mesh, 0);
+            }
+            SMESH_ERROR("skin_sideset: %d non-empty per-block skins on a %zu-block mesh; use skin_sidesets()\n",
+                        n_nonempty,
+                        mesh->n_blocks());
             return nullptr;
         }
 
         if (is_semistructured_type(mesh->element_type(0))) {
             return skin_sideset_for_block(mesh, 0);
+        }
+
+        if (!LocalSideTable::supported(mesh->element_type(0))) {
+            LocalSideTable::report_unsupported("skin_sideset", mesh->element_type(0));
+            return nullptr;
         }
 
         auto n2e_graph     = mesh->node_to_element_graph();
@@ -4816,6 +5125,10 @@ namespace smesh {
                                              empty_lfi,
                                              block_id,
                                              mesh->comm()->size() > 1 ? block->element_mapping() : nullptr);
+        }
+        if (!is_semistructured_type(et) && !LocalSideTable::supported(et)) {
+            LocalSideTable::report_unsupported("skin_sideset", et);
+            return nullptr;
         }
 
         ptrdiff_t      n_surf_elements = 0;
@@ -4901,40 +5214,8 @@ namespace smesh {
             if (!ss) {
                 return {};
             }
-
-            const enum ElemType et = mesh->element_type(bid);
-            if (elem_sides_homogeneous(et) || ss->size() == 0) {
-                result.push_back(ss);
-                continue;
-            }
-
-            std::vector<element_idx_t> tri_parent, quad_parent;
-            std::vector<i16>           tri_lfi, quad_lfi;
-            const auto *parent = ss->parent()->data();
-            const auto *lfi    = ss->lfi()->data();
-            for (ptrdiff_t i = 0; i < ss->size(); ++i) {
-                if (side_type(et, lfi[i]) == TRI3) {
-                    tri_parent.push_back(parent[i]);
-                    tri_lfi.push_back(lfi[i]);
-                } else {
-                    quad_parent.push_back(parent[i]);
-                    quad_lfi.push_back(lfi[i]);
-                }
-            }
-
-            auto mapping = mesh->comm()->size() > 1 ? mesh->block(bid)->element_mapping() : nullptr;
-            auto emit    = [&](const std::vector<element_idx_t> &p, const std::vector<i16> &s) {
-                if (p.empty()) {
-                    return;
-                }
-                auto parent_buf = create_host_buffer<element_idx_t>(p.size());
-                auto lfi_buf    = create_host_buffer<i16>(s.size());
-                std::memcpy(parent_buf->data(), p.data(), p.size() * sizeof(element_idx_t));
-                std::memcpy(lfi_buf->data(), s.data(), s.size() * sizeof(i16));
-                result.push_back(std::make_shared<Sideset>(mesh->comm(), parent_buf, lfi_buf, bid, mapping));
-            };
-            emit(tri_parent, tri_lfi);
-            emit(quad_parent, quad_lfi);
+            auto parts = split_mixed_arity_sideset(mesh, ss);
+            result.insert(result.end(), parts.begin(), parts.end());
         }
         return result;
     }

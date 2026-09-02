@@ -9,6 +9,8 @@
 
 // STL
 #include <functional>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace smesh {
@@ -262,6 +264,20 @@ public:
   void add_block(const std::shared_ptr<Block> &block);
   void remove_block(size_t index);
 
+  /// Optional named sideset registry. Empty by default; Mesh::read/write
+  /// round-trip `sidesets/<name>/` when non-empty. One name may map to several
+  /// sidesets (typically one per block).
+  void add_sideset(const std::string &name, const std::shared_ptr<Sideset> &ss);
+  void add_sidesets(const std::string &name,
+                    const std::vector<std::shared_ptr<Sideset>> &ss);
+  void clear_sidesets();
+  const std::vector<std::pair<std::string, std::shared_ptr<Sideset>>> &
+  sidesets() const;
+  std::vector<std::shared_ptr<Sideset>> sidesets(const std::string &name) const;
+  int remap_registered_sidesets(
+      block_idx_t block_id, const element_idx_t *old_to_new, ptrdiff_t n,
+      const std::vector<std::shared_ptr<Sideset>> &already = {});
+
   std::shared_ptr<Distributed> distributed() const;
   bool is_distributed() const;
 
@@ -442,8 +458,9 @@ public:
 
   std::shared_ptr<Mesh> clone() const;
 
-  void reorder_elements_from_tags(const block_idx_t block_id,
-                                  const SharedBuffer<idx_t> &tags);
+  void reorder_elements_from_tags(
+      const block_idx_t block_id, const SharedBuffer<idx_t> &tags,
+      const std::vector<std::shared_ptr<Sideset>> &sidesets = {});
 
   void print(std::ostream &os = std::cout) const;
 

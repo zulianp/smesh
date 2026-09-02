@@ -1,5 +1,4 @@
 #include "smesh_mesh_reorder.hpp"
-#include "smesh_alloc.hpp"
 
 #include "smesh_env.hpp"
 #include "smesh_mesh.hpp"
@@ -7,11 +6,14 @@
 #include "smesh_reorder.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sfc.hpp"
+#include "smesh_sideset.hpp"
+#include "smesh_sort.hpp"
 #include "smesh_tracer.hpp"
 
-#include <algorithm>
+#include <cstring>
 #include <functional>
 #include <map>
+#include <vector>
 
 namespace smesh {
 
@@ -35,7 +37,7 @@ std::shared_ptr<SFC> SFC::create_from_env() {
   return ret;
 }
 
-int SFC::reorder(Mesh &mesh) {
+int SFC::reorder(Mesh &mesh, const std::vector<std::shared_ptr<Sideset>> &sidesets) {
   SMESH_TRACE_SCOPE("SFC::reorder");
   if (mesh.n_blocks() > 1) {
     SMESH_ERROR("SFC::reorder is not supported for multiblock meshes");
@@ -88,32 +90,43 @@ int SFC::reorder(Mesh &mesh) {
   const ptrdiff_t n_elements = mesh.n_elements(block_id);
   const ptrdiff_t n_nodes = mesh.n_nodes();
 
+  idx_t *const *const elems = mesh.elements(block_id)->data();
+  geom_t *const *const pts  = mesh.points()->data();
+
   auto b = create_host_buffer<geom_t>(3, n_elements);
-  barycenters(nxe, n_elements, mesh.elements(block_id)->data(), spatial_dim,
-              mesh.points()->data(), b->data());
+  geom_t **d_b = b->data();
+  barycenters(nxe, n_elements, elems, spatial_dim, pts, d_b);
 
   auto encoding = create_host_buffer<u32>(n_elements);
-  SMESH_CATCH(iter->second(n_elements, b->data()[0], b->data()[1], b->data()[2],
-                           encoding->data()));
+  u32 *d_enc = encoding->data();
+  SMESH_CATCH(iter->second(n_elements, d_b[0], d_b[1], d_b[2], d_enc));
 
-  auto buff =
-      SMESH_ALLOC(std::max(n_elements * sizeof(idx_t), n_nodes * sizeof(geom_t)));
-  auto idx = (idx_t *)buff;
-  for (ptrdiff_t i = 0; i < n_elements; i++) {
-    idx[i] = i;
+  auto idx = create_host_buffer<idx_t>(n_elements);
+  idx_t *d_idx = idx->data();
+  argsort(n_elements, d_enc, d_idx);
+
+  SMESH_CATCH(mesh_block_reorder(nxe, n_elements, elems, d_idx, elems));
+
+  const bool remap_arg = !sidesets.empty();
+  const bool remap_reg = !mesh.sidesets().empty();
+  if (remap_arg || remap_reg) {
+    auto old_to_new = create_host_buffer<element_idx_t>(n_elements);
+    element_idx_t *d_otn = old_to_new->data();
+    for (ptrdiff_t neu = 0; neu < n_elements; ++neu) {
+      d_otn[d_idx[neu]] = static_cast<element_idx_t>(neu);
+    }
+    if (remap_arg) {
+      if (remap_sidesets(sidesets, block_id, d_otn, n_elements) != SMESH_SUCCESS) {
+        return SMESH_FAILURE;
+      }
+    }
+    if (mesh.remap_registered_sidesets(block_id, d_otn, n_elements, sidesets) !=
+        SMESH_SUCCESS) {
+      return SMESH_FAILURE;
+    }
   }
 
-  std::sort(idx, idx + n_elements,
-            [key = encoding->data()](const idx_t l, const idx_t r) {
-              return key[l] < key[r];
-            });
-
-  SMESH_CATCH(mesh_block_reorder(nxe, n_elements,
-                                 mesh.elements(block_id)->data(), idx,
-                                 mesh.elements(block_id)->data()));
-
   if (is_semistructured_type(mesh.element_type(block_id))) {
-    SMESH_FREE(buff);
     return semistructured_hierarchical_renumbering(mesh.element_type(block_id),
                                                    semistructured_level(mesh),
                                                    n_nodes,
@@ -123,33 +136,32 @@ int SFC::reorder(Mesh &mesh) {
   }
 
   auto n2n_scatter = create_host_buffer<idx_t>(n_nodes);
+  idx_t *d_n2n = n_nodes > 0 ? n2n_scatter->data() : nullptr;
   for (ptrdiff_t i = 0; i < n_nodes; i++) {
-    n2n_scatter->data()[i] = invalid_idx<idx_t>();
+    d_n2n[i] = invalid_idx<idx_t>();
   }
 
   idx_t next_node_idx = 0;
   SMESH_CATCH(mesh_block_renumber_element_nodes<idx_t>(
-      nxe, n_elements, mesh.elements(block_id)->data(), &next_node_idx,
-      n2n_scatter->data()));
+      nxe, n_elements, elems, &next_node_idx, d_n2n));
 
-  auto coords = (geom_t *)buff;
-  memcpy(coords, mesh.points()->data()[0], n_nodes * sizeof(geom_t));
-  SMESH_CATCH(reorder_scatter(n_nodes, n2n_scatter->data(), coords,
-                              mesh.points()->data()[0]));
+  auto coords = create_host_buffer<geom_t>(n_nodes);
+  geom_t *d_coords = n_nodes > 0 ? coords->data() : nullptr;
+  if (n_nodes > 0) {
+    memcpy(d_coords, pts[0], n_nodes * sizeof(geom_t));
+    SMESH_CATCH(reorder_scatter(n_nodes, d_n2n, d_coords, pts[0]));
 
-  if (spatial_dim > 1) {
-  memcpy(coords, mesh.points()->data()[1], n_nodes * sizeof(geom_t));
-    SMESH_CATCH(reorder_scatter(n_nodes, n2n_scatter->data(), coords,
-                                mesh.points()->data()[1]));
+    if (spatial_dim > 1) {
+      memcpy(d_coords, pts[1], n_nodes * sizeof(geom_t));
+      SMESH_CATCH(reorder_scatter(n_nodes, d_n2n, d_coords, pts[1]));
+    }
+
+    if (spatial_dim > 2) {
+      memcpy(d_coords, pts[2], n_nodes * sizeof(geom_t));
+      SMESH_CATCH(reorder_scatter(n_nodes, d_n2n, d_coords, pts[2]));
+    }
   }
 
-  if (spatial_dim > 2) {
-    memcpy(coords, mesh.points()->data()[2], n_nodes * sizeof(geom_t));
-    SMESH_CATCH(reorder_scatter(n_nodes, n2n_scatter->data(), coords,
-                                mesh.points()->data()[2]));
-  }
-
-  SMESH_FREE(buff);
   return SMESH_SUCCESS;
 }
 } // namespace smesh

@@ -20,7 +20,10 @@ int extract_skin_sideset_from_n2e(
     (void)n_nodes;
 
     LocalSideTable lst;
-    lst.fill(element_type);
+    if (lst.fill(element_type) != SMESH_SUCCESS) {
+        LocalSideTable::report_unsupported("extract_skin_sideset_from_n2e", element_type);
+        return SMESH_FAILURE;
+    }
 
     const int ns = elem_num_sides(element_type);
     const int nnxe = elem_num_nodes(element_type);

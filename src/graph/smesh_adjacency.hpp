@@ -40,7 +40,21 @@ namespace smesh {
             }
         }
 
-        inline void fill(enum ElemType element_type) {
+        static void report_unsupported(const char *operation, enum ElemType element_type) {
+            fprintf(stderr,
+                    "%s: LocalSideTable has no layout for %s "
+                    "(supported: HEX/TET/WEDGE/PYRAMID/QUAD/TRI/EDGE and shell aliases)\n",
+                    operation,
+                    type_to_string(element_type));
+        }
+
+        static bool supported(enum ElemType element_type) {
+            LocalSideTable table;
+            return table.fill(element_type) == SMESH_SUCCESS;
+        }
+
+        inline int fill(enum ElemType element_type) {
+            enum ElemType arities = element_type;
             if (element_type == TET10 || element_type == TET4) {
                 (*this)(0, 0) = 1 - 1;
                 (*this)(0, 1) = 2 - 1;
@@ -59,6 +73,7 @@ namespace smesh {
                 (*this)(3, 2) = 2 - 1;
 
                 if (element_type == TET10) {
+                    // Exodus TET10 mids: 4 on 0-1, 5 on 1-2, 6 on 2-0, 7 on 0-3, 8 on 1-3, 9 on 2-3.
                     (*this)(0, 3) = 5 - 1;
                     (*this)(0, 4) = 9 - 1;
                     (*this)(0, 5) = 8 - 1;
@@ -76,7 +91,7 @@ namespace smesh {
                     (*this)(3, 5) = 5 - 1;
                 }
 
-            } else if (element_type == TRI3) {
+            } else if (element_type == TRI3 || element_type == TRISHELL3) {
                 (*this)(0, 0) = 1 - 1;
                 (*this)(0, 1) = 2 - 1;
 
@@ -85,7 +100,9 @@ namespace smesh {
 
                 (*this)(2, 0) = 3 - 1;
                 (*this)(2, 1) = 1 - 1;
-            } else if (element_type == TRI6) {
+                arities = TRI3;
+            } else if (element_type == TRI6 || element_type == TRISHELL6) {
+                // Exodus TRI6: mids 3 on 0-1, 4 on 1-2, 5 on 2-0.
                 (*this)(0, 0) = 1 - 1;
                 (*this)(0, 1) = 2 - 1;
                 (*this)(0, 2) = 4 - 1;
@@ -97,7 +114,8 @@ namespace smesh {
                 (*this)(2, 0) = 3 - 1;
                 (*this)(2, 1) = 1 - 1;
                 (*this)(2, 2) = 6 - 1;
-            } else if (element_type == QUAD4) {
+                arities = TRI6;
+            } else if (element_type == QUAD4 || element_type == QUADSHELL4) {
                 (*this)(0, 0) = 1 - 1;
                 (*this)(0, 1) = 2 - 1;
 
@@ -109,7 +127,9 @@ namespace smesh {
 
                 (*this)(3, 0) = 4 - 1;
                 (*this)(3, 1) = 1 - 1;
+                arities = QUAD4;
             } else if (element_type == QUAD9 || element_type == QUADSHELL9) {
+                // Exodus QUAD9 edges: mids 4,5,6,7 on 0-1, 1-2, 2-3, 3-0. Face center 8 is not a side node.
                 (*this)(0, 0) = 0;
                 (*this)(0, 1) = 1;
                 (*this)(0, 2) = 4;
@@ -158,6 +178,7 @@ namespace smesh {
             } else if (element_type == HEX27) {
                 // Corners 0..7, edge nodes 8..19, face centers 20..25,
                 // and volume center 26. Face order follows HEX8 above.
+                // Exodus/PATRAN face centers: 20=-y, 21=+x, 22=+y, 23=-x, 24=-z, 25=+z.
                 const int faces[6][9] = {
                         {0, 1, 5, 4, 8, 17, 12, 16, 20},
                         {1, 2, 6, 5, 9, 18, 13, 17, 21},
@@ -247,11 +268,16 @@ namespace smesh {
                 (*this)(4, 1) = 1;
                 (*this)(4, 2) = 2;
                 (*this)(4, 3) = 3;
+            } else if (element_type == EDGE2 || element_type == EDGESHELL2 || element_type == EDGE3 ||
+                       element_type == EDGESHELL3) {
+                (*this)(0, 0) = 0;
+                (*this)(1, 0) = 1;
             } else {
-                SMESH_ERROR("fill_local_side_table: Unsupported element type: %s\n", type_to_string(element_type));
+                return SMESH_FAILURE;
             }
 
-            fill_side_arities(element_type);
+            fill_side_arities(arities);
+            return SMESH_SUCCESS;
         }
     };
 

@@ -500,7 +500,10 @@ int create_multiblock_half_face_table_for_block(
   }
 
   LocalSideTable lst_src;
-  lst_src.fill(element_type);
+  if (lst_src.fill(element_type) != SMESH_SUCCESS) {
+    SMESH_ERROR("create_element_adj_table_multiblock: LocalSideTable has no layout for %s\n",
+                type_to_string(element_type));
+  }
 
   const int ns_src = elem_num_sides(element_type);
   const ptrdiff_t n_block_elements = n_elements[target_block];
@@ -518,7 +521,10 @@ int create_multiblock_half_face_table_for_block(
     enum ElemType et =
         element_type_for_adjacency<idx_t, count_t, element_idx_t>(
             element_types[b]);
-    lst_blocks[b].fill(et);
+    if (lst_blocks[b].fill(et) != SMESH_SUCCESS) {
+      SMESH_ERROR("create_element_adj_table_multiblock: LocalSideTable has no layout for %s\n",
+                  type_to_string(et));
+    }
     ns_blocks[b] = elem_num_sides(et);
   }
 

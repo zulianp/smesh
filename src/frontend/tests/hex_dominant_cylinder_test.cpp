@@ -194,6 +194,20 @@ static int test_hex_dominant_cylinder_mesh(const geom_t radius, const geom_t hei
     auto skins = skin_sidesets(mesh);
     SMESH_TEST_ASSERT(!skins.empty());
 
+    auto surfaces = create_surfaces_from_sidesets(mesh, skins);
+    SMESH_TEST_ASSERT(!surfaces.empty());
+    ptrdiff_t n_surf = 0;
+    for (const auto &ss : skins) {
+        n_surf += ss->size();
+    }
+    ptrdiff_t n_extracted = 0;
+    for (const auto &kv : surfaces) {
+        SMESH_TEST_ASSERT(kv.first != INVALID);
+        SMESH_TEST_ASSERT(kv.second != nullptr);
+        n_extracted += static_cast<ptrdiff_t>(kv.second->extent(1));
+    }
+    SMESH_TEST_EQ(n_extracted, n_surf);
+
     return SMESH_TEST_SUCCESS;
 }
 

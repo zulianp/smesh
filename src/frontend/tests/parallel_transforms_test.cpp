@@ -3,11 +3,13 @@
 #include <cstring>
 #include <ctime>
 #include <filesystem>
+#include <utility>
 #include <vector>
 
 #include "smesh_distributed_base.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_semistructured.hpp"
+#include "smesh_sideset.hpp"
 #include "smesh_test.hpp"
 
 using namespace smesh;
@@ -100,6 +102,17 @@ static int test_mpi_hex8_refine() {
     SMESH_TEST_EQ(refined->block(0)->n_elements(), mesh->block(0)->n_elements() * 8);
     SMESH_TEST_EQ(refined->block(0)->n_elements_owned(), mesh->block(0)->n_elements_owned() * 8);
     SMESH_TEST_EQ(check_owned_gids_unique(*refined), SMESH_TEST_SUCCESS);
+
+    auto coarse_ss = Sideset::create_from_plane(mesh, 1, 0, 0, 0.0);
+    SMESH_TEST_ASSERT(!coarse_ss.empty());
+    auto mapped = map_sideset_through_refine(mesh, coarse_ss[0], refined);
+    SMESH_TEST_ASSERT(mapped != nullptr);
+    SMESH_TEST_EQ(mapped->size(), coarse_ss[0]->size() * 4);
+    SMESH_TEST_EQ(mapped->block_id(), coarse_ss[0]->block_id());
+    for (ptrdiff_t i = 0; i < mapped->size(); ++i) {
+        SMESH_TEST_ASSERT(mapped->parent()->data()[i] >= 0);
+        SMESH_TEST_ASSERT(mapped->parent()->data()[i] < refined->n_elements(mapped->block_id()));
+    }
 
     if (comm->rank() == 0) {
         std::filesystem::remove_all(path.to_string());
@@ -262,12 +275,93 @@ static int test_mpi_ss_derefine() {
 #endif
 }
 
+static int test_mpi_mesh_sideset_io() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+
+    int token = 0;
+    if (comm->rank() == 0) {
+        token = static_cast<int>(std::time(nullptr)) + 11;
+    }
+    comm->broadcast(&token, 1, 0);
+    const Path path  = make_tmp_path("smesh_mpi_mesh_ss", token);
+    const Path path2 = make_tmp_path("smesh_mpi_mesh_ss_w", token);
+
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+        std::filesystem::remove_all(path2.to_string());
+        auto serial = Mesh::create_hex8_cube(Communicator::self(), nx, 2, 2);
+        SMESH_TEST_ASSERT(serial != nullptr);
+        auto left = Sideset::create_from_selector(
+                serial, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+        SMESH_TEST_EQ(left.size(), static_cast<size_t>(1));
+        serial->add_sideset("left", left[0]);
+        SMESH_TEST_ASSERT(serial->write(path) == SMESH_SUCCESS);
+    }
+    comm->barrier();
+
+    auto mesh = Mesh::create_from_file(comm, path);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    auto loaded = mesh->sidesets("left");
+    SMESH_TEST_EQ(loaded.size(), static_cast<size_t>(1));
+
+    auto recreated = Sideset::create_from_selector(
+            mesh, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+    SMESH_TEST_EQ(recreated.size(), static_cast<size_t>(1));
+    SMESH_TEST_EQ(loaded[0]->block_id(), recreated[0]->block_id());
+    SMESH_TEST_EQ(loaded[0]->size(), recreated[0]->size());
+
+    std::vector<std::pair<element_idx_t, i16>> keys_loaded(static_cast<size_t>(loaded[0]->size()));
+    std::vector<std::pair<element_idx_t, i16>> keys_recreated(
+            static_cast<size_t>(recreated[0]->size()));
+    for (ptrdiff_t i = 0; i < loaded[0]->size(); ++i) {
+        keys_loaded[static_cast<size_t>(i)] =
+                std::make_pair(loaded[0]->parent()->data()[i], loaded[0]->lfi()->data()[i]);
+        keys_recreated[static_cast<size_t>(i)] =
+                std::make_pair(recreated[0]->parent()->data()[i], recreated[0]->lfi()->data()[i]);
+    }
+    std::sort(keys_loaded.begin(), keys_loaded.end());
+    std::sort(keys_recreated.begin(), keys_recreated.end());
+    for (size_t i = 0; i < keys_loaded.size(); ++i) {
+        SMESH_TEST_EQ(keys_loaded[i].first, keys_recreated[i].first);
+        SMESH_TEST_EQ(keys_loaded[i].second, keys_recreated[i].second);
+    }
+
+    SMESH_TEST_ASSERT(mesh->write(path2) == SMESH_SUCCESS);
+    auto mesh2 = Mesh::create_from_file(comm, path2);
+    SMESH_TEST_ASSERT(mesh2 != nullptr);
+    auto loaded2 = mesh2->sidesets("left");
+    SMESH_TEST_EQ(loaded2.size(), static_cast<size_t>(1));
+    SMESH_TEST_EQ(loaded2[0]->size(), loaded[0]->size());
+    SMESH_TEST_EQ(comm->sum(static_cast<i64>(loaded[0]->size())),
+                  comm->sum(static_cast<i64>(recreated[0]->size())));
+
+    auto cloned = mesh->clone();
+    SMESH_TEST_ASSERT(cloned != nullptr);
+    SMESH_TEST_EQ(cloned->sidesets("left").size(), static_cast<size_t>(1));
+    SMESH_TEST_EQ(cloned->sidesets("left")[0]->size(), loaded[0]->size());
+
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+        std::filesystem::remove_all(path2.to_string());
+    }
+    return SMESH_TEST_SUCCESS;
+#endif
+}
+
 int main(int argc, char **argv) {
     SMESH_UNIT_TEST_INIT(argc, argv);
     SMESH_RUN_TEST(test_mpi_hex8_refine);
     SMESH_RUN_TEST(test_mpi_quad_extrude);
     SMESH_RUN_TEST(test_mpi_clone_convert);
     SMESH_RUN_TEST(test_mpi_ss_derefine);
+    SMESH_RUN_TEST(test_mpi_mesh_sideset_io);
     SMESH_UNIT_TEST_FINALIZE();
     return SMESH_UNIT_TEST_ERR();
 }

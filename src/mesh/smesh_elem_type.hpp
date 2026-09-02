@@ -493,6 +493,8 @@ namespace smesh {
 
     inline enum ElemType shell_type(const enum ElemType type) {
         switch (type) {
+            case NODE1:
+                return NODE1;
             case TRI3:
                 return TRISHELL3;
             case MACRO_TRI3:
