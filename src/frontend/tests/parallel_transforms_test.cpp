@@ -3,6 +3,8 @@
 #include <cstring>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -355,6 +357,68 @@ static int test_mpi_mesh_sideset_io() {
 #endif
 }
 
+static int test_mpi_write_with_xdmf() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+
+    int token = 0;
+    if (comm->rank() == 0) {
+        token = static_cast<int>(std::time(nullptr)) + 17;
+    }
+    comm->broadcast(&token, 1, 0);
+    const Path path  = make_tmp_path("smesh_mpi_write_xdmf", token);
+    const Path pathx = make_tmp_path("smesh_mpi_write_xdmf_out", token);
+
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+        std::filesystem::remove_all(pathx.to_string());
+        auto serial = Mesh::create_hex8_cube(Communicator::self(), nx, 2, 2);
+        SMESH_TEST_ASSERT(serial != nullptr);
+        auto left = Sideset::create_from_selector(
+                serial, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+        SMESH_TEST_EQ(left.size(), static_cast<size_t>(1));
+        serial->add_sideset("left", left[0]);
+        SMESH_TEST_ASSERT(serial->write(path) == SMESH_SUCCESS);
+    }
+    comm->barrier();
+
+    auto mesh = Mesh::create_from_file(comm, path);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    SMESH_TEST_ASSERT(mesh->write_with_xdmf(pathx) == SMESH_SUCCESS);
+
+    if (comm->rank() == 0) {
+        SMESH_TEST_ASSERT((pathx / "mesh.xdmf").exists());
+        const Path aos =
+                pathx / (std::string("connectivity.") + std::string(TypeToString<idx_t>::value()));
+        SMESH_TEST_ASSERT(aos.exists());
+        FILE *fp = fopen(aos.c_str(), "rb");
+        SMESH_TEST_ASSERT(fp != nullptr);
+        fseek(fp, 0, SEEK_END);
+        const long nbytes = ftell(fp);
+        fclose(fp);
+        SMESH_TEST_EQ(nbytes,
+                      (long)mesh->distributed()->n_elements_global() * 8L * (long)sizeof(idx_t));
+        const Path surf = pathx / "sidesets" / "left" /
+                          (std::string("surface.") + std::string(TypeToString<idx_t>::value()));
+        SMESH_TEST_ASSERT(surf.exists());
+        std::ifstream xdmf((pathx / "mesh.xdmf").to_string());
+        std::string xml((std::istreambuf_iterator<char>(xdmf)), std::istreambuf_iterator<char>());
+        SMESH_TEST_ASSERT(xml.find("Hexahedron") != std::string::npos);
+        SMESH_TEST_ASSERT(xml.find("Quadrilateral") != std::string::npos);
+        std::filesystem::remove_all(path.to_string());
+        std::filesystem::remove_all(pathx.to_string());
+    }
+    comm->barrier();
+    return SMESH_TEST_SUCCESS;
+#endif
+}
+
 int main(int argc, char **argv) {
     SMESH_UNIT_TEST_INIT(argc, argv);
     SMESH_RUN_TEST(test_mpi_hex8_refine);
@@ -362,6 +426,7 @@ int main(int argc, char **argv) {
     SMESH_RUN_TEST(test_mpi_clone_convert);
     SMESH_RUN_TEST(test_mpi_ss_derefine);
     SMESH_RUN_TEST(test_mpi_mesh_sideset_io);
+    SMESH_RUN_TEST(test_mpi_write_with_xdmf);
     SMESH_UNIT_TEST_FINALIZE();
     return SMESH_UNIT_TEST_ERR();
 }

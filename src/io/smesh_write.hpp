@@ -53,6 +53,14 @@ int mesh_multiblock_write_yaml(const Path &path, const uint16_t n_blocks,
                                const std::vector<ptrdiff_t> &n_elements,
                                const int spatial_dim, const ptrdiff_t n_nodes);
 
+/// Stream SoA connectivity (`elements[d][e]`) to AoS file `e * nxe + d`.
+int mesh_write_soa_to_aos(const Path &path, int n_nodes_x_elem, const ptrdiff_t n_elements,
+                          const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements);
+
+/// Same layout, reading existing `i0.<idx_t>`, `i1.<idx_t>`, … in `soa_folder`.
+int mesh_write_soa_files_to_aos(const Path &soa_folder, const Path &aos_path, int n_nodes_x_elem,
+                                const ptrdiff_t n_elements);
+
 template <typename idx_t, typename geom_t>
 int mesh_multiblock_to_folder(const Path &path,
                               const std::vector<std::string> &block_names,

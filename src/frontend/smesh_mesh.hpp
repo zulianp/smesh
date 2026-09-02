@@ -248,6 +248,8 @@ public:
 
   int read(const Path &path);
   int write(const Path &path) const;
+  /// `write(path)` plus AoS `connectivity.<idx_t>` and `mesh.xdmf` inside `path`.
+  int write_with_xdmf(const Path &path) const;
   int initialize_node_to_node_graph();
   int convert_to_macro_element_mesh();
   const std::vector<std::shared_ptr<Block>> &blocks() const;

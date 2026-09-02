@@ -1022,6 +1022,164 @@ int test_registered_sideset_remap_from_tags() {
   return SMESH_TEST_SUCCESS;
 }
 
+int test_split_mixed_arity_wedge_and_pyramid() {
+  auto tri = Mesh::create_tri3_square(Communicator::self(), 2, 2);
+  auto wedge = extrude(tri, 1.0, 1);
+  SMESH_TEST_ASSERT(wedge != nullptr);
+  SMESH_TEST_EQ(wedge->element_type(0), WEDGE6);
+
+  auto skin = skin_sideset(wedge);
+  SMESH_TEST_ASSERT(skin != nullptr);
+  SMESH_TEST_ASSERT(skin->size() > 0);
+
+  auto parts = split_mixed_arity_sideset(wedge, skin);
+  SMESH_TEST_EQ(parts.size(), static_cast<size_t>(2));
+  SMESH_TEST_EQ(parts[0]->size() + parts[1]->size(), skin->size());
+  SMESH_TEST_EQ(parts[0]->block_id(), skin->block_id());
+  SMESH_TEST_EQ(parts[1]->block_id(), skin->block_id());
+
+  const i16 *lfi_tri = parts[0]->lfi()->data();
+  for (ptrdiff_t i = 0; i < parts[0]->size(); ++i) {
+    SMESH_TEST_EQ(side_type(WEDGE6, lfi_tri[i]), TRI3);
+  }
+  const i16 *lfi_quad = parts[1]->lfi()->data();
+  for (ptrdiff_t i = 0; i < parts[1]->size(); ++i) {
+    SMESH_TEST_EQ(side_type(WEDGE6, lfi_quad[i]), QUAD4);
+  }
+
+  auto surfaces = create_surfaces_from_sidesets(wedge, {skin});
+  SMESH_TEST_EQ(surfaces.size(), static_cast<size_t>(2));
+  ptrdiff_t n_extracted = 0;
+  bool has_tri_shell = false;
+  bool has_quad_shell = false;
+  for (const auto &kv : surfaces) {
+    SMESH_TEST_ASSERT(kv.second != nullptr);
+    n_extracted += static_cast<ptrdiff_t>(kv.second->extent(1));
+    has_tri_shell = has_tri_shell || (kv.first == TRISHELL3);
+    has_quad_shell = has_quad_shell || (kv.first == QUADSHELL4);
+  }
+  SMESH_TEST_EQ(n_extracted, skin->size());
+  SMESH_TEST_ASSERT(has_tri_shell);
+  SMESH_TEST_ASSERT(has_quad_shell);
+
+  auto hex = make_test_mesh();
+  auto left = make_left_boundary_sideset(hex);
+  SMESH_TEST_ASSERT(left != nullptr);
+  auto hex_parts = split_mixed_arity_sideset(hex, left);
+  SMESH_TEST_EQ(hex_parts.size(), static_cast<size_t>(1));
+  SMESH_TEST_EQ(hex_parts[0]->size(), left->size());
+
+  auto hexdom = Mesh::create_hex_dominant_serial(Communicator::self());
+  SMESH_TEST_ASSERT(hexdom != nullptr);
+  auto pyr_ss = Sideset::create_from_selector(
+      hexdom, [](const geom_t, const geom_t, const geom_t) { return true; }, {"pyramid"});
+  SMESH_TEST_EQ(pyr_ss.size(), static_cast<size_t>(1));
+  SMESH_TEST_EQ(pyr_ss[0]->size(), static_cast<ptrdiff_t>(5));
+  auto pyr_parts = split_mixed_arity_sideset(hexdom, pyr_ss[0]);
+  SMESH_TEST_EQ(pyr_parts.size(), static_cast<size_t>(2));
+  SMESH_TEST_EQ(pyr_parts[0]->size() + pyr_parts[1]->size(), pyr_ss[0]->size());
+  SMESH_TEST_EQ(pyr_parts[0]->size(), static_cast<ptrdiff_t>(4));
+  SMESH_TEST_EQ(pyr_parts[1]->size(), static_cast<ptrdiff_t>(1));
+
+  auto wedge_ss = Sideset::create_from_selector(
+      hexdom, [](const geom_t, const geom_t, const geom_t) { return true; }, {"wedge"});
+  SMESH_TEST_EQ(wedge_ss.size(), static_cast<size_t>(1));
+  auto wedge_parts = split_mixed_arity_sideset(hexdom, wedge_ss[0]);
+  SMESH_TEST_EQ(wedge_parts.size(), static_cast<size_t>(2));
+  SMESH_TEST_EQ(wedge_parts[0]->size() + wedge_parts[1]->size(), wedge_ss[0]->size());
+  return SMESH_TEST_SUCCESS;
+}
+
+static int check_aos_matches_soa(const Path &aos_path, const std::shared_ptr<Mesh> &mesh,
+                                 const block_idx_t bid) {
+  const int nxe = mesh->n_nodes_per_element(bid);
+  const ptrdiff_t ne = mesh->n_elements(bid);
+  FILE *fp = fopen(aos_path.c_str(), "rb");
+  SMESH_TEST_ASSERT(fp != nullptr);
+  auto row = create_host_buffer<idx_t>((size_t)nxe);
+  idx_t *const d_row = row->data();
+  idx_t *const *elems = mesh->elements(bid)->data();
+  for (ptrdiff_t e = 0; e < ne; ++e) {
+    SMESH_TEST_ASSERT(fread(d_row, sizeof(idx_t), (size_t)nxe, fp) == (size_t)nxe);
+    for (int d = 0; d < nxe; ++d) {
+      SMESH_TEST_EQ(d_row[d], elems[d][e]);
+    }
+  }
+  unsigned char extra = 0;
+  SMESH_TEST_ASSERT(fread(&extra, 1, 1, fp) == 0);
+  fclose(fp);
+  return SMESH_TEST_SUCCESS;
+}
+
+int test_write_with_xdmf() {
+  auto mesh = make_test_mesh();
+  auto sideset = make_left_boundary_sideset(mesh);
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  SMESH_TEST_ASSERT(sideset != nullptr);
+
+  const auto token = static_cast<long long>(
+      std::chrono::steady_clock::now().time_since_epoch().count());
+  char path_buffer[256];
+  std::snprintf(path_buffer, sizeof(path_buffer), "/tmp/smesh_write_xdmf_%lld", token);
+  const Path path(path_buffer);
+  std::filesystem::remove_all(path.to_string());
+
+  mesh->add_sideset("left", sideset);
+  SMESH_TEST_ASSERT(mesh->write_with_xdmf(path) == SMESH_SUCCESS);
+  SMESH_TEST_ASSERT((path / "mesh.xdmf").exists());
+  const Path aos = path / (std::string("connectivity.") + std::string(TypeToString<idx_t>::value()));
+  SMESH_TEST_ASSERT(aos.exists());
+  SMESH_TEST_EQ(check_aos_matches_soa(aos, mesh, 0), SMESH_TEST_SUCCESS);
+  const Path surf = path / "sidesets" / "left" /
+                    (std::string("surface.") + std::string(TypeToString<idx_t>::value()));
+  SMESH_TEST_ASSERT(surf.exists());
+
+  std::ifstream xdmf((path / "mesh.xdmf").to_string());
+  SMESH_TEST_ASSERT(xdmf.good());
+  std::string xml((std::istreambuf_iterator<char>(xdmf)), std::istreambuf_iterator<char>());
+  SMESH_TEST_ASSERT(xml.find("Hexahedron") != std::string::npos);
+  SMESH_TEST_ASSERT(xml.find("Quadrilateral") != std::string::npos);
+  SMESH_TEST_ASSERT(xml.find("sidesets/left/surface.") != std::string::npos);
+
+  auto loaded = Mesh::create_from_file(Communicator::self(), path);
+  SMESH_TEST_ASSERT(loaded != nullptr);
+  SMESH_TEST_EQ(loaded->n_elements(), mesh->n_elements());
+  SMESH_TEST_EQ(loaded->n_nodes(), mesh->n_nodes());
+
+  std::filesystem::remove_all(path.to_string());
+  return SMESH_TEST_SUCCESS;
+}
+
+int test_write_with_xdmf_multiblock() {
+  auto mesh = Mesh::create_hex8_tet4_cube(Communicator::self(), 2, 2, 2);
+  SMESH_TEST_ASSERT(mesh != nullptr);
+
+  const auto token = static_cast<long long>(
+      std::chrono::steady_clock::now().time_since_epoch().count());
+  char path_buffer[256];
+  std::snprintf(path_buffer, sizeof(path_buffer), "/tmp/smesh_write_xdmf_mb_%lld", token);
+  const Path path(path_buffer);
+  std::filesystem::remove_all(path.to_string());
+
+  SMESH_TEST_ASSERT(mesh->write_with_xdmf(path) == SMESH_SUCCESS);
+  SMESH_TEST_ASSERT((path / "mesh.xdmf").exists());
+  for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+    const Path aos = path / "blocks" / mesh->block(b)->name() /
+                     (std::string("connectivity.") + std::string(TypeToString<idx_t>::value()));
+    SMESH_TEST_ASSERT(aos.exists());
+    SMESH_TEST_EQ(check_aos_matches_soa(aos, mesh, static_cast<block_idx_t>(b)),
+                  SMESH_TEST_SUCCESS);
+  }
+
+  std::ifstream xdmf((path / "mesh.xdmf").to_string());
+  std::string xml((std::istreambuf_iterator<char>(xdmf)), std::istreambuf_iterator<char>());
+  SMESH_TEST_ASSERT(xml.find("Collection") != std::string::npos);
+  SMESH_TEST_ASSERT(xml.find("blocks/") != std::string::npos);
+
+  std::filesystem::remove_all(path.to_string());
+  return SMESH_TEST_SUCCESS;
+}
+
 int main(int argc, char *argv[]) {
   SMESH_UNIT_TEST_INIT(argc, argv);
 
@@ -1051,6 +1209,9 @@ int main(int argc, char *argv[]) {
   SMESH_RUN_TEST(test_mesh_multiblock_sideset_folder_io);
   SMESH_RUN_TEST(test_registered_sideset_remap_on_sfc_reorder);
   SMESH_RUN_TEST(test_registered_sideset_remap_from_tags);
+  SMESH_RUN_TEST(test_split_mixed_arity_wedge_and_pyramid);
+  SMESH_RUN_TEST(test_write_with_xdmf);
+  SMESH_RUN_TEST(test_write_with_xdmf_multiblock);
 
   SMESH_UNIT_TEST_FINALIZE();
   return SMESH_UNIT_TEST_ERR();

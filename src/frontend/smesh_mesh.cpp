@@ -1853,6 +1853,7 @@ namespace smesh {
         return SMESH_FAILURE;
     }
 
+
     std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::node_to_node_graph() {
         initialize_node_to_node_graph();
         return impl_->crs_graph;
