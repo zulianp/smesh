@@ -499,7 +499,7 @@ namespace smesh {
 
         auto data = impl_->field->data();
         auto size = impl_->field->size();
-        for (ptrdiff_t i = 0; i < size; i++) {
+        for (size_t i = 0; i < size; i++) {
             data[i] *= scale;
         }
     }
