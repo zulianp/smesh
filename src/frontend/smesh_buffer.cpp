@@ -92,9 +92,24 @@ namespace smesh {
 
 #undef SMESH_EXPLICIT_INSTANTIATE_BUFFER_2D
 
-#define SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(O, I)                                      \
-    template std::shared_ptr<Buffer<O>>   astype<O, I>(const std::shared_ptr<Buffer<I>> &); \
-    template std::shared_ptr<Buffer<O *>> astype<O, I>(const std::shared_ptr<Buffer<I *>> &)
+#define SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(O, I)                                                     \
+    template std::shared_ptr<Buffer<O>>   astype<O, I>(const std::shared_ptr<Buffer<I>> &, const bool); \
+    template std::shared_ptr<Buffer<O *>> astype<O, I>(const std::shared_ptr<Buffer<I *>> &, const bool)
+
+// Same-type astype is a distinct overload (the converting one is disabled when the
+// types match) and needs instantiating too, otherwise astype<T>(Buffer<T>) fails to
+// link from any translation unit that does not include the impl header.
+#define SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE_SAME(O)                                            \
+    template std::shared_ptr<Buffer<O>>   astype<O>(const std::shared_ptr<Buffer<O>> &, const bool); \
+    template std::shared_ptr<Buffer<O *>> astype<O>(const std::shared_ptr<Buffer<O *>> &, const bool)
+
+    SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE_SAME(f16);
+    SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE_SAME(f32);
+    SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE_SAME(f64);
+    SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE_SAME(u8);
+    SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE_SAME(u16);
+
+#undef SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE_SAME
 
     SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f16, f64);
     SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f64, f16);
@@ -105,8 +120,6 @@ namespace smesh {
     SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f32, u8);
     SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f64, u8);
     SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f64, u16);
-    SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f64, f64);
-    SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE(f32, f32);
 
 #undef SMESH_EXPLICIT_INSTANTIATE_BUFFER_ASTYPE
 

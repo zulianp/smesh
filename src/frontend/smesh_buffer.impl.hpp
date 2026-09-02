@@ -306,12 +306,29 @@ namespace smesh {
     }
 
     template <typename O>
-    std::shared_ptr<Buffer<O>> astype(const std::shared_ptr<Buffer<O>> &in) {
-        return in;
+    std::shared_ptr<Buffer<O>> astype(const std::shared_ptr<Buffer<O>> &in, const bool duplicate) {
+        if (!duplicate) {
+            return in;
+        }
+
+        const size_t size = in->size();
+        auto         out  = create_host_buffer<O>(size);
+
+        auto din  = in->data();
+        auto dout = out->data();
+
+        for (size_t i = 0; i < size; i++) {
+            dout[i] = din[i];
+        }
+
+        return out;
     }
 
-    template <typename O, typename I>
-    std::shared_ptr<Buffer<O>> astype(const std::shared_ptr<Buffer<I>> &in) {
+    template <typename O, typename I, typename>
+    std::shared_ptr<Buffer<O>> astype(const std::shared_ptr<Buffer<I>> &in, const bool duplicate) {
+        // A conversion always allocates, so the result never aliases `in`.
+        (void)duplicate;
+
         const size_t size = in->size();
         auto         out  = create_host_buffer<O>(size);
 
@@ -326,12 +343,32 @@ namespace smesh {
     }
 
     template <typename O>
-    std::shared_ptr<Buffer<O*>> astype(const std::shared_ptr<Buffer<O*>> &in) {
-        return in;
+    std::shared_ptr<Buffer<O *>> astype(const std::shared_ptr<Buffer<O *>> &in, const bool duplicate) {
+        if (!duplicate) {
+            return in;
+        }
+
+        const size_t n0  = in->extent(0);
+        const size_t n1  = in->extent(1);
+        auto         out = create_host_buffer<O>(n0, n1);
+
+        auto din  = in->data();
+        auto dout = out->data();
+
+        for (size_t i = 0; i < n0; i++) {
+            for (size_t j = 0; j < n1; j++) {
+                dout[i][j] = din[i][j];
+            }
+        }
+
+        return out;
     }
 
-    template <typename O, typename I>
-    std::shared_ptr<Buffer<O *>> astype(const std::shared_ptr<Buffer<I *>> &in) {
+    template <typename O, typename I, typename>
+    std::shared_ptr<Buffer<O *>> astype(const std::shared_ptr<Buffer<I *>> &in, const bool duplicate) {
+        // A conversion always allocates, so the result never aliases `in`.
+        (void)duplicate;
+
         const size_t n0  = in->extent(0);
         const size_t n1  = in->extent(1);
         auto         out = create_host_buffer<O>(n0, n1);
