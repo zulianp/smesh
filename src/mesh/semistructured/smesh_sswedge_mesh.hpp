@@ -7,6 +7,13 @@
 
 namespace smesh {
 
+template <typename idx_t>
+int sswedge_to_standard_wedge6_mesh(
+        const int                                               level,
+        const ptrdiff_t                                         nelements,
+        const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+        idx_t *SMESH_RESTRICT *const SMESH_RESTRICT             wedge6_elements);
+
 template <typename idx_t, typename geom_t>
 int sswedge_fill_points(const int                                                level,
                         const ptrdiff_t                                          nelements,

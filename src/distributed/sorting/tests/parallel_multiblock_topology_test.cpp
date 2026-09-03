@@ -170,6 +170,20 @@ split_first_half(const std::shared_ptr<Mesh> &mesh) {
   return out;
 }
 
+static std::shared_ptr<Mesh> create_edge2_line(const ptrdiff_t n_seg, const enum ElemType et = EDGE2) {
+  auto elems = create_host_buffer<idx_t>(2, static_cast<size_t>(n_seg));
+  auto pts   = create_host_buffer<geom_t>(2, static_cast<size_t>(n_seg + 1));
+  for (ptrdiff_t i = 0; i < n_seg; ++i) {
+    elems->data()[0][i] = static_cast<idx_t>(i);
+    elems->data()[1][i] = static_cast<idx_t>(i + 1);
+  }
+  for (ptrdiff_t i = 0; i <= n_seg; ++i) {
+    pts->data()[0][i] = static_cast<geom_t>(i);
+    pts->data()[1][i] = 0;
+  }
+  return std::make_shared<Mesh>(Communicator::self(), et, elems, pts);
+}
+
 static std::shared_ptr<Mesh> create_hex8_tet4_serial(const ptrdiff_t nx,
                                                      const ptrdiff_t ny,
                                                      const ptrdiff_t nz) {
@@ -338,6 +352,174 @@ static int test_serial_hex8_multiblock_refine() {
   SMESH_TEST_EQ(multi_r->element_type(0), HEX8);
   SMESH_TEST_EQ(multi_r->element_type(1), HEX8);
 
+  return SMESH_TEST_SUCCESS;
+}
+
+static int test_serial_quad4_refine() {
+  auto mesh = Mesh::create_quad4_square(Communicator::self(), 2, 2);
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  const ptrdiff_t n_e = mesh->n_elements();
+  auto            ss  = to_semistructured(2, mesh);
+  SMESH_TEST_ASSERT(ss != nullptr);
+  auto exploded = ssquad_to_quad4(ss);
+  SMESH_TEST_ASSERT(exploded != nullptr);
+
+  auto refined = refine(mesh, 1);
+  SMESH_TEST_ASSERT(refined != nullptr);
+  SMESH_TEST_EQ(refined->element_type(0), QUAD4);
+  SMESH_TEST_EQ(refined->n_elements(), n_e * 4);
+  SMESH_TEST_EQ(refined->n_nodes(), exploded->n_nodes());
+  SMESH_TEST_EQ(refined->n_elements(), exploded->n_elements());
+  return SMESH_TEST_SUCCESS;
+}
+
+static int test_serial_quad4_multiblock_refine() {
+  auto single = Mesh::create_quad4_square(Communicator::self(), 4, 4);
+  auto multi  = split_first_half(single);
+  SMESH_TEST_ASSERT(single != nullptr);
+  SMESH_TEST_ASSERT(multi != nullptr);
+  SMESH_TEST_EQ(static_cast<int>(multi->n_blocks()), 2);
+
+  auto single_r = refine(single, 1);
+  auto multi_r  = refine(multi, 1);
+  SMESH_TEST_ASSERT(single_r != nullptr);
+  SMESH_TEST_ASSERT(multi_r != nullptr);
+  SMESH_TEST_EQ(multi_r->n_nodes(), single_r->n_nodes());
+  SMESH_TEST_EQ(multi_r->n_elements(), single_r->n_elements());
+  SMESH_TEST_EQ(static_cast<int>(multi_r->n_blocks()), 2);
+  SMESH_TEST_EQ(multi_r->element_type(0), QUAD4);
+  SMESH_TEST_EQ(multi_r->element_type(1), QUAD4);
+  return SMESH_TEST_SUCCESS;
+}
+
+static int test_serial_quadshell4_refine() {
+  auto mesh = Mesh::create_quad4_square(Communicator::self(), 2, 2);
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  mesh->set_element_type(0, QUADSHELL4);
+  SMESH_TEST_EQ(mesh->element_type(0), QUADSHELL4);
+  auto refined = refine(mesh, 1);
+  SMESH_TEST_ASSERT(refined != nullptr);
+  SMESH_TEST_EQ(refined->element_type(0), QUADSHELL4);
+  SMESH_TEST_EQ(refined->n_elements(), mesh->n_elements() * 4);
+  return SMESH_TEST_SUCCESS;
+}
+
+static std::shared_ptr<Mesh> create_wedge6_serial(const ptrdiff_t nx, const ptrdiff_t ny) {
+  auto tri = Mesh::create_tri3_square(Communicator::self(), nx, ny);
+  return extrude(tri, 1.0, 1);
+}
+
+static int test_serial_wedge6_refine() {
+  auto mesh = create_wedge6_serial(2, 2);
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  SMESH_TEST_EQ(mesh->element_type(0), WEDGE6);
+  const ptrdiff_t n_e = mesh->n_elements();
+  auto            ss  = to_semistructured(2, mesh);
+  SMESH_TEST_ASSERT(ss != nullptr);
+  auto exploded = sswedge_to_wedge6(ss);
+  SMESH_TEST_ASSERT(exploded != nullptr);
+
+  auto refined = refine(mesh, 1);
+  SMESH_TEST_ASSERT(refined != nullptr);
+  SMESH_TEST_EQ(refined->element_type(0), WEDGE6);
+  SMESH_TEST_EQ(refined->n_elements(), n_e * 8);
+  SMESH_TEST_EQ(refined->n_nodes(), exploded->n_nodes());
+  SMESH_TEST_EQ(refined->n_elements(), exploded->n_elements());
+  return SMESH_TEST_SUCCESS;
+}
+
+static int test_serial_wedge6_multiblock_refine() {
+  auto single = create_wedge6_serial(4, 4);
+  auto multi  = split_first_half(single);
+  SMESH_TEST_ASSERT(single != nullptr);
+  SMESH_TEST_ASSERT(multi != nullptr);
+  SMESH_TEST_EQ(static_cast<int>(multi->n_blocks()), 2);
+
+  auto single_r = refine(single, 1);
+  auto multi_r  = refine(multi, 1);
+  SMESH_TEST_ASSERT(single_r != nullptr);
+  SMESH_TEST_ASSERT(multi_r != nullptr);
+  SMESH_TEST_EQ(multi_r->n_nodes(), single_r->n_nodes());
+  SMESH_TEST_EQ(multi_r->n_elements(), single_r->n_elements());
+  SMESH_TEST_EQ(static_cast<int>(multi_r->n_blocks()), 2);
+  SMESH_TEST_EQ(multi_r->element_type(0), WEDGE6);
+  SMESH_TEST_EQ(multi_r->element_type(1), WEDGE6);
+  return SMESH_TEST_SUCCESS;
+}
+
+static int test_serial_trishell3_refine() {
+  auto mesh = Mesh::create_tri3_square(Communicator::self(), 2, 2);
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  const ptrdiff_t n_e = mesh->n_elements();
+  mesh->set_element_type(0, TRISHELL3);
+  auto refined = refine(mesh, 1);
+  SMESH_TEST_ASSERT(refined != nullptr);
+  SMESH_TEST_EQ(refined->element_type(0), TRISHELL3);
+  SMESH_TEST_EQ(refined->n_elements(), n_e * 4);
+  return SMESH_TEST_SUCCESS;
+}
+
+static int test_serial_trishell3_multiblock_refine() {
+  auto single = Mesh::create_tri3_square(Communicator::self(), 4, 4);
+  SMESH_TEST_ASSERT(single != nullptr);
+  single->set_element_type(0, TRISHELL3);
+  auto multi = split_first_half(single);
+  SMESH_TEST_ASSERT(multi != nullptr);
+  SMESH_TEST_EQ(static_cast<int>(multi->n_blocks()), 2);
+
+  auto single_r = refine(single, 1);
+  auto multi_r  = refine(multi, 1);
+  SMESH_TEST_ASSERT(single_r != nullptr);
+  SMESH_TEST_ASSERT(multi_r != nullptr);
+  SMESH_TEST_EQ(multi_r->n_nodes(), single_r->n_nodes());
+  SMESH_TEST_EQ(multi_r->n_elements(), single_r->n_elements());
+  SMESH_TEST_EQ(static_cast<int>(multi_r->n_blocks()), 2);
+  SMESH_TEST_EQ(multi_r->element_type(0), TRISHELL3);
+  SMESH_TEST_EQ(multi_r->element_type(1), TRISHELL3);
+  return SMESH_TEST_SUCCESS;
+}
+
+static int test_serial_edge2_refine() {
+  auto mesh = create_edge2_line(4);
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  SMESH_TEST_EQ(mesh->element_type(0), EDGE2);
+  const ptrdiff_t n_e = mesh->n_elements();
+  const ptrdiff_t n_n = mesh->n_nodes();
+  auto            refined = refine(mesh, 1);
+  SMESH_TEST_ASSERT(refined != nullptr);
+  SMESH_TEST_EQ(refined->element_type(0), EDGE2);
+  SMESH_TEST_EQ(refined->n_elements(), n_e * 2);
+  SMESH_TEST_EQ(refined->n_nodes(), n_n + n_e);
+  return SMESH_TEST_SUCCESS;
+}
+
+static int test_serial_edgeshell2_refine() {
+  auto mesh = create_edge2_line(4, EDGESHELL2);
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  SMESH_TEST_EQ(mesh->element_type(0), EDGESHELL2);
+  auto refined = refine(mesh, 1);
+  SMESH_TEST_ASSERT(refined != nullptr);
+  SMESH_TEST_EQ(refined->element_type(0), EDGESHELL2);
+  SMESH_TEST_EQ(refined->n_elements(), mesh->n_elements() * 2);
+  return SMESH_TEST_SUCCESS;
+}
+
+static int test_serial_edge2_multiblock_refine() {
+  auto single = create_edge2_line(8);
+  auto multi  = split_first_half(single);
+  SMESH_TEST_ASSERT(single != nullptr);
+  SMESH_TEST_ASSERT(multi != nullptr);
+  SMESH_TEST_EQ(static_cast<int>(multi->n_blocks()), 2);
+
+  auto single_r = refine(single, 1);
+  auto multi_r  = refine(multi, 1);
+  SMESH_TEST_ASSERT(single_r != nullptr);
+  SMESH_TEST_ASSERT(multi_r != nullptr);
+  SMESH_TEST_EQ(multi_r->n_nodes(), single_r->n_nodes());
+  SMESH_TEST_EQ(multi_r->n_elements(), single_r->n_elements());
+  SMESH_TEST_EQ(static_cast<int>(multi_r->n_blocks()), 2);
+  SMESH_TEST_EQ(multi_r->element_type(0), EDGE2);
+  SMESH_TEST_EQ(multi_r->element_type(1), EDGE2);
   return SMESH_TEST_SUCCESS;
 }
 
@@ -1024,6 +1206,16 @@ int main(int argc, char **argv) {
   SMESH_RUN_TEST(test_serial_transforms);
   SMESH_RUN_TEST(test_serial_promote_refine_vs_single_block);
   SMESH_RUN_TEST(test_serial_hex8_multiblock_refine);
+  SMESH_RUN_TEST(test_serial_quad4_refine);
+  SMESH_RUN_TEST(test_serial_quad4_multiblock_refine);
+  SMESH_RUN_TEST(test_serial_quadshell4_refine);
+  SMESH_RUN_TEST(test_serial_wedge6_refine);
+  SMESH_RUN_TEST(test_serial_wedge6_multiblock_refine);
+  SMESH_RUN_TEST(test_serial_trishell3_refine);
+  SMESH_RUN_TEST(test_serial_trishell3_multiblock_refine);
+  SMESH_RUN_TEST(test_serial_edge2_refine);
+  SMESH_RUN_TEST(test_serial_edgeshell2_refine);
+  SMESH_RUN_TEST(test_serial_edge2_multiblock_refine);
   SMESH_RUN_TEST(test_serial_extrude_vs_single_block);
   SMESH_RUN_TEST(test_serial_hex_dominant);
 #ifdef SMESH_ENABLE_MPI

@@ -433,6 +433,118 @@ namespace smesh {
         return SMESH_SUCCESS;
     }
 
+    std::shared_ptr<Edgeset> map_edgeset_through_refine(const std::shared_ptr<Mesh>    &coarse_mesh,
+                                                        const std::shared_ptr<Edgeset> &coarse_es,
+                                                        const std::shared_ptr<Mesh>    &fine_mesh) {
+        if (!coarse_mesh || !coarse_es || !fine_mesh) {
+            SMESH_ERROR("map_edgeset_through_refine: null argument\n");
+            return nullptr;
+        }
+        const block_idx_t bid          = coarse_es->block_id();
+        auto              coarse_block = coarse_mesh->block(bid);
+        auto              fine_block   = fine_mesh->block(bid);
+        if (!coarse_block || !fine_block) {
+            SMESH_ERROR("map_edgeset_through_refine: missing block %d\n", static_cast<int>(bid));
+            return nullptr;
+        }
+
+        const enum ElemType coarse_type = coarse_block->element_type();
+        const enum ElemType fine_type   = fine_block->element_type();
+        const ptrdiff_t     n_coarse    = coarse_block->n_elements();
+        const ptrdiff_t     n_fine      = fine_block->n_elements();
+        if (n_coarse <= 0) {
+            SMESH_ERROR("map_edgeset_through_refine: empty coarse block\n");
+            return nullptr;
+        }
+
+        ptrdiff_t factor = 0;
+        if (n_fine % n_coarse == 0) {
+            factor = n_fine / n_coarse;
+        }
+
+        auto unsupported = [&]() -> std::shared_ptr<Edgeset> {
+            fprintf(stderr,
+                    "map_edgeset_through_refine: unsupported for %s -> %s "
+                    "(n_coarse=%td n_fine=%td factor=%td)\n",
+                    type_to_string(coarse_type),
+                    type_to_string(fine_type),
+                    n_coarse,
+                    n_fine,
+                    factor);
+            return nullptr;
+        };
+
+        if (is_semistructured_type(coarse_type) || is_semistructured_type(fine_type)) {
+            fprintf(stderr,
+                    "map_edgeset_through_refine: SS meshes keep (parent, lei); do not remap (%s -> %s)\n",
+                    type_to_string(coarse_type),
+                    type_to_string(fine_type));
+            return nullptr;
+        }
+
+        if (factor == 1) {
+            auto parent = create_host_buffer<element_idx_t>(coarse_es->size());
+            auto lei    = create_host_buffer<i16>(coarse_es->size());
+            std::memcpy(parent->data(),
+                        coarse_es->parent()->data(),
+                        static_cast<size_t>(coarse_es->size()) * sizeof(element_idx_t));
+            std::memcpy(lei->data(),
+                        coarse_es->lei()->data(),
+                        static_cast<size_t>(coarse_es->size()) * sizeof(i16));
+            return Edgeset::create(fine_mesh->comm(),
+                                   parent,
+                                   lei,
+                                   bid,
+                                   fine_mesh->comm()->size() > 1 ? fine_block->element_mapping() : nullptr);
+        }
+
+        if (!((coarse_type == EDGE2 || coarse_type == EDGESHELL2) && fine_type == coarse_type)) {
+            return unsupported();
+        }
+        if (factor <= 0) {
+            return unsupported();
+        }
+        ptrdiff_t f = 1;
+        while (f < factor) {
+            f *= 2;
+        }
+        if (f != factor) {
+            return unsupported();
+        }
+
+        const ptrdiff_t      n_es = coarse_es->size();
+        const element_idx_t *cp   = coarse_es->parent()->data();
+        const i16           *cl   = coarse_es->lei()->data();
+        const ptrdiff_t      n_out = n_es * factor;
+        auto                 out_p = create_host_buffer<element_idx_t>((size_t)n_out);
+        auto                 out_l = create_host_buffer<i16>((size_t)n_out);
+        element_idx_t       *d_out_p = n_out > 0 ? out_p->data() : nullptr;
+        i16                 *d_out_l = n_out > 0 ? out_l->data() : nullptr;
+        ptrdiff_t            w       = 0;
+        for (ptrdiff_t i = 0; i < n_es; ++i) {
+            const element_idx_t e   = cp[i];
+            const i16           lei = cl[i];
+            if (e < 0 || (ptrdiff_t)e >= n_coarse) {
+                SMESH_ERROR("map_edgeset_through_refine: parent out of range\n");
+                return nullptr;
+            }
+            if (lei != 0) {
+                SMESH_ERROR("map_edgeset_through_refine: EDGE lei %d is invalid\n", (int)lei);
+                return nullptr;
+            }
+            for (ptrdiff_t c = 0; c < factor; ++c) {
+                d_out_p[w] = (element_idx_t)((ptrdiff_t)e * factor + c);
+                d_out_l[w] = 0;
+                ++w;
+            }
+        }
+        return Edgeset::create(fine_mesh->comm(),
+                               out_p,
+                               out_l,
+                               bid,
+                               fine_mesh->comm()->size() > 1 ? fine_block->element_mapping() : nullptr);
+    }
+
     std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>> create_edges_from_edgeset(
             const std::shared_ptr<Mesh>    &mesh,
             const std::shared_ptr<Edgeset> &edgeset) {

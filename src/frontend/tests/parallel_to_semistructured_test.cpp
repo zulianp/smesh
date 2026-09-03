@@ -344,26 +344,42 @@ static std::shared_ptr<Mesh> create_pyramid_pairs_serial(const ptrdiff_t pairs) 
         return nullptr;
     }
 
-    auto points = create_host_buffer<geom_t>(3, static_cast<size_t>(6 * pairs));
+    // Connected strip along x so MPI partitions share nodes (disconnected pairs
+    // yield n_ghosts == 0 and abort in mesh_create_parallel).
+    const ptrdiff_t n_line = pairs + 1;
+    const ptrdiff_t n_nodes = 2 * n_line + 2 * pairs;
+    auto points = create_host_buffer<geom_t>(3, static_cast<size_t>(n_nodes));
     auto elems  = create_host_buffer<idx_t>(5, static_cast<size_t>(2 * pairs));
+    auto *const x = points->data()[0];
+    auto *const y = points->data()[1];
+    auto *const z = points->data()[2];
+    for (ptrdiff_t i = 0; i < n_line; ++i) {
+        x[i] = static_cast<geom_t>(i);
+        y[i] = 0;
+        z[i] = 0;
+        x[n_line + i] = static_cast<geom_t>(i);
+        y[n_line + i] = 1;
+        z[n_line + i] = 0;
+    }
+    const ptrdiff_t apex0 = 2 * n_line;
     for (ptrdiff_t p = 0; p < pairs; ++p) {
-        const geom_t x0 = static_cast<geom_t>(2 * p);
-        const idx_t  n0 = static_cast<idx_t>(6 * p);
-        const idx_t  e0 = static_cast<idx_t>(2 * p);
-        const geom_t coords[6][3] = {{x0, 0, 0},
-                                     {x0 + 1, 0, 0},
-                                     {x0 + 1, 1, 0},
-                                     {x0, 1, 0},
-                                     {x0 + geom_t(0.5), geom_t(0.5), 1},
-                                     {x0 + geom_t(0.5), geom_t(0.5), -1}};
-        for (int i = 0; i < 6; ++i) {
-            points->data()[0][n0 + i] = coords[i][0];
-            points->data()[1][n0 + i] = coords[i][1];
-            points->data()[2][n0 + i] = coords[i][2];
-        }
-
-        const idx_t p0[5] = {n0 + 0, n0 + 1, n0 + 2, n0 + 3, n0 + 4};
-        const idx_t p1[5] = {n0 + 0, n0 + 3, n0 + 2, n0 + 1, n0 + 5};
+        x[apex0 + p] = static_cast<geom_t>(p) + geom_t(0.5);
+        y[apex0 + p] = geom_t(0.5);
+        z[apex0 + p] = 1;
+        x[apex0 + pairs + p] = static_cast<geom_t>(p) + geom_t(0.5);
+        y[apex0 + pairs + p] = geom_t(0.5);
+        z[apex0 + pairs + p] = -1;
+    }
+    for (ptrdiff_t p = 0; p < pairs; ++p) {
+        const idx_t n00 = static_cast<idx_t>(p);
+        const idx_t n10 = static_cast<idx_t>(p + 1);
+        const idx_t n01 = static_cast<idx_t>(n_line + p);
+        const idx_t n11 = static_cast<idx_t>(n_line + p + 1);
+        const idx_t ap  = static_cast<idx_t>(apex0 + p);
+        const idx_t am  = static_cast<idx_t>(apex0 + pairs + p);
+        const idx_t p0[5] = {n00, n10, n11, n01, ap};
+        const idx_t p1[5] = {n00, n01, n11, n10, am};
+        const idx_t e0 = static_cast<idx_t>(2 * p);
         for (int d = 0; d < 5; ++d) {
             elems->data()[d][e0 + 0] = p0[d];
             elems->data()[d][e0 + 1] = p1[d];
@@ -1000,7 +1016,7 @@ static int test_mpi_pyramid_to_ss() {
     ptrdiff_t serial_nnodes = 0;
     if (comm->rank() == 0) {
         std::filesystem::remove_all(path.to_string());
-        auto pyr = create_pyramid_pairs_serial(std::max<ptrdiff_t>(comm->size(), 2));
+        auto pyr = create_pyramid_pairs_serial(std::max<ptrdiff_t>(2 * comm->size(), 4));
         SMESH_TEST_ASSERT(pyr != nullptr);
         auto ss = to_semistructured(L, pyr);
         SMESH_TEST_ASSERT(ss != nullptr);

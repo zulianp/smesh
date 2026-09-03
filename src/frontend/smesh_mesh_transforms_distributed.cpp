@@ -8,8 +8,12 @@
 #include "smesh_decompose.hpp"
 #include "smesh_distributed_base.hpp"
 #include "smesh_elem_type.hpp"
+#include "smesh_refine.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sshex8.hpp"
+#include "smesh_ssquad4.hpp"
+#include "smesh_sstet4.hpp"
+#include "smesh_sswedge.hpp"
 #include "smesh_tracer.hpp"
 
 #include <algorithm>
@@ -35,9 +39,11 @@ static const int tet4_refine_pattern[8][4] = {{0, 4, 6, 7},
                                               {7, 6, 9, 8}};
 
 static const int tri3_refine_pattern[4][3] = {{0, 3, 5}, {3, 1, 4}, {5, 4, 2}, {3, 4, 5}};
+static const int edge2_refine_pattern[2][2] = {{0, 2}, {2, 1}};
 
 static const int tet4_edges[6][2] = {{0, 1}, {1, 2}, {0, 2}, {0, 3}, {1, 3}, {2, 3}};
 static const int tri3_edges[3][2] = {{0, 1}, {1, 2}, {0, 2}};
+static const int edge2_edges[1][2] = {{0, 1}};
 
 template <typename T>
 static SharedBuffer<T> copy_host_buffer(const SharedBuffer<T> &src) {
@@ -163,9 +169,12 @@ static void expand_block_from(const Mesh::Block &src, Mesh::Block &dst, const in
 
 static std::shared_ptr<Mesh> refine_edges_once(const std::shared_ptr<Mesh> &mesh) {
     const enum ElemType et            = mesh->element_type(0);
-    const int           n_macro       = (et == TET4) ? 4 : 3;
-    const int           n_edges       = (et == TET4) ? 6 : 3;
-    const int           refine_factor = (et == TET4) ? 8 : 4;
+    const bool          is_tet        = (et == TET4);
+    const bool          is_tri        = refine_is_tri_family(et);
+    const bool          is_edge       = refine_is_edge_family(et);
+    const int           n_macro       = is_tet ? 4 : (is_edge ? 2 : 3);
+    const int           n_edges       = is_tet ? 6 : (is_edge ? 1 : 3);
+    const int           refine_factor = refine_edge_midpoint_factor(et);
 
     auto              comm          = mesh->comm();
     const int         rank          = comm->rank();
@@ -219,8 +228,8 @@ static std::shared_ptr<Mesh> refine_edges_once(const std::shared_ptr<Mesh> &mesh
                 }
             }
             for (int ed = 0; ed < n_edges; ++ed) {
-                const int d1 = (et == TET4) ? tet4_edges[ed][0] : tri3_edges[ed][0];
-                const int d2 = (et == TET4) ? tet4_edges[ed][1] : tri3_edges[ed][1];
+                const int d1 = is_tet ? tet4_edges[ed][0] : (is_edge ? edge2_edges[ed][0] : tri3_edges[ed][0]);
+                const int d2 = is_tet ? tet4_edges[ed][1] : (is_edge ? edge2_edges[ed][1] : tri3_edges[ed][1]);
                 int       a  = d1;
                 int       b2 = d2;
                 if (gc[a] > gc[b2]) {
@@ -376,16 +385,22 @@ static std::shared_ptr<Mesh> refine_edges_once(const std::shared_ptr<Mesh> &mesh
                 macro_element[n_macro + ed] = edge_ss[edge_inc_to_uniq[ie++]];
             }
             const ptrdiff_t element_offset = e * (ptrdiff_t)refine_factor;
-            if (et == TET4) {
+            if (is_tet) {
                 for (int k = 0; k < 4; ++k) {
                     for (int sub_e = 0; sub_e < 8; ++sub_e) {
                         o[k][element_offset + sub_e] = macro_element[tet4_refine_pattern[sub_e][k]];
                     }
                 }
-            } else {
+            } else if (is_tri) {
                 for (int k = 0; k < 3; ++k) {
                     for (int sub_e = 0; sub_e < 4; ++sub_e) {
                         o[k][element_offset + sub_e] = macro_element[tri3_refine_pattern[sub_e][k]];
+                    }
+                }
+            } else {
+                for (int k = 0; k < 2; ++k) {
+                    for (int sub_e = 0; sub_e < 2; ++sub_e) {
+                        o[k][element_offset + sub_e] = macro_element[edge2_refine_pattern[sub_e][k]];
                     }
                 }
             }
@@ -547,9 +562,14 @@ int MeshTransformsDistributed::conversion_factor(const enum ElemType from, const
     if (is_hex_ss_family(from) && to == HEX8) {
         return sshex8_txe(semistructured_level(from));
     }
+    if (is_tet_ss_family(from) && to == TET4) {
+        return sstet4_txe(semistructured_level(from));
+    }
     if (is_quad_ss_family(from) && (to == QUAD4 || to == QUADSHELL4)) {
-        const int L = proteus_quad_micro_elements_per_dim(from);
-        return L * L;
+        return ssquad4_txe(semistructured_level(from));
+    }
+    if (is_wedge_ss_family(from) && to == WEDGE6) {
+        return sswedge_txe(semistructured_level(from));
     }
     return 1;
 }
@@ -558,10 +578,15 @@ std::shared_ptr<Mesh> MeshTransformsDistributed::refine(const std::shared_ptr<Me
     SMESH_TRACE_SCOPE("MeshTransformsDistributed::refine");
     const enum ElemType et = mesh->element_type(0);
     for (size_t b = 1; b < mesh->n_blocks(); ++b) {
-        if (mesh->element_type(static_cast<block_idx_t>(b)) != et) {
-            SMESH_ERROR("Refinement requires all blocks to share the same element type\n");
+        const enum ElemType etb = mesh->element_type(static_cast<block_idx_t>(b));
+        if (etb != et) {
+            refine_print_mixed_types(et, b, etb);
             return nullptr;
         }
+    }
+    if (!refine_type_supported(et)) {
+        refine_print_unsupported(et);
+        return nullptr;
     }
     if (et == HEX8) {
         auto ss = to_semistructured(1 << levels, mesh);
@@ -570,9 +595,19 @@ std::shared_ptr<Mesh> MeshTransformsDistributed::refine(const std::shared_ptr<Me
         }
         return sshex_to_hex8(ss);
     }
-    if (et != TET4 && et != TRI3) {
-        SMESH_ERROR("Refinement is not supported for element type %s\n", type_to_string(et));
-        return nullptr;
+    if (et == QUAD4 || et == QUADSHELL4) {
+        auto ss = to_semistructured(1 << levels, mesh);
+        if (!ss) {
+            return nullptr;
+        }
+        return ssquad_to_quad4(ss);
+    }
+    if (et == WEDGE6) {
+        auto ss = to_semistructured(1 << levels, mesh);
+        if (!ss) {
+            return nullptr;
+        }
+        return sswedge_to_wedge6(ss);
     }
     auto out = mesh;
     for (int i = 0; i < levels; ++i) {
@@ -836,8 +871,8 @@ MeshTransformsDistributed::attach_sshex_to_hex8(const std::shared_ptr<Mesh> &ss,
     auto dist = copy_distributed(*ss->distributed());
     int  factor = -1;
     for (size_t b = 0; b < ss->n_blocks(); ++b) {
-        const int L = semistructured_level(ss->element_type(static_cast<block_idx_t>(b)));
-        const int f = sshex8_txe(L);
+        const int f = conversion_factor(ss->element_type(static_cast<block_idx_t>(b)),
+                                        hex->element_type(static_cast<block_idx_t>(b)));
         expand_block_from(*ss->block(b), *hex->block(b), f);
         if (factor < 0) {
             factor = f;

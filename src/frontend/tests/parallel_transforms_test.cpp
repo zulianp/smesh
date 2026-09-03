@@ -25,6 +25,15 @@ static Path make_tmp_path(const char *prefix, const int token) {
     return Path(buf);
 }
 
+static std::shared_ptr<Mesh> create_tri3_square_3d(const ptrdiff_t nx, const ptrdiff_t ny) {
+    auto t2 = Mesh::create_tri3_square(Communicator::self(), nx, ny);
+    auto p3 = create_host_buffer<geom_t>(3, static_cast<size_t>(t2->n_nodes()));
+    std::memcpy(p3->data()[0], t2->points()->data()[0], static_cast<size_t>(t2->n_nodes()) * sizeof(geom_t));
+    std::memcpy(p3->data()[1], t2->points()->data()[1], static_cast<size_t>(t2->n_nodes()) * sizeof(geom_t));
+    std::memset(p3->data()[2], 0, static_cast<size_t>(t2->n_nodes()) * sizeof(geom_t));
+    return std::make_shared<Mesh>(Communicator::self(), t2->blocks(), p3);
+}
+
 static std::shared_ptr<Mesh> create_quad4_square_3d(const ptrdiff_t nx, const ptrdiff_t ny) {
     auto q2 = Mesh::create_quad4_square(Communicator::self(), nx, ny);
     auto p3 = create_host_buffer<geom_t>(3, static_cast<size_t>(q2->n_nodes()));
@@ -32,6 +41,21 @@ static std::shared_ptr<Mesh> create_quad4_square_3d(const ptrdiff_t nx, const pt
     std::memcpy(p3->data()[1], q2->points()->data()[1], static_cast<size_t>(q2->n_nodes()) * sizeof(geom_t));
     std::memset(p3->data()[2], 0, static_cast<size_t>(q2->n_nodes()) * sizeof(geom_t));
     return std::make_shared<Mesh>(Communicator::self(), q2->blocks(), p3);
+}
+
+static std::shared_ptr<Mesh> create_edge2_line_3d(const ptrdiff_t n_seg, const enum ElemType et = EDGE2) {
+    auto elems = create_host_buffer<idx_t>(2, static_cast<size_t>(n_seg));
+    auto pts   = create_host_buffer<geom_t>(3, static_cast<size_t>(n_seg + 1));
+    for (ptrdiff_t i = 0; i < n_seg; ++i) {
+        elems->data()[0][i] = static_cast<idx_t>(i);
+        elems->data()[1][i] = static_cast<idx_t>(i + 1);
+    }
+    for (ptrdiff_t i = 0; i <= n_seg; ++i) {
+        pts->data()[0][i] = static_cast<geom_t>(i);
+        pts->data()[1][i] = 0;
+        pts->data()[2][i] = 0;
+    }
+    return std::make_shared<Mesh>(Communicator::self(), et, elems, pts);
 }
 
 static int check_owned_gids_unique(const Mesh &mesh) {
@@ -116,6 +140,433 @@ static int test_mpi_hex8_refine() {
     for (ptrdiff_t i = 0; i < mapped->size(); ++i) {
         SMESH_TEST_ASSERT(mapped->parent()->data()[i] >= 0);
         SMESH_TEST_ASSERT(mapped->parent()->data()[i] < refined->n_elements(mapped->block_id()));
+    }
+
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+    }
+    return SMESH_TEST_SUCCESS;
+#endif
+}
+
+static int test_serial_trishell3_refine() {
+    auto tri = Mesh::create_tri3_square(Communicator::self(), 2, 2);
+    SMESH_TEST_ASSERT(tri != nullptr);
+    const ptrdiff_t n_e = tri->n_elements();
+    tri->set_element_type(0, TRISHELL3);
+    SMESH_TEST_EQ(tri->element_type(0), TRISHELL3);
+    auto refined = refine(tri, 1);
+    SMESH_TEST_ASSERT(refined != nullptr);
+    SMESH_TEST_EQ(refined->element_type(0), TRISHELL3);
+    SMESH_TEST_EQ(refined->n_elements(), n_e * 4);
+    return SMESH_TEST_SUCCESS;
+}
+
+static int test_mpi_tet4_refine() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+
+    int token = 0;
+    if (comm->rank() == 0) {
+        token = static_cast<int>(std::time(nullptr)) + 10;
+    }
+    comm->broadcast(&token, 1, 0);
+    const Path path = make_tmp_path("smesh_mpi_xf_tet_refine", token);
+
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    const ptrdiff_t ny = 2;
+    const ptrdiff_t nz = 2;
+    ptrdiff_t       serial_nnodes    = 0;
+    ptrdiff_t       serial_nelements = 0;
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+        auto serial = Mesh::create_tet4_cube(Communicator::self(), nx, ny, nz);
+        SMESH_TEST_ASSERT(serial != nullptr);
+        auto refined = refine(serial, 1);
+        SMESH_TEST_ASSERT(refined != nullptr);
+        serial_nnodes    = refined->n_nodes();
+        serial_nelements = refined->n_elements();
+        SMESH_TEST_ASSERT(serial->write(path) == SMESH_SUCCESS);
+    }
+    comm->broadcast(&serial_nnodes, 1, 0);
+    comm->broadcast(&serial_nelements, 1, 0);
+    comm->barrier();
+
+    auto mesh = Mesh::create_from_file(comm, path);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    SMESH_TEST_ASSERT(mesh->is_distributed());
+
+    auto refined = refine(mesh, 1);
+    SMESH_TEST_ASSERT(refined != nullptr);
+    SMESH_TEST_ASSERT(refined->is_distributed());
+    SMESH_TEST_EQ(static_cast<int>(refined->n_blocks()), static_cast<int>(mesh->n_blocks()));
+    SMESH_TEST_EQ(refined->element_type(0), TET4);
+    SMESH_TEST_EQ(refined->distributed()->n_nodes_global(), serial_nnodes);
+    SMESH_TEST_EQ(refined->distributed()->n_elements_global(), serial_nelements);
+    SMESH_TEST_EQ(refined->block(0)->n_elements(), mesh->block(0)->n_elements() * 8);
+    SMESH_TEST_EQ(refined->block(0)->n_elements_owned(), mesh->block(0)->n_elements_owned() * 8);
+    SMESH_TEST_EQ(check_owned_gids_unique(*refined), SMESH_TEST_SUCCESS);
+
+    auto coarse_ss = Sideset::create_from_plane(mesh, 1, 0, 0, 0.0);
+    SMESH_TEST_ASSERT(!coarse_ss.empty());
+    auto mapped = map_sideset_through_refine(mesh, coarse_ss[0], refined);
+    SMESH_TEST_ASSERT(mapped != nullptr);
+    SMESH_TEST_EQ(mapped->size(), coarse_ss[0]->size() * 4);
+    SMESH_TEST_EQ(mapped->block_id(), coarse_ss[0]->block_id());
+    for (ptrdiff_t i = 0; i < mapped->size(); ++i) {
+        SMESH_TEST_ASSERT(mapped->parent()->data()[i] >= 0);
+        SMESH_TEST_ASSERT(mapped->parent()->data()[i] < refined->n_elements(mapped->block_id()));
+    }
+
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+    }
+    return SMESH_TEST_SUCCESS;
+#endif
+}
+
+static int test_mpi_tri3_refine() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+
+    int token = 0;
+    if (comm->rank() == 0) {
+        token = static_cast<int>(std::time(nullptr)) + 11;
+    }
+    comm->broadcast(&token, 1, 0);
+    const Path path = make_tmp_path("smesh_mpi_xf_tri_refine", token);
+
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    const ptrdiff_t ny = 2;
+    ptrdiff_t       serial_nnodes    = 0;
+    ptrdiff_t       serial_nelements = 0;
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+        auto serial = create_tri3_square_3d(nx, ny);
+        SMESH_TEST_ASSERT(serial != nullptr);
+        auto refined = refine(serial, 1);
+        SMESH_TEST_ASSERT(refined != nullptr);
+        serial_nnodes    = refined->n_nodes();
+        serial_nelements = refined->n_elements();
+        SMESH_TEST_ASSERT(serial->write(path) == SMESH_SUCCESS);
+    }
+    comm->broadcast(&serial_nnodes, 1, 0);
+    comm->broadcast(&serial_nelements, 1, 0);
+    comm->barrier();
+
+    auto mesh = Mesh::create_from_file(comm, path);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    SMESH_TEST_ASSERT(mesh->is_distributed());
+
+    auto refined = refine(mesh, 1);
+    SMESH_TEST_ASSERT(refined != nullptr);
+    SMESH_TEST_ASSERT(refined->is_distributed());
+    SMESH_TEST_EQ(static_cast<int>(refined->n_blocks()), static_cast<int>(mesh->n_blocks()));
+    SMESH_TEST_EQ(refined->element_type(0), TRI3);
+    SMESH_TEST_EQ(refined->distributed()->n_nodes_global(), serial_nnodes);
+    SMESH_TEST_EQ(refined->distributed()->n_elements_global(), serial_nelements);
+    SMESH_TEST_EQ(refined->block(0)->n_elements(), mesh->block(0)->n_elements() * 4);
+    SMESH_TEST_EQ(refined->block(0)->n_elements_owned(), mesh->block(0)->n_elements_owned() * 4);
+    SMESH_TEST_EQ(check_owned_gids_unique(*refined), SMESH_TEST_SUCCESS);
+
+    auto coarse_ss = Sideset::create_from_selector(
+            mesh, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+    SMESH_TEST_ASSERT(!coarse_ss.empty());
+    auto mapped = map_sideset_through_refine(mesh, coarse_ss[0], refined);
+    SMESH_TEST_ASSERT(mapped != nullptr);
+    SMESH_TEST_EQ(mapped->size(), coarse_ss[0]->size() * 2);
+    SMESH_TEST_EQ(mapped->block_id(), coarse_ss[0]->block_id());
+    for (ptrdiff_t i = 0; i < mapped->size(); ++i) {
+        SMESH_TEST_ASSERT(mapped->parent()->data()[i] >= 0);
+        SMESH_TEST_ASSERT(mapped->parent()->data()[i] < refined->n_elements(mapped->block_id()));
+    }
+
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+    }
+    return SMESH_TEST_SUCCESS;
+#endif
+}
+
+static int test_mpi_trishell3_refine() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+
+    int token = 0;
+    if (comm->rank() == 0) {
+        token = static_cast<int>(std::time(nullptr)) + 14;
+    }
+    comm->broadcast(&token, 1, 0);
+    const Path path = make_tmp_path("smesh_mpi_xf_trishell_refine", token);
+
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    const ptrdiff_t ny = 2;
+    ptrdiff_t       serial_nnodes    = 0;
+    ptrdiff_t       serial_nelements = 0;
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+        auto serial = create_tri3_square_3d(nx, ny);
+        SMESH_TEST_ASSERT(serial != nullptr);
+        serial->set_element_type(0, TRISHELL3);
+        auto refined = refine(serial, 1);
+        SMESH_TEST_ASSERT(refined != nullptr);
+        SMESH_TEST_EQ(refined->element_type(0), TRISHELL3);
+        serial_nnodes    = refined->n_nodes();
+        serial_nelements = refined->n_elements();
+        SMESH_TEST_ASSERT(serial->write(path) == SMESH_SUCCESS);
+    }
+    comm->broadcast(&serial_nnodes, 1, 0);
+    comm->broadcast(&serial_nelements, 1, 0);
+    comm->barrier();
+
+    auto mesh = Mesh::create_from_file(comm, path);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    SMESH_TEST_ASSERT(mesh->is_distributed());
+    SMESH_TEST_EQ(mesh->element_type(0), TRISHELL3);
+
+    auto refined = refine(mesh, 1);
+    SMESH_TEST_ASSERT(refined != nullptr);
+    SMESH_TEST_ASSERT(refined->is_distributed());
+    SMESH_TEST_EQ(static_cast<int>(refined->n_blocks()), static_cast<int>(mesh->n_blocks()));
+    SMESH_TEST_EQ(refined->element_type(0), TRISHELL3);
+    SMESH_TEST_EQ(refined->distributed()->n_nodes_global(), serial_nnodes);
+    SMESH_TEST_EQ(refined->distributed()->n_elements_global(), serial_nelements);
+    SMESH_TEST_EQ(refined->block(0)->n_elements(), mesh->block(0)->n_elements() * 4);
+    SMESH_TEST_EQ(refined->block(0)->n_elements_owned(), mesh->block(0)->n_elements_owned() * 4);
+    SMESH_TEST_EQ(check_owned_gids_unique(*refined), SMESH_TEST_SUCCESS);
+
+    auto coarse_ss = Sideset::create_from_selector(
+            mesh, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+    SMESH_TEST_ASSERT(!coarse_ss.empty());
+    auto mapped = map_sideset_through_refine(mesh, coarse_ss[0], refined);
+    SMESH_TEST_ASSERT(mapped != nullptr);
+    SMESH_TEST_EQ(mapped->size(), coarse_ss[0]->size() * 2);
+    SMESH_TEST_EQ(mapped->block_id(), coarse_ss[0]->block_id());
+    for (ptrdiff_t i = 0; i < mapped->size(); ++i) {
+        SMESH_TEST_ASSERT(mapped->parent()->data()[i] >= 0);
+        SMESH_TEST_ASSERT(mapped->parent()->data()[i] < refined->n_elements(mapped->block_id()));
+    }
+
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+    }
+    return SMESH_TEST_SUCCESS;
+#endif
+}
+
+static int test_mpi_edge2_refine() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+
+    int token = 0;
+    if (comm->rank() == 0) {
+        token = static_cast<int>(std::time(nullptr)) + 15;
+    }
+    comm->broadcast(&token, 1, 0);
+    const Path path = make_tmp_path("smesh_mpi_xf_edge_refine", token);
+
+    const ptrdiff_t n_seg            = std::max<ptrdiff_t>(4 * comm->size(), 8);
+    ptrdiff_t       serial_nnodes    = 0;
+    ptrdiff_t       serial_nelements = 0;
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+        auto serial = create_edge2_line_3d(n_seg);
+        SMESH_TEST_ASSERT(serial != nullptr);
+        auto refined = refine(serial, 1);
+        SMESH_TEST_ASSERT(refined != nullptr);
+        serial_nnodes    = refined->n_nodes();
+        serial_nelements = refined->n_elements();
+        SMESH_TEST_ASSERT(serial->write(path) == SMESH_SUCCESS);
+    }
+    comm->broadcast(&serial_nnodes, 1, 0);
+    comm->broadcast(&serial_nelements, 1, 0);
+    comm->barrier();
+
+    auto mesh = Mesh::create_from_file(comm, path);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    SMESH_TEST_ASSERT(mesh->is_distributed());
+
+    auto refined = refine(mesh, 1);
+    SMESH_TEST_ASSERT(refined != nullptr);
+    SMESH_TEST_ASSERT(refined->is_distributed());
+    SMESH_TEST_EQ(static_cast<int>(refined->n_blocks()), static_cast<int>(mesh->n_blocks()));
+    SMESH_TEST_EQ(refined->element_type(0), EDGE2);
+    SMESH_TEST_EQ(refined->distributed()->n_nodes_global(), serial_nnodes);
+    SMESH_TEST_EQ(refined->distributed()->n_elements_global(), serial_nelements);
+    SMESH_TEST_EQ(refined->block(0)->n_elements(), mesh->block(0)->n_elements() * 2);
+    SMESH_TEST_EQ(refined->block(0)->n_elements_owned(), mesh->block(0)->n_elements_owned() * 2);
+    SMESH_TEST_EQ(check_owned_gids_unique(*refined), SMESH_TEST_SUCCESS);
+
+    auto coarse_ss = Sideset::create_from_selector(
+            mesh, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+    SMESH_TEST_ASSERT(!coarse_ss.empty());
+    auto mapped = map_sideset_through_refine(mesh, coarse_ss[0], refined);
+    SMESH_TEST_ASSERT(mapped != nullptr);
+    SMESH_TEST_EQ(mapped->size(), coarse_ss[0]->size());
+    SMESH_TEST_EQ(mapped->block_id(), coarse_ss[0]->block_id());
+    for (ptrdiff_t i = 0; i < mapped->size(); ++i) {
+        SMESH_TEST_ASSERT(mapped->parent()->data()[i] >= 0);
+        SMESH_TEST_ASSERT(mapped->parent()->data()[i] < refined->n_elements(mapped->block_id()));
+        SMESH_TEST_EQ(mapped->lfi()->data()[i], coarse_ss[0]->lfi()->data()[i]);
+    }
+
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+    }
+    return SMESH_TEST_SUCCESS;
+#endif
+}
+
+static int test_mpi_quad4_refine() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+
+    int token = 0;
+    if (comm->rank() == 0) {
+        token = static_cast<int>(std::time(nullptr)) + 12;
+    }
+    comm->broadcast(&token, 1, 0);
+    const Path path = make_tmp_path("smesh_mpi_xf_quad_refine", token);
+
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    const ptrdiff_t ny = 2;
+    ptrdiff_t       serial_nnodes    = 0;
+    ptrdiff_t       serial_nelements = 0;
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+        auto serial = create_quad4_square_3d(nx, ny);
+        SMESH_TEST_ASSERT(serial != nullptr);
+        auto refined = refine(serial, 1);
+        SMESH_TEST_ASSERT(refined != nullptr);
+        serial_nnodes    = refined->n_nodes();
+        serial_nelements = refined->n_elements();
+        SMESH_TEST_ASSERT(serial->write(path) == SMESH_SUCCESS);
+    }
+    comm->broadcast(&serial_nnodes, 1, 0);
+    comm->broadcast(&serial_nelements, 1, 0);
+    comm->barrier();
+
+    auto mesh = Mesh::create_from_file(comm, path);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    SMESH_TEST_ASSERT(mesh->is_distributed());
+
+    auto refined = refine(mesh, 1);
+    SMESH_TEST_ASSERT(refined != nullptr);
+    SMESH_TEST_ASSERT(refined->is_distributed());
+    SMESH_TEST_EQ(static_cast<int>(refined->n_blocks()), static_cast<int>(mesh->n_blocks()));
+    SMESH_TEST_EQ(refined->element_type(0), QUAD4);
+    SMESH_TEST_EQ(refined->distributed()->n_nodes_global(), serial_nnodes);
+    SMESH_TEST_EQ(refined->distributed()->n_elements_global(), serial_nelements);
+    SMESH_TEST_EQ(refined->block(0)->n_elements(), mesh->block(0)->n_elements() * 4);
+    SMESH_TEST_EQ(refined->block(0)->n_elements_owned(), mesh->block(0)->n_elements_owned() * 4);
+    SMESH_TEST_EQ(check_owned_gids_unique(*refined), SMESH_TEST_SUCCESS);
+
+    auto coarse_ss = Sideset::create_from_selector(
+            mesh, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+    SMESH_TEST_ASSERT(!coarse_ss.empty());
+    auto mapped = map_sideset_through_refine(mesh, coarse_ss[0], refined);
+    SMESH_TEST_ASSERT(mapped != nullptr);
+    SMESH_TEST_EQ(mapped->size(), coarse_ss[0]->size() * 2);
+    SMESH_TEST_EQ(mapped->block_id(), coarse_ss[0]->block_id());
+    for (ptrdiff_t i = 0; i < mapped->size(); ++i) {
+        SMESH_TEST_ASSERT(mapped->parent()->data()[i] >= 0);
+        SMESH_TEST_ASSERT(mapped->parent()->data()[i] < refined->n_elements(mapped->block_id()));
+    }
+
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+    }
+    return SMESH_TEST_SUCCESS;
+#endif
+}
+
+static int test_mpi_wedge6_refine() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+
+    int token = 0;
+    if (comm->rank() == 0) {
+        token = static_cast<int>(std::time(nullptr)) + 13;
+    }
+    comm->broadcast(&token, 1, 0);
+    const Path path = make_tmp_path("smesh_mpi_xf_wedge_refine", token);
+
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    const ptrdiff_t ny = 2;
+    ptrdiff_t       serial_nnodes    = 0;
+    ptrdiff_t       serial_nelements = 0;
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+        auto serial = extrude(create_tri3_square_3d(nx, ny), 1.0, 1);
+        SMESH_TEST_ASSERT(serial != nullptr);
+        SMESH_TEST_EQ(serial->element_type(0), WEDGE6);
+        auto refined = refine(serial, 1);
+        SMESH_TEST_ASSERT(refined != nullptr);
+        serial_nnodes    = refined->n_nodes();
+        serial_nelements = refined->n_elements();
+        SMESH_TEST_ASSERT(serial->write(path) == SMESH_SUCCESS);
+    }
+    comm->broadcast(&serial_nnodes, 1, 0);
+    comm->broadcast(&serial_nelements, 1, 0);
+    comm->barrier();
+
+    auto mesh = Mesh::create_from_file(comm, path);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    SMESH_TEST_ASSERT(mesh->is_distributed());
+
+    auto refined = refine(mesh, 1);
+    SMESH_TEST_ASSERT(refined != nullptr);
+    SMESH_TEST_ASSERT(refined->is_distributed());
+    SMESH_TEST_EQ(static_cast<int>(refined->n_blocks()), static_cast<int>(mesh->n_blocks()));
+    SMESH_TEST_EQ(refined->element_type(0), WEDGE6);
+    SMESH_TEST_EQ(refined->distributed()->n_nodes_global(), serial_nnodes);
+    SMESH_TEST_EQ(refined->distributed()->n_elements_global(), serial_nelements);
+    SMESH_TEST_EQ(refined->block(0)->n_elements(), mesh->block(0)->n_elements() * 8);
+    SMESH_TEST_EQ(refined->block(0)->n_elements_owned(), mesh->block(0)->n_elements_owned() * 8);
+    SMESH_TEST_EQ(check_owned_gids_unique(*refined), SMESH_TEST_SUCCESS);
+
+    auto coarse_ss = Sideset::create_from_selector(
+            mesh, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+    SMESH_TEST_ASSERT(!coarse_ss.empty());
+    auto mapped = map_sideset_through_refine(mesh, coarse_ss[0], refined);
+    SMESH_TEST_ASSERT(mapped != nullptr);
+    SMESH_TEST_EQ(mapped->size(), coarse_ss[0]->size() * 4);
+    SMESH_TEST_EQ(mapped->block_id(), coarse_ss[0]->block_id());
+    const enum ElemType parent_side = side_type(WEDGE6, coarse_ss[0]->lfi()->data()[0]);
+    for (ptrdiff_t i = 0; i < mapped->size(); ++i) {
+        SMESH_TEST_ASSERT(mapped->parent()->data()[i] >= 0);
+        SMESH_TEST_ASSERT(mapped->parent()->data()[i] < refined->n_elements(mapped->block_id()));
+        SMESH_TEST_EQ(side_type(WEDGE6, mapped->lfi()->data()[i]), parent_side);
     }
 
     if (comm->rank() == 0) {
@@ -481,7 +932,14 @@ static int test_mpi_mesh_edgeset_nodeset_io() {
 
 int main(int argc, char **argv) {
     SMESH_UNIT_TEST_INIT(argc, argv);
+    SMESH_RUN_TEST(test_serial_trishell3_refine);
     SMESH_RUN_TEST(test_mpi_hex8_refine);
+    SMESH_RUN_TEST(test_mpi_tet4_refine);
+    SMESH_RUN_TEST(test_mpi_tri3_refine);
+    SMESH_RUN_TEST(test_mpi_trishell3_refine);
+    SMESH_RUN_TEST(test_mpi_edge2_refine);
+    SMESH_RUN_TEST(test_mpi_quad4_refine);
+    SMESH_RUN_TEST(test_mpi_wedge6_refine);
     SMESH_RUN_TEST(test_mpi_quad_extrude);
     SMESH_RUN_TEST(test_mpi_clone_convert);
     SMESH_RUN_TEST(test_mpi_ss_derefine);

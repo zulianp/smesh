@@ -1170,6 +1170,41 @@ namespace smesh {
         }
     }
 
+    static int quad_edge_child_on(const int L, const int lfi, const int xi, const int yi) {
+        switch (lfi) {
+            case 0:
+                return yi == 0;
+            case 1:
+                return xi == L - 1;
+            case 2:
+                return yi == L - 1;
+            case 3:
+                return xi == 0;
+            default:
+                return 0;
+        }
+    }
+
+    /// WEDGE6 faces: 0 y=0 QUAD, 1 hypotenuse QUAD, 2 x=0 QUAD, 3 z=0 TRI, 4 z=L TRI.
+    /// `down` is the opposite-orientation microtriangle in the (x,y) plane.
+    static int wedge_child_on(const int L, const int lfi, const int xi, const int yi, const int zi,
+                              const int down) {
+        switch (lfi) {
+            case 0:
+                return !down && yi == 0;
+            case 1:
+                return !down && xi + yi == L - 1;
+            case 2:
+                return !down && xi == 0;
+            case 3:
+                return zi == 0;
+            case 4:
+                return zi == L - 1;
+            default:
+                return 0;
+        }
+    }
+
     std::shared_ptr<Sideset> map_sideset_through_refine(const std::shared_ptr<Mesh>    &coarse_mesh,
                                                         const std::shared_ptr<Sideset> &coarse_ss,
                                                         const std::shared_ptr<Mesh>    &fine_mesh) {
@@ -1284,6 +1319,97 @@ namespace smesh {
                 }
             }
             n_out = w;
+        } else if ((coarse_type == QUAD4 || coarse_type == QUADSHELL4) &&
+                   (fine_type == QUAD4 || fine_type == QUADSHELL4)) {
+            if (factor <= 0) {
+                return unsupported();
+            }
+            int L = 1;
+            while ((ptrdiff_t)L * (ptrdiff_t)L < factor) {
+                ++L;
+            }
+            if ((ptrdiff_t)L * (ptrdiff_t)L != factor) {
+                return unsupported();
+            }
+            n_out = n_ss * (ptrdiff_t)L;
+            out_p = create_host_buffer<element_idx_t>((size_t)n_out);
+            out_l = create_host_buffer<i16>((size_t)n_out);
+            element_idx_t *d_out_p = n_out > 0 ? out_p->data() : nullptr;
+            i16           *d_out_l = n_out > 0 ? out_l->data() : nullptr;
+            ptrdiff_t w = 0;
+            for (ptrdiff_t i = 0; i < n_ss; ++i) {
+                const element_idx_t e   = cp[i];
+                const i16           lfi = cl[i];
+                if (e < 0 || (ptrdiff_t)e >= n_coarse) {
+                    SMESH_ERROR("map_sideset_through_refine: parent out of range\n");
+                    return nullptr;
+                }
+                if (lfi < 0 || lfi > 3) {
+                    SMESH_ERROR("map_sideset_through_refine: QUAD side %d is invalid\n", (int)lfi);
+                    return nullptr;
+                }
+                for (int yi = 0; yi < L; ++yi) {
+                    for (int xi = 0; xi < L; ++xi) {
+                        if (quad_edge_child_on(L, lfi, xi, yi)) {
+                            d_out_p[w] = (element_idx_t)((ptrdiff_t)e * factor + yi * L + xi);
+                            d_out_l[w] = lfi;
+                            ++w;
+                        }
+                    }
+                }
+            }
+            n_out = w;
+        } else if (coarse_type == WEDGE6 && fine_type == WEDGE6) {
+            if (factor <= 0) {
+                return unsupported();
+            }
+            int L = 1;
+            while ((ptrdiff_t)L * (ptrdiff_t)L * (ptrdiff_t)L < factor) {
+                ++L;
+            }
+            if ((ptrdiff_t)L * (ptrdiff_t)L * (ptrdiff_t)L != factor) {
+                return unsupported();
+            }
+            n_out = n_ss * (ptrdiff_t)L * (ptrdiff_t)L;
+            out_p = create_host_buffer<element_idx_t>((size_t)n_out);
+            out_l = create_host_buffer<i16>((size_t)n_out);
+            element_idx_t *d_out_p = n_out > 0 ? out_p->data() : nullptr;
+            i16           *d_out_l = n_out > 0 ? out_l->data() : nullptr;
+            ptrdiff_t w = 0;
+            for (ptrdiff_t i = 0; i < n_ss; ++i) {
+                const element_idx_t e   = cp[i];
+                const i16           lfi = cl[i];
+                if (e < 0 || (ptrdiff_t)e >= n_coarse) {
+                    SMESH_ERROR("map_sideset_through_refine: parent out of range\n");
+                    return nullptr;
+                }
+                if (lfi < 0 || lfi > 4) {
+                    SMESH_ERROR("map_sideset_through_refine: WEDGE6 side %d is invalid\n", (int)lfi);
+                    return nullptr;
+                }
+                int le = 0;
+                for (int zi = 0; zi < L; ++zi) {
+                    for (int yi = 0; yi < L; ++yi) {
+                        for (int xi = 0; xi < L - yi; ++xi) {
+                            if (wedge_child_on(L, lfi, xi, yi, zi, 0)) {
+                                d_out_p[w] = (element_idx_t)((ptrdiff_t)e * factor + le);
+                                d_out_l[w] = lfi;
+                                ++w;
+                            }
+                            ++le;
+                            if (xi + yi + 1 < L) {
+                                if (wedge_child_on(L, lfi, xi, yi, zi, 1)) {
+                                    d_out_p[w] = (element_idx_t)((ptrdiff_t)e * factor + le);
+                                    d_out_l[w] = lfi;
+                                    ++w;
+                                }
+                                ++le;
+                            }
+                        }
+                    }
+                }
+            }
+            n_out = w;
         } else if (coarse_type == TET4 && fine_type == TET4) {
             if (factor <= 0) {
                 return unsupported();
@@ -1347,7 +1473,7 @@ namespace smesh {
                 w += n_cur;
             }
             n_out = w;
-        } else if (coarse_type == TRI3 && fine_type == TRI3) {
+        } else if ((coarse_type == TRI3 || coarse_type == TRISHELL3) && fine_type == coarse_type) {
             if (factor <= 0) {
                 return unsupported();
             }
@@ -1388,7 +1514,7 @@ namespace smesh {
                     for (ptrdiff_t k = 0; k < n_cur; ++k) {
                         const i16 s = d_cur_l[k];
                         if (s < 0 || s > 2) {
-                            SMESH_ERROR("map_sideset_through_refine: TRI3 side %d is invalid\n", (int)s);
+                            SMESH_ERROR("map_sideset_through_refine: TRI side %d is invalid\n", (int)s);
                             return nullptr;
                         }
                         for (int c = 0; c < 2; ++c) {
@@ -1410,6 +1536,38 @@ namespace smesh {
                 w += n_cur;
             }
             n_out = w;
+        } else if ((coarse_type == EDGE2 || coarse_type == EDGESHELL2) && fine_type == coarse_type) {
+            if (factor <= 0) {
+                return unsupported();
+            }
+            ptrdiff_t f = 1;
+            while (f < factor) {
+                f *= 2;
+            }
+            if (f != factor) {
+                return unsupported();
+            }
+            n_out = n_ss;
+            out_p = create_host_buffer<element_idx_t>((size_t)n_out);
+            out_l = create_host_buffer<i16>((size_t)n_out);
+            element_idx_t *d_out_p = n_out > 0 ? out_p->data() : nullptr;
+            i16           *d_out_l = n_out > 0 ? out_l->data() : nullptr;
+            for (ptrdiff_t i = 0; i < n_ss; ++i) {
+                const element_idx_t e   = cp[i];
+                const i16           lfi = cl[i];
+                if (e < 0 || (ptrdiff_t)e >= n_coarse) {
+                    SMESH_ERROR("map_sideset_through_refine: parent out of range\n");
+                    return nullptr;
+                }
+                if (lfi != 0 && lfi != 1) {
+                    SMESH_ERROR("map_sideset_through_refine: EDGE side %d is invalid\n", (int)lfi);
+                    return nullptr;
+                }
+                const ptrdiff_t child =
+                        (ptrdiff_t)e * factor + ((lfi == 0) ? (ptrdiff_t)0 : (factor - 1));
+                d_out_p[i] = (element_idx_t)child;
+                d_out_l[i] = lfi;
+            }
         } else {
             return unsupported();
         }

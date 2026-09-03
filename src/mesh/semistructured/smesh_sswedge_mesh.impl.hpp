@@ -6,6 +6,53 @@
 
 namespace smesh {
 
+template <typename idx_t>
+int sswedge_to_standard_wedge6_mesh(
+        const int                                               level,
+        const ptrdiff_t                                         nelements,
+        const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+        idx_t *SMESH_RESTRICT *const SMESH_RESTRICT             wedge6_elements) {
+    const int txe = sswedge_txe(level);
+    int       lnode[6];
+    int       le = 0;
+    for (int zi = 0; zi < level; ++zi) {
+        for (int yi = 0; yi < level; ++yi) {
+            for (int xi = 0; xi < level - yi; ++xi) {
+                lnode[0] = sswedge_lidx(level, xi, yi, zi);
+                lnode[1] = sswedge_lidx(level, xi + 1, yi, zi);
+                lnode[2] = sswedge_lidx(level, xi, yi + 1, zi);
+                lnode[3] = sswedge_lidx(level, xi, yi, zi + 1);
+                lnode[4] = sswedge_lidx(level, xi + 1, yi, zi + 1);
+                lnode[5] = sswedge_lidx(level, xi, yi + 1, zi + 1);
+                SMESH_ASSERT(le < txe);
+                for (int l = 0; l < 6; ++l) {
+                    for (ptrdiff_t e = 0; e < nelements; ++e) {
+                        wedge6_elements[l][e * txe + le] = elements[lnode[l]][e];
+                    }
+                }
+                ++le;
+                if (xi + yi + 1 < level) {
+                    lnode[0] = sswedge_lidx(level, xi + 1, yi, zi);
+                    lnode[1] = sswedge_lidx(level, xi + 1, yi + 1, zi);
+                    lnode[2] = sswedge_lidx(level, xi, yi + 1, zi);
+                    lnode[3] = sswedge_lidx(level, xi + 1, yi, zi + 1);
+                    lnode[4] = sswedge_lidx(level, xi + 1, yi + 1, zi + 1);
+                    lnode[5] = sswedge_lidx(level, xi, yi + 1, zi + 1);
+                    SMESH_ASSERT(le < txe);
+                    for (int l = 0; l < 6; ++l) {
+                        for (ptrdiff_t e = 0; e < nelements; ++e) {
+                            wedge6_elements[l][e * txe + le] = elements[lnode[l]][e];
+                        }
+                    }
+                    ++le;
+                }
+            }
+        }
+    }
+    SMESH_ASSERT(le == txe);
+    return SMESH_SUCCESS;
+}
+
 template <typename idx_t, typename geom_t>
 int sswedge_fill_points(const int                                                level,
                         const ptrdiff_t                                          nelements,

@@ -12,6 +12,22 @@
             GEOM_T *SMESH_RESTRICT *const SMESH_RESTRICT)
 
 namespace smesh {
+template int sswedge_to_standard_wedge6_mesh<i16>(
+        const int,
+        const ptrdiff_t,
+        const i16 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+        i16 *SMESH_RESTRICT *const SMESH_RESTRICT);
+template int sswedge_to_standard_wedge6_mesh<i32>(
+        const int,
+        const ptrdiff_t,
+        const i32 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+        i32 *SMESH_RESTRICT *const SMESH_RESTRICT);
+template int sswedge_to_standard_wedge6_mesh<i64>(
+        const int,
+        const ptrdiff_t,
+        const i64 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+        i64 *SMESH_RESTRICT *const SMESH_RESTRICT);
+
 SMESH_EXPLICIT_INSTANTIATE_SSWEDGE_MESH(i16, f32);
 SMESH_EXPLICIT_INSTANTIATE_SSWEDGE_MESH(i32, f32);
 SMESH_EXPLICIT_INSTANTIATE_SSWEDGE_MESH(i64, f32);

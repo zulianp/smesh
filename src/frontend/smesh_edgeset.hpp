@@ -14,8 +14,8 @@ namespace smesh {
     /// Lightweight `(block_id, parent[], lei[])` edge set.
     /// `lei` is the 0-based local edge of the parent element. On TRI/QUAD/shell,
     /// local edges coincide with local sides. Semistructured level changes keep
-    /// the same `(parent, lei)` valid. Unstructured refine/promote does not remap
-    /// edgesets.
+    /// the same `(parent, lei)` valid. Unstructured `refine()` does not remap
+    /// edgesets automatically; use `map_edgeset_through_refine`.
     class Edgeset final {
     public:
         int read(const std::shared_ptr<Communicator> &comm, const Path &path, block_idx_t block_id = 0);
@@ -66,6 +66,14 @@ namespace smesh {
                        block_idx_t                                  block_id,
                        const element_idx_t                         *old_to_new,
                        ptrdiff_t                                    n);
+
+    /// Expand an edgeset through unstructured `refine()`. SS level changes keep
+    /// `(parent, lei)` and must not use this. Currently EDGE2/EDGESHELL2 only
+    /// (`lei` 0 → 2 children per level, same `lei`). Returns nullptr (stderr) for
+    /// unsupported type pairs.
+    std::shared_ptr<Edgeset> map_edgeset_through_refine(const std::shared_ptr<Mesh>    &coarse_mesh,
+                                                        const std::shared_ptr<Edgeset> &coarse_es,
+                                                        const std::shared_ptr<Mesh>    &fine_mesh);
 
     std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>> create_edges_from_edgeset(
             const std::shared_ptr<Mesh>    &mesh,

@@ -11,6 +11,9 @@ static SMESH_INLINE SMESH_HOST_DEVICE int sswedge_nxe(const int L) {
     return sstet4_n_tri(L) * (L + 1);
 }
 
+/// Microwedges per macro: triangle L² × L layers.
+static SMESH_INLINE SMESH_HOST_DEVICE int sswedge_txe(const int L) { return L * L * L; }
+
 static SMESH_INLINE SMESH_HOST_DEVICE int sswedge_nxedge(const int L) { return L > 1 ? (L - 1) : 0; }
 
 static SMESH_INLINE SMESH_HOST_DEVICE int sswedge_nx_tri_face(const int L) { return sstet4_nxface(L); }

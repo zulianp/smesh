@@ -5,6 +5,7 @@
 #include "smesh_sspyramid_graph.hpp"
 #include "smesh_sswedge.hpp"
 #include "smesh_sswedge_graph.hpp"
+#include "smesh_sswedge_mesh.hpp"
 #include "smesh_test.hpp"
 
 using namespace smesh;
@@ -159,12 +160,51 @@ static int test_sspyramid_two_shared_base() {
     return SMESH_TEST_SUCCESS;
 }
 
+static int test_sswedge_to_standard_wedge6() {
+    const ptrdiff_t nelements = 1;
+    auto            macro     = create_host_buffer<idx_t>(6, nelements);
+    for (int d = 0; d < 6; ++d) {
+        macro->data()[d][0] = static_cast<idx_t>(d);
+    }
+    for (int L : {1, 2, 3, 4}) {
+        const int nxe      = sswedge_nxe(L);
+        const int txe      = sswedge_txe(L);
+        auto      ss_elems = create_host_buffer<idx_t>(nxe, nelements);
+        ptrdiff_t n_unique = -1;
+        ptrdiff_t interior = -1;
+        SMESH_TEST_ASSERT(sswedge_generate_elements(L,
+                                                    nelements,
+                                                    6,
+                                                    macro->data(),
+                                                    ss_elems->data(),
+                                                    &n_unique,
+                                                    &interior) == SMESH_SUCCESS);
+        SMESH_TEST_EQ(txe, L * L * L);
+        auto wedge = create_host_buffer<idx_t>(6, txe);
+        SMESH_TEST_ASSERT(sswedge_to_standard_wedge6_mesh(L, nelements, ss_elems->data(), wedge->data()) ==
+                          SMESH_SUCCESS);
+        if (L == 1) {
+            for (int d = 0; d < 6; ++d) {
+                SMESH_TEST_EQ(wedge->data()[d][0], static_cast<idx_t>(d));
+            }
+        }
+        for (int d = 0; d < 6; ++d) {
+            for (int e = 0; e < txe; ++e) {
+                SMESH_TEST_ASSERT(wedge->data()[d][e] >= 0);
+                SMESH_TEST_ASSERT(static_cast<ptrdiff_t>(wedge->data()[d][e]) < n_unique);
+            }
+        }
+    }
+    return SMESH_TEST_SUCCESS;
+}
+
 int main(int argc, char *argv[]) {
     SMESH_UNIT_TEST_INIT(argc, argv);
     SMESH_RUN_TEST(test_sswedge_lidx_bijective);
     SMESH_RUN_TEST(test_sspyramid_lidx_bijective);
     SMESH_RUN_TEST(test_sswedge_two_prisms_shared_quad);
     SMESH_RUN_TEST(test_sspyramid_two_shared_base);
+    SMESH_RUN_TEST(test_sswedge_to_standard_wedge6);
     SMESH_UNIT_TEST_FINALIZE();
     return SMESH_UNIT_TEST_ERR();
 }

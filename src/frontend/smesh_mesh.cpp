@@ -4939,6 +4939,16 @@ namespace smesh {
         cmap[std::make_pair(PROTEUS_QUADSHELL64, QUADSHELL4)] = ssquad_block_to_quad4_block;
         cmap[std::make_pair(PROTEUS_QUADSHELL81, QUADSHELL4)] = ssquad_block_to_quad4_block;
 
+        cmap[std::make_pair(PROTEUS_WEDGE6, WEDGE6)]    = sswedge_block_to_wedge6_block;
+        cmap[std::make_pair(PROTEUS_WEDGE18, WEDGE6)]   = sswedge_block_to_wedge6_block;
+        cmap[std::make_pair(PROTEUS_WEDGE40, WEDGE6)]   = sswedge_block_to_wedge6_block;
+        cmap[std::make_pair(PROTEUS_WEDGE75, WEDGE6)]   = sswedge_block_to_wedge6_block;
+        cmap[std::make_pair(PROTEUS_WEDGE126, WEDGE6)]  = sswedge_block_to_wedge6_block;
+        cmap[std::make_pair(PROTEUS_WEDGE196, WEDGE6)]  = sswedge_block_to_wedge6_block;
+        cmap[std::make_pair(PROTEUS_WEDGE288, WEDGE6)]  = sswedge_block_to_wedge6_block;
+        cmap[std::make_pair(PROTEUS_WEDGE405, WEDGE6)]  = sswedge_block_to_wedge6_block;
+        cmap[std::make_pair(PROTEUS_WEDGE2601, WEDGE6)] = sswedge_block_to_wedge6_block;
+
         std::vector<std::shared_ptr<Mesh::Block>> blocks;
         for (auto &block : mesh->blocks()) {
             auto new_block = std::make_shared<Mesh::Block>();
@@ -5178,29 +5188,23 @@ namespace smesh {
         }
 #endif
 
-        const int refine_factor = [](const enum ElemType element_type) {
-            switch (element_type) {
-                case HEX8:
-                    return 8;
-                case TET4:
-                    return 8;
-                case TRI3:
-                    return 4;
-                default:
-                    SMESH_ERROR("Refinement factor not supported for element type %d\n", element_type);
-                    return 0;
-            }
-        }(mesh->element_type(0));
-
+        const enum ElemType et0 = mesh->element_type(0);
         for (size_t b = 1; b < mesh->n_blocks(); ++b) {
-            if (mesh->element_type(static_cast<block_idx_t>(b)) != mesh->element_type(0)) {
-                SMESH_ERROR("Refinement requires all blocks to share the same element type\n");
+            const enum ElemType etb = mesh->element_type(static_cast<block_idx_t>(b));
+            if (etb != et0) {
+                refine_print_mixed_types(et0, b, etb);
                 return nullptr;
             }
         }
+        if (!refine_type_supported(et0)) {
+            refine_print_unsupported(et0);
+            return nullptr;
+        }
+
+        const int refine_factor = refine_edge_midpoint_factor(et0);
 
         if (mesh->n_blocks() > 1 &&
-            (mesh->element_type(0) == TET4 || mesh->element_type(0) == TRI3)) {
+            (et0 == TET4 || refine_is_tri_family(et0) || refine_is_edge_family(et0))) {
             auto out = mesh;
             for (int i = 0; i < levels; ++i) {
                 auto n2n_upper_triangular     = out->node_to_node_graph_upper_triangular();
@@ -5253,6 +5257,22 @@ namespace smesh {
                 return nullptr;
             }
             return sshex_to_hex8(ss);
+        }
+
+        if (et0 == QUAD4 || et0 == QUADSHELL4) {
+            auto ss = to_semistructured(1 << levels, mesh);
+            if (!ss) {
+                return nullptr;
+            }
+            return ssquad_to_quad4(ss);
+        }
+
+        if (et0 == WEDGE6) {
+            auto ss = to_semistructured(1 << levels, mesh);
+            if (!ss) {
+                return nullptr;
+            }
+            return sswedge_to_wedge6(ss);
         }
 
         auto out = mesh;

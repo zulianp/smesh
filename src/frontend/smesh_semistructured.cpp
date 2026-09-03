@@ -1169,7 +1169,7 @@ namespace smesh {
 
         new_block.set_name(block.name());
         new_block.set_elements(surface);
-        new_block.set_element_type(QUAD4);
+        new_block.set_element_type(ssquad_linear_type(block.element_type()));
     }
 
     void sstet_block_to_tet4_block(const Mesh::Block &block, Mesh::Block &new_block) {
@@ -1182,6 +1182,16 @@ namespace smesh {
         new_block.set_name(block.name());
         new_block.set_elements(tet4_elements);
         new_block.set_element_type(TET4);
+    }
+
+    void sswedge_block_to_wedge6_block(const Mesh::Block &block, Mesh::Block &new_block) {
+        const int       level            = semistructured_level(block.element_type());
+        const ptrdiff_t n_micro_elements = block.n_elements() * sswedge_txe(level);
+        auto            wedge6_elements  = smesh::create_host_buffer<idx_t>(6, n_micro_elements);
+        sswedge_to_standard_wedge6_mesh(level, block.n_elements(), block.elements()->data(), wedge6_elements->data());
+        new_block.set_name(block.name());
+        new_block.set_elements(wedge6_elements);
+        new_block.set_element_type(WEDGE6);
     }
 
     std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex) {
@@ -1232,6 +1242,12 @@ namespace smesh {
     }
 
     std::shared_ptr<Mesh> ssquad_to_quad4(const std::shared_ptr<Mesh> &ssquad) {
+        for (auto &block : ssquad->blocks()) {
+            if (!is_quad_ss_family(block->element_type())) {
+                fprintf(stderr, "ssquad_to_quad4: mixed-family or non-QUAD SS conversion is not implemented\n");
+                return nullptr;
+            }
+        }
         std::vector<std::shared_ptr<Mesh::Block>> blocks;
         for (auto &block : ssquad->blocks()) {
             auto new_block = std::make_shared<Mesh::Block>();
@@ -1239,9 +1255,38 @@ namespace smesh {
             blocks.push_back(new_block);
         }
 
-        auto ret = std::make_shared<Mesh>(ssquad->comm(), blocks, ssquad->points());
-        ret->set_node_mapping(ssquad->node_mapping());
-        return ret;
+        auto quad = std::make_shared<Mesh>(ssquad->comm(), blocks, ssquad->points());
+#ifdef SMESH_ENABLE_MPI
+        if (ssquad->is_distributed()) {
+            return MeshTransformsDistributed::attach_sshex_to_hex8(ssquad, quad);
+        }
+#endif
+        quad->set_node_mapping(ssquad->node_mapping());
+        return quad;
+    }
+
+    std::shared_ptr<Mesh> sswedge_to_wedge6(const std::shared_ptr<Mesh> &sswedge) {
+        for (auto &block : sswedge->blocks()) {
+            if (!is_wedge_ss_family(block->element_type())) {
+                fprintf(stderr, "sswedge_to_wedge6: mixed-family or non-WEDGE SS conversion is not implemented\n");
+                return nullptr;
+            }
+        }
+        std::vector<std::shared_ptr<Mesh::Block>> blocks;
+        for (auto &block : sswedge->blocks()) {
+            auto new_block = std::make_shared<Mesh::Block>();
+            sswedge_block_to_wedge6_block(*block, *new_block);
+            blocks.push_back(new_block);
+        }
+
+        auto wedge = std::make_shared<Mesh>(sswedge->comm(), blocks, sswedge->points());
+#ifdef SMESH_ENABLE_MPI
+        if (sswedge->is_distributed()) {
+            return MeshTransformsDistributed::attach_sshex_to_hex8(sswedge, wedge);
+        }
+#endif
+        wedge->set_node_mapping(sswedge->node_mapping());
+        return wedge;
     }
 
     static std::shared_ptr<Mesh> finish_derefine(const std::shared_ptr<Mesh>                    &mesh,

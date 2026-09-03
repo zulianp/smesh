@@ -25,6 +25,7 @@ namespace smesh {
     void sshex_block_to_hex8_block(const Mesh::Block &block, Mesh::Block &new_block);
     void ssquad_block_to_quad4_block(const Mesh::Block &block, Mesh::Block &new_block);
     void sstet_block_to_tet4_block(const Mesh::Block &block, Mesh::Block &new_block);
+    void sswedge_block_to_wedge6_block(const Mesh::Block &block, Mesh::Block &new_block);
 
     int semistructured_hierarchical_renumbering(const enum ElemType          element_type,
                                                 const int                    level,
@@ -51,6 +52,15 @@ namespace smesh {
     std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex);
     std::shared_ptr<Mesh> sstet_to_tet4(const std::shared_ptr<Mesh> &sstet);
     std::shared_ptr<Mesh> ssquad_to_quad4(const std::shared_ptr<Mesh> &ssquad);
+    std::shared_ptr<Mesh> sswedge_to_wedge6(const std::shared_ptr<Mesh> &sswedge);
+
+    /// Linear type after exploding a QUAD SS block (QUADSHELL* stays QUADSHELL4).
+    inline enum ElemType ssquad_linear_type(const enum ElemType ss_type) {
+        if (!is_quad_ss_family(ss_type)) {
+            return INVALID;
+        }
+        return (shell_type(ss_type) == ss_type) ? QUADSHELL4 : QUAD4;
+    }
     std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh, const int to_level);
 
     /// Device SoA view into a finer SSHEX8 connectivity: uploads only a pointer table
@@ -143,11 +153,13 @@ namespace smesh {
         bool all_hex = true;
         bool all_tet = true;
         bool all_quad = true;
+        bool all_wedge = true;
         for (size_t b = 0; b < mesh->n_blocks(); ++b) {
             const auto fam = ss_source_family(mesh->element_type(static_cast<block_idx_t>(b)));
             all_hex &= fam == HEX8;
             all_tet &= fam == TET4;
             all_quad &= fam == QUAD4;
+            all_wedge &= fam == WEDGE6;
         }
 
         std::shared_ptr<Mesh> standard;
@@ -157,6 +169,8 @@ namespace smesh {
             standard = sstet_to_tet4(mesh);
         } else if (all_quad) {
             standard = ssquad_to_quad4(mesh);
+        } else if (all_wedge) {
+            standard = sswedge_to_wedge6(mesh);
         } else {
             fprintf(stderr, "semistructured_export_as_standard: mixed SS families are not supported\n");
             return SMESH_FAILURE;
