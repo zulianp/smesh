@@ -280,6 +280,33 @@ public:
       block_idx_t block_id, const element_idx_t *old_to_new, ptrdiff_t n,
       const std::vector<std::shared_ptr<Sideset>> &already = {});
 
+  /// Optional named edgeset registry. Empty by default; Mesh::read/write
+  /// round-trip `edgesets/<name>/` when non-empty. One name may map to several
+  /// edgesets (typically one per block).
+  void add_edgeset(const std::string &name, const std::shared_ptr<Edgeset> &es);
+  void add_edgesets(const std::string &name,
+                    const std::vector<std::shared_ptr<Edgeset>> &es);
+  void clear_edgesets();
+  const std::vector<std::pair<std::string, std::shared_ptr<Edgeset>>> &
+  edgesets() const;
+  std::vector<std::shared_ptr<Edgeset>> edgesets(const std::string &name) const;
+  int remap_registered_edgesets(
+      block_idx_t block_id, const element_idx_t *old_to_new, ptrdiff_t n,
+      const std::vector<std::shared_ptr<Edgeset>> &already = {});
+
+  /// Optional named nodeset registry. Empty by default; Mesh::read/write
+  /// round-trip `nodesets/<name>/` when non-empty.
+  void add_nodeset(const std::string &name, const std::shared_ptr<Nodeset> &ns);
+  void add_nodesets(const std::string &name,
+                    const std::vector<std::shared_ptr<Nodeset>> &ns);
+  void clear_nodesets();
+  const std::vector<std::pair<std::string, std::shared_ptr<Nodeset>>> &
+  nodesets() const;
+  std::vector<std::shared_ptr<Nodeset>> nodesets(const std::string &name) const;
+  int remap_registered_nodesets(
+      const idx_t *old_to_new, ptrdiff_t n,
+      const std::vector<std::shared_ptr<Nodeset>> &already = {});
+
   std::shared_ptr<Distributed> distributed() const;
   bool is_distributed() const;
 

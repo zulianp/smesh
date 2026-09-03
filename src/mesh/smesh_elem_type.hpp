@@ -1192,6 +1192,55 @@ namespace smesh {
         }
     }
 
+    inline int elem_num_edges(const enum ElemType type) {
+        if (is_semistructured_type(type)) {
+            const enum ElemType fam = ss_source_family(type);
+            if (fam != type) {
+                return elem_num_edges(fam);
+            }
+        }
+        switch (type) {
+            case NIL:
+            case NODE1:
+                return 0;
+            case EDGE2:
+            case EDGESHELL2:
+            case EDGE3:
+            case EDGESHELL3:
+            case BEAM2:
+                return 1;
+            case TRI3:
+            case TRISHELL3:
+            case MACRO_TRI3:
+            case MACRO_TRISHELL3:
+            case TRI6:
+            case TRISHELL6:
+                return 3;
+            case QUAD4:
+            case QUADSHELL4:
+            case QUAD9:
+            case QUADSHELL9:
+                return 4;
+            case TET4:
+            case MACRO_TET4:
+            case TET10:
+            case TET15:
+            case TET20:
+                return 6;
+            case PYRAMID5:
+                return 8;
+            case WEDGE6:
+                return 9;
+            case HEX8:
+            case HEX27:
+                return 12;
+            default: {
+                SMESH_ERROR("No number of edges found for type: %s\n", type_to_string(type));
+                return 0;
+            }
+        }
+    }
+
     inline bool is_hex_ss_family(const enum ElemType type) { return ss_source_family(type) == HEX8; }
 
     inline bool is_tet_ss_family(const enum ElemType type) { return ss_source_family(type) == TET4; }

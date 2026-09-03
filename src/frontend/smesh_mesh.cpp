@@ -17,6 +17,8 @@
 #include "smesh_reorder.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sideset.hpp"
+#include "smesh_edgeset.hpp"
+#include "smesh_nodeset.hpp"
 #include "smesh_sshex8.hpp"
 #include "smesh_sshex8_graph.hpp"
 #include "smesh_sshex8_mesh.hpp"
@@ -530,6 +532,8 @@ namespace smesh {
         std::shared_ptr<Communicator>       comm;
         std::vector<std::shared_ptr<Block>> blocks;
         std::vector<std::pair<std::string, std::shared_ptr<Sideset>>> sidesets;
+        std::vector<std::pair<std::string, std::shared_ptr<Edgeset>>> edgesets;
+        std::vector<std::pair<std::string, std::shared_ptr<Nodeset>>> nodesets;
         SharedBuffer<geom_t *>              points;
         SharedBuffer<idx_t>                 node_mapping;
 
@@ -556,6 +560,8 @@ namespace smesh {
             comm = nullptr;
             blocks.clear();
             sidesets.clear();
+            edgesets.clear();
+            nodesets.clear();
             points                     = nullptr;
             distributed                = nullptr;
             crs_graph                  = nullptr;
@@ -1033,6 +1039,129 @@ namespace smesh {
         return SMESH_SUCCESS;
     }
 
+    void Mesh::add_edgeset(const std::string &name, const std::shared_ptr<Edgeset> &es) {
+        if (!es) {
+            return;
+        }
+        impl_->edgesets.emplace_back(name, es);
+    }
+
+    void Mesh::add_edgesets(const std::string                          &name,
+                            const std::vector<std::shared_ptr<Edgeset>> &es) {
+        for (size_t i = 0; i < es.size(); ++i) {
+            add_edgeset(name, es[i]);
+        }
+    }
+
+    void Mesh::clear_edgesets() { impl_->edgesets.clear(); }
+
+    const std::vector<std::pair<std::string, std::shared_ptr<Edgeset>>> &
+    Mesh::edgesets() const {
+        return impl_->edgesets;
+    }
+
+    std::vector<std::shared_ptr<Edgeset>> Mesh::edgesets(const std::string &name) const {
+        std::vector<std::shared_ptr<Edgeset>> out;
+        const auto                           &reg = impl_->edgesets;
+        for (size_t i = 0; i < reg.size(); ++i) {
+            if (reg[i].first == name) {
+                out.push_back(reg[i].second);
+            }
+        }
+        return out;
+    }
+
+    int Mesh::remap_registered_edgesets(block_idx_t                                  block_id,
+                                        const element_idx_t                         *old_to_new,
+                                        ptrdiff_t                                    n,
+                                        const std::vector<std::shared_ptr<Edgeset>> &already) {
+        if (!old_to_new || n <= 0) {
+            return SMESH_SUCCESS;
+        }
+        const auto &reg = impl_->edgesets;
+        for (size_t i = 0; i < reg.size(); ++i) {
+            const auto &es = reg[i].second;
+            if (!es || es->block_id() != block_id) {
+                continue;
+            }
+            int skip = 0;
+            for (size_t j = 0; j < already.size(); ++j) {
+                if (already[j].get() == es.get()) {
+                    skip = 1;
+                    break;
+                }
+            }
+            if (skip) {
+                continue;
+            }
+            if (es->remap_parents(old_to_new, n) != SMESH_SUCCESS) {
+                return SMESH_FAILURE;
+            }
+        }
+        return SMESH_SUCCESS;
+    }
+
+    void Mesh::add_nodeset(const std::string &name, const std::shared_ptr<Nodeset> &ns) {
+        if (!ns) {
+            return;
+        }
+        impl_->nodesets.emplace_back(name, ns);
+    }
+
+    void Mesh::add_nodesets(const std::string                          &name,
+                            const std::vector<std::shared_ptr<Nodeset>> &ns) {
+        for (size_t i = 0; i < ns.size(); ++i) {
+            add_nodeset(name, ns[i]);
+        }
+    }
+
+    void Mesh::clear_nodesets() { impl_->nodesets.clear(); }
+
+    const std::vector<std::pair<std::string, std::shared_ptr<Nodeset>>> &
+    Mesh::nodesets() const {
+        return impl_->nodesets;
+    }
+
+    std::vector<std::shared_ptr<Nodeset>> Mesh::nodesets(const std::string &name) const {
+        std::vector<std::shared_ptr<Nodeset>> out;
+        const auto                           &reg = impl_->nodesets;
+        for (size_t i = 0; i < reg.size(); ++i) {
+            if (reg[i].first == name) {
+                out.push_back(reg[i].second);
+            }
+        }
+        return out;
+    }
+
+    int Mesh::remap_registered_nodesets(const idx_t                                 *old_to_new,
+                                        ptrdiff_t                                    n,
+                                        const std::vector<std::shared_ptr<Nodeset>> &already) {
+        if (!old_to_new || n <= 0) {
+            return SMESH_SUCCESS;
+        }
+        const auto &reg = impl_->nodesets;
+        for (size_t i = 0; i < reg.size(); ++i) {
+            const auto &ns = reg[i].second;
+            if (!ns) {
+                continue;
+            }
+            int skip = 0;
+            for (size_t j = 0; j < already.size(); ++j) {
+                if (already[j].get() == ns.get()) {
+                    skip = 1;
+                    break;
+                }
+            }
+            if (skip) {
+                continue;
+            }
+            if (ns->remap_nodes(old_to_new, n) != SMESH_SUCCESS) {
+                return SMESH_FAILURE;
+            }
+        }
+        return SMESH_SUCCESS;
+    }
+
     void read_meta(const std::shared_ptr<Communicator> &comm, const Path &path, enum ElemType &element_type) {
         if (!comm->rank()) {
             auto meta_file = Path(path) / "meta.yaml";
@@ -1224,11 +1353,287 @@ namespace smesh {
         return SMESH_SUCCESS;
     }
 
+    static int is_edgeset_folder(const Path &folder) {
+        return folder.is_dir() && (folder / "meta.yaml").exists() ? 1 : 0;
+    }
+
+    static int is_nodeset_folder(const Path &folder) {
+        if (!folder.is_dir()) {
+            return 0;
+        }
+        if ((folder / "meta.yaml").exists()) {
+            return 1;
+        }
+        auto nodes = detect_files(folder / "nodes.*", {"raw", "int16", "int32", "int64"});
+        return nodes.empty() ? 0 : 1;
+    }
+
+    static int load_one_edgeset(Mesh &mesh, const std::string &name, const Path &folder) {
+        auto es  = std::make_shared<Edgeset>();
+        int  err = SMESH_FAILURE;
+        if (mesh.comm()->size() > 1) {
+            err = es->read_and_redistibute(mesh_nonowning_alias(&mesh), folder);
+        } else {
+            err = es->read(mesh.comm(), folder);
+        }
+        if (err != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+        mesh.add_edgeset(name, es);
+        return SMESH_SUCCESS;
+    }
+
+    static int load_one_nodeset(Mesh &mesh, const std::string &name, const Path &folder) {
+        auto ns  = std::make_shared<Nodeset>();
+        int  err = SMESH_FAILURE;
+        if (mesh.comm()->size() > 1) {
+            err = ns->read_and_redistibute(mesh_nonowning_alias(&mesh), folder);
+        } else {
+            err = ns->read(mesh.comm(), folder);
+        }
+        if (err != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+        mesh.add_nodeset(name, ns);
+        return SMESH_SUCCESS;
+    }
+
+    static int read_registered_edgesets(Mesh &mesh, const Path &path) {
+        mesh.clear_edgesets();
+        const Path root = path / "edgesets";
+        if (!root.is_dir()) {
+            return SMESH_SUCCESS;
+        }
+
+        std::vector<Path> children;
+        collect_subdirs(root, &children);
+        for (size_t i = 0; i < children.size(); ++i) {
+            const Path       &child = children[i];
+            const std::string name  = child.file_name();
+            if (is_edgeset_folder(child)) {
+                if (load_one_edgeset(mesh, name, child) != SMESH_SUCCESS) {
+                    mesh.clear_edgesets();
+                    return SMESH_FAILURE;
+                }
+                continue;
+            }
+            std::vector<Path> members;
+            collect_subdirs(child, &members);
+            for (size_t j = 0; j < members.size(); ++j) {
+                if (!is_edgeset_folder(members[j])) {
+                    continue;
+                }
+                if (load_one_edgeset(mesh, name, members[j]) != SMESH_SUCCESS) {
+                    mesh.clear_edgesets();
+                    return SMESH_FAILURE;
+                }
+            }
+        }
+        return SMESH_SUCCESS;
+    }
+
+    static int read_registered_nodesets(Mesh &mesh, const Path &path) {
+        mesh.clear_nodesets();
+        const Path root = path / "nodesets";
+        if (!root.is_dir()) {
+            return SMESH_SUCCESS;
+        }
+
+        std::vector<Path> children;
+        collect_subdirs(root, &children);
+        for (size_t i = 0; i < children.size(); ++i) {
+            const Path       &child = children[i];
+            const std::string name  = child.file_name();
+            if (is_nodeset_folder(child)) {
+                if (load_one_nodeset(mesh, name, child) != SMESH_SUCCESS) {
+                    mesh.clear_nodesets();
+                    return SMESH_FAILURE;
+                }
+                continue;
+            }
+            std::vector<Path> members;
+            collect_subdirs(child, &members);
+            for (size_t j = 0; j < members.size(); ++j) {
+                if (!is_nodeset_folder(members[j])) {
+                    continue;
+                }
+                if (load_one_nodeset(mesh, name, members[j]) != SMESH_SUCCESS) {
+                    mesh.clear_nodesets();
+                    return SMESH_FAILURE;
+                }
+            }
+        }
+        return SMESH_SUCCESS;
+    }
+
+    static int write_registered_edgesets(const Mesh &mesh, const Path &path) {
+        const auto &reg = mesh.edgesets();
+        if (reg.empty()) {
+            return SMESH_SUCCESS;
+        }
+
+        std::vector<std::string>                           names;
+        std::vector<std::vector<std::shared_ptr<Edgeset>>> groups;
+        for (size_t i = 0; i < reg.size(); ++i) {
+            size_t gi = names.size();
+            for (size_t g = 0; g < names.size(); ++g) {
+                if (names[g] == reg[i].first) {
+                    gi = g;
+                    break;
+                }
+            }
+            if (gi == names.size()) {
+                names.push_back(reg[i].first);
+                groups.emplace_back();
+            }
+            groups[gi].push_back(reg[i].second);
+        }
+
+        auto comm = mesh.comm();
+        int  err  = SMESH_SUCCESS;
+        if (!comm->rank()) {
+            if (create_directory(path / "edgesets") != SMESH_SUCCESS) {
+                err = SMESH_FAILURE;
+            }
+            for (size_t g = 0; err == SMESH_SUCCESS && g < names.size(); ++g) {
+                const Path name_dir = path / "edgesets" / names[g];
+                if (create_directory(name_dir) != SMESH_SUCCESS) {
+                    err = SMESH_FAILURE;
+                    break;
+                }
+                if (groups[g].size() <= 1) {
+                    continue;
+                }
+                for (size_t k = 0; k < groups[g].size(); ++k) {
+                    if (!groups[g][k]) {
+                        continue;
+                    }
+                    const Path leaf =
+                            name_dir / std::to_string(static_cast<long long>(groups[g][k]->block_id()));
+                    if (create_directory(leaf) != SMESH_SUCCESS) {
+                        err = SMESH_FAILURE;
+                        break;
+                    }
+                }
+            }
+        }
+        comm->broadcast(&err, 1, 0);
+        if (err != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+
+        for (size_t g = 0; g < names.size(); ++g) {
+            const Path name_dir = path / "edgesets" / names[g];
+            if (groups[g].size() == 1) {
+                if (!groups[g][0]) {
+                    continue;
+                }
+                if (groups[g][0]->write(name_dir) != SMESH_SUCCESS) {
+                    return SMESH_FAILURE;
+                }
+                continue;
+            }
+            for (size_t k = 0; k < groups[g].size(); ++k) {
+                if (!groups[g][k]) {
+                    continue;
+                }
+                const Path leaf =
+                        name_dir / std::to_string(static_cast<long long>(groups[g][k]->block_id()));
+                if (groups[g][k]->write(leaf) != SMESH_SUCCESS) {
+                    return SMESH_FAILURE;
+                }
+            }
+        }
+        return SMESH_SUCCESS;
+    }
+
+    static int write_registered_nodesets(const Mesh &mesh, const Path &path) {
+        const auto &reg = mesh.nodesets();
+        if (reg.empty()) {
+            return SMESH_SUCCESS;
+        }
+
+        std::vector<std::string>                           names;
+        std::vector<std::vector<std::shared_ptr<Nodeset>>> groups;
+        for (size_t i = 0; i < reg.size(); ++i) {
+            size_t gi = names.size();
+            for (size_t g = 0; g < names.size(); ++g) {
+                if (names[g] == reg[i].first) {
+                    gi = g;
+                    break;
+                }
+            }
+            if (gi == names.size()) {
+                names.push_back(reg[i].first);
+                groups.emplace_back();
+            }
+            groups[gi].push_back(reg[i].second);
+        }
+
+        auto comm = mesh.comm();
+        int  err  = SMESH_SUCCESS;
+        if (!comm->rank()) {
+            if (create_directory(path / "nodesets") != SMESH_SUCCESS) {
+                err = SMESH_FAILURE;
+            }
+            for (size_t g = 0; err == SMESH_SUCCESS && g < names.size(); ++g) {
+                const Path name_dir = path / "nodesets" / names[g];
+                if (create_directory(name_dir) != SMESH_SUCCESS) {
+                    err = SMESH_FAILURE;
+                    break;
+                }
+                if (groups[g].size() <= 1) {
+                    continue;
+                }
+                for (size_t k = 0; k < groups[g].size(); ++k) {
+                    const Path leaf = name_dir / std::to_string(static_cast<long long>(k));
+                    if (create_directory(leaf) != SMESH_SUCCESS) {
+                        err = SMESH_FAILURE;
+                        break;
+                    }
+                }
+            }
+        }
+        comm->broadcast(&err, 1, 0);
+        if (err != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+
+        for (size_t g = 0; g < names.size(); ++g) {
+            const Path name_dir = path / "nodesets" / names[g];
+            if (groups[g].size() == 1) {
+                if (!groups[g][0]) {
+                    continue;
+                }
+                if (groups[g][0]->write(name_dir) != SMESH_SUCCESS) {
+                    return SMESH_FAILURE;
+                }
+                continue;
+            }
+            for (size_t k = 0; k < groups[g].size(); ++k) {
+                if (!groups[g][k]) {
+                    continue;
+                }
+                const Path leaf = name_dir / std::to_string(static_cast<long long>(k));
+                if (groups[g][k]->write(leaf) != SMESH_SUCCESS) {
+                    return SMESH_FAILURE;
+                }
+            }
+        }
+        return SMESH_SUCCESS;
+    }
+
     static int write_topology_then_sidesets(const Mesh &mesh, const Path &path, const int topology_err) {
         if (topology_err != SMESH_SUCCESS) {
             return topology_err;
         }
-        return write_registered_sidesets(mesh, path);
+        if (write_registered_sidesets(mesh, path) != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+        if (write_registered_edgesets(mesh, path) != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+        return write_registered_nodesets(mesh, path);
     }
 
     static std::shared_ptr<Sideset> clone_sideset(const Mesh                     &dst,
@@ -1260,9 +1665,63 @@ namespace smesh {
         return Sideset::create(dst.comm(), parent, lfi, ss->block_id(), mapping);
     }
 
+    static std::shared_ptr<Edgeset> clone_edgeset(const Mesh                     &dst,
+                                                  const std::shared_ptr<Edgeset> &es) {
+        if (!es) {
+            return nullptr;
+        }
+        const ptrdiff_t n      = es->size();
+        auto            parent = create_host_buffer<element_idx_t>((size_t)n);
+        auto            lei    = create_host_buffer<i16>((size_t)n);
+        if (n > 0) {
+            std::memcpy(parent->data(), es->parent()->data(), (size_t)n * sizeof(element_idx_t));
+            std::memcpy(lei->data(), es->lei()->data(), (size_t)n * sizeof(i16));
+        }
+
+        SharedBuffer<large_idx_t> mapping = nullptr;
+        if (dst.is_distributed()) {
+            auto block = dst.block(es->block_id());
+            if (block) {
+                mapping = block->element_mapping();
+            }
+        } else if (es->element_mapping()) {
+            const ptrdiff_t nm = es->element_mapping()->size();
+            mapping            = create_host_buffer<large_idx_t>((size_t)nm);
+            if (nm > 0) {
+                std::memcpy(mapping->data(), es->element_mapping()->data(), (size_t)nm * sizeof(large_idx_t));
+            }
+        }
+        return Edgeset::create(dst.comm(), parent, lei, es->block_id(), mapping);
+    }
+
+    static std::shared_ptr<Nodeset> clone_nodeset(const Mesh                     &dst,
+                                                  const std::shared_ptr<Nodeset> &ns) {
+        if (!ns) {
+            return nullptr;
+        }
+        const ptrdiff_t n     = ns->size();
+        auto            nodes = create_host_buffer<idx_t>((size_t)n);
+        if (n > 0) {
+            std::memcpy(nodes->data(), ns->nodes()->data(), (size_t)n * sizeof(idx_t));
+        }
+        SharedBuffer<large_idx_t> mapping = nullptr;
+        if (dst.is_distributed() && dst.distributed()) {
+            mapping = dst.distributed()->node_mapping();
+        } else if (ns->node_mapping()) {
+            const ptrdiff_t nm = ns->node_mapping()->size();
+            mapping            = create_host_buffer<large_idx_t>((size_t)nm);
+            if (nm > 0) {
+                std::memcpy(mapping->data(), ns->node_mapping()->data(), (size_t)nm * sizeof(large_idx_t));
+            }
+        }
+        return Nodeset::create(dst.comm(), nodes, mapping);
+    }
+
     int Mesh::read(const Path &path) {
         SMESH_TRACE_SCOPE("Mesh::read");
         impl_->sidesets.clear();
+        impl_->edgesets.clear();
+        impl_->nodesets.clear();
 
         if (impl_->comm->size() == 1) {
             std::vector<std::string>   block_names;
@@ -1645,6 +2104,12 @@ namespace smesh {
 #endif  // SMESH_ENABLE_MPI
 
         if (read_registered_sidesets(*this, path) != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+        if (read_registered_edgesets(*this, path) != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+        if (read_registered_nodesets(*this, path) != SMESH_SUCCESS) {
             return SMESH_FAILURE;
         }
 
@@ -4203,7 +4668,7 @@ namespace smesh {
             }
         }
 
-        return SMESH_SUCCESS;
+        return remap_registered_nodesets(d_node_mapping, n_nodes);
     }
 
     std::vector<std::pair<block_idx_t, SharedBuffer<element_idx_t>>> Mesh::select_elements(
@@ -4309,6 +4774,7 @@ namespace smesh {
             remap_sidesets(sidesets, block_id, d_otn, nelems);
         }
         remap_registered_sidesets(block_id, d_otn, nelems, sidesets);
+        remap_registered_edgesets(block_id, d_otn, nelems);
     }
 
     std::shared_ptr<Mesh> Mesh::clone() const {
@@ -4355,6 +4821,12 @@ namespace smesh {
 
         for (size_t i = 0; i < impl_->sidesets.size(); ++i) {
             ret->add_sideset(impl_->sidesets[i].first, clone_sideset(*ret, impl_->sidesets[i].second));
+        }
+        for (size_t i = 0; i < impl_->edgesets.size(); ++i) {
+            ret->add_edgeset(impl_->edgesets[i].first, clone_edgeset(*ret, impl_->edgesets[i].second));
+        }
+        for (size_t i = 0; i < impl_->nodesets.size(); ++i) {
+            ret->add_nodeset(impl_->nodesets[i].first, clone_nodeset(*ret, impl_->nodesets[i].second));
         }
 
         return ret;

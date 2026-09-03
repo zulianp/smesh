@@ -7,6 +7,7 @@
 #include "smesh_semistructured.hpp"
 #include "smesh_sfc.hpp"
 #include "smesh_sideset.hpp"
+#include "smesh_edgeset.hpp"
 #include "smesh_sort.hpp"
 #include "smesh_tracer.hpp"
 
@@ -108,7 +109,7 @@ int SFC::reorder(Mesh &mesh, const std::vector<std::shared_ptr<Sideset>> &sidese
   SMESH_CATCH(mesh_block_reorder(nxe, n_elements, elems, d_idx, elems));
 
   const bool remap_arg = !sidesets.empty();
-  const bool remap_reg = !mesh.sidesets().empty();
+  const bool remap_reg = !mesh.sidesets().empty() || !mesh.edgesets().empty();
   if (remap_arg || remap_reg) {
     auto old_to_new = create_host_buffer<element_idx_t>(n_elements);
     element_idx_t *d_otn = old_to_new->data();
@@ -122,6 +123,9 @@ int SFC::reorder(Mesh &mesh, const std::vector<std::shared_ptr<Sideset>> &sidese
     }
     if (mesh.remap_registered_sidesets(block_id, d_otn, n_elements, sidesets) !=
         SMESH_SUCCESS) {
+      return SMESH_FAILURE;
+    }
+    if (mesh.remap_registered_edgesets(block_id, d_otn, n_elements) != SMESH_SUCCESS) {
       return SMESH_FAILURE;
     }
   }
@@ -159,6 +163,12 @@ int SFC::reorder(Mesh &mesh, const std::vector<std::shared_ptr<Sideset>> &sidese
     if (spatial_dim > 2) {
       memcpy(d_coords, pts[2], n_nodes * sizeof(geom_t));
       SMESH_CATCH(reorder_scatter(n_nodes, d_n2n, d_coords, pts[2]));
+    }
+  }
+
+  if (!mesh.nodesets().empty()) {
+    if (mesh.remap_registered_nodesets(d_n2n, n_nodes) != SMESH_SUCCESS) {
+      return SMESH_FAILURE;
     }
   }
 

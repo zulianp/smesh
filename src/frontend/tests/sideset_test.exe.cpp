@@ -15,9 +15,13 @@
 #include "smesh_adjacency.hpp"
 #include "smesh_device_buffer.hpp"
 #include "smesh_device_sideset.hpp"
+#include "smesh_edgeset.hpp"
+#include "smesh_edgesets.hpp"
+#include "smesh_extractions.hpp"
 #include "smesh_mask.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_mesh_reorder.hpp"
+#include "smesh_nodeset.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sideset.hpp"
 #include "smesh_sidesets.impl.hpp"
@@ -1180,6 +1184,159 @@ int test_write_with_xdmf_multiblock() {
   return SMESH_TEST_SUCCESS;
 }
 
+int test_mesh_edgeset_nodeset_folder_io() {
+  auto mesh = make_test_mesh();
+  SMESH_TEST_ASSERT(mesh != nullptr);
+
+  const ptrdiff_t n_e = mesh->n_elements(0);
+  auto parent = create_host_buffer<element_idx_t>((size_t)n_e);
+  auto lei    = create_host_buffer<i16>((size_t)n_e);
+  for (ptrdiff_t i = 0; i < n_e; ++i) {
+    parent->data()[i] = (element_idx_t)i;
+    lei->data()[i]    = 0;
+  }
+  auto es = Edgeset::create(mesh->comm(), parent, lei, 0);
+  mesh->add_edgeset("e0", es);
+
+  auto ss = make_left_boundary_sideset(mesh);
+  auto ns_buf = create_nodeset_from_sideset(mesh, ss);
+  SMESH_TEST_ASSERT(ns_buf != nullptr);
+  auto ns = Nodeset::create(mesh->comm(), ns_buf);
+  mesh->add_nodeset("left_nodes", ns);
+
+  const auto token = static_cast<long long>(
+      std::chrono::steady_clock::now().time_since_epoch().count() + 3);
+  char path_buffer[256];
+  std::snprintf(path_buffer, sizeof(path_buffer), "/tmp/smesh_mesh_en_io_%lld", token);
+  const Path path(path_buffer);
+  std::filesystem::remove_all(path.to_string());
+
+  SMESH_TEST_ASSERT(mesh->write(path) == SMESH_SUCCESS);
+  SMESH_TEST_ASSERT((path / "edgesets" / "e0" / "meta.yaml").exists());
+  SMESH_TEST_ASSERT((path / "nodesets" / "left_nodes" / "meta.yaml").exists());
+
+  auto loaded = Mesh::create_from_file(Communicator::self(), path);
+  SMESH_TEST_ASSERT(loaded != nullptr);
+  auto les = loaded->edgesets("e0");
+  SMESH_TEST_EQ(les.size(), static_cast<size_t>(1));
+  SMESH_TEST_EQ(les[0]->size(), es->size());
+  for (ptrdiff_t i = 0; i < es->size(); ++i) {
+    SMESH_TEST_EQ(les[0]->parent()->data()[i], es->parent()->data()[i]);
+    SMESH_TEST_EQ(les[0]->lei()->data()[i], es->lei()->data()[i]);
+  }
+  auto lns = loaded->nodesets("left_nodes");
+  SMESH_TEST_EQ(lns.size(), static_cast<size_t>(1));
+  SMESH_TEST_EQ(lns[0]->size(), ns->size());
+  for (ptrdiff_t i = 0; i < ns->size(); ++i) {
+    SMESH_TEST_EQ(lns[0]->nodes()->data()[i], ns->nodes()->data()[i]);
+  }
+
+  auto cloned = mesh->clone();
+  SMESH_TEST_EQ(cloned->edgesets("e0").size(), static_cast<size_t>(1));
+  SMESH_TEST_EQ(cloned->nodesets("left_nodes")[0]->size(), ns->size());
+
+  std::filesystem::remove_all(path.to_string());
+  return SMESH_TEST_SUCCESS;
+}
+
+int test_edgeset_remap_from_tags() {
+  auto mesh = make_test_mesh();
+  const ptrdiff_t n_e = mesh->n_elements(0);
+  auto parent = create_host_buffer<element_idx_t>((size_t)n_e);
+  auto lei    = create_host_buffer<i16>((size_t)n_e);
+  for (ptrdiff_t i = 0; i < n_e; ++i) {
+    parent->data()[i] = (element_idx_t)i;
+    lei->data()[i]    = 0;
+  }
+  auto es = Edgeset::create(mesh->comm(), parent, lei, 0);
+  mesh->add_edgeset("e0", es);
+
+  auto before = create_edges_from_edgeset(mesh, es);
+  SMESH_TEST_ASSERT(before.second != nullptr);
+
+  auto tags = create_host_buffer<idx_t>((size_t)n_e);
+  for (ptrdiff_t i = 0; i < n_e; ++i) {
+    tags->data()[i] = static_cast<idx_t>(i & 1);
+  }
+  mesh->reorder_elements_from_tags(0, tags);
+
+  SMESH_TEST_EQ(es->size(), n_e);
+  for (ptrdiff_t i = 0; i < n_e; ++i) {
+    SMESH_TEST_ASSERT(es->parent()->data()[i] >= 0);
+    SMESH_TEST_ASSERT(es->parent()->data()[i] < n_e);
+    SMESH_TEST_EQ(es->lei()->data()[i], static_cast<i16>(0));
+  }
+  auto after = create_edges_from_edgeset(mesh, es);
+  SMESH_TEST_EQ(after.second->extent(1), before.second->extent(1));
+  return SMESH_TEST_SUCCESS;
+}
+
+int test_nodeset_remap_on_renumber() {
+  auto mesh = make_test_mesh();
+  auto ss = make_left_boundary_sideset(mesh);
+  auto ns_buf = create_nodeset_from_sideset(mesh, ss);
+  auto ns = Nodeset::create(mesh->comm(), ns_buf);
+  mesh->add_nodeset("left_nodes", ns);
+
+  const ptrdiff_t n = mesh->n_nodes();
+  auto map = create_host_buffer<idx_t>((size_t)n);
+  for (ptrdiff_t i = 0; i < n; ++i) {
+    map->data()[i] = (idx_t)(n - 1 - i);
+  }
+  auto old_nodes = create_host_buffer<idx_t>((size_t)ns->size());
+  std::memcpy(old_nodes->data(), ns->nodes()->data(), (size_t)ns->size() * sizeof(idx_t));
+
+  SMESH_TEST_ASSERT(mesh->renumber_nodes(map) == SMESH_SUCCESS);
+  for (ptrdiff_t i = 0; i < ns->size(); ++i) {
+    SMESH_TEST_EQ(ns->nodes()->data()[i], map->data()[old_nodes->data()[i]]);
+  }
+  return SMESH_TEST_SUCCESS;
+}
+
+int test_local_edge_table_and_sharp_features() {
+  LocalEdgeTable let;
+  SMESH_TEST_ASSERT(let.fill(HEX8) == SMESH_SUCCESS);
+  SMESH_TEST_EQ(elem_num_edges(HEX8), 12);
+  SMESH_TEST_EQ(let.nnxe, 2);
+  SMESH_TEST_ASSERT(let.fill(QUAD4) == SMESH_SUCCESS);
+  SMESH_TEST_EQ(elem_num_edges(QUAD4), 4);
+
+  auto hex = Mesh::create_hex8_cube(Communicator::self(), 1, 1, 1);
+  auto skin = skin_sideset(hex);
+  SMESH_TEST_ASSERT(skin != nullptr);
+  auto surf = mesh_from_sideset(hex, skin);
+  SMESH_TEST_ASSERT(surf != nullptr);
+  SMESH_TEST_EQ(surf->n_elements(), static_cast<ptrdiff_t>(6));
+
+  auto edges = extract_sharp_edges(*surf, 0.15);
+  SMESH_TEST_ASSERT(edges != nullptr);
+  SMESH_TEST_EQ(edges->size(), static_cast<ptrdiff_t>(12));
+  for (ptrdiff_t i = 0; i < edges->size(); ++i) {
+    SMESH_TEST_ASSERT(edges->lei()->data()[i] >= 0);
+    SMESH_TEST_ASSERT(edges->lei()->data()[i] < 4);
+  }
+  auto corners = extract_sharp_corners(*surf, edges, false);
+  SMESH_TEST_ASSERT(corners != nullptr);
+  SMESH_TEST_EQ(corners->size(), static_cast<ptrdiff_t>(8));
+
+  surf->add_edgeset("sharp_edges", edges);
+  surf->add_nodeset("sharp_corners", corners);
+  const auto token = static_cast<long long>(
+      std::chrono::steady_clock::now().time_since_epoch().count() + 4);
+  char path_buffer[256];
+  std::snprintf(path_buffer, sizeof(path_buffer), "/tmp/smesh_sharp_%lld", token);
+  const Path path(path_buffer);
+  std::filesystem::remove_all(path.to_string());
+  SMESH_TEST_ASSERT(surf->write_with_xdmf(path) == SMESH_SUCCESS);
+  SMESH_TEST_ASSERT((path / "mesh.xdmf").exists());
+  std::ifstream xdmf((path / "mesh.xdmf").to_string());
+  std::string xml((std::istreambuf_iterator<char>(xdmf)), std::istreambuf_iterator<char>());
+  SMESH_TEST_ASSERT(xml.find("Polyline") != std::string::npos);
+  SMESH_TEST_ASSERT(xml.find("Polyvertex") != std::string::npos);
+  std::filesystem::remove_all(path.to_string());
+  return SMESH_TEST_SUCCESS;
+}
+
 int main(int argc, char *argv[]) {
   SMESH_UNIT_TEST_INIT(argc, argv);
 
@@ -1212,6 +1369,10 @@ int main(int argc, char *argv[]) {
   SMESH_RUN_TEST(test_split_mixed_arity_wedge_and_pyramid);
   SMESH_RUN_TEST(test_write_with_xdmf);
   SMESH_RUN_TEST(test_write_with_xdmf_multiblock);
+  SMESH_RUN_TEST(test_mesh_edgeset_nodeset_folder_io);
+  SMESH_RUN_TEST(test_edgeset_remap_from_tags);
+  SMESH_RUN_TEST(test_nodeset_remap_on_renumber);
+  SMESH_RUN_TEST(test_local_edge_table_and_sharp_features);
 
   SMESH_UNIT_TEST_FINALIZE();
   return SMESH_UNIT_TEST_ERR();

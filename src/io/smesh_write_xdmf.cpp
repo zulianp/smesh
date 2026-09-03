@@ -1,12 +1,18 @@
 #include "smesh_mesh.hpp"
+#include "smesh_adjacency.hpp"
 #include "smesh_elem_type.hpp"
 #include "smesh_file_extensions.hpp"
 #include "smesh_path.hpp"
+#include "smesh_edgeset.hpp"
+#include "smesh_edgesets.hpp"
+#include "smesh_nodeset.hpp"
 #include "smesh_sideset.hpp"
 #include "smesh_sidesets.hpp"
 #include "smesh_tracer.hpp"
 #include "smesh_types.hpp"
 #include "smesh_write.hpp"
+
+#include <cstring>
 
 #ifdef SMESH_ENABLE_MPI
 #include "smesh_distributed_write.hpp"
@@ -34,6 +40,8 @@ static const char *xdmf_topology_type(const enum ElemType et) {
         case EDGESHELL2:
         case BEAM2:
             return "Polyline";
+        case NODE1:
+            return "Polyvertex";
         case EDGE3:
         case EDGESHELL3:
             return "Edge_3";
@@ -137,9 +145,10 @@ static void write_xdmf_uniform_grid(FILE           *fp,
                                     const char     *endian) {
     fprintf(fp, "    <Grid Name=\"%s\" GridType=\"Uniform\">\n", name);
     fprintf(fp, "      <Geometry Reference=\"/Xdmf/Domain/Geometry[1]\"/>\n");
-    if (std::strcmp(topo, "Polyline") == 0) {
+    if (std::strcmp(topo, "Polyline") == 0 || std::strcmp(topo, "Polyvertex") == 0) {
         fprintf(fp,
-                "      <Topology TopologyType=\"Polyline\" NumberOfElements=\"%ld\" NodesPerElement=\"%d\">\n",
+                "      <Topology TopologyType=\"%s\" NumberOfElements=\"%ld\" NodesPerElement=\"%d\">\n",
+                topo,
                 (long)ne,
                 nxe);
     } else {
@@ -360,6 +369,207 @@ static int write_xdmf_surface_part(const Mesh                &mesh,
     return SMESH_SUCCESS;
 }
 
+static int write_xdmf_soa_grid(const Mesh                &mesh,
+                               const Path                &root,
+                               const std::string         &grid_name,
+                               const std::string         &rel_conn,
+                               idx_t *const              *soa,
+                               const ptrdiff_t            n_local,
+                               const int                  nnxs,
+                               const char                *topo,
+                               std::vector<XdmfSurfGrid> *surfs) {
+    auto      comm     = mesh.comm();
+    const i64 n_global = comm->sum((i64)n_local);
+    if (n_global <= 0) {
+        return SMESH_SUCCESS;
+    }
+
+    if (n_local > 0 && comm->size() > 1 && mesh.distributed() && mesh.distributed()->node_mapping()) {
+        const large_idx_t *const map   = mesh.distributed()->node_mapping()->data();
+        const ptrdiff_t          n_map = mesh.n_nodes();
+        for (int c = 0; c < nnxs; ++c) {
+            idx_t *col = soa[c];
+            for (ptrdiff_t i = 0; i < n_local; ++i) {
+                const idx_t n = col[i];
+                if (n < 0 || (ptrdiff_t)n >= n_map) {
+                    SMESH_ERROR("write_with_xdmf: node %ld out of range\n", (long)n);
+                    return SMESH_FAILURE;
+                }
+                col[i] = (idx_t)map[n];
+            }
+        }
+    }
+
+    const Path aos_path = root / Path(rel_conn);
+    int        err      = SMESH_SUCCESS;
+#ifdef SMESH_ENABLE_MPI
+    if (comm->size() > 1) {
+        auto          aos = create_host_buffer<idx_t>((size_t)n_local * (size_t)nnxs);
+        idx_t        *out = n_local > 0 ? aos->data() : nullptr;
+        for (ptrdiff_t j = 0; j < n_local; ++j) {
+            for (int c = 0; c < nnxs; ++c) {
+                out[j * nnxs + c] = soa[c][j];
+            }
+        }
+        err = array_write_convert_from_extension(comm->get(),
+                                                 aos_path,
+                                                 out,
+                                                 n_local * (ptrdiff_t)nnxs,
+                                                 (ptrdiff_t)n_global * (ptrdiff_t)nnxs);
+    } else
+#endif
+    {
+        err = mesh_write_soa_to_aos(aos_path, nnxs, n_local, soa);
+    }
+    if (err != SMESH_SUCCESS) {
+        return err;
+    }
+    if (comm->rank() == 0) {
+        XdmfSurfGrid g;
+        g.name = grid_name;
+        g.conn = rel_conn;
+        g.topo = topo;
+        g.n    = (ptrdiff_t)n_global;
+        g.nxe  = nnxs;
+        surfs->push_back(std::move(g));
+    }
+    return SMESH_SUCCESS;
+}
+
+static int write_xdmf_edgeset_grids(const Mesh                &mesh,
+                                    const Path                &root,
+                                    std::vector<XdmfSurfGrid> *surfs) {
+    const auto &reg = mesh.edgesets();
+    if (reg.empty()) {
+        return SMESH_SUCCESS;
+    }
+
+    std::vector<std::string>                           names;
+    std::vector<std::vector<std::shared_ptr<Edgeset>>> groups;
+    for (size_t i = 0; i < reg.size(); ++i) {
+        size_t gi = names.size();
+        for (size_t g = 0; g < names.size(); ++g) {
+            if (names[g] == reg[i].first) {
+                gi = g;
+                break;
+            }
+        }
+        if (gi == names.size()) {
+            names.push_back(reg[i].first);
+            groups.emplace_back();
+        }
+        groups[gi].push_back(reg[i].second);
+    }
+
+    int err = SMESH_SUCCESS;
+    for (size_t g = 0; err == SMESH_SUCCESS && g < names.size(); ++g) {
+        const int multi = groups[g].size() > 1;
+        for (size_t k = 0; err == SMESH_SUCCESS && k < groups[g].size(); ++k) {
+            const auto &es = groups[g][k];
+            if (!es) {
+                continue;
+            }
+            auto block = mesh.block(es->block_id());
+            if (!block) {
+                err = SMESH_FAILURE;
+                break;
+            }
+            const enum ElemType et = block->element_type();
+            if (is_semistructured_type(et)) {
+                if (mesh.comm()->rank() == 0) {
+                    fprintf(stderr,
+                            "write_with_xdmf: skipping SS edgeset '%s' (%s)\n",
+                            names[g].c_str(),
+                            type_to_string(et));
+                }
+                continue;
+            }
+            LocalEdgeTable let;
+            if (let.fill(et) != SMESH_SUCCESS) {
+                if (mesh.comm()->rank() == 0) {
+                    LocalEdgeTable::report_unsupported("write_with_xdmf", et);
+                }
+                continue;
+            }
+            const int         nne  = let.nnxe > 0 ? let.nnxe : 2;
+            const char       *topo = (nne == 3) ? "Edge_3" : "Polyline";
+            std::string       leaf = std::string("edgesets/") + names[g];
+            std::string       grid = names[g];
+            if (multi) {
+                leaf += "/" + std::to_string((long long)es->block_id());
+                grid += "_" + std::to_string((long long)es->block_id());
+            }
+            const std::string rel = leaf + "/edge." + std::string(TypeToString<idx_t>::value());
+            const ptrdiff_t   n   = es->size();
+            auto              soa = create_host_buffer<idx_t>(nne, n);
+            if (n > 0) {
+                if (extract_edges_from_edgeset(et,
+                                               block->elements()->data(),
+                                               n,
+                                               es->parent()->data(),
+                                               es->lei()->data(),
+                                               soa->data()) != SMESH_SUCCESS) {
+                    err = SMESH_FAILURE;
+                    break;
+                }
+            }
+            err = write_xdmf_soa_grid(mesh, root, grid, rel, soa->data(), n, nne, topo, surfs);
+        }
+    }
+    return err;
+}
+
+static int write_xdmf_nodeset_grids(const Mesh                &mesh,
+                                    const Path                &root,
+                                    std::vector<XdmfSurfGrid> *surfs) {
+    const auto &reg = mesh.nodesets();
+    if (reg.empty()) {
+        return SMESH_SUCCESS;
+    }
+
+    std::vector<std::string>                           names;
+    std::vector<std::vector<std::shared_ptr<Nodeset>>> groups;
+    for (size_t i = 0; i < reg.size(); ++i) {
+        size_t gi = names.size();
+        for (size_t g = 0; g < names.size(); ++g) {
+            if (names[g] == reg[i].first) {
+                gi = g;
+                break;
+            }
+        }
+        if (gi == names.size()) {
+            names.push_back(reg[i].first);
+            groups.emplace_back();
+        }
+        groups[gi].push_back(reg[i].second);
+    }
+
+    int err = SMESH_SUCCESS;
+    for (size_t g = 0; err == SMESH_SUCCESS && g < names.size(); ++g) {
+        const int multi = groups[g].size() > 1;
+        for (size_t k = 0; err == SMESH_SUCCESS && k < groups[g].size(); ++k) {
+            const auto &ns = groups[g][k];
+            if (!ns) {
+                continue;
+            }
+            std::string leaf = std::string("nodesets/") + names[g];
+            std::string grid = names[g];
+            if (multi) {
+                leaf += "/" + std::to_string((long long)k);
+                grid += "_" + std::to_string((long long)k);
+            }
+            const std::string rel = leaf + "/nodes." + std::string(TypeToString<idx_t>::value());
+            const ptrdiff_t   n   = ns->size();
+            auto              soa = create_host_buffer<idx_t>(1, n);
+            if (n > 0) {
+                std::memcpy(soa->data()[0], ns->nodes()->data(), (size_t)n * sizeof(idx_t));
+            }
+            err = write_xdmf_soa_grid(mesh, root, grid, rel, soa->data(), n, 1, "Polyvertex", surfs);
+        }
+    }
+    return err;
+}
+
 static int write_xdmf_sideset_surfaces(const Mesh                &mesh,
                                        const Path                &root,
                                        std::vector<XdmfSurfGrid> *surfs) {
@@ -570,6 +780,16 @@ int Mesh::write_with_xdmf(const Path &path) const {
 
     std::vector<XdmfSurfGrid> surfs;
     err = write_xdmf_sideset_surfaces(*this, path, &surfs);
+    if (err != SMESH_SUCCESS) {
+        comm->broadcast(&err, 1, 0);
+        return err;
+    }
+    err = write_xdmf_edgeset_grids(*this, path, &surfs);
+    if (err != SMESH_SUCCESS) {
+        comm->broadcast(&err, 1, 0);
+        return err;
+    }
+    err = write_xdmf_nodeset_grids(*this, path, &surfs);
     if (err != SMESH_SUCCESS) {
         comm->broadcast(&err, 1, 0);
         return err;

@@ -9,6 +9,8 @@ namespace smesh {
     class Distributed;
     class DistributedBlock;
     class Sideset;
+    class Edgeset;
+    class Nodeset;
     template <typename T>
     class Buffer;
 

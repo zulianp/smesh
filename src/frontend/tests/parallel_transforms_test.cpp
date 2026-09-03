@@ -9,7 +9,9 @@
 #include <vector>
 
 #include "smesh_distributed_base.hpp"
+#include "smesh_edgeset.hpp"
 #include "smesh_mesh.hpp"
+#include "smesh_nodeset.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sideset.hpp"
 #include "smesh_test.hpp"
@@ -419,6 +421,64 @@ static int test_mpi_write_with_xdmf() {
 #endif
 }
 
+static int test_mpi_mesh_edgeset_nodeset_io() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+
+    int token = 0;
+    if (comm->rank() == 0) {
+        token = static_cast<int>(std::time(nullptr)) + 17;
+    }
+    comm->broadcast(&token, 1, 0);
+    const Path path = make_tmp_path("smesh_mpi_mesh_en", token);
+
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+        auto serial = Mesh::create_hex8_cube(Communicator::self(), nx, 2, 2);
+        SMESH_TEST_ASSERT(serial != nullptr);
+        const ptrdiff_t n_e = serial->n_elements(0);
+        auto parent = create_host_buffer<element_idx_t>((size_t)n_e);
+        auto lei    = create_host_buffer<i16>((size_t)n_e);
+        for (ptrdiff_t i = 0; i < n_e; ++i) {
+            parent->data()[i] = (element_idx_t)i;
+            lei->data()[i]    = 0;
+        }
+        serial->add_edgeset("e0", Edgeset::create(serial->comm(), parent, lei, 0));
+        auto left = Sideset::create_from_selector(
+                serial, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+        auto ns_buf = create_nodeset_from_sideset(serial, left[0]);
+        serial->add_nodeset("left_nodes", Nodeset::create(serial->comm(), ns_buf));
+        SMESH_TEST_ASSERT(serial->write(path) == SMESH_SUCCESS);
+    }
+    comm->barrier();
+
+    auto mesh = Mesh::create_from_file(comm, path);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    auto loaded_e = mesh->edgesets("e0");
+    SMESH_TEST_EQ(loaded_e.size(), static_cast<size_t>(1));
+    SMESH_TEST_ASSERT(comm->sum(static_cast<i64>(loaded_e[0]->size())) > 0);
+
+    auto loaded_n = mesh->nodesets("left_nodes");
+    SMESH_TEST_EQ(loaded_n.size(), static_cast<size_t>(1));
+    SMESH_TEST_ASSERT(comm->sum(static_cast<i64>(loaded_n[0]->size())) > 0);
+
+    auto cloned = mesh->clone();
+    SMESH_TEST_EQ(cloned->edgesets("e0").size(), static_cast<size_t>(1));
+    SMESH_TEST_EQ(cloned->nodesets("left_nodes").size(), static_cast<size_t>(1));
+
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+    }
+    return SMESH_TEST_SUCCESS;
+#endif
+}
+
 int main(int argc, char **argv) {
     SMESH_UNIT_TEST_INIT(argc, argv);
     SMESH_RUN_TEST(test_mpi_hex8_refine);
@@ -426,6 +486,7 @@ int main(int argc, char **argv) {
     SMESH_RUN_TEST(test_mpi_clone_convert);
     SMESH_RUN_TEST(test_mpi_ss_derefine);
     SMESH_RUN_TEST(test_mpi_mesh_sideset_io);
+    SMESH_RUN_TEST(test_mpi_mesh_edgeset_nodeset_io);
     SMESH_RUN_TEST(test_mpi_write_with_xdmf);
     SMESH_UNIT_TEST_FINALIZE();
     return SMESH_UNIT_TEST_ERR();
