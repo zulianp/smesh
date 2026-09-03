@@ -5,6 +5,7 @@
 #include "smesh_glob.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_read.hpp"
+#include "smesh_refine.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sidesets.hpp"
 #include "smesh_sort.hpp"
@@ -1423,7 +1424,6 @@ namespace smesh {
             if (f != factor) {
                 return unsupported();
             }
-            static const int tet_face_child[4][4] = {{0, 1, 3, 5}, {1, 2, 3, 6}, {0, 2, 3, 7}, {0, 1, 2, 4}};
             ptrdiff_t        expand               = 1;
             for (int s = 0; s < lv; ++s) {
                 expand *= 4;
@@ -1455,7 +1455,7 @@ namespace smesh {
                             return nullptr;
                         }
                         for (int c = 0; c < 4; ++c) {
-                            d_nxt_p[n_nxt] = (element_idx_t)((ptrdiff_t)d_cur_p[k] * 8 + tet_face_child[s][c]);
+                            d_nxt_p[n_nxt] = (element_idx_t)((ptrdiff_t)d_cur_p[k] * 8 + tet4_face_child[s][c]);
                             d_nxt_l[n_nxt] = s;
                             ++n_nxt;
                         }
@@ -1486,7 +1486,6 @@ namespace smesh {
             if (f != factor) {
                 return unsupported();
             }
-            static const int tri_edge_child[3][2] = {{0, 1}, {1, 2}, {2, 0}};
             ptrdiff_t        expand               = 1;
             for (int s = 0; s < lv; ++s) {
                 expand *= 2;
@@ -1518,7 +1517,7 @@ namespace smesh {
                             return nullptr;
                         }
                         for (int c = 0; c < 2; ++c) {
-                            d_nxt_p[n_nxt] = (element_idx_t)((ptrdiff_t)d_cur_p[k] * 4 + tri_edge_child[s][c]);
+                            d_nxt_p[n_nxt] = (element_idx_t)((ptrdiff_t)d_cur_p[k] * 4 + tri3_edge_child[s][c]);
                             d_nxt_l[n_nxt] = s;
                             ++n_nxt;
                         }

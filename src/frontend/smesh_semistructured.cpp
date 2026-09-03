@@ -1289,6 +1289,41 @@ namespace smesh {
         return wedge;
     }
 
+    std::shared_ptr<Mesh> ss_to_linear(const std::shared_ptr<Mesh> &ss) {
+        if (!ss || ss->n_blocks() == 0) {
+            fprintf(stderr, "ss_to_linear: empty mesh\n");
+            return nullptr;
+        }
+        std::vector<std::shared_ptr<Mesh::Block>> blocks;
+        blocks.reserve(ss->n_blocks());
+        for (auto &block : ss->blocks()) {
+            auto new_block = std::make_shared<Mesh::Block>();
+            if (is_hex_ss_family(block->element_type())) {
+                sshex_block_to_hex8_block(*block, *new_block);
+            } else if (is_quad_ss_family(block->element_type())) {
+                ssquad_block_to_quad4_block(*block, *new_block);
+            } else if (is_wedge_ss_family(block->element_type())) {
+                sswedge_block_to_wedge6_block(*block, *new_block);
+            } else {
+                fprintf(stderr,
+                        "ss_to_linear: unsupported SS family %s "
+                        "(HEX/QUAD/WEDGE only; TET would be Kuhn, PYRAMID has no explode)\n",
+                        type_to_string(block->element_type()));
+                return nullptr;
+            }
+            blocks.push_back(new_block);
+        }
+
+        auto out = std::make_shared<Mesh>(ss->comm(), blocks, ss->points());
+#ifdef SMESH_ENABLE_MPI
+        if (ss->is_distributed()) {
+            return MeshTransformsDistributed::attach_sshex_to_hex8(ss, out);
+        }
+#endif
+        out->set_node_mapping(ss->node_mapping());
+        return out;
+    }
+
     static std::shared_ptr<Mesh> finish_derefine(const std::shared_ptr<Mesh>                    &mesh,
                                                  std::vector<std::shared_ptr<Mesh::Block>>      &blocks,
                                                  const ptrdiff_t                                 n_unique_nodes) {

@@ -13,6 +13,7 @@
 #include "smesh_distributed_write.hpp"
 #endif
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -350,6 +351,90 @@ namespace smesh {
             mapping = mesh->distributed()->node_mapping();
         }
         return Nodeset::create(mesh->comm(), manage_host_buffer<idx_t>(n_nodes, nodes), mapping);
+    }
+
+    std::shared_ptr<Nodeset> map_nodeset_through_refine(const std::shared_ptr<Mesh>    &coarse_mesh,
+                                                        const std::shared_ptr<Nodeset> &coarse_ns,
+                                                        const std::shared_ptr<Mesh>    &fine_mesh) {
+        if (!coarse_mesh || !coarse_ns || !fine_mesh) {
+            SMESH_ERROR("map_nodeset_through_refine: null argument\n");
+            return nullptr;
+        }
+
+        const ptrdiff_t n     = coarse_ns->size();
+        const idx_t    *nodes = n > 0 ? coarse_ns->nodes()->data() : nullptr;
+        const ptrdiff_t n_coarse_nodes = coarse_mesh->n_nodes();
+        const ptrdiff_t n_fine_nodes   = fine_mesh->n_nodes();
+
+        SharedBuffer<large_idx_t> mapping = nullptr;
+#ifdef SMESH_ENABLE_MPI
+        if (fine_mesh->is_distributed() && fine_mesh->distributed()) {
+            mapping = fine_mesh->distributed()->node_mapping();
+        } else
+#endif
+            if (coarse_ns->node_mapping()) {
+            const ptrdiff_t nm = coarse_ns->node_mapping()->size();
+            mapping            = create_host_buffer<large_idx_t>((size_t)nm);
+            if (nm > 0) {
+                std::memcpy(mapping->data(), coarse_ns->node_mapping()->data(), (size_t)nm * sizeof(large_idx_t));
+            }
+        }
+
+#ifdef SMESH_ENABLE_MPI
+        if (coarse_mesh->is_distributed() && fine_mesh->is_distributed()) {
+            auto cdist = coarse_mesh->distributed();
+            auto fdist = fine_mesh->distributed();
+            if (!cdist || !fdist || !cdist->node_mapping() || !fdist->node_mapping()) {
+                fprintf(stderr, "map_nodeset_through_refine: distributed mesh is missing node_mapping\n");
+                return nullptr;
+            }
+            const large_idx_t *c_map = cdist->node_mapping()->data();
+            const large_idx_t *f_map = fdist->node_mapping()->data();
+            const large_idx_t  n_fg  = (large_idx_t)fdist->n_nodes_global();
+            std::vector<idx_t> inv((size_t)std::max<large_idx_t>(n_fg, 1), invalid_idx<idx_t>());
+            for (ptrdiff_t i = 0; i < n_fine_nodes; ++i) {
+                const large_idx_t g = f_map[i];
+                if (g >= 0 && g < n_fg) {
+                    inv[(size_t)g] = (idx_t)i;
+                }
+            }
+            ptrdiff_t n_keep = 0;
+            for (ptrdiff_t i = 0; i < n; ++i) {
+                const idx_t lid = nodes[i];
+                if (lid < 0 || (ptrdiff_t)lid >= n_coarse_nodes) {
+                    SMESH_ERROR("map_nodeset_through_refine: node id out of range\n");
+                    return nullptr;
+                }
+                const large_idx_t g = c_map[lid];
+                if (g >= 0 && g < n_fg && inv[(size_t)g] != invalid_idx<idx_t>()) {
+                    ++n_keep;
+                }
+            }
+            auto out = create_host_buffer<idx_t>((size_t)n_keep);
+            idx_t *d = n_keep > 0 ? out->data() : nullptr;
+            ptrdiff_t w = 0;
+            for (ptrdiff_t i = 0; i < n; ++i) {
+                const large_idx_t g = c_map[nodes[i]];
+                if (g >= 0 && g < n_fg && inv[(size_t)g] != invalid_idx<idx_t>()) {
+                    d[w++] = inv[(size_t)g];
+                }
+            }
+            return Nodeset::create(fine_mesh->comm(), out, mapping);
+        }
+#endif
+
+        auto out = create_host_buffer<idx_t>((size_t)n);
+        if (n > 0) {
+            for (ptrdiff_t i = 0; i < n; ++i) {
+                const idx_t lid = nodes[i];
+                if (lid < 0 || (ptrdiff_t)lid >= n_coarse_nodes || (ptrdiff_t)lid >= n_fine_nodes) {
+                    SMESH_ERROR("map_nodeset_through_refine: node id out of range\n");
+                    return nullptr;
+                }
+                out->data()[i] = lid;
+            }
+        }
+        return Nodeset::create(fine_mesh->comm(), out, mapping);
     }
 
     void Nodeset::print(std::ostream &os) const {

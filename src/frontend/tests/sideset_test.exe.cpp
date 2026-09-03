@@ -563,6 +563,107 @@ int test_edgeset_map_edge_refine() {
   return SMESH_TEST_SUCCESS;
 }
 
+static std::shared_ptr<Edgeset> edgeset_all_lei0(const std::shared_ptr<Mesh> &mesh) {
+  const ptrdiff_t n_e = mesh->n_elements(0);
+  auto            parent = create_host_buffer<element_idx_t>((size_t)n_e);
+  auto            lei    = create_host_buffer<i16>((size_t)n_e);
+  for (ptrdiff_t i = 0; i < n_e; ++i) {
+    parent->data()[i] = (element_idx_t)i;
+    lei->data()[i]    = 0;
+  }
+  return Edgeset::create(mesh->comm(), parent, lei, 0);
+}
+
+static int check_refine_registry(const std::shared_ptr<Mesh>    &mesh,
+                                 const std::shared_ptr<Sideset> &ss,
+                                 const ptrdiff_t                 side_expand,
+                                 const ptrdiff_t                 edge_expand) {
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  SMESH_TEST_ASSERT(ss != nullptr);
+  mesh->add_sideset("left", ss);
+  auto ns_buf = create_nodeset_from_sideset(mesh, ss);
+  SMESH_TEST_ASSERT(ns_buf != nullptr);
+  auto ns = Nodeset::create(mesh->comm(), ns_buf);
+  mesh->add_nodeset("left_nodes", ns);
+  auto es = edgeset_all_lei0(mesh);
+  SMESH_TEST_ASSERT(es != nullptr);
+  mesh->add_edgeset("e0", es);
+
+  auto fine = refine(mesh, 1);
+  SMESH_TEST_ASSERT(fine != nullptr);
+  SMESH_TEST_ASSERT(fine.get() != mesh.get());
+
+  SMESH_TEST_EQ(fine->sidesets("left").size(), static_cast<size_t>(1));
+  SMESH_TEST_EQ(fine->sidesets("left")[0]->size(), ss->size() * side_expand);
+  auto mapped_ss = map_sideset_through_refine(mesh, ss, fine);
+  SMESH_TEST_ASSERT(mapped_ss != nullptr);
+  SMESH_TEST_EQ(fine->sidesets("left")[0]->size(), mapped_ss->size());
+
+  SMESH_TEST_EQ(fine->edgesets("e0").size(), static_cast<size_t>(1));
+  SMESH_TEST_EQ(fine->edgesets("e0")[0]->size(), es->size() * edge_expand);
+  auto mapped_es = map_edgeset_through_refine(mesh, es, fine);
+  SMESH_TEST_ASSERT(mapped_es != nullptr);
+  SMESH_TEST_EQ(fine->edgesets("e0")[0]->size(), mapped_es->size());
+
+  SMESH_TEST_EQ(fine->nodesets("left_nodes").size(), static_cast<size_t>(1));
+  auto fns = fine->nodesets("left_nodes")[0];
+  SMESH_TEST_ASSERT(fns != nullptr);
+  SMESH_TEST_EQ(fns->size(), ns->size());
+  const int          sdim = mesh->spatial_dimension();
+  const geom_t *const *pc = mesh->points()->data();
+  const geom_t *const *pf = fine->points()->data();
+  const idx_t         *on = ns->nodes()->data();
+  const idx_t         *nn = fns->nodes()->data();
+  for (ptrdiff_t i = 0; i < ns->size(); ++i) {
+    for (int d = 0; d < sdim; ++d) {
+      SMESH_TEST_EQ(std::llround(static_cast<double>(pc[d][on[i]]) * 1e9),
+                    std::llround(static_cast<double>(pf[d][nn[i]]) * 1e9));
+    }
+  }
+  return SMESH_TEST_SUCCESS;
+}
+
+int test_refine_registry_hex() {
+  auto mesh = make_test_mesh();
+  auto ss   = make_left_boundary_sideset(mesh);
+  return check_refine_registry(mesh, ss, 4, 2);
+}
+
+int test_refine_registry_tet() {
+  auto mesh = Mesh::create_tet4_cube(Communicator::self(), 2, 2, 2);
+  auto ss   = Sideset::create_from_selector(
+      mesh, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+  SMESH_TEST_EQ(ss.size(), static_cast<size_t>(1));
+  return check_refine_registry(mesh, ss[0], 4, 2);
+}
+
+int test_refine_registry_tri() {
+  auto mesh = Mesh::create_tri3_square(Communicator::self(), 2, 2);
+  auto ss   = Sideset::create_from_selector(
+      mesh, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+  SMESH_TEST_EQ(ss.size(), static_cast<size_t>(1));
+  return check_refine_registry(mesh, ss[0], 2, 2);
+}
+
+int test_refine_registry_quad() {
+  auto mesh = Mesh::create_quad4_square(Communicator::self(), 2, 2);
+  auto ss   = Sideset::create_from_selector(
+      mesh, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+  SMESH_TEST_EQ(ss.size(), static_cast<size_t>(1));
+  return check_refine_registry(mesh, ss[0], 2, 2);
+}
+
+int test_refine_registry_empty() {
+  auto mesh = make_test_mesh();
+  SMESH_TEST_ASSERT(mesh->sidesets().empty());
+  auto fine = refine(mesh, 1);
+  SMESH_TEST_ASSERT(fine != nullptr);
+  SMESH_TEST_ASSERT(fine->sidesets().empty());
+  SMESH_TEST_ASSERT(fine->edgesets().empty());
+  SMESH_TEST_ASSERT(fine->nodesets().empty());
+  return SMESH_TEST_SUCCESS;
+}
+
 int test_sideset_map_refine_unsupported() {
   auto hex = make_test_mesh();
   auto tet = Mesh::create_tet4_cube(Communicator::self(), 1, 1, 1);
@@ -1483,6 +1584,11 @@ int main(int argc, char *argv[]) {
   SMESH_RUN_TEST(test_sideset_map_trishell_refine);
   SMESH_RUN_TEST(test_sideset_map_edge_refine);
   SMESH_RUN_TEST(test_edgeset_map_edge_refine);
+  SMESH_RUN_TEST(test_refine_registry_hex);
+  SMESH_RUN_TEST(test_refine_registry_tet);
+  SMESH_RUN_TEST(test_refine_registry_tri);
+  SMESH_RUN_TEST(test_refine_registry_quad);
+  SMESH_RUN_TEST(test_refine_registry_empty);
   SMESH_RUN_TEST(test_sideset_map_refine_unsupported);
   SMESH_RUN_TEST(test_sideset_select_propagate_cube_mesh);
   SMESH_RUN_TEST(test_hex27_element_contract);

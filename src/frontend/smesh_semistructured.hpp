@@ -53,6 +53,9 @@ namespace smesh {
     std::shared_ptr<Mesh> sstet_to_tet4(const std::shared_ptr<Mesh> &sstet);
     std::shared_ptr<Mesh> ssquad_to_quad4(const std::shared_ptr<Mesh> &ssquad);
     std::shared_ptr<Mesh> sswedge_to_wedge6(const std::shared_ptr<Mesh> &sswedge);
+    /// Per-block explode of mixed HEX/QUAD/WEDGE SS to linear types, shared points.
+    /// PYRAMID and TET SS are rejected (no pyramid explode; TET would be Kuhn, not Bey).
+    std::shared_ptr<Mesh> ss_to_linear(const std::shared_ptr<Mesh> &ss);
 
     /// Linear type after exploding a QUAD SS block (QUADSHELL* stays QUADSHELL4).
     inline enum ElemType ssquad_linear_type(const enum ElemType ss_type) {

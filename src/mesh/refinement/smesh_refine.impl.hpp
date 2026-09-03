@@ -8,28 +8,6 @@
 
 namespace smesh {
 
-static const int tet4_refine_pattern[8][4] = {
-    // Corner tests
-    {0, 4, 6, 7},
-    {4, 1, 5, 8},
-    {6, 5, 2, 9},
-    {7, 8, 9, 3},
-    // Octahedron tets
-    {4, 5, 6, 8},
-    {7, 4, 6, 8},
-    {6, 5, 9, 8},
-    {7, 6, 9, 8}};
-
-static const int tri3_refine_pattern[4][3] = {
-    // Corner triangles
-    {0, 3, 5},
-    {3, 1, 4},
-    {5, 4, 2},
-    // Center triangle
-    {3, 4, 5}};
-
-static const int edge2_refine_pattern[2][2] = {{0, 2}, {2, 1}};
-
 template <typename idx_t, typename count_t,
           typename geom_t>
 int mesh_refine(

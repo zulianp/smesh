@@ -29,21 +29,6 @@ namespace {
 #define SMESH_DISTRIBUTED_UNIQUE_MINIMAL 1
 #include "smesh_distributed_unique.inc.hpp"
 
-static const int tet4_refine_pattern[8][4] = {{0, 4, 6, 7},
-                                              {4, 1, 5, 8},
-                                              {6, 5, 2, 9},
-                                              {7, 8, 9, 3},
-                                              {4, 5, 6, 8},
-                                              {7, 4, 6, 8},
-                                              {6, 5, 9, 8},
-                                              {7, 6, 9, 8}};
-
-static const int tri3_refine_pattern[4][3] = {{0, 3, 5}, {3, 1, 4}, {5, 4, 2}, {3, 4, 5}};
-static const int edge2_refine_pattern[2][2] = {{0, 2}, {2, 1}};
-
-static const int tet4_edges[6][2] = {{0, 1}, {1, 2}, {0, 2}, {0, 3}, {1, 3}, {2, 3}};
-static const int tri3_edges[3][2] = {{0, 1}, {1, 2}, {0, 2}};
-static const int edge2_edges[1][2] = {{0, 1}};
 
 template <typename T>
 static SharedBuffer<T> copy_host_buffer(const SharedBuffer<T> &src) {
@@ -228,8 +213,10 @@ static std::shared_ptr<Mesh> refine_edges_once(const std::shared_ptr<Mesh> &mesh
                 }
             }
             for (int ed = 0; ed < n_edges; ++ed) {
-                const int d1 = is_tet ? tet4_edges[ed][0] : (is_edge ? edge2_edges[ed][0] : tri3_edges[ed][0]);
-                const int d2 = is_tet ? tet4_edges[ed][1] : (is_edge ? edge2_edges[ed][1] : tri3_edges[ed][1]);
+                const int d1 = is_tet ? tet4_refine_edges[ed][0]
+                                      : (is_edge ? edge2_refine_edges[ed][0] : tri3_refine_edges[ed][0]);
+                const int d2 = is_tet ? tet4_refine_edges[ed][1]
+                                      : (is_edge ? edge2_refine_edges[ed][1] : tri3_refine_edges[ed][1]);
                 int       a  = d1;
                 int       b2 = d2;
                 if (gc[a] > gc[b2]) {
@@ -576,14 +563,42 @@ int MeshTransformsDistributed::conversion_factor(const enum ElemType from, const
 
 std::shared_ptr<Mesh> MeshTransformsDistributed::refine(const std::shared_ptr<Mesh> &mesh, const int levels) {
     SMESH_TRACE_SCOPE("MeshTransformsDistributed::refine");
-    const enum ElemType et = mesh->element_type(0);
-    for (size_t b = 1; b < mesh->n_blocks(); ++b) {
-        const enum ElemType etb = mesh->element_type(static_cast<block_idx_t>(b));
-        if (etb != et) {
-            refine_print_mixed_types(et, b, etb);
+    const RefineTypeSet types = refine_scan_mesh(*mesh);
+    if (!types.all_same) {
+        if (refine_hex_wedge_only(types)) {
+            auto ss = to_semistructured(1 << levels, mesh);
+            if (!ss) {
+                return nullptr;
+            }
+            return ss_to_linear(ss);
+        }
+        if (refine_quad_family_only(types)) {
+            auto ss = to_semistructured(1 << levels, mesh);
+            if (!ss) {
+                return nullptr;
+            }
+            return ssquad_to_quad4(ss);
+        }
+        if (types.pyramid) {
+            refine_print_unsupported(PYRAMID5);
             return nullptr;
         }
+        if (types.hex && types.tet) {
+            refine_print_mixed_hex_tet();
+            return nullptr;
+        }
+        if (types.quad && (types.hex || types.wedge)) {
+            refine_print_mixed_hex_quad();
+            return nullptr;
+        }
+        if (!types.all_supported) {
+            refine_print_unsupported(types.first_unsupported);
+            return nullptr;
+        }
+        refine_print_mixed_types(types.et0, types.mixed_block, types.mixed_type);
+        return nullptr;
     }
+    const enum ElemType et = types.et0;
     if (!refine_type_supported(et)) {
         refine_print_unsupported(et);
         return nullptr;

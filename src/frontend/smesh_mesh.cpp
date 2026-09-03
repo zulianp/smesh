@@ -5176,10 +5176,57 @@ namespace smesh {
         return it->second(*mesh);
     }
 
+    static int copy_sets_through_refine(const std::shared_ptr<Mesh> &coarse, const std::shared_ptr<Mesh> &fine) {
+        if (!coarse || !fine || coarse.get() == fine.get()) {
+            return SMESH_SUCCESS;
+        }
+        const auto &ss = coarse->sidesets();
+        const auto &es = coarse->edgesets();
+        const auto &ns = coarse->nodesets();
+        if (ss.empty() && es.empty() && ns.empty()) {
+            return SMESH_SUCCESS;
+        }
+        for (size_t i = 0; i < ss.size(); ++i) {
+            auto mapped = map_sideset_through_refine(coarse, ss[i].second, fine);
+            if (!mapped) {
+                fprintf(stderr, "refine: failed to remap sideset \"%s\"\n", ss[i].first.c_str());
+                return SMESH_FAILURE;
+            }
+            fine->add_sideset(ss[i].first, mapped);
+        }
+        for (size_t i = 0; i < es.size(); ++i) {
+            auto mapped = map_edgeset_through_refine(coarse, es[i].second, fine);
+            if (!mapped) {
+                fprintf(stderr, "refine: failed to remap edgeset \"%s\"\n", es[i].first.c_str());
+                return SMESH_FAILURE;
+            }
+            fine->add_edgeset(es[i].first, mapped);
+        }
+        for (size_t i = 0; i < ns.size(); ++i) {
+            auto mapped = map_nodeset_through_refine(coarse, ns[i].second, fine);
+            if (!mapped) {
+                fprintf(stderr, "refine: failed to remap nodeset \"%s\"\n", ns[i].first.c_str());
+                return SMESH_FAILURE;
+            }
+            fine->add_nodeset(ns[i].first, mapped);
+        }
+        return SMESH_SUCCESS;
+    }
+
     std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh, const int levels) {
+        auto finish = [&](const std::shared_ptr<Mesh> &out) -> std::shared_ptr<Mesh> {
+            if (!out) {
+                return nullptr;
+            }
+            if (copy_sets_through_refine(mesh, out) != SMESH_SUCCESS) {
+                return nullptr;
+            }
+            return out;
+        };
+
 #ifdef SMESH_ENABLE_MPI
         if (mesh->is_distributed()) {
-            return MeshTransformsDistributed::refine(mesh, levels);
+            return finish(MeshTransformsDistributed::refine(mesh, levels));
         }
 #else
         if (mesh->comm()->size() > 1) {
@@ -5188,14 +5235,42 @@ namespace smesh {
         }
 #endif
 
-        const enum ElemType et0 = mesh->element_type(0);
-        for (size_t b = 1; b < mesh->n_blocks(); ++b) {
-            const enum ElemType etb = mesh->element_type(static_cast<block_idx_t>(b));
-            if (etb != et0) {
-                refine_print_mixed_types(et0, b, etb);
+        const RefineTypeSet types = refine_scan_mesh(*mesh);
+        if (!types.all_same) {
+            if (refine_hex_wedge_only(types)) {
+                auto ss = to_semistructured(1 << levels, mesh);
+                if (!ss) {
+                    return nullptr;
+                }
+                return finish(ss_to_linear(ss));
+            }
+            if (refine_quad_family_only(types)) {
+                auto ss = to_semistructured(1 << levels, mesh);
+                if (!ss) {
+                    return nullptr;
+                }
+                return finish(ssquad_to_quad4(ss));
+            }
+            if (types.pyramid) {
+                refine_print_unsupported(PYRAMID5);
                 return nullptr;
             }
+            if (types.hex && types.tet) {
+                refine_print_mixed_hex_tet();
+                return nullptr;
+            }
+            if (types.quad && (types.hex || types.wedge)) {
+                refine_print_mixed_hex_quad();
+                return nullptr;
+            }
+            if (!types.all_supported) {
+                refine_print_unsupported(types.first_unsupported);
+                return nullptr;
+            }
+            refine_print_mixed_types(types.et0, types.mixed_block, types.mixed_type);
+            return nullptr;
         }
+        const enum ElemType et0 = types.et0;
         if (!refine_type_supported(et0)) {
             refine_print_unsupported(et0);
             return nullptr;
@@ -5248,7 +5323,7 @@ namespace smesh {
 
                 out = std::make_shared<Mesh>(out->comm(), blocks, refined_points);
             }
-            return out;
+            return finish(out);
         }
 
         if (mesh->n_blocks() > 1 && mesh->element_type(0) == HEX8) {
@@ -5256,7 +5331,7 @@ namespace smesh {
             if (!ss) {
                 return nullptr;
             }
-            return sshex_to_hex8(ss);
+            return finish(sshex_to_hex8(ss));
         }
 
         if (et0 == QUAD4 || et0 == QUADSHELL4) {
@@ -5264,7 +5339,7 @@ namespace smesh {
             if (!ss) {
                 return nullptr;
             }
-            return ssquad_to_quad4(ss);
+            return finish(ssquad_to_quad4(ss));
         }
 
         if (et0 == WEDGE6) {
@@ -5272,7 +5347,7 @@ namespace smesh {
             if (!ss) {
                 return nullptr;
             }
-            return sswedge_to_wedge6(ss);
+            return finish(sswedge_to_wedge6(ss));
         }
 
         auto out = mesh;
@@ -5341,7 +5416,7 @@ namespace smesh {
             }
         }
 
-        return out;
+        return finish(out);
     }
 
 #ifdef SMESH_ENABLE_MPI

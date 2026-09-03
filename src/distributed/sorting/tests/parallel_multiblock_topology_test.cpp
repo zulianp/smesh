@@ -523,6 +523,111 @@ static int test_serial_edge2_multiblock_refine() {
   return SMESH_TEST_SUCCESS;
 }
 
+static std::shared_ptr<Mesh> make_hex_wedge_serial() {
+  auto src = Mesh::create_hex_dominant_serial(Communicator::self());
+  std::vector<std::shared_ptr<Mesh::Block>> blocks;
+  blocks.push_back(src->block(0));
+  blocks.push_back(src->block(3));
+  return std::make_shared<Mesh>(src->comm(), blocks, src->points());
+}
+
+static std::shared_ptr<Mesh> make_hex_quad_serial() {
+  auto pts = create_host_buffer<geom_t>(3, 8);
+  const geom_t c[8][3] = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
+                          {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}};
+  for (int i = 0; i < 8; ++i) {
+    pts->data()[0][i] = c[i][0];
+    pts->data()[1][i] = c[i][1];
+    pts->data()[2][i] = c[i][2];
+  }
+  auto hex = create_host_buffer<idx_t>(8, 1);
+  for (int d = 0; d < 8; ++d) {
+    hex->data()[d][0] = static_cast<idx_t>(d);
+  }
+  auto quad = create_host_buffer<idx_t>(4, 1);
+  const idx_t qn[4] = {0, 1, 2, 3};
+  for (int d = 0; d < 4; ++d) {
+    quad->data()[d][0] = qn[d];
+  }
+  std::vector<std::shared_ptr<Mesh::Block>> blocks;
+  blocks.push_back(std::make_shared<Mesh::Block>("hex", HEX8, hex));
+  blocks.push_back(std::make_shared<Mesh::Block>("quad", QUAD4, quad));
+  return std::make_shared<Mesh>(Communicator::self(), blocks, pts);
+}
+
+static int test_serial_hex_wedge_refine() {
+  auto mesh = make_hex_wedge_serial();
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  SMESH_TEST_EQ(static_cast<int>(mesh->n_blocks()), 2);
+  SMESH_TEST_EQ(mesh->element_type(0), HEX8);
+  SMESH_TEST_EQ(mesh->element_type(1), WEDGE6);
+  const ptrdiff_t n_hex   = mesh->n_elements(0);
+  const ptrdiff_t n_wedge = mesh->n_elements(1);
+
+  auto ss = to_semistructured(2, mesh);
+  SMESH_TEST_ASSERT(ss != nullptr);
+  auto exploded = ss_to_linear(ss);
+  SMESH_TEST_ASSERT(exploded != nullptr);
+
+  auto refined = refine(mesh, 1);
+  SMESH_TEST_ASSERT(refined != nullptr);
+  SMESH_TEST_EQ(static_cast<int>(refined->n_blocks()), 2);
+  SMESH_TEST_EQ(refined->element_type(0), HEX8);
+  SMESH_TEST_EQ(refined->element_type(1), WEDGE6);
+  SMESH_TEST_EQ(refined->n_elements(0), n_hex * 8);
+  SMESH_TEST_EQ(refined->n_elements(1), n_wedge * 8);
+  SMESH_TEST_EQ(refined->n_nodes(), exploded->n_nodes());
+  SMESH_TEST_EQ(refined->n_elements(), exploded->n_elements());
+
+  auto left = Sideset::create_from_selector(
+      mesh, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+  SMESH_TEST_ASSERT(!left.empty());
+  mesh->add_sidesets("left", left);
+  auto refined_ss = refine(mesh, 1);
+  SMESH_TEST_ASSERT(refined_ss != nullptr);
+  SMESH_TEST_EQ(refined_ss->sidesets("left").size(), left.size());
+  for (size_t i = 0; i < left.size(); ++i) {
+    SMESH_TEST_EQ(refined_ss->sidesets("left")[i]->size(), left[i]->size() * 4);
+  }
+  return SMESH_TEST_SUCCESS;
+}
+
+static int test_serial_quad_quadshell_refine() {
+  auto mesh = split_first_half(Mesh::create_quad4_square(Communicator::self(), 4, 4));
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  SMESH_TEST_EQ(static_cast<int>(mesh->n_blocks()), 2);
+  mesh->set_element_type(1, QUADSHELL4);
+  SMESH_TEST_EQ(mesh->element_type(0), QUAD4);
+  SMESH_TEST_EQ(mesh->element_type(1), QUADSHELL4);
+  const ptrdiff_t n0 = mesh->n_elements(0);
+  const ptrdiff_t n1 = mesh->n_elements(1);
+  auto refined = refine(mesh, 1);
+  SMESH_TEST_ASSERT(refined != nullptr);
+  SMESH_TEST_EQ(refined->element_type(0), QUAD4);
+  SMESH_TEST_EQ(refined->element_type(1), QUADSHELL4);
+  SMESH_TEST_EQ(refined->n_elements(0), n0 * 4);
+  SMESH_TEST_EQ(refined->n_elements(1), n1 * 4);
+  return SMESH_TEST_SUCCESS;
+}
+
+static int test_serial_hex_tet_refine_rejected() {
+  auto mesh = Mesh::create_hex8_tet4_cube(Communicator::self(), 2, 2, 2);
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  SMESH_TEST_EQ(mesh->element_type(0), HEX8);
+  SMESH_TEST_EQ(mesh->element_type(1), TET4);
+  auto refined = refine(mesh, 1);
+  SMESH_TEST_ASSERT(refined == nullptr);
+  return SMESH_TEST_SUCCESS;
+}
+
+static int test_serial_hex_quad_refine_rejected() {
+  auto mesh = make_hex_quad_serial();
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  auto refined = refine(mesh, 1);
+  SMESH_TEST_ASSERT(refined == nullptr);
+  return SMESH_TEST_SUCCESS;
+}
+
 static std::shared_ptr<Mesh> create_quad4_square_3d(const ptrdiff_t nx,
                                                     const ptrdiff_t ny) {
   auto q2 = Mesh::create_quad4_square(Communicator::self(), nx, ny);
@@ -679,6 +784,55 @@ static int test_serial_hex_dominant() {
   SMESH_TEST_EQ(ss->element_type(3), semistructured_type(WEDGE6, 2));
   SMESH_TEST_ASSERT(ss->n_nodes() > mesh->n_nodes());
 
+  return SMESH_TEST_SUCCESS;
+}
+
+static int test_serial_pyramid_refine_rejected() {
+  auto pyr = create_n_pyramid5(2);
+  SMESH_TEST_ASSERT(pyr != nullptr);
+  SMESH_TEST_EQ(pyr->element_type(0), PYRAMID5);
+  SMESH_TEST_ASSERT(refine(pyr, 1) == nullptr);
+  auto pyr_ss = to_semistructured(2, pyr);
+  SMESH_TEST_ASSERT(pyr_ss != nullptr);
+  SMESH_TEST_EQ(pyr_ss->element_type(0), semistructured_type(PYRAMID5, 2));
+
+  auto hexdom = Mesh::create_hex_dominant_serial(Communicator::self());
+  SMESH_TEST_ASSERT(hexdom != nullptr);
+  SMESH_TEST_EQ(hexdom->element_type(1), PYRAMID5);
+  SMESH_TEST_ASSERT(refine(hexdom, 1) == nullptr);
+  return SMESH_TEST_SUCCESS;
+}
+
+static int test_serial_higher_order_ss_refine_rejected() {
+  auto tet = Mesh::create_tet4_cube(Communicator::self(), 2, 2, 2);
+  SMESH_TEST_ASSERT(tet != nullptr);
+  auto tet10 = promote_to(TET10, tet);
+  SMESH_TEST_ASSERT(tet10 != nullptr);
+  SMESH_TEST_EQ(tet10->element_type(0), TET10);
+  SMESH_TEST_ASSERT(refine(tet10, 1) == nullptr);
+  auto tet15 = promote_to(TET15, tet);
+  SMESH_TEST_ASSERT(tet15 != nullptr);
+  SMESH_TEST_EQ(tet15->element_type(0), TET15);
+  SMESH_TEST_ASSERT(refine(tet15, 1) == nullptr);
+
+  auto tri = Mesh::create_tri3_square(Communicator::self(), 2, 2);
+  SMESH_TEST_ASSERT(tri != nullptr);
+  auto tri6 = promote_to(TRI6, tri);
+  SMESH_TEST_ASSERT(tri6 != nullptr);
+  SMESH_TEST_EQ(tri6->element_type(0), TRI6);
+  SMESH_TEST_ASSERT(refine(tri6, 1) == nullptr);
+
+  auto hex = Mesh::create_hex8_cube(Communicator::self(), 2, 2, 2);
+  SMESH_TEST_ASSERT(hex != nullptr);
+  auto ss = to_semistructured(2, hex);
+  SMESH_TEST_ASSERT(ss != nullptr);
+  SMESH_TEST_ASSERT(is_semistructured_type(ss->element_type(0)));
+  SMESH_TEST_ASSERT(refine(ss, 1) == nullptr);
+  auto exploded = sshex_to_hex8(ss);
+  SMESH_TEST_ASSERT(exploded != nullptr);
+  auto refined = refine(exploded, 1);
+  SMESH_TEST_ASSERT(refined != nullptr);
+  SMESH_TEST_EQ(refined->element_type(0), HEX8);
   return SMESH_TEST_SUCCESS;
 }
 
@@ -1216,6 +1370,12 @@ int main(int argc, char **argv) {
   SMESH_RUN_TEST(test_serial_edge2_refine);
   SMESH_RUN_TEST(test_serial_edgeshell2_refine);
   SMESH_RUN_TEST(test_serial_edge2_multiblock_refine);
+  SMESH_RUN_TEST(test_serial_hex_wedge_refine);
+  SMESH_RUN_TEST(test_serial_quad_quadshell_refine);
+  SMESH_RUN_TEST(test_serial_hex_tet_refine_rejected);
+  SMESH_RUN_TEST(test_serial_hex_quad_refine_rejected);
+  SMESH_RUN_TEST(test_serial_pyramid_refine_rejected);
+  SMESH_RUN_TEST(test_serial_higher_order_ss_refine_rejected);
   SMESH_RUN_TEST(test_serial_extrude_vs_single_block);
   SMESH_RUN_TEST(test_serial_hex_dominant);
 #ifdef SMESH_ENABLE_MPI

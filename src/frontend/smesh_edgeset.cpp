@@ -7,6 +7,7 @@
 #include "smesh_glob.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_read.hpp"
+#include "smesh_refine.hpp"
 #include "smesh_tracer.hpp"
 #include "smesh_write.hpp"
 
@@ -498,51 +499,419 @@ namespace smesh {
                                    fine_mesh->comm()->size() > 1 ? fine_block->element_mapping() : nullptr);
         }
 
-        if (!((coarse_type == EDGE2 || coarse_type == EDGESHELL2) && fine_type == coarse_type)) {
-            return unsupported();
-        }
-        if (factor <= 0) {
-            return unsupported();
-        }
-        ptrdiff_t f = 1;
-        while (f < factor) {
-            f *= 2;
-        }
-        if (f != factor) {
-            return unsupported();
-        }
-
         const ptrdiff_t      n_es = coarse_es->size();
         const element_idx_t *cp   = coarse_es->parent()->data();
         const i16           *cl   = coarse_es->lei()->data();
-        const ptrdiff_t      n_out = n_es * factor;
-        auto                 out_p = create_host_buffer<element_idx_t>((size_t)n_out);
-        auto                 out_l = create_host_buffer<i16>((size_t)n_out);
-        element_idx_t       *d_out_p = n_out > 0 ? out_p->data() : nullptr;
-        i16                 *d_out_l = n_out > 0 ? out_l->data() : nullptr;
-        ptrdiff_t            w       = 0;
-        for (ptrdiff_t i = 0; i < n_es; ++i) {
-            const element_idx_t e   = cp[i];
-            const i16           lei = cl[i];
-            if (e < 0 || (ptrdiff_t)e >= n_coarse) {
-                SMESH_ERROR("map_edgeset_through_refine: parent out of range\n");
-                return nullptr;
+        SharedBuffer<element_idx_t> out_p;
+        SharedBuffer<i16>           out_l;
+        ptrdiff_t                   n_out = 0;
+
+        auto finish = [&]() -> std::shared_ptr<Edgeset> {
+            if (n_out > 0 && (ptrdiff_t)out_p->size() != n_out) {
+                out_p = view(out_p, 0, (size_t)n_out);
+                out_l = view(out_l, 0, (size_t)n_out);
             }
-            if (lei != 0) {
-                SMESH_ERROR("map_edgeset_through_refine: EDGE lei %d is invalid\n", (int)lei);
-                return nullptr;
+            return Edgeset::create(fine_mesh->comm(),
+                                   out_p,
+                                   out_l,
+                                   bid,
+                                   fine_mesh->comm()->size() > 1 ? fine_block->element_mapping() : nullptr);
+        };
+
+        if (coarse_type == HEX8 && fine_type == HEX8) {
+            if (factor <= 0) {
+                return unsupported();
             }
-            for (ptrdiff_t c = 0; c < factor; ++c) {
-                d_out_p[w] = (element_idx_t)((ptrdiff_t)e * factor + c);
-                d_out_l[w] = 0;
-                ++w;
+            int L = 1;
+            while ((ptrdiff_t)L * (ptrdiff_t)L * (ptrdiff_t)L < factor) {
+                ++L;
             }
+            if ((ptrdiff_t)L * (ptrdiff_t)L * (ptrdiff_t)L != factor) {
+                return unsupported();
+            }
+            n_out = n_es * (ptrdiff_t)L;
+            out_p = create_host_buffer<element_idx_t>((size_t)n_out);
+            out_l = create_host_buffer<i16>((size_t)n_out);
+            element_idx_t *d_out_p = n_out > 0 ? out_p->data() : nullptr;
+            i16           *d_out_l = n_out > 0 ? out_l->data() : nullptr;
+            ptrdiff_t      w       = 0;
+            for (ptrdiff_t i = 0; i < n_es; ++i) {
+                const element_idx_t e   = cp[i];
+                const i16           lei = cl[i];
+                if (e < 0 || (ptrdiff_t)e >= n_coarse) {
+                    SMESH_ERROR("map_edgeset_through_refine: parent out of range\n");
+                    return nullptr;
+                }
+                if (lei < 0 || lei > 11) {
+                    SMESH_ERROR("map_edgeset_through_refine: HEX8 lei %d is invalid\n", (int)lei);
+                    return nullptr;
+                }
+                for (int zi = 0; zi < L; ++zi) {
+                    for (int yi = 0; yi < L; ++yi) {
+                        for (int xi = 0; xi < L; ++xi) {
+                            int on = 0;
+                            switch (lei) {
+                                case 0:
+                                    on = (yi == 0 && zi == 0);
+                                    break;
+                                case 1:
+                                    on = (xi == L - 1 && zi == 0);
+                                    break;
+                                case 2:
+                                    on = (yi == L - 1 && zi == 0);
+                                    break;
+                                case 3:
+                                    on = (xi == 0 && zi == 0);
+                                    break;
+                                case 4:
+                                    on = (yi == 0 && zi == L - 1);
+                                    break;
+                                case 5:
+                                    on = (xi == L - 1 && zi == L - 1);
+                                    break;
+                                case 6:
+                                    on = (yi == L - 1 && zi == L - 1);
+                                    break;
+                                case 7:
+                                    on = (xi == 0 && zi == L - 1);
+                                    break;
+                                case 8:
+                                    on = (xi == 0 && yi == 0);
+                                    break;
+                                case 9:
+                                    on = (xi == L - 1 && yi == 0);
+                                    break;
+                                case 10:
+                                    on = (xi == L - 1 && yi == L - 1);
+                                    break;
+                                case 11:
+                                    on = (xi == 0 && yi == L - 1);
+                                    break;
+                                default:
+                                    break;
+                            }
+                            if (on) {
+                                d_out_p[w] = (element_idx_t)((ptrdiff_t)e * factor + zi * L * L + yi * L + xi);
+                                d_out_l[w] = lei;
+                                ++w;
+                            }
+                        }
+                    }
+                }
+            }
+            n_out = w;
+            return finish();
         }
-        return Edgeset::create(fine_mesh->comm(),
-                               out_p,
-                               out_l,
-                               bid,
-                               fine_mesh->comm()->size() > 1 ? fine_block->element_mapping() : nullptr);
+
+        if ((coarse_type == QUAD4 || coarse_type == QUADSHELL4) && fine_type == coarse_type) {
+            if (factor <= 0) {
+                return unsupported();
+            }
+            int L = 1;
+            while ((ptrdiff_t)L * (ptrdiff_t)L < factor) {
+                ++L;
+            }
+            if ((ptrdiff_t)L * (ptrdiff_t)L != factor) {
+                return unsupported();
+            }
+            n_out = n_es * (ptrdiff_t)L;
+            out_p = create_host_buffer<element_idx_t>((size_t)n_out);
+            out_l = create_host_buffer<i16>((size_t)n_out);
+            element_idx_t *d_out_p = n_out > 0 ? out_p->data() : nullptr;
+            i16           *d_out_l = n_out > 0 ? out_l->data() : nullptr;
+            ptrdiff_t      w       = 0;
+            for (ptrdiff_t i = 0; i < n_es; ++i) {
+                const element_idx_t e   = cp[i];
+                const i16           lei = cl[i];
+                if (e < 0 || (ptrdiff_t)e >= n_coarse) {
+                    SMESH_ERROR("map_edgeset_through_refine: parent out of range\n");
+                    return nullptr;
+                }
+                if (lei < 0 || lei > 3) {
+                    SMESH_ERROR("map_edgeset_through_refine: QUAD lei %d is invalid\n", (int)lei);
+                    return nullptr;
+                }
+                for (int yi = 0; yi < L; ++yi) {
+                    for (int xi = 0; xi < L; ++xi) {
+                        int on = 0;
+                        switch (lei) {
+                            case 0:
+                                on = (yi == 0);
+                                break;
+                            case 1:
+                                on = (xi == L - 1);
+                                break;
+                            case 2:
+                                on = (yi == L - 1);
+                                break;
+                            case 3:
+                                on = (xi == 0);
+                                break;
+                            default:
+                                break;
+                        }
+                        if (on) {
+                            d_out_p[w] = (element_idx_t)((ptrdiff_t)e * factor + yi * L + xi);
+                            d_out_l[w] = lei;
+                            ++w;
+                        }
+                    }
+                }
+            }
+            n_out = w;
+            return finish();
+        }
+
+        if (coarse_type == WEDGE6 && fine_type == WEDGE6) {
+            if (factor <= 0) {
+                return unsupported();
+            }
+            int L = 1;
+            while ((ptrdiff_t)L * (ptrdiff_t)L * (ptrdiff_t)L < factor) {
+                ++L;
+            }
+            if ((ptrdiff_t)L * (ptrdiff_t)L * (ptrdiff_t)L != factor) {
+                return unsupported();
+            }
+            n_out = n_es * (ptrdiff_t)L;
+            out_p = create_host_buffer<element_idx_t>((size_t)n_out);
+            out_l = create_host_buffer<i16>((size_t)n_out);
+            element_idx_t *d_out_p = n_out > 0 ? out_p->data() : nullptr;
+            i16           *d_out_l = n_out > 0 ? out_l->data() : nullptr;
+            ptrdiff_t      w       = 0;
+            for (ptrdiff_t i = 0; i < n_es; ++i) {
+                const element_idx_t e   = cp[i];
+                const i16           lei = cl[i];
+                if (e < 0 || (ptrdiff_t)e >= n_coarse) {
+                    SMESH_ERROR("map_edgeset_through_refine: parent out of range\n");
+                    return nullptr;
+                }
+                if (lei < 0 || lei > 8) {
+                    SMESH_ERROR("map_edgeset_through_refine: WEDGE6 lei %d is invalid\n", (int)lei);
+                    return nullptr;
+                }
+                int le = 0;
+                for (int zi = 0; zi < L; ++zi) {
+                    for (int yi = 0; yi < L; ++yi) {
+                        for (int xi = 0; xi < L - yi; ++xi) {
+                            int on_up = 0;
+                            switch (lei) {
+                                case 0:
+                                    on_up = (yi == 0 && zi == 0);
+                                    break;
+                                case 1:
+                                    on_up = (xi + yi == L - 1 && zi == 0);
+                                    break;
+                                case 2:
+                                    on_up = (xi == 0 && zi == 0);
+                                    break;
+                                case 3:
+                                    on_up = (yi == 0 && zi == L - 1);
+                                    break;
+                                case 4:
+                                    on_up = (xi + yi == L - 1 && zi == L - 1);
+                                    break;
+                                case 5:
+                                    on_up = (xi == 0 && zi == L - 1);
+                                    break;
+                                case 6:
+                                    on_up = (xi == 0 && yi == 0);
+                                    break;
+                                case 7:
+                                    on_up = (xi == L - 1 && yi == 0);
+                                    break;
+                                case 8:
+                                    on_up = (xi == 0 && yi == L - 1);
+                                    break;
+                                default:
+                                    break;
+                            }
+                            if (on_up) {
+                                d_out_p[w] = (element_idx_t)((ptrdiff_t)e * factor + le);
+                                d_out_l[w] = lei;
+                                ++w;
+                            }
+                            ++le;
+                            if (xi + yi + 1 < L) {
+                                ++le;
+                            }
+                        }
+                    }
+                }
+            }
+            n_out = w;
+            return finish();
+        }
+
+        if (coarse_type == TET4 && fine_type == TET4) {
+            if (factor <= 0) {
+                return unsupported();
+            }
+            ptrdiff_t f  = 1;
+            int       lv = 0;
+            while (f < factor) {
+                f *= 8;
+                ++lv;
+            }
+            if (f != factor) {
+                return unsupported();
+            }
+            ptrdiff_t        expand               = 1;
+            for (int s = 0; s < lv; ++s) {
+                expand *= 2;
+            }
+            n_out = n_es * expand;
+            out_p = create_host_buffer<element_idx_t>((size_t)n_out);
+            out_l = create_host_buffer<i16>((size_t)n_out);
+            auto cur_p = create_host_buffer<element_idx_t>((size_t)expand);
+            auto cur_l = create_host_buffer<i16>((size_t)expand);
+            auto nxt_p = create_host_buffer<element_idx_t>((size_t)expand);
+            auto nxt_l = create_host_buffer<i16>((size_t)expand);
+            element_idx_t *d_out_p = n_out > 0 ? out_p->data() : nullptr;
+            i16           *d_out_l = n_out > 0 ? out_l->data() : nullptr;
+            element_idx_t *d_cur_p = cur_p->data();
+            i16           *d_cur_l = cur_l->data();
+            element_idx_t *d_nxt_p = nxt_p->data();
+            i16           *d_nxt_l = nxt_l->data();
+            ptrdiff_t      w       = 0;
+            for (ptrdiff_t i = 0; i < n_es; ++i) {
+                d_cur_p[0]      = cp[i];
+                d_cur_l[0]      = cl[i];
+                ptrdiff_t n_cur = 1;
+                for (int step = 0; step < lv; ++step) {
+                    ptrdiff_t n_nxt = 0;
+                    for (ptrdiff_t k = 0; k < n_cur; ++k) {
+                        const i16 s = d_cur_l[k];
+                        if (s < 0 || s > 5) {
+                            SMESH_ERROR("map_edgeset_through_refine: TET4 lei %d is invalid\n", (int)s);
+                            return nullptr;
+                        }
+                        for (int c = 0; c < 2; ++c) {
+                            d_nxt_p[n_nxt] = (element_idx_t)((ptrdiff_t)d_cur_p[k] * 8 + tet4_edge_child[s][c]);
+                            d_nxt_l[n_nxt] = s;
+                            ++n_nxt;
+                        }
+                    }
+                    element_idx_t *tp = d_cur_p;
+                    i16           *tl = d_cur_l;
+                    d_cur_p           = d_nxt_p;
+                    d_cur_l           = d_nxt_l;
+                    d_nxt_p           = tp;
+                    d_nxt_l           = tl;
+                    n_cur             = n_nxt;
+                }
+                memcpy(d_out_p + w, d_cur_p, (size_t)n_cur * sizeof(element_idx_t));
+                memcpy(d_out_l + w, d_cur_l, (size_t)n_cur * sizeof(i16));
+                w += n_cur;
+            }
+            n_out = w;
+            return finish();
+        }
+
+        if ((coarse_type == TRI3 || coarse_type == TRISHELL3) && fine_type == coarse_type) {
+            if (factor <= 0) {
+                return unsupported();
+            }
+            ptrdiff_t f  = 1;
+            int       lv = 0;
+            while (f < factor) {
+                f *= 4;
+                ++lv;
+            }
+            if (f != factor) {
+                return unsupported();
+            }
+            ptrdiff_t        expand               = 1;
+            for (int s = 0; s < lv; ++s) {
+                expand *= 2;
+            }
+            n_out = n_es * expand;
+            out_p = create_host_buffer<element_idx_t>((size_t)n_out);
+            out_l = create_host_buffer<i16>((size_t)n_out);
+            auto cur_p = create_host_buffer<element_idx_t>((size_t)expand);
+            auto cur_l = create_host_buffer<i16>((size_t)expand);
+            auto nxt_p = create_host_buffer<element_idx_t>((size_t)expand);
+            auto nxt_l = create_host_buffer<i16>((size_t)expand);
+            element_idx_t *d_out_p = n_out > 0 ? out_p->data() : nullptr;
+            i16           *d_out_l = n_out > 0 ? out_l->data() : nullptr;
+            element_idx_t *d_cur_p = cur_p->data();
+            i16           *d_cur_l = cur_l->data();
+            element_idx_t *d_nxt_p = nxt_p->data();
+            i16           *d_nxt_l = nxt_l->data();
+            ptrdiff_t      w       = 0;
+            for (ptrdiff_t i = 0; i < n_es; ++i) {
+                d_cur_p[0]      = cp[i];
+                d_cur_l[0]      = cl[i];
+                ptrdiff_t n_cur = 1;
+                for (int step = 0; step < lv; ++step) {
+                    ptrdiff_t n_nxt = 0;
+                    for (ptrdiff_t k = 0; k < n_cur; ++k) {
+                        const i16 s = d_cur_l[k];
+                        if (s < 0 || s > 2) {
+                            SMESH_ERROR("map_edgeset_through_refine: TRI lei %d is invalid\n", (int)s);
+                            return nullptr;
+                        }
+                        for (int c = 0; c < 2; ++c) {
+                            d_nxt_p[n_nxt] = (element_idx_t)((ptrdiff_t)d_cur_p[k] * 4 + tri3_edge_child[s][c]);
+                            d_nxt_l[n_nxt] = s;
+                            ++n_nxt;
+                        }
+                    }
+                    element_idx_t *tp = d_cur_p;
+                    i16           *tl = d_cur_l;
+                    d_cur_p           = d_nxt_p;
+                    d_cur_l           = d_nxt_l;
+                    d_nxt_p           = tp;
+                    d_nxt_l           = tl;
+                    n_cur             = n_nxt;
+                }
+                memcpy(d_out_p + w, d_cur_p, (size_t)n_cur * sizeof(element_idx_t));
+                memcpy(d_out_l + w, d_cur_l, (size_t)n_cur * sizeof(i16));
+                w += n_cur;
+            }
+            n_out = w;
+            return finish();
+        }
+
+        if ((coarse_type == EDGE2 || coarse_type == EDGESHELL2) && fine_type == coarse_type) {
+            if (factor <= 0) {
+                return unsupported();
+            }
+            ptrdiff_t f = 1;
+            while (f < factor) {
+                f *= 2;
+            }
+            if (f != factor) {
+                return unsupported();
+            }
+            n_out = n_es * factor;
+            out_p = create_host_buffer<element_idx_t>((size_t)n_out);
+            out_l = create_host_buffer<i16>((size_t)n_out);
+            element_idx_t *d_out_p = n_out > 0 ? out_p->data() : nullptr;
+            i16           *d_out_l = n_out > 0 ? out_l->data() : nullptr;
+            ptrdiff_t      w       = 0;
+            for (ptrdiff_t i = 0; i < n_es; ++i) {
+                const element_idx_t e   = cp[i];
+                const i16           lei = cl[i];
+                if (e < 0 || (ptrdiff_t)e >= n_coarse) {
+                    SMESH_ERROR("map_edgeset_through_refine: parent out of range\n");
+                    return nullptr;
+                }
+                if (lei != 0) {
+                    SMESH_ERROR("map_edgeset_through_refine: EDGE lei %d is invalid\n", (int)lei);
+                    return nullptr;
+                }
+                for (ptrdiff_t c = 0; c < factor; ++c) {
+                    d_out_p[w] = (element_idx_t)((ptrdiff_t)e * factor + c);
+                    d_out_l[w] = 0;
+                    ++w;
+                }
+            }
+            n_out = w;
+            return finish();
+        }
+
+        return unsupported();
     }
 
     std::pair<enum ElemType, std::shared_ptr<Buffer<idx_t *>>> create_edges_from_edgeset(

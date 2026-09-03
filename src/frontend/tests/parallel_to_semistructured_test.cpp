@@ -620,6 +620,8 @@ static int test_mpi_mixed_hex_tet() {
     auto hexdom_h = to_semistructured(2, hexdom, true, false);
     SMESH_TEST_ASSERT(hexdom_h != nullptr);
     SMESH_TEST_EQ(hexdom_h->distributed()->n_nodes_global(), serial_hexdom_nnodes);
+    SMESH_TEST_EQ(hexdom->element_type(1), PYRAMID5);
+    SMESH_TEST_ASSERT(refine(hexdom, 1) == nullptr);
 
     if (comm->rank() == 0) {
         std::filesystem::remove_all(mixed_path.to_string());
