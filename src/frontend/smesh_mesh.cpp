@@ -5251,13 +5251,14 @@ namespace smesh {
                 }
                 return finish(ssquad_to_quad4(ss));
             }
-            if (types.pyramid) {
-                refine_print_unsupported(PYRAMID5);
-                return nullptr;
-            }
-            if (types.hex && types.tet) {
-                refine_print_mixed_hex_tet();
-                return nullptr;
+            if (refine_mixed_volume_ss(types)) {
+                // Mixed HEX/TET/WEDGE/PYRAMID or PYRAMID-only: one SS lattice then explode.
+                // PYRAMID SS blocks emit a PYRAMID5 block + a new TET4 block.
+                auto ss = to_semistructured(1 << levels, mesh);
+                if (!ss) {
+                    return nullptr;
+                }
+                return finish(ss_to_linear(ss));
             }
             if (types.quad && (types.hex || types.wedge)) {
                 refine_print_mixed_hex_quad();
@@ -5348,6 +5349,16 @@ namespace smesh {
                 return nullptr;
             }
             return finish(sswedge_to_wedge6(ss));
+        }
+
+        if (et0 == PYRAMID5) {
+            // Same-type PYRAMID: use SS lattice + explode.
+            // Output: PYRAMID5 block + TET4 block (if L >= 2).
+            auto ss = to_semistructured(1 << levels, mesh);
+            if (!ss) {
+                return nullptr;
+            }
+            return finish(ss_to_linear(ss));
         }
 
         auto out = mesh;

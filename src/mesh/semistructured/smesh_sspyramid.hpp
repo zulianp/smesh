@@ -48,6 +48,21 @@ static SMESH_INLINE SMESH_HOST_DEVICE int sspyramid_lidx(const int L, const int 
     return ret;
 }
 
+/// Child pyramids per macro-pyramid (shrinking-quad layer stencil).
+/// = sum_{k=0}^{L-1}[(L-k)^2 + (L-k-1)^2]  = L^2 + L(L-1)(2L-1)/3
+static SMESH_INLINE SMESH_HOST_DEVICE int sspyramid_n_pyr(const int L) {
+    if (L < 1) return 0;
+    // L=1 → 1 (identity); L=2 → 6; L=4 → 44
+    return L * L + L * (L - 1) * (2 * L - 1) / 3;
+}
+
+/// Child tets per macro-pyramid (seam tets between upward pyramids).
+/// = sum_{k=0}^{L-1} 2*(L-k)*(L-k-1) = 2L(L^2-1)/3
+static SMESH_INLINE SMESH_HOST_DEVICE int sspyramid_n_tet(const int L) {
+    if (L < 2) return 0;
+    return 2 * L * (L * L - 1) / 3;
+}
+
 }  // namespace smesh
 
 #endif  // SMESH_SSPYRAMID_HPP

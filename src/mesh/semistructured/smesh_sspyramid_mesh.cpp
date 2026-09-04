@@ -11,12 +11,25 @@
             const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT,       \
             GEOM_T *SMESH_RESTRICT *const SMESH_RESTRICT)
 
+#define SMESH_EXPLICIT_INSTANTIATE_SSPYRAMID_EXPLODE(IDX_T)                 \
+    template int sspyramid_to_pyramid5_and_tet4<IDX_T>(                     \
+            const int,                                                      \
+            const ptrdiff_t,                                                \
+            const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,        \
+            IDX_T *SMESH_RESTRICT *const SMESH_RESTRICT,                    \
+            IDX_T *SMESH_RESTRICT *const SMESH_RESTRICT)
+
 namespace smesh {
 SMESH_EXPLICIT_INSTANTIATE_SSPYRAMID_MESH(i16, f32);
 SMESH_EXPLICIT_INSTANTIATE_SSPYRAMID_MESH(i32, f32);
 SMESH_EXPLICIT_INSTANTIATE_SSPYRAMID_MESH(i64, f32);
 SMESH_EXPLICIT_INSTANTIATE_SSPYRAMID_MESH(i32, f64);
 SMESH_EXPLICIT_INSTANTIATE_SSPYRAMID_MESH(i64, f64);
+
+SMESH_EXPLICIT_INSTANTIATE_SSPYRAMID_EXPLODE(i16);
+SMESH_EXPLICIT_INSTANTIATE_SSPYRAMID_EXPLODE(i32);
+SMESH_EXPLICIT_INSTANTIATE_SSPYRAMID_EXPLODE(i64);
 }  // namespace smesh
 
 #undef SMESH_EXPLICIT_INSTANTIATE_SSPYRAMID_MESH
+#undef SMESH_EXPLICIT_INSTANTIATE_SSPYRAMID_EXPLODE

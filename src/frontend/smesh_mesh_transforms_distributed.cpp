@@ -11,6 +11,7 @@
 #include "smesh_refine.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sshex8.hpp"
+#include "smesh_sspyramid.hpp"
 #include "smesh_ssquad4.hpp"
 #include "smesh_sstet4.hpp"
 #include "smesh_sswedge.hpp"
@@ -558,6 +559,12 @@ int MeshTransformsDistributed::conversion_factor(const enum ElemType from, const
     if (is_wedge_ss_family(from) && to == WEDGE6) {
         return sswedge_txe(semistructured_level(from));
     }
+    if (is_pyramid_ss_family(from) && to == PYRAMID5) {
+        return sspyramid_n_pyr(semistructured_level(from));
+    }
+    if (is_pyramid_ss_family(from) && to == TET4) {
+        return sspyramid_n_tet(semistructured_level(from));
+    }
     return 1;
 }
 
@@ -579,13 +586,13 @@ std::shared_ptr<Mesh> MeshTransformsDistributed::refine(const std::shared_ptr<Me
             }
             return ssquad_to_quad4(ss);
         }
-        if (types.pyramid) {
-            refine_print_unsupported(PYRAMID5);
-            return nullptr;
-        }
-        if (types.hex && types.tet) {
-            refine_print_mixed_hex_tet();
-            return nullptr;
+        if (refine_mixed_volume_ss(types)) {
+            // Mixed HEX/TET/WEDGE/PYRAMID: one SS lattice then explode.
+            auto ss = to_semistructured(1 << levels, mesh);
+            if (!ss) {
+                return nullptr;
+            }
+            return ss_to_linear(ss);
         }
         if (types.quad && (types.hex || types.wedge)) {
             refine_print_mixed_hex_quad();
@@ -623,6 +630,13 @@ std::shared_ptr<Mesh> MeshTransformsDistributed::refine(const std::shared_ptr<Me
             return nullptr;
         }
         return sswedge_to_wedge6(ss);
+    }
+    if (et == PYRAMID5) {
+        auto ss = to_semistructured(1 << levels, mesh);
+        if (!ss) {
+            return nullptr;
+        }
+        return ss_to_linear(ss);
     }
     auto out = mesh;
     for (int i = 0; i < levels; ++i) {
@@ -900,6 +914,58 @@ MeshTransformsDistributed::attach_sshex_to_hex8(const std::shared_ptr<Mesh> &ss,
     }
     hex->set_distributed(dist);
     return hex;
+}
+
+std::shared_ptr<Mesh>
+MeshTransformsDistributed::attach_ss_to_linear(const std::shared_ptr<Mesh> &ss,
+                                               const std::shared_ptr<Mesh> &linear,
+                                               const std::vector<size_t>   &block_origin,
+                                               const std::vector<int>      &block_factor) {
+    if (!ss || !linear || block_origin.size() != linear->n_blocks() ||
+        block_factor.size() != linear->n_blocks()) {
+        return nullptr;
+    }
+    auto dist = copy_distributed(*ss->distributed());
+    for (size_t ob = 0; ob < linear->n_blocks(); ++ob) {
+        auto src = ss->block(static_cast<block_idx_t>(block_origin[ob]));
+        auto dst = linear->block(static_cast<block_idx_t>(ob));
+        if (!src || !dst) {
+            return nullptr;
+        }
+        expand_block_from(*src, *dst, block_factor[ob]);
+    }
+
+    ptrdiff_t n_owned  = 0;
+    ptrdiff_t n_shared = 0;
+    ptrdiff_t n_ghosts = 0;
+    for (size_t b = 0; b < linear->n_blocks(); ++b) {
+        auto block = linear->block(static_cast<block_idx_t>(b));
+        n_owned += block->n_elements_owned();
+        n_shared += block->n_elements_shared();
+        n_ghosts += block->n_elements_ghosts();
+    }
+    auto      emap = create_host_buffer<large_idx_t>((size_t)n_owned);
+    auto      aura = create_host_buffer<large_idx_t>((size_t)n_ghosts);
+    ptrdiff_t io   = 0;
+    ptrdiff_t ia   = 0;
+    for (size_t b = 0; b < linear->n_blocks(); ++b) {
+        auto block = linear->block(static_cast<block_idx_t>(b));
+        if (block->element_mapping() && block->n_elements_owned() > 0) {
+            const ptrdiff_t n = block->n_elements_owned();
+            std::memcpy(emap->data() + io, block->element_mapping()->data(), (size_t)n * sizeof(large_idx_t));
+            io += n;
+        }
+        if (block->aura_element_mapping() && block->n_elements_ghosts() > 0) {
+            const ptrdiff_t n = block->n_elements_ghosts();
+            std::memcpy(aura->data() + ia, block->aura_element_mapping()->data(), (size_t)n * sizeof(large_idx_t));
+            ia += n;
+        }
+    }
+    ptrdiff_t n_owned_sum = 0;
+    SMESH_MPI_CATCH(MPI_Allreduce(&n_owned, &n_owned_sum, 1, mpi_type<ptrdiff_t>(), MPI_SUM, ss->comm()->get()));
+    dist->set_elements(n_owned_sum, n_owned, n_shared, n_ghosts, emap, aura);
+    linear->set_distributed(dist);
+    return linear;
 }
 
 std::shared_ptr<Mesh>

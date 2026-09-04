@@ -715,7 +715,7 @@ static std::shared_ptr<Mesh> create_pyramid_pairs_serial(const ptrdiff_t pairs) 
     return std::make_shared<Mesh>(Communicator::self(), blocks, points);
 }
 
-static int test_mpi_pyramid_refine_rejected() {
+static int test_mpi_pyramid_refine() {
 #ifndef SMESH_ENABLE_MPI
     return SMESH_TEST_SUCCESS;
 #else
@@ -731,27 +731,191 @@ static int test_mpi_pyramid_refine_rejected() {
     comm->broadcast(&token, 1, 0);
     const Path pyr_path = make_tmp_path("smesh_mpi_xf_pyr_refine", token);
 
+    const ptrdiff_t n_pairs = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    ptrdiff_t       serial_nnodes    = 0;
+    ptrdiff_t       serial_nelements = 0;
+    ptrdiff_t       serial_npyr      = 0;
+    ptrdiff_t       serial_ntet      = 0;
     if (comm->rank() == 0) {
         std::filesystem::remove_all(pyr_path.to_string());
-        auto pyr = create_pyramid_pairs_serial(std::max<ptrdiff_t>(2 * comm->size(), 4));
+        auto pyr = create_pyramid_pairs_serial(n_pairs);
         SMESH_TEST_ASSERT(pyr != nullptr);
         SMESH_TEST_EQ(pyr->element_type(0), PYRAMID5);
-        SMESH_TEST_ASSERT(refine(pyr, 1) == nullptr);
+        auto ref_serial = refine(pyr, 1);
+        SMESH_TEST_ASSERT(ref_serial != nullptr);
+        SMESH_TEST_EQ(static_cast<int>(ref_serial->n_blocks()), 2);
+        SMESH_TEST_EQ(ref_serial->element_type(0), PYRAMID5);
+        SMESH_TEST_EQ(ref_serial->element_type(1), TET4);
+        SMESH_TEST_EQ(ref_serial->n_elements(0), pyr->n_elements() * (ptrdiff_t)sspyramid_n_pyr(2));
+        SMESH_TEST_EQ(ref_serial->n_elements(1), pyr->n_elements() * (ptrdiff_t)sspyramid_n_tet(2));
+        serial_nnodes    = ref_serial->n_nodes();
+        serial_nelements = ref_serial->n_elements();
+        serial_npyr      = ref_serial->n_elements(0);
+        serial_ntet      = ref_serial->n_elements(1);
         auto pyr_ss = to_semistructured(2, pyr);
         SMESH_TEST_ASSERT(pyr_ss != nullptr);
         SMESH_TEST_EQ(pyr_ss->element_type(0), semistructured_type(PYRAMID5, 2));
+        SMESH_TEST_EQ(pyr_ss->n_nodes(), serial_nnodes);
         SMESH_TEST_ASSERT(pyr->write(pyr_path) == SMESH_SUCCESS);
     }
+    comm->broadcast(&serial_nnodes, 1, 0);
+    comm->broadcast(&serial_nelements, 1, 0);
+    comm->broadcast(&serial_npyr, 1, 0);
+    comm->broadcast(&serial_ntet, 1, 0);
     comm->barrier();
 
     auto pyr = Mesh::create_from_file(comm, pyr_path);
     SMESH_TEST_ASSERT(pyr != nullptr);
     SMESH_TEST_ASSERT(pyr->is_distributed());
     SMESH_TEST_EQ(pyr->element_type(0), PYRAMID5);
-    SMESH_TEST_ASSERT(refine(pyr, 1) == nullptr);
+    auto refined = refine(pyr, 1);
+    SMESH_TEST_ASSERT(refined != nullptr);
+    SMESH_TEST_ASSERT(refined->is_distributed());
+    SMESH_TEST_EQ(static_cast<int>(refined->n_blocks()), 2);
+    SMESH_TEST_EQ(refined->element_type(0), PYRAMID5);
+    SMESH_TEST_EQ(refined->element_type(1), TET4);
+    SMESH_TEST_EQ(refined->distributed()->n_nodes_global(), serial_nnodes);
+    SMESH_TEST_EQ(refined->distributed()->n_elements_global(), serial_nelements);
+    SMESH_TEST_EQ(refined->block(0)->n_elements(), pyr->block(0)->n_elements() * (ptrdiff_t)sspyramid_n_pyr(2));
+    SMESH_TEST_EQ(refined->block(1)->n_elements(), pyr->block(0)->n_elements() * (ptrdiff_t)sspyramid_n_tet(2));
+    SMESH_TEST_EQ(refined->block(0)->n_elements_owned(),
+                 pyr->block(0)->n_elements_owned() * (ptrdiff_t)sspyramid_n_pyr(2));
+    SMESH_TEST_EQ(refined->block(1)->n_elements_owned(),
+                 pyr->block(0)->n_elements_owned() * (ptrdiff_t)sspyramid_n_tet(2));
+    SMESH_TEST_EQ(check_owned_gids_unique(*refined), SMESH_TEST_SUCCESS);
+
+    ptrdiff_t n_pyr_owned = refined->block(0)->n_elements_owned();
+    ptrdiff_t n_tet_owned = refined->block(1)->n_elements_owned();
+    ptrdiff_t n_pyr_sum   = 0;
+    ptrdiff_t n_tet_sum   = 0;
+    SMESH_MPI_CATCH(MPI_Allreduce(&n_pyr_owned, &n_pyr_sum, 1, mpi_type<ptrdiff_t>(), MPI_SUM, comm->get()));
+    SMESH_MPI_CATCH(MPI_Allreduce(&n_tet_owned, &n_tet_sum, 1, mpi_type<ptrdiff_t>(), MPI_SUM, comm->get()));
+    SMESH_TEST_EQ(n_pyr_sum, serial_npyr);
+    SMESH_TEST_EQ(n_tet_sum, serial_ntet);
 
     if (comm->rank() == 0) {
         std::filesystem::remove_all(pyr_path.to_string());
+    }
+    return SMESH_TEST_SUCCESS;
+#endif
+}
+
+static std::shared_ptr<Mesh> repeat_mesh_components(const std::shared_ptr<Mesh> &mesh, const ptrdiff_t copies) {
+    if (!mesh || copies < 1) {
+        return nullptr;
+    }
+    const int       dim     = mesh->spatial_dimension();
+    const ptrdiff_t n_nodes = mesh->n_nodes();
+    const geom_t    dx      = geom_t(2);
+    auto            points  = create_host_buffer<geom_t>(static_cast<size_t>(dim), static_cast<size_t>(n_nodes * copies));
+    for (ptrdiff_t c = 0; c < copies; ++c) {
+        for (int d = 0; d < dim; ++d) {
+            for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+                points->data()[d][c * n_nodes + i] =
+                        mesh->points()->data()[d][i] + (d == 0 ? dx * static_cast<geom_t>(c) : geom_t(0));
+            }
+        }
+    }
+    std::vector<std::shared_ptr<Mesh::Block>> blocks;
+    for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+        auto            src = mesh->block(static_cast<block_idx_t>(b));
+        const int       nxe = src->n_nodes_per_element();
+        const ptrdiff_t n0  = src->n_elements();
+        auto            dst = create_host_buffer<idx_t>(static_cast<size_t>(nxe), static_cast<size_t>(n0 * copies));
+        for (int d = 0; d < nxe; ++d) {
+            for (ptrdiff_t c = 0; c < copies; ++c) {
+                const idx_t off = static_cast<idx_t>(c * n_nodes);
+                for (ptrdiff_t e = 0; e < n0; ++e) {
+                    dst->data()[d][c * n0 + e] = src->elements()->data()[d][e] + off;
+                }
+            }
+        }
+        blocks.push_back(std::make_shared<Mesh::Block>(src->name(), src->element_type(), dst));
+    }
+    return std::make_shared<Mesh>(mesh->comm(), blocks, points);
+}
+
+static int test_mpi_hex_dominant_refine() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+
+    int token = 0;
+    if (comm->rank() == 0) {
+        token = static_cast<int>(std::time(nullptr)) + 37;
+    }
+    comm->broadcast(&token, 1, 0);
+    const Path path = make_tmp_path("smesh_mpi_xf_hexdom_refine", token);
+
+    ptrdiff_t serial_nnodes    = 0;
+    ptrdiff_t serial_nelements = 0;
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+        auto serial = repeat_mesh_components(Mesh::create_hex_dominant_serial(Communicator::self()),
+                                             std::max<ptrdiff_t>(2 * comm->size(), 4));
+        SMESH_TEST_ASSERT(serial != nullptr);
+        SMESH_TEST_EQ(static_cast<int>(serial->n_blocks()), 4);
+        SMESH_TEST_EQ(serial->element_type(0), HEX8);
+        SMESH_TEST_EQ(serial->element_type(1), PYRAMID5);
+        SMESH_TEST_EQ(serial->element_type(2), TET4);
+        SMESH_TEST_EQ(serial->element_type(3), WEDGE6);
+        auto refined = refine(serial, 1);
+        SMESH_TEST_ASSERT(refined != nullptr);
+        SMESH_TEST_EQ(static_cast<int>(refined->n_blocks()), 5);
+        SMESH_TEST_EQ(refined->element_type(0), HEX8);
+        SMESH_TEST_EQ(refined->element_type(1), PYRAMID5);
+        SMESH_TEST_EQ(refined->element_type(2), TET4);
+        SMESH_TEST_EQ(refined->element_type(3), TET4);
+        SMESH_TEST_EQ(refined->element_type(4), WEDGE6);
+        SMESH_TEST_EQ(refined->n_elements(0), serial->n_elements(0) * 8);
+        SMESH_TEST_EQ(refined->n_elements(1), serial->n_elements(1) * (ptrdiff_t)sspyramid_n_pyr(2));
+        SMESH_TEST_EQ(refined->n_elements(2), serial->n_elements(1) * (ptrdiff_t)sspyramid_n_tet(2));
+        SMESH_TEST_EQ(refined->n_elements(3), serial->n_elements(2) * 8);
+        SMESH_TEST_EQ(refined->n_elements(4), serial->n_elements(3) * 8);
+        serial_nnodes    = refined->n_nodes();
+        serial_nelements = refined->n_elements();
+        SMESH_TEST_ASSERT(serial->write(path) == SMESH_SUCCESS);
+    }
+    comm->broadcast(&serial_nnodes, 1, 0);
+    comm->broadcast(&serial_nelements, 1, 0);
+    comm->barrier();
+
+    auto mesh = Mesh::create_from_file(comm, path);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    SMESH_TEST_ASSERT(mesh->is_distributed());
+    SMESH_TEST_EQ(static_cast<int>(mesh->n_blocks()), 4);
+
+    auto refined = refine(mesh, 1);
+    SMESH_TEST_ASSERT(refined != nullptr);
+    SMESH_TEST_ASSERT(refined->is_distributed());
+    SMESH_TEST_EQ(static_cast<int>(refined->n_blocks()), 5);
+    SMESH_TEST_EQ(refined->element_type(0), HEX8);
+    SMESH_TEST_EQ(refined->element_type(1), PYRAMID5);
+    SMESH_TEST_EQ(refined->element_type(2), TET4);
+    SMESH_TEST_EQ(refined->element_type(3), TET4);
+    SMESH_TEST_EQ(refined->element_type(4), WEDGE6);
+    SMESH_TEST_EQ(refined->distributed()->n_nodes_global(), serial_nnodes);
+    SMESH_TEST_EQ(refined->distributed()->n_elements_global(), serial_nelements);
+    SMESH_TEST_EQ(refined->block(0)->n_elements(), mesh->block(0)->n_elements() * 8);
+    SMESH_TEST_EQ(refined->block(1)->n_elements(), mesh->block(1)->n_elements() * (ptrdiff_t)sspyramid_n_pyr(2));
+    SMESH_TEST_EQ(refined->block(2)->n_elements(), mesh->block(1)->n_elements() * (ptrdiff_t)sspyramid_n_tet(2));
+    SMESH_TEST_EQ(refined->block(3)->n_elements(), mesh->block(2)->n_elements() * 8);
+    SMESH_TEST_EQ(refined->block(4)->n_elements(), mesh->block(3)->n_elements() * 8);
+    SMESH_TEST_EQ(refined->block(0)->n_elements_owned(), mesh->block(0)->n_elements_owned() * 8);
+    SMESH_TEST_EQ(refined->block(1)->n_elements_owned(),
+                 mesh->block(1)->n_elements_owned() * (ptrdiff_t)sspyramid_n_pyr(2));
+    SMESH_TEST_EQ(refined->block(2)->n_elements_owned(),
+                 mesh->block(1)->n_elements_owned() * (ptrdiff_t)sspyramid_n_tet(2));
+    SMESH_TEST_EQ(refined->block(3)->n_elements_owned(), mesh->block(2)->n_elements_owned() * 8);
+    SMESH_TEST_EQ(refined->block(4)->n_elements_owned(), mesh->block(3)->n_elements_owned() * 8);
+    SMESH_TEST_EQ(check_owned_gids_unique(*refined), SMESH_TEST_SUCCESS);
+
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
     }
     return SMESH_TEST_SUCCESS;
 #endif
@@ -1181,7 +1345,8 @@ int main(int argc, char **argv) {
     SMESH_RUN_TEST(test_mpi_quad4_refine);
     SMESH_RUN_TEST(test_mpi_wedge6_refine);
     SMESH_RUN_TEST(test_mpi_hex_wedge_refine);
-    SMESH_RUN_TEST(test_mpi_pyramid_refine_rejected);
+    SMESH_RUN_TEST(test_mpi_pyramid_refine);
+    SMESH_RUN_TEST(test_mpi_hex_dominant_refine);
     SMESH_RUN_TEST(test_mpi_higher_order_ss_refine_rejected);
     SMESH_RUN_TEST(test_mpi_quad_extrude);
     SMESH_RUN_TEST(test_mpi_clone_convert);

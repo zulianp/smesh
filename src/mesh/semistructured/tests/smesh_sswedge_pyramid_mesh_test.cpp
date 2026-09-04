@@ -1,8 +1,12 @@
+#include <set>
+#include <tuple>
 #include <vector>
 
 #include "smesh_buffer.hpp"
 #include "smesh_sspyramid.hpp"
 #include "smesh_sspyramid_graph.hpp"
+#include "smesh_sspyramid_mesh.hpp"
+#include "smesh_sspyramid_mesh.impl.hpp"
 #include "smesh_sswedge.hpp"
 #include "smesh_sswedge_graph.hpp"
 #include "smesh_sswedge_mesh.hpp"
@@ -198,6 +202,106 @@ static int test_sswedge_to_standard_wedge6() {
     return SMESH_TEST_SUCCESS;
 }
 
+/// Verify count formulas match the plan table.
+static int test_sspyramid_n_pyr_n_tet_counts() {
+    // L=1: identity pyramid, 0 tets
+    SMESH_TEST_EQ(sspyramid_n_pyr(1), 1);
+    SMESH_TEST_EQ(sspyramid_n_tet(1), 0);
+    // L=2: 6 pyramids, 4 tets
+    SMESH_TEST_EQ(sspyramid_n_pyr(2), 6);
+    SMESH_TEST_EQ(sspyramid_n_tet(2), 4);
+    // L=4: 44 pyramids, 40 tets
+    SMESH_TEST_EQ(sspyramid_n_pyr(4), 44);
+    SMESH_TEST_EQ(sspyramid_n_tet(4), 40);
+    return SMESH_TEST_SUCCESS;
+}
+
+/// Verify that the explode kernel for L=2 produces the correct element count
+/// and that every lattice node is referenced at least once.
+static int test_sspyramid_explode_l2() {
+    const int L  = 2;
+    const int ne = 1;  // one macro element
+
+    // Build a single macro pyramid with identity node indices 0..nxe-1
+    const int nxe  = sspyramid_nxe(L);
+    auto      ss   = smesh::create_host_buffer<int>(nxe, ne);
+    for (int r = 0; r < nxe; ++r) {
+        ss->data()[r][0] = r;  // node id == lattice local index
+    }
+
+    const int n_pyr = sspyramid_n_pyr(L);
+    const int n_tet = sspyramid_n_tet(L);
+    auto      pyr   = smesh::create_host_buffer<int>(5, ne * n_pyr);
+    auto      tet   = smesh::create_host_buffer<int>(4, ne * n_tet);
+
+    SMESH_TEST_ASSERT(sspyramid_to_pyramid5_and_tet4(L, ne,
+                                                      ss->data(),
+                                                      pyr->data(),
+                                                      tet->data()) == SMESH_SUCCESS);
+
+    // All node ids must be in [0, nxe)
+    std::set<int> used;
+    for (int r = 0; r < 5; ++r) {
+        for (int c = 0; c < n_pyr; ++c) {
+            const int v = pyr->data()[r][c];
+            SMESH_TEST_ASSERT(v >= 0 && v < nxe);
+            used.insert(v);
+        }
+    }
+    for (int r = 0; r < 4; ++r) {
+        for (int c = 0; c < n_tet; ++c) {
+            const int v = tet->data()[r][c];
+            SMESH_TEST_ASSERT(v >= 0 && v < nxe);
+            used.insert(v);
+        }
+    }
+    // All 14 lattice nodes should be covered
+    SMESH_TEST_EQ(static_cast<int>(used.size()), nxe);
+    return SMESH_TEST_SUCCESS;
+}
+
+/// L=1 identity: single pyramid, zero tets, corners identical to macro corners.
+static int test_sspyramid_explode_l1_identity() {
+    const int L  = 1;
+    const int ne = 1;
+
+    const int nxe = sspyramid_nxe(L);  // should be 5
+    SMESH_TEST_EQ(nxe, 5);
+    auto ss = smesh::create_host_buffer<int>(nxe, ne);
+    for (int r = 0; r < nxe; ++r) {
+        ss->data()[r][0] = r;
+    }
+
+    const int n_pyr = sspyramid_n_pyr(L);  // 1
+    const int n_tet = sspyramid_n_tet(L);  // 0
+    SMESH_TEST_EQ(n_pyr, 1);
+    SMESH_TEST_EQ(n_tet, 0);
+
+    auto pyr = smesh::create_host_buffer<int>(5, ne * n_pyr);
+    auto tet = smesh::create_host_buffer<int>(4, 1);  // dummy
+
+    SMESH_TEST_ASSERT(sspyramid_to_pyramid5_and_tet4(L, ne,
+                                                      ss->data(),
+                                                      pyr->data(),
+                                                      tet->data()) == SMESH_SUCCESS);
+    // Single child pyramid must use the 5 macro corners exactly once each.
+    // Verify: set of used node ids == {0,1,2,3,4}.
+    std::set<int> used;
+    for (int r = 0; r < 5; ++r) {
+        const int v = pyr->data()[r][0];
+        SMESH_TEST_ASSERT(v >= 0 && v < nxe);
+        used.insert(v);
+    }
+    SMESH_TEST_EQ(static_cast<int>(used.size()), 5);
+    // Check upward-pyramid winding: b0=(0,0,0)=0, b1=(1,0,0)=1, b2=(1,1,0)=3, b3=(0,1,0)=2, ap=(0,0,1)=4
+    SMESH_TEST_EQ(pyr->data()[0][0], sspyramid_lidx(L, 0, 0, 0));
+    SMESH_TEST_EQ(pyr->data()[1][0], sspyramid_lidx(L, 1, 0, 0));
+    SMESH_TEST_EQ(pyr->data()[2][0], sspyramid_lidx(L, 1, 1, 0));
+    SMESH_TEST_EQ(pyr->data()[3][0], sspyramid_lidx(L, 0, 1, 0));
+    SMESH_TEST_EQ(pyr->data()[4][0], sspyramid_lidx(L, 0, 0, 1));
+    return SMESH_TEST_SUCCESS;
+}
+
 int main(int argc, char *argv[]) {
     SMESH_UNIT_TEST_INIT(argc, argv);
     SMESH_RUN_TEST(test_sswedge_lidx_bijective);
@@ -205,6 +309,9 @@ int main(int argc, char *argv[]) {
     SMESH_RUN_TEST(test_sswedge_two_prisms_shared_quad);
     SMESH_RUN_TEST(test_sspyramid_two_shared_base);
     SMESH_RUN_TEST(test_sswedge_to_standard_wedge6);
+    SMESH_RUN_TEST(test_sspyramid_n_pyr_n_tet_counts);
+    SMESH_RUN_TEST(test_sspyramid_explode_l2);
+    SMESH_RUN_TEST(test_sspyramid_explode_l1_identity);
     SMESH_UNIT_TEST_FINALIZE();
     return SMESH_UNIT_TEST_ERR();
 }

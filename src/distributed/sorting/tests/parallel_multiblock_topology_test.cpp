@@ -611,12 +611,16 @@ static int test_serial_quad_quadshell_refine() {
 }
 
 static int test_serial_hex_tet_refine_rejected() {
+  // Mixed HEX+TET now goes through the SS lattice (Kuhn TET children).
   auto mesh = Mesh::create_hex8_tet4_cube(Communicator::self(), 2, 2, 2);
   SMESH_TEST_ASSERT(mesh != nullptr);
   SMESH_TEST_EQ(mesh->element_type(0), HEX8);
   SMESH_TEST_EQ(mesh->element_type(1), TET4);
   auto refined = refine(mesh, 1);
-  SMESH_TEST_ASSERT(refined == nullptr);
+  SMESH_TEST_ASSERT(refined != nullptr);
+  // HEX block × 8; TET block × L^3 (Kuhn, L=2 → 8).
+  SMESH_TEST_EQ(refined->element_type(0), HEX8);
+  SMESH_TEST_EQ(refined->element_type(1), TET4);
   return SMESH_TEST_SUCCESS;
 }
 
@@ -787,19 +791,33 @@ static int test_serial_hex_dominant() {
   return SMESH_TEST_SUCCESS;
 }
 
-static int test_serial_pyramid_refine_rejected() {
+static int test_serial_pyramid_refine() {
+  // Pyramid now refines via SS lattice: PYRAMID5 block + new TET4 block.
   auto pyr = create_n_pyramid5(2);
   SMESH_TEST_ASSERT(pyr != nullptr);
   SMESH_TEST_EQ(pyr->element_type(0), PYRAMID5);
-  SMESH_TEST_ASSERT(refine(pyr, 1) == nullptr);
+  // L=2: 6 pyramids + 4 tets per macro → 2 input elements → 12 pyr + 8 tet
+  auto refined_pyr = refine(pyr, 1);
+  SMESH_TEST_ASSERT(refined_pyr != nullptr);
+  SMESH_TEST_EQ(static_cast<int>(refined_pyr->n_blocks()), 2);
+  SMESH_TEST_EQ(refined_pyr->element_type(0), PYRAMID5);
+  SMESH_TEST_EQ(refined_pyr->element_type(1), TET4);
+  SMESH_TEST_EQ(refined_pyr->n_elements(0), 2 * (ptrdiff_t)sspyramid_n_pyr(2));
+  SMESH_TEST_EQ(refined_pyr->n_elements(1), 2 * (ptrdiff_t)sspyramid_n_tet(2));
+
+  // SS lattice is still accessible.
   auto pyr_ss = to_semistructured(2, pyr);
   SMESH_TEST_ASSERT(pyr_ss != nullptr);
   SMESH_TEST_EQ(pyr_ss->element_type(0), semistructured_type(PYRAMID5, 2));
 
+  // Hex-dominant mesh refine now succeeds.
   auto hexdom = Mesh::create_hex_dominant_serial(Communicator::self());
   SMESH_TEST_ASSERT(hexdom != nullptr);
   SMESH_TEST_EQ(hexdom->element_type(1), PYRAMID5);
-  SMESH_TEST_ASSERT(refine(hexdom, 1) == nullptr);
+  auto refined_hexdom = refine(hexdom, 1);
+  SMESH_TEST_ASSERT(refined_hexdom != nullptr);
+  // 4 input blocks (HEX, PYR, TET, WEDGE) → 5 output (PYR creates extra TET block)
+  SMESH_TEST_EQ(static_cast<int>(refined_hexdom->n_blocks()), 5);
   return SMESH_TEST_SUCCESS;
 }
 
@@ -1374,7 +1392,7 @@ int main(int argc, char **argv) {
   SMESH_RUN_TEST(test_serial_quad_quadshell_refine);
   SMESH_RUN_TEST(test_serial_hex_tet_refine_rejected);
   SMESH_RUN_TEST(test_serial_hex_quad_refine_rejected);
-  SMESH_RUN_TEST(test_serial_pyramid_refine_rejected);
+  SMESH_RUN_TEST(test_serial_pyramid_refine);
   SMESH_RUN_TEST(test_serial_higher_order_ss_refine_rejected);
   SMESH_RUN_TEST(test_serial_extrude_vs_single_block);
   SMESH_RUN_TEST(test_serial_hex_dominant);

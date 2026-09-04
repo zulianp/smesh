@@ -26,6 +26,10 @@ namespace smesh {
     void ssquad_block_to_quad4_block(const Mesh::Block &block, Mesh::Block &new_block);
     void sstet_block_to_tet4_block(const Mesh::Block &block, Mesh::Block &new_block);
     void sswedge_block_to_wedge6_block(const Mesh::Block &block, Mesh::Block &new_block);
+    /// Explode one PYRAMID SS block; sets tet_block only if sspyramid_n_tet(L) > 0.
+    void sspyramid_block_to_pyramid5_and_tet4_blocks(const Mesh::Block &block,
+                                                     Mesh::Block &pyr_block,
+                                                     std::shared_ptr<Mesh::Block> &tet_block);
 
     int semistructured_hierarchical_renumbering(const enum ElemType          element_type,
                                                 const int                    level,

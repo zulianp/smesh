@@ -1567,6 +1567,54 @@ namespace smesh {
                 d_out_p[i] = (element_idx_t)child;
                 d_out_l[i] = lfi;
             }
+        } else if (coarse_type == PYRAMID5 && fine_type == PYRAMID5) {
+            // Pyramid SS-explode remap: PYRAMID5 coarse → PYRAMID5 fine.
+            // fine has n_pyr(L) children per coarse element.
+            // Only the quad base face (lfi == 4) is remapped; tri sides are on the
+            // PYRAMID5/TET4 boundary and not yet supported.
+            if (factor <= 0) {
+                return unsupported();
+            }
+            int L = 1;
+            while (sspyramid_n_pyr(L) < factor) {
+                ++L;
+            }
+            if (sspyramid_n_pyr(L) != factor) {
+                return unsupported();
+            }
+            // Only quad base supported.
+            for (ptrdiff_t i = 0; i < n_ss; ++i) {
+                if (cl[i] != 4) {
+                    fprintf(stderr,
+                            "map_sideset_through_refine: PYRAMID5 tri-face sidesets (lfi=%d) "
+                            "are not yet remapped through SS refine\n", (int)cl[i]);
+                    return nullptr;
+                }
+            }
+            // Quad base: L² upward-pyramid children at layer k=0, lp = j*L+i, i,j in 0..L-1.
+            n_out = n_ss * (ptrdiff_t)(L * L);
+            out_p = create_host_buffer<element_idx_t>((size_t)n_out);
+            out_l = create_host_buffer<i16>((size_t)n_out);
+            element_idx_t *d_out_p = n_out > 0 ? out_p->data() : nullptr;
+            i16           *d_out_l = n_out > 0 ? out_l->data() : nullptr;
+            ptrdiff_t w = 0;
+            for (ptrdiff_t i = 0; i < n_ss; ++i) {
+                const element_idx_t e = cp[i];
+                if (e < 0 || (ptrdiff_t)e >= n_coarse) {
+                    SMESH_ERROR("map_sideset_through_refine: parent out of range\n");
+                    return nullptr;
+                }
+                for (int jj = 0; jj < L; ++jj) {
+                    for (int ii = 0; ii < L; ++ii) {
+                        // upward pyramid at (ii,jj,0): local child index jj*L+ii
+                        const int local_child = jj * L + ii;
+                        d_out_p[w] = (element_idx_t)((ptrdiff_t)e * factor + local_child);
+                        d_out_l[w] = 4;  // quad base
+                        ++w;
+                    }
+                }
+            }
+            n_out = w;
         } else {
             return unsupported();
         }

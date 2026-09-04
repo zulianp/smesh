@@ -26,7 +26,7 @@ inline bool refine_is_quad_family(const enum ElemType t) {
 
 inline bool refine_type_supported(const enum ElemType t) {
     return t == HEX8 || t == TET4 || refine_is_tri_family(t) || refine_is_quad_family(t) ||
-           t == WEDGE6 || refine_is_edge_family(t);
+           t == WEDGE6 || refine_is_edge_family(t) || t == PYRAMID5;
 }
 
 struct RefineTypeSet {
@@ -94,6 +94,14 @@ inline bool refine_hex_wedge_only(const RefineTypeSet &s) {
 
 inline bool refine_quad_family_only(const RefineTypeSet &s) {
     return s.quad && !s.hex && !s.tet && !s.tri && !s.wedge && !s.edge && !s.pyramid && !s.other;
+}
+
+/// True for any mix of HEX/TET/WEDGE/PYRAMID (volume types that go through the SS lattice).
+/// No surface types (TRI/QUAD/EDGE) and no other types.
+inline bool refine_mixed_volume_ss(const RefineTypeSet &s) {
+    return !s.tri && !s.quad && !s.edge && !s.other &&
+           (s.hex || s.tet || s.wedge || s.pyramid) &&
+           !s.all_same;
 }
 
 /// Child factor for one edge-midpoint `mesh_refine` / `refine_edges_once` step.

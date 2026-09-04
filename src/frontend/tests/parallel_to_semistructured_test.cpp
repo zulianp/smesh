@@ -415,7 +415,8 @@ static int test_mpi_mixed_hex_tet() {
     ptrdiff_t serial_nnodes_l2 = 0;
     ptrdiff_t serial_nnodes_l4 = 0;
     ptrdiff_t serial_ncoarse   = 0;
-    ptrdiff_t serial_hexdom_nnodes = 0;
+    ptrdiff_t serial_hexdom_nnodes    = 0;
+    ptrdiff_t serial_hexdom_nelements = 0;
     if (comm->rank() == 0) {
         std::filesystem::remove_all(mixed_path.to_string());
         std::filesystem::remove_all(hexdom_path.to_string());
@@ -436,12 +437,18 @@ static int test_mpi_mixed_hex_tet() {
         auto hexdom_ss = to_semistructured(2, hexdom);
         SMESH_TEST_ASSERT(hexdom_ss != nullptr);
         serial_hexdom_nnodes = hexdom_ss->n_nodes();
+        auto hexdom_refined_s = refine(hexdom, 1);
+        SMESH_TEST_ASSERT(hexdom_refined_s != nullptr);
+        SMESH_TEST_EQ(static_cast<int>(hexdom_refined_s->n_blocks()), 5);
+        SMESH_TEST_EQ(hexdom_refined_s->n_nodes(), serial_hexdom_nnodes);
+        serial_hexdom_nelements = hexdom_refined_s->n_elements();
         SMESH_TEST_ASSERT(hexdom->write(hexdom_path) == SMESH_SUCCESS);
     }
     comm->broadcast(&serial_nnodes_l2, 1, 0);
     comm->broadcast(&serial_nnodes_l4, 1, 0);
     comm->broadcast(&serial_ncoarse, 1, 0);
     comm->broadcast(&serial_hexdom_nnodes, 1, 0);
+    comm->broadcast(&serial_hexdom_nelements, 1, 0);
     comm->barrier();
 
     auto mixed = Mesh::create_from_file(comm, mixed_path);
@@ -621,7 +628,15 @@ static int test_mpi_mixed_hex_tet() {
     SMESH_TEST_ASSERT(hexdom_h != nullptr);
     SMESH_TEST_EQ(hexdom_h->distributed()->n_nodes_global(), serial_hexdom_nnodes);
     SMESH_TEST_EQ(hexdom->element_type(1), PYRAMID5);
-    SMESH_TEST_ASSERT(refine(hexdom, 1) == nullptr);
+    // Mixed-volume refine now succeeds (SS lattice + explode).
+    auto hexdom_refined = refine(hexdom, 1);
+    SMESH_TEST_ASSERT(hexdom_refined != nullptr);
+    SMESH_TEST_ASSERT(hexdom_refined->is_distributed());
+    // 4 input blocks (HEX,PYR,TET,WEDGE) → 5 output (PYR creates extra TET block)
+    SMESH_TEST_EQ(static_cast<int>(hexdom_refined->n_blocks()), 5);
+    SMESH_TEST_EQ(hexdom_refined->distributed()->n_nodes_global(), serial_hexdom_nnodes);
+    SMESH_TEST_EQ(hexdom_refined->distributed()->n_elements_global(), serial_hexdom_nelements);
+    SMESH_TEST_EQ(check_owned_gids_unique(*hexdom_refined), SMESH_TEST_SUCCESS);
 
     if (comm->rank() == 0) {
         std::filesystem::remove_all(mixed_path.to_string());

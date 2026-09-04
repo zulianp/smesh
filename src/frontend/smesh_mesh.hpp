@@ -616,6 +616,14 @@ public:
   static std::shared_ptr<Mesh>
   attach_sshex_to_hex8(const std::shared_ptr<Mesh> &ss,
                        const std::shared_ptr<Mesh> &hex);
+  /// Per-output-block explode attach. \p block_origin[i] is the SS source block
+  /// for linear block i; \p block_factor[i] is children per parent. Handles
+  /// pyramid 1:2 (PYRAMID5 + TET4) and mixed HEX/TET/WEDGE/PYRAMID factors.
+  static std::shared_ptr<Mesh>
+  attach_ss_to_linear(const std::shared_ptr<Mesh> &ss,
+                      const std::shared_ptr<Mesh> &linear,
+                      const std::vector<size_t>   &block_origin,
+                      const std::vector<int>      &block_factor);
   static std::shared_ptr<Mesh>
   derefine(const std::shared_ptr<Mesh> &mesh,
            std::vector<std::shared_ptr<Mesh::Block>> &blocks);

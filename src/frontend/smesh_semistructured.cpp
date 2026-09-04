@@ -21,6 +21,7 @@
 #include "smesh_sspyramid.hpp"
 #include "smesh_sspyramid_graph.hpp"
 #include "smesh_sspyramid_mesh.hpp"
+#include "smesh_sspyramid_mesh.impl.hpp"
 #include "smesh_sstet4.hpp"
 #include "smesh_sstet4_graph.hpp"
 #include "smesh_sstet4_mesh.hpp"
@@ -1194,6 +1195,42 @@ namespace smesh {
         new_block.set_element_type(WEDGE6);
     }
 
+    /// Explode one PYRAMID SS block into a PYRAMID5 block (in-place) and an optional new TET4 block.
+    /// \p tet_block is set only when sspyramid_n_tet(level) > 0 (i.e. L >= 2).
+    void sspyramid_block_to_pyramid5_and_tet4_blocks(const Mesh::Block              &block,
+                                                     Mesh::Block                    &pyr_block,
+                                                     std::shared_ptr<Mesh::Block>   &tet_block) {
+        const int       level  = semistructured_level(block.element_type());
+        const ptrdiff_t ne     = block.n_elements();
+        const int       n_pyr  = sspyramid_n_pyr(level);
+        const int       n_tet  = sspyramid_n_tet(level);
+
+        auto pyr5_elements = smesh::create_host_buffer<idx_t>(5, ne * n_pyr);
+        SharedBuffer<idx_t *> tet4_elements;
+
+        if (n_tet > 0) {
+            tet4_elements = smesh::create_host_buffer<idx_t>(4, ne * n_tet);
+        } else {
+            tet4_elements = smesh::create_host_buffer<idx_t>(4, 0);
+        }
+
+        sspyramid_to_pyramid5_and_tet4(level, ne, block.elements()->data(),
+                                       pyr5_elements->data(), tet4_elements->data());
+
+        pyr_block.set_name(block.name());
+        pyr_block.set_elements(pyr5_elements);
+        pyr_block.set_element_type(PYRAMID5);
+
+        if (n_tet > 0) {
+            tet_block = std::make_shared<Mesh::Block>();
+            tet_block->set_name(block.name() + "_tets");
+            tet_block->set_elements(tet4_elements);
+            tet_block->set_element_type(TET4);
+        } else {
+            tet_block = nullptr;
+        }
+    }
+
     std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex) {
         for (auto &block : sshex->blocks()) {
             if (!is_hex_ss_family(block->element_type())) {
@@ -1295,29 +1332,72 @@ namespace smesh {
             return nullptr;
         }
         std::vector<std::shared_ptr<Mesh::Block>> blocks;
+        // Track the source SS block index for each output block (for MPI element maps).
+        // For PYRAMID: one SS block → up to 2 output blocks (PYRAMID5 + TET4).
+        // block_origin[i] = index into ss->blocks() that produced output block i.
+        // block_factor[i] = elements-per-macro-element for output block i.
+        std::vector<size_t> block_origin;
+        std::vector<int>    block_factor;
         blocks.reserve(ss->n_blocks());
-        for (auto &block : ss->blocks()) {
-            auto new_block = std::make_shared<Mesh::Block>();
-            if (is_hex_ss_family(block->element_type())) {
-                sshex_block_to_hex8_block(*block, *new_block);
-            } else if (is_quad_ss_family(block->element_type())) {
-                ssquad_block_to_quad4_block(*block, *new_block);
-            } else if (is_wedge_ss_family(block->element_type())) {
-                sswedge_block_to_wedge6_block(*block, *new_block);
+        block_origin.reserve(ss->n_blocks());
+        block_factor.reserve(ss->n_blocks());
+
+        for (size_t b = 0; b < ss->n_blocks(); ++b) {
+            auto &block = *ss->block(static_cast<block_idx_t>(b));
+            if (is_hex_ss_family(block.element_type())) {
+                auto new_block = std::make_shared<Mesh::Block>();
+                sshex_block_to_hex8_block(block, *new_block);
+                const int level = semistructured_level(block.element_type());
+                blocks.push_back(new_block);
+                block_origin.push_back(b);
+                block_factor.push_back(level * level * level);
+            } else if (is_quad_ss_family(block.element_type())) {
+                auto new_block = std::make_shared<Mesh::Block>();
+                ssquad_block_to_quad4_block(block, *new_block);
+                const int level = semistructured_level(block.element_type());
+                blocks.push_back(new_block);
+                block_origin.push_back(b);
+                block_factor.push_back(level * level);
+            } else if (is_wedge_ss_family(block.element_type())) {
+                auto new_block = std::make_shared<Mesh::Block>();
+                sswedge_block_to_wedge6_block(block, *new_block);
+                const int level = semistructured_level(block.element_type());
+                blocks.push_back(new_block);
+                block_origin.push_back(b);
+                block_factor.push_back(level * level * level);
+            } else if (is_tet_ss_family(block.element_type())) {
+                // Kuhn TET explode (for mixed-volume path only)
+                auto new_block = std::make_shared<Mesh::Block>();
+                sstet_block_to_tet4_block(block, *new_block);
+                const int level = semistructured_level(block.element_type());
+                blocks.push_back(new_block);
+                block_origin.push_back(b);
+                block_factor.push_back(sstet4_txe(level));
+            } else if (is_pyramid_ss_family(block.element_type())) {
+                auto        pyr_block = std::make_shared<Mesh::Block>();
+                std::shared_ptr<Mesh::Block> tet_block;
+                sspyramid_block_to_pyramid5_and_tet4_blocks(block, *pyr_block, tet_block);
+                const int level = semistructured_level(block.element_type());
+                blocks.push_back(pyr_block);
+                block_origin.push_back(b);
+                block_factor.push_back(sspyramid_n_pyr(level));
+                if (tet_block) {
+                    blocks.push_back(tet_block);
+                    block_origin.push_back(b);
+                    block_factor.push_back(sspyramid_n_tet(level));
+                }
             } else {
                 fprintf(stderr,
-                        "ss_to_linear: unsupported SS family %s "
-                        "(HEX/QUAD/WEDGE only; TET would be Kuhn, PYRAMID has no explode)\n",
-                        type_to_string(block->element_type()));
+                        "ss_to_linear: unsupported SS family %s\n",
+                        type_to_string(block.element_type()));
                 return nullptr;
             }
-            blocks.push_back(new_block);
         }
 
         auto out = std::make_shared<Mesh>(ss->comm(), blocks, ss->points());
 #ifdef SMESH_ENABLE_MPI
         if (ss->is_distributed()) {
-            return MeshTransformsDistributed::attach_sshex_to_hex8(ss, out);
+            return MeshTransformsDistributed::attach_ss_to_linear(ss, out, block_origin, block_factor);
         }
 #endif
         out->set_node_mapping(ss->node_mapping());
