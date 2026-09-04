@@ -19,6 +19,7 @@
 #include "smesh_sideset.hpp"
 #include "smesh_edgeset.hpp"
 #include "smesh_nodeset.hpp"
+#include "smesh_parametrization.hpp"
 #include "smesh_sshex8.hpp"
 #include "smesh_sshex8_graph.hpp"
 #include "smesh_sshex8_mesh.hpp"
@@ -534,6 +535,7 @@ namespace smesh {
         std::vector<std::pair<std::string, std::shared_ptr<Sideset>>> sidesets;
         std::vector<std::pair<std::string, std::shared_ptr<Edgeset>>> edgesets;
         std::vector<std::pair<std::string, std::shared_ptr<Nodeset>>> nodesets;
+        std::vector<std::pair<std::string, std::shared_ptr<Parametrization>>> parametrizations;
         SharedBuffer<geom_t *>              points;
         SharedBuffer<idx_t>                 node_mapping;
 
@@ -1160,6 +1162,31 @@ namespace smesh {
             }
         }
         return SMESH_SUCCESS;
+    }
+
+    void Mesh::add_parametrization(const std::string &name, const std::shared_ptr<Parametrization> &p) {
+        if (!p) {
+            return;
+        }
+        impl_->parametrizations.emplace_back(name, p);
+    }
+
+    void Mesh::clear_parametrizations() { impl_->parametrizations.clear(); }
+
+    const std::vector<std::pair<std::string, std::shared_ptr<Parametrization>>> &
+    Mesh::parametrizations() const {
+        return impl_->parametrizations;
+    }
+
+    std::vector<std::shared_ptr<Parametrization>> Mesh::parametrizations(const std::string &name) const {
+        std::vector<std::shared_ptr<Parametrization>> out;
+        const auto                                   &reg = impl_->parametrizations;
+        for (size_t i = 0; i < reg.size(); ++i) {
+            if (reg[i].first == name) {
+                out.push_back(reg[i].second);
+            }
+        }
+        return out;
     }
 
     void read_meta(const std::shared_ptr<Communicator> &comm, const Path &path, enum ElemType &element_type) {
@@ -4827,6 +4854,9 @@ namespace smesh {
         }
         for (size_t i = 0; i < impl_->nodesets.size(); ++i) {
             ret->add_nodeset(impl_->nodesets[i].first, clone_nodeset(*ret, impl_->nodesets[i].second));
+        }
+        for (size_t i = 0; i < impl_->parametrizations.size(); ++i) {
+            ret->add_parametrization(impl_->parametrizations[i].first, impl_->parametrizations[i].second);
         }
 
         return ret;

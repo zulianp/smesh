@@ -307,6 +307,16 @@ public:
       const idx_t *old_to_new, ptrdiff_t n,
       const std::vector<std::shared_ptr<Nodeset>> &already = {});
 
+  /// Optional named parametrization registry. Empty by default; not written
+  /// by Mesh::read/write in this phase. Clone copies the shared_ptr entries.
+  void add_parametrization(const std::string &name,
+                           const std::shared_ptr<Parametrization> &p);
+  void clear_parametrizations();
+  const std::vector<std::pair<std::string, std::shared_ptr<Parametrization>>> &
+  parametrizations() const;
+  std::vector<std::shared_ptr<Parametrization>>
+  parametrizations(const std::string &name) const;
+
   std::shared_ptr<Distributed> distributed() const;
   bool is_distributed() const;
 

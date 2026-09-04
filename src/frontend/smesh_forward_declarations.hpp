@@ -11,6 +11,7 @@ namespace smesh {
     class Sideset;
     class Edgeset;
     class Nodeset;
+    class Parametrization;
     template <typename T>
     class Buffer;
 
