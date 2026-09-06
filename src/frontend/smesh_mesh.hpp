@@ -399,6 +399,17 @@ public:
       const geom_t ymin = 0, const geom_t zmin = 0, const geom_t xmax = 1,
       const geom_t ymax = 1, const geom_t zmax = 1);
 
+  /// L-shaped (backward-facing step) HEX8 mesh: the box with the notch
+  /// [0,step_x] x [0,step_y] x [0,zmax] removed. Defaults reproduce the 3D
+  /// backward-facing step of Farrell, Mitchell & Wechsung (arXiv:1810.03315).
+  /// The step must fall on a grid line; a resolution that would not put one there
+  /// is rejected rather than rounded.
+  static std::shared_ptr<Mesh> create_hex8_lshape(
+      const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx = 40,
+      const ptrdiff_t ny = 8, const ptrdiff_t nz = 4, const geom_t xmax = 10,
+      const geom_t ymax = 2, const geom_t zmax = 1, const geom_t step_x = 1,
+      const geom_t step_y = 1);
+
   static std::shared_ptr<Mesh> create_semistructured_hex_cube(
       const std::shared_ptr<Communicator> &comm,
       const int micro_elements_per_dim = 2, const ptrdiff_t nx = 1,
