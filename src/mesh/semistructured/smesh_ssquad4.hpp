@@ -28,6 +28,7 @@ inline int ssquad4_nxe(int level) {
 }
 
 inline int ssedge_lidx(const int L, const int x) {
+  SMESH_UNUSED(L);
   SMESH_ASSERT(x >= 0 && x <= L);
   return x;
 }

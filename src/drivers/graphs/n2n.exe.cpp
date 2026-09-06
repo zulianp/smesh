@@ -1,4 +1,6 @@
 #include "smesh_context.hpp"
+#include "smesh_common.hpp"
+#include "smesh_types.hpp"
 #include "smesh_alloc.hpp"
 #include "smesh_glob.hpp"
 #include "smesh_graph.hpp"
@@ -96,11 +98,13 @@ int main(int argc, char **argv) {
              (n_local_nodes + 1) * sizeof(count_t) * 1e-9 +
                  n2n_ptr[n_local_nodes] * sizeof(idx_t) * 1e-9);
 
-      array_write_convert_from_extension(output_folder / Path("n2n_ptr.int32"),
-                                         n2n_ptr, n_local_nodes);
+      array_write_convert_from_extension(
+          output_folder / Path("n2n_ptr." + str(TypeToString<count_t>::value())),
+          n2n_ptr, n_local_nodes);
 
-      array_write_convert_from_extension(output_folder / Path("n2n_idx.int32"),
-                                         n2n_idx, n2n_ptr[n_local_nodes]);
+      array_write_convert_from_extension(
+          output_folder / Path("n2n_idx." + str(TypeToString<idx_t>::value())),
+          n2n_idx, n2n_ptr[n_local_nodes]);
     }
 #ifdef SMESH_ENABLE_MPI
     else {

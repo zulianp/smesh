@@ -31,12 +31,12 @@ int main(int argc, char **argv) {
   const ptrdiff_t nx = std::atoi(argv[2]);
   const ptrdiff_t ny = std::atoi(argv[3]);
   const ptrdiff_t nz = std::atoi(argv[4]);
-  const f32 xmin = std::atof(argv[5]);
-  const f32 ymin = std::atof(argv[6]);
-  const f32 zmin = std::atof(argv[7]);
-  const f32 xmax = std::atof(argv[8]);
-  const f32 ymax = std::atof(argv[9]);
-  const f32 zmax = std::atof(argv[10]);
+  const geom_t xmin = std::atof(argv[5]);
+  const geom_t ymin = std::atof(argv[6]);
+  const geom_t zmin = std::atof(argv[7]);
+  const geom_t xmax = std::atof(argv[8]);
+  const geom_t ymax = std::atof(argv[9]);
+  const geom_t zmax = std::atof(argv[10]);
   const Path output_folder = Path(argv[11]);
 
   i64 z_chunk_size = Env::read<i64>("SMESH_Z_CHUNK_SIZE", (i64)(1000));
@@ -44,9 +44,13 @@ int main(int argc, char **argv) {
   if ((n_elements > z_chunk_size * nx * ny ||
        n_elements > std::numeric_limits<int>::max()) &&
       element_type == HEX8) {
-    // Huge meshes for testing!
-    mesh_hex8_cube_to_folder<i64, f32>(output_folder, nx, ny, nz, xmin, ymin,
-                                       zmin, xmax, ymax, zmax, z_chunk_size);
+    // Huge meshes for testing! The node count can exceed what idx_t holds, so
+    // the connectivity is always written as i64. The coordinates use the
+    // compiled geom_t, so that the file names produced by
+    // `TypeToString<geom_t>` match the rest of the writers.
+    mesh_hex8_cube_to_folder<i64, geom_t>(output_folder, nx, ny, nz, xmin, ymin,
+                                          zmin, xmax, ymax, zmax,
+                                          z_chunk_size);
   } else {
     auto mesh = Mesh::create_cube(ctx->communicator(), element_type, nx, ny, nz,
                                   xmin, ymin, zmin, xmax, ymax, zmax);

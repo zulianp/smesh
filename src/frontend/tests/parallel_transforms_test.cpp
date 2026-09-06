@@ -8,7 +8,6 @@
 #include <utility>
 #include <vector>
 
-#include "smesh_distributed_base.hpp"
 #include "smesh_edgeset.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_nodeset.hpp"
@@ -16,16 +15,20 @@
 #include "smesh_sideset.hpp"
 #include "smesh_test.hpp"
 
+#ifdef SMESH_ENABLE_MPI
+#include "smesh_distributed_base.hpp"
+#endif
+
 using namespace smesh;
 
-static Path make_tmp_path(const char *prefix, const int token) {
+[[maybe_unused]] static Path make_tmp_path(const char *prefix, const int token) {
     auto comm = Communicator::world();
     char buf[256];
     std::snprintf(buf, sizeof(buf), "/tmp/%s_%d_%d", prefix, comm->size(), token);
     return Path(buf);
 }
 
-static std::shared_ptr<Mesh> create_tri3_square_3d(const ptrdiff_t nx, const ptrdiff_t ny) {
+[[maybe_unused]] static std::shared_ptr<Mesh> create_tri3_square_3d(const ptrdiff_t nx, const ptrdiff_t ny) {
     auto t2 = Mesh::create_tri3_square(Communicator::self(), nx, ny);
     auto p3 = create_host_buffer<geom_t>(3, static_cast<size_t>(t2->n_nodes()));
     std::memcpy(p3->data()[0], t2->points()->data()[0], static_cast<size_t>(t2->n_nodes()) * sizeof(geom_t));
@@ -34,7 +37,7 @@ static std::shared_ptr<Mesh> create_tri3_square_3d(const ptrdiff_t nx, const ptr
     return std::make_shared<Mesh>(Communicator::self(), t2->blocks(), p3);
 }
 
-static std::shared_ptr<Mesh> create_quad4_square_3d(const ptrdiff_t nx, const ptrdiff_t ny) {
+[[maybe_unused]] static std::shared_ptr<Mesh> create_quad4_square_3d(const ptrdiff_t nx, const ptrdiff_t ny) {
     auto q2 = Mesh::create_quad4_square(Communicator::self(), nx, ny);
     auto p3 = create_host_buffer<geom_t>(3, static_cast<size_t>(q2->n_nodes()));
     std::memcpy(p3->data()[0], q2->points()->data()[0], static_cast<size_t>(q2->n_nodes()) * sizeof(geom_t));
@@ -43,7 +46,7 @@ static std::shared_ptr<Mesh> create_quad4_square_3d(const ptrdiff_t nx, const pt
     return std::make_shared<Mesh>(Communicator::self(), q2->blocks(), p3);
 }
 
-static std::shared_ptr<Mesh> create_edge2_line_3d(const ptrdiff_t n_seg, const enum ElemType et = EDGE2) {
+[[maybe_unused]] static std::shared_ptr<Mesh> create_edge2_line_3d(const ptrdiff_t n_seg, const enum ElemType et = EDGE2) {
     auto elems = create_host_buffer<idx_t>(2, static_cast<size_t>(n_seg));
     auto pts   = create_host_buffer<geom_t>(3, static_cast<size_t>(n_seg + 1));
     for (ptrdiff_t i = 0; i < n_seg; ++i) {
@@ -58,7 +61,7 @@ static std::shared_ptr<Mesh> create_edge2_line_3d(const ptrdiff_t n_seg, const e
     return std::make_shared<Mesh>(Communicator::self(), et, elems, pts);
 }
 
-static int check_owned_gids_unique(const Mesh &mesh) {
+[[maybe_unused]] static int check_owned_gids_unique(const Mesh &mesh) {
 #ifndef SMESH_ENABLE_MPI
     SMESH_UNUSED(mesh);
     return SMESH_TEST_SUCCESS;
@@ -663,7 +666,7 @@ static int test_mpi_hex_wedge_refine() {
 #endif
 }
 
-static std::shared_ptr<Mesh> create_pyramid_pairs_serial(const ptrdiff_t pairs) {
+[[maybe_unused]] static std::shared_ptr<Mesh> create_pyramid_pairs_serial(const ptrdiff_t pairs) {
     if (pairs < 1) {
         return nullptr;
     }
@@ -800,7 +803,7 @@ static int test_mpi_pyramid_refine() {
 #endif
 }
 
-static std::shared_ptr<Mesh> repeat_mesh_components(const std::shared_ptr<Mesh> &mesh, const ptrdiff_t copies) {
+[[maybe_unused]] static std::shared_ptr<Mesh> repeat_mesh_components(const std::shared_ptr<Mesh> &mesh, const ptrdiff_t copies) {
     if (!mesh || copies < 1) {
         return nullptr;
     }

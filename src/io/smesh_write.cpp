@@ -24,11 +24,13 @@ namespace smesh {
         return SMESH_SUCCESS;
     }
 
-    int mesh_write_yaml_basic(const Path     &path,
-                              enum ElemType   element_type,
-                              const ptrdiff_t n_elements,
-                              const int       spatial_dim,
-                              const ptrdiff_t n_nodes) {
+    int mesh_write_yaml_basic(const Path            &path,
+                              enum ElemType          element_type,
+                              const ptrdiff_t        n_elements,
+                              const int              spatial_dim,
+                              const ptrdiff_t        n_nodes,
+                              const std::string_view idx_type,
+                              const std::string_view geom_type) {
         if (smesh::create_directory(path.to_string()) != SMESH_SUCCESS) {
             return SMESH_FAILURE;
         }
@@ -53,12 +55,12 @@ namespace smesh {
 
         fprintf(meta_file, "elements:\n");
         for (int d = 0; d < nxe; ++d) {
-            fprintf(meta_file, "- i%d: i%d.%s\n", d, d, TypeToString<idx_t>::value().data());
+            fprintf(meta_file, "- i%d: i%d.%.*s\n", d, d, (int)idx_type.size(), idx_type.data());
         }
 
         fprintf(meta_file, "points:\n");
         for (int d = 0; d < spatial_dim; d++) {
-            fprintf(meta_file, "- %c: %c.%s\n", xyz[d], xyz[d], TypeToString<geom_t>::value().data());
+            fprintf(meta_file, "- %c: %c.%.*s\n", xyz[d], xyz[d], (int)geom_type.size(), geom_type.data());
         }
 
         fprintf(meta_file, "rpath: true\n");
@@ -72,7 +74,9 @@ namespace smesh {
                                    const std::vector<enum ElemType> &element_types,
                                    const std::vector<ptrdiff_t>     &n_elements,
                                    const int                         spatial_dim,
-                                   const ptrdiff_t                   n_nodes) {
+                                   const ptrdiff_t                   n_nodes,
+                                   const std::string_view            idx_type,
+                                   const std::string_view            geom_type) {
         if (smesh::create_directory(path.to_string()) != SMESH_SUCCESS) {
             return SMESH_FAILURE;
         }
@@ -100,18 +104,19 @@ namespace smesh {
             fprintf(meta_file, "  elements:\n");
             for (int d = 0; d < nxe; ++d) {
                 fprintf(meta_file,
-                        "  - i%d: blocks/%s/i%d.%s\n",
+                        "  - i%d: blocks/%s/i%d.%.*s\n",
                         d,
                         block_names[b].data(),
                         d,
-                        TypeToString<idx_t>::value().data());
+                        (int)idx_type.size(),
+                        idx_type.data());
             }
         }
 
         fprintf(meta_file, "n_nodes: %ld\n", (long)n_nodes);
         fprintf(meta_file, "points:\n");
         for (int d = 0; d < spatial_dim; d++) {
-            fprintf(meta_file, "- %c: %c.%s\n", xyz[d], xyz[d], TypeToString<geom_t>::value().data());
+            fprintf(meta_file, "- %c: %c.%.*s\n", xyz[d], xyz[d], (int)geom_type.size(), geom_type.data());
         }
 
         fprintf(meta_file, "rpath: true\n");
@@ -361,14 +366,19 @@ namespace smesh {
     SMESH_EXPLICIT_INSTANTIATE_MESH_BLOCK_TO_FOLDER(i64);
 
     SMESH_EXPLICIT_INSTANTIATE_MESH_COORDINATES_TO_FOLDER(f32);
+    SMESH_EXPLICIT_INSTANTIATE_MESH_COORDINATES_TO_FOLDER(f64);
 
     // SMESH_EXPLICIT_INSTANTIATE_MESH_TO_FOLDER(i16, f32);
     SMESH_EXPLICIT_INSTANTIATE_MESH_TO_FOLDER(i32, f32);
     SMESH_EXPLICIT_INSTANTIATE_MESH_TO_FOLDER(i64, f32);
+    SMESH_EXPLICIT_INSTANTIATE_MESH_TO_FOLDER(i32, f64);
+    SMESH_EXPLICIT_INSTANTIATE_MESH_TO_FOLDER(i64, f64);
 
     // SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(i16, f32);
     SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(i32, f32);
     SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(i64, f32);
+    SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(i32, f64);
+    SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(i64, f64);
 
     SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT_FROM_EXTENSION(f16);
     SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT_FROM_EXTENSION(f32);

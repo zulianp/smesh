@@ -116,6 +116,7 @@ static int wedge6_build_edge_graph_from_multiblock_n2e(
         const block_idx_t *const SMESH_RESTRICT                                        block_number,
         count_t                                                                      **out_rowptr,
         idx_t                                                                        **out_colidx) {
+    SMESH_UNUSED(n_blocks);
     SMESH_UNUSED(n_elements);
     count_t *rowptr = (count_t *)SMESH_ALLOC((nnodes + 1) * sizeof(count_t));
     idx_t   *colidx = 0;
@@ -939,6 +940,7 @@ int sswedge_extract_surface_from_sideset(const int                              
     const int first = side_idx[0];
     SMESH_ASSERT(first >= 0 && first < 5);
     const bool quad = first < 3;
+    SMESH_UNUSED(quad);
 #pragma omp parallel for
     for (ptrdiff_t i = 0; i < n_surf_elements; i++) {
         const ptrdiff_t e = parent_element[i];

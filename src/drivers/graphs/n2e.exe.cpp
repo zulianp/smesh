@@ -1,4 +1,6 @@
 #include "smesh_context.hpp"
+#include "smesh_common.hpp"
+#include "smesh_types.hpp"
 #include "smesh_alloc.hpp"
 #include "smesh_glob.hpp"
 #include "smesh_graph.hpp"
@@ -78,11 +80,14 @@ int main(int argc, char **argv) {
       // Ensure it is always the same
       sort_n2e<count_t, element_idx_t>(n_local_nodes, n2eptr, n2e_idx);
 
-      array_write_convert_from_extension(output_folder / Path("n2e_ptr.int32"),
-                                         n2eptr, n_local_nodes);
+      array_write_convert_from_extension(
+          output_folder / Path("n2e_ptr." + str(TypeToString<count_t>::value())),
+          n2eptr, n_local_nodes);
 
-      array_write_convert_from_extension(output_folder / Path("n2e_idx.int32"),
-                                         n2e_idx, n2eptr[n_local_nodes]);
+      array_write_convert_from_extension(
+          output_folder /
+              Path("n2e_idx." + str(TypeToString<element_idx_t>::value())),
+          n2e_idx, n2eptr[n_local_nodes]);
 
       printf("n2e: #elements: %ld  #nodes: %ld\n", n_local_elements,
              n_local_nodes);
@@ -112,13 +117,16 @@ int main(int argc, char **argv) {
         n2eptr[i] = n2eptr[i] + n2e_offset;
       }
 
-      array_write_convert_from_extension(comm->get(),
-                                         output_folder / Path("n2e_ptr.int32"),
-                                         n2eptr, n_local_nodes, n_global_nodes);
+      array_write_convert_from_extension(
+          comm->get(),
+          output_folder / Path("n2e_ptr." + str(TypeToString<count_t>::value())),
+          n2eptr, n_local_nodes, n_global_nodes);
 
       array_write_convert_from_extension(
-          comm->get(), output_folder / Path("n2e_idx.int32"), n2e_idx,
-          n_local_n2e_idx, n_global_n2e_idx);
+          comm->get(),
+          output_folder /
+              Path("n2e_idx." + str(TypeToString<element_idx_t>::value())),
+          n2e_idx, n_local_n2e_idx, n_global_n2e_idx);
     }
 
     if (!comm->rank()) {

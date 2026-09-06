@@ -137,7 +137,8 @@ int mesh_to_folder(const Path &path, enum ElemType element_type,
   }
 
   if (mesh_write_yaml_basic(path, element_type, n_elements, spatial_dim,
-                            n_nodes) != SMESH_SUCCESS) {
+                            n_nodes, TypeToString<idx_t>::value(),
+                            TypeToString<geom_t>::value()) != SMESH_SUCCESS) {
     return SMESH_FAILURE;
   }
 
@@ -183,8 +184,10 @@ int mesh_multiblock_to_folder(const Path &path,
   }
 
   if (mesh_multiblock_write_yaml(path, n_blocks, block_names, element_types,
-                                 n_elements, spatial_dim,
-                                 n_nodes) != SMESH_SUCCESS) {
+                                 n_elements, spatial_dim, n_nodes,
+                                 TypeToString<idx_t>::value(),
+                                 TypeToString<geom_t>::value()) !=
+      SMESH_SUCCESS) {
     ret = SMESH_FAILURE;
   }
 

@@ -277,8 +277,10 @@ __global__ void cu_macrotet4_to_tet4_prolongation_element_based_kernel(
 
 #ifndef NDEBUG
     if (i0 == i4) {
-      printf("[%d %d %d %d %d %d %d %d %d %d] (%ld)\n", i0, i1, i2, i3, i4, i5,
-             i6, i7, i8, i9, e);
+      printf("[%" d_IDX_T " %" d_IDX_T " %" d_IDX_T " %" d_IDX_T " %" d_IDX_T
+             " %" d_IDX_T " %" d_IDX_T " %" d_IDX_T " %" d_IDX_T " %" d_IDX_T
+             "] (%ld)\n",
+             i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, (long)e);
     }
 #endif
     SMESH_ASSERT(i0 != i4);

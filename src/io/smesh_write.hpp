@@ -7,6 +7,9 @@
 
 #include <vector> 
 #include <string>
+#include <string_view>
+
+#include "smesh_types.hpp"
 
 namespace smesh {
 
@@ -36,9 +39,25 @@ int mesh_coordinates_to_folder(
     const Path &folder, int spatial_dim, const ptrdiff_t n_nodes,
     const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points);
 
+/// `idx_type` / `geom_type` name the types actually written to disk (as
+/// produced by `TypeToString`). They are separate arguments because the writers
+/// are templated: the connectivity/coordinates on disk do not have to be the
+/// compiled `idx_t`/`geom_t`, and the meta file must describe what was written.
 int mesh_write_yaml_basic(const Path &path, enum ElemType element_type,
                           const ptrdiff_t n_elements, const int spatial_dim,
-                          const ptrdiff_t n_nodes);
+                          const ptrdiff_t n_nodes,
+                          const std::string_view idx_type,
+                          const std::string_view geom_type);
+
+/// Overload for writers that use the compiled `idx_t`/`geom_t`.
+inline int mesh_write_yaml_basic(const Path &path, enum ElemType element_type,
+                                 const ptrdiff_t n_elements,
+                                 const int spatial_dim,
+                                 const ptrdiff_t n_nodes) {
+  return mesh_write_yaml_basic(path, element_type, n_elements, spatial_dim,
+                               n_nodes, TypeToString<idx_t>::value(),
+                               TypeToString<geom_t>::value());
+}
 
 template <typename idx_t, typename geom_t>
 int mesh_to_folder(const Path &path, enum ElemType element_type,
@@ -51,7 +70,22 @@ int mesh_multiblock_write_yaml(const Path &path, const uint16_t n_blocks,
                                const std::vector<std::string> &block_names,
                                const std::vector<enum ElemType> &element_types,
                                const std::vector<ptrdiff_t> &n_elements,
-                               const int spatial_dim, const ptrdiff_t n_nodes);
+                               const int spatial_dim, const ptrdiff_t n_nodes,
+                               const std::string_view idx_type,
+                               const std::string_view geom_type);
+
+/// Overload for writers that use the compiled `idx_t`/`geom_t`.
+inline int mesh_multiblock_write_yaml(
+    const Path &path, const uint16_t n_blocks,
+    const std::vector<std::string> &block_names,
+    const std::vector<enum ElemType> &element_types,
+    const std::vector<ptrdiff_t> &n_elements, const int spatial_dim,
+    const ptrdiff_t n_nodes) {
+  return mesh_multiblock_write_yaml(path, n_blocks, block_names, element_types,
+                                    n_elements, spatial_dim, n_nodes,
+                                    TypeToString<idx_t>::value(),
+                                    TypeToString<geom_t>::value());
+}
 
 /// Stream SoA connectivity (`elements[d][e]`) to AoS file `e * nxe + d`.
 int mesh_write_soa_to_aos(const Path &path, int n_nodes_x_elem, const ptrdiff_t n_elements,

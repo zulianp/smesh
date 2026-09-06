@@ -128,6 +128,7 @@ static int quad4_build_edge_graph_from_multiblock_n2e(
         const block_idx_t *const SMESH_RESTRICT                                        block_number,
         count_t                                                                      **out_rowptr,
         idx_t                                                                        **out_colidx) {
+    SMESH_UNUSED(n_blocks);
     SMESH_UNUSED(n_elements);
     count_t *rowptr = (count_t *)SMESH_ALLOC((nnodes + 1) * sizeof(count_t));
     idx_t   *colidx = 0;
