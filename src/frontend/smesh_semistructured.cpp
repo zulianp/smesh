@@ -22,6 +22,7 @@
 #include "smesh_sspyramid_graph.hpp"
 #include "smesh_sspyramid_mesh.hpp"
 #include "smesh_sspyramid_mesh.impl.hpp"
+#include "smesh_sswedge_mesh.impl.hpp"
 #include "smesh_sstet4.hpp"
 #include "smesh_sstet4_graph.hpp"
 #include "smesh_sstet4_mesh.hpp"
