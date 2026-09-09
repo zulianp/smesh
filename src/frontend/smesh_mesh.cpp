@@ -558,19 +558,33 @@ namespace smesh {
 
         ~Impl() {}
 
+        // Everything derived from the mesh that is indexed or valued by node number, and so
+        // is wrong the moment the nodes are renumbered.
+        //
+        // These are built lazily and cached, which means a stale one is not merely unused --
+        // it is returned to the next caller in place of a correct one, and the caller has no
+        // way to tell. Dropping them costs a rebuild; keeping them costs correctness. The
+        // dual graph, the half-face tables and the sidesets are deliberately not in this
+        // list: they are indexed by element and valued by element or local face index, all
+        // of which a node renumbering leaves alone.
+        void invalidate_node_indexed_caches() {
+            crs_graph                  = nullptr;
+            crs_graph_upper_triangular = nullptr;
+            edge_graph                 = nullptr;
+            node_to_element_graph      = nullptr;
+            n2e_block_number           = nullptr;
+            device_points              = std::make_shared<Points>();
+        }
+
         void clear() {
             comm = nullptr;
             blocks.clear();
             sidesets.clear();
             edgesets.clear();
             nodesets.clear();
-            points                     = nullptr;
-            distributed                = nullptr;
-            crs_graph                  = nullptr;
-            crs_graph_upper_triangular = nullptr;
-            distributed                = nullptr;
-            node_to_element_graph      = nullptr;
-            device_points              = std::make_shared<Points>();
+            points      = nullptr;
+            distributed = nullptr;
+            invalidate_node_indexed_caches();
             // kernel_data                = nullptr;
         }
 
@@ -4694,6 +4708,27 @@ namespace smesh {
                 }
             }
         }
+
+        // The local-to-global map is indexed by local node, so it moves with the nodes.
+        if (impl_->node_mapping) {
+            auto old_map      = impl_->node_mapping;
+            auto new_map_buff = create_host_buffer<idx_t>(n_nodes);
+            auto new_map      = new_map_buff->data();
+            auto old_map_data = old_map->data();
+            for (ptrdiff_t i = 0; i < n_nodes; i++) {
+                new_map[d_node_mapping[i]] = old_map_data[i];
+            }
+            impl_->node_mapping = new_map_buff;
+        }
+
+        // The node-to-element graph, the CRS graphs and the device points are all cached on
+        // first use and all keyed by node number, so every one of them now describes the old
+        // numbering. Leaving them in place is not a missed optimisation: skin_sideset asks
+        // for the node-to-element graph, gets the pre-renumbering one back, and reports a
+        // skin that is not the boundary of this mesh -- on a 40x8x4 L-shape, 1692 nodes
+        // instead of 994. Nothing about that fails loudly; the solve simply constrains the
+        // wrong nodes.
+        impl_->invalidate_node_indexed_caches();
 
         return remap_registered_nodesets(d_node_mapping, n_nodes);
     }
