@@ -427,6 +427,20 @@ public:
       const ptrdiff_t n_bore, const ptrdiff_t n_outer,
       const geom_t core_fraction = 0.5);
 
+  /// Place every micro node of `sshex` -- a semi-structured mesh made by
+  /// to_semistructured from create_hex8_nozzle with these same arguments -- on the
+  /// nozzle's own map at the lattice fractions, instead of on the chords between the
+  /// macro corners. The lattice is then create_hex8_nozzle at level times the
+  /// resolution, node for node, and every coarser level of the hierarchy is on the
+  /// nozzle too. Fails if a macro element is not a cell of that nozzle's grid.
+  static int warp_semistructured_hex8_nozzle(
+      const std::shared_ptr<Mesh> &sshex, const std::vector<geom_t> &x_breaks,
+      const std::vector<geom_t> &bore_radius,
+      const std::vector<ptrdiff_t> &n_axial, const ptrdiff_t expansion,
+      const geom_t expanded_radius, const ptrdiff_t n_core,
+      const ptrdiff_t n_bore, const ptrdiff_t n_outer,
+      const geom_t core_fraction = 0.5);
+
   static std::shared_ptr<Mesh> create_semistructured_hex_cube(
       const std::shared_ptr<Communicator> &comm,
       const int micro_elements_per_dim = 2, const ptrdiff_t nx = 1,

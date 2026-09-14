@@ -3,10 +3,13 @@
 // The geometry is the FDA benchmark nozzle in millimetres: a 12 mm inlet, a 20-degree cone
 // of 22.685 mm, a 40 mm long 4 mm throat and a sudden expansion back to 12 mm at x = 0.
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
 #include "smesh_mesh.hpp"
+#include "smesh_semistructured.hpp"
+#include "smesh_sshex8.hpp"
 #include "smesh_sideset.hpp"
 #include "smesh_test.hpp"
 
@@ -55,7 +58,7 @@ namespace {
 
     // Volume by the 2x2x2 Gauss rule on the trilinear map, which is what an isoparametric
     // consumer integrates.
-    double hex_volume(const geom_t *const *p, const idx_t *const *el, const ptrdiff_t e) {
+    double hex_volume_nodes(const geom_t *const *p, const idx_t node[8]) {
         const double g = 1.0 / std::sqrt(3.0);
         const int    s[8][3] = {{-1, -1, -1}, {1, -1, -1}, {1, 1, -1}, {-1, 1, -1},
                                 {-1, -1, 1},  {1, -1, 1},  {1, 1, 1},  {-1, 1, 1}};
@@ -68,12 +71,54 @@ namespace {
                                       0.125 * s[a][1] * (1 + s[a][0] * xi) * (1 + s[a][2] * ze),
                                       0.125 * s[a][2] * (1 + s[a][0] * xi) * (1 + s[a][1] * et)};
                 for (int c = 0; c < 3; ++c)
-                    for (int k = 0; k < 3; ++k) J[c][k] += (double)p[c][el[a][e]] * dN[k];
+                    for (int k = 0; k < 3; ++k) J[c][k] += (double)p[c][node[a]] * dN[k];
             }
             v += J[0][0] * (J[1][1] * J[2][2] - J[1][2] * J[2][1]) -
                  J[0][1] * (J[1][0] * J[2][2] - J[1][2] * J[2][0]) +
                  J[0][2] * (J[1][0] * J[2][1] - J[1][1] * J[2][0]);
         }
+        return v;
+    }
+
+    double hex_volume(const geom_t *const *p, const idx_t *const *el, const ptrdiff_t e) {
+        idx_t node[8];
+        for (int a = 0; a < 8; ++a) node[a] = el[a][e];
+        return hex_volume_nodes(p, node);
+    }
+
+    // Volume and non-positive micro-corner count of a semi-structured hex mesh, micro cell by
+    // micro cell, in the standard corner order.
+    double ss_volume(const std::shared_ptr<Mesh> &ss, const int L, ptrdiff_t &bad_corners) {
+        const auto *const *p  = ss->points()->data();
+        const auto *const *el = ss->elements(0)->data();
+        double              v = 0;
+        bad_corners           = 0;
+        static const int nb[8][3] = {{1, 3, 4}, {2, 0, 5}, {3, 1, 6}, {0, 2, 7},
+                                     {7, 5, 0}, {4, 6, 1}, {5, 7, 2}, {6, 4, 3}};
+        for (ptrdiff_t e = 0; e < ss->n_elements(0); ++e)
+            for (int zi = 0; zi < L; ++zi)
+                for (int yi = 0; yi < L; ++yi)
+                    for (int xi = 0; xi < L; ++xi) {
+                        const idx_t node[8] = {el[sshex8_lidx(L, xi, yi, zi)][e],
+                                               el[sshex8_lidx(L, xi + 1, yi, zi)][e],
+                                               el[sshex8_lidx(L, xi + 1, yi + 1, zi)][e],
+                                               el[sshex8_lidx(L, xi, yi + 1, zi)][e],
+                                               el[sshex8_lidx(L, xi, yi, zi + 1)][e],
+                                               el[sshex8_lidx(L, xi + 1, yi, zi + 1)][e],
+                                               el[sshex8_lidx(L, xi + 1, yi + 1, zi + 1)][e],
+                                               el[sshex8_lidx(L, xi, yi + 1, zi + 1)][e]};
+                        v += hex_volume_nodes(p, node);
+                        for (int a = 0; a < 8; ++a) {
+                            double d[3][3];
+                            for (int k = 0; k < 3; ++k)
+                                for (int c = 0; c < 3; ++c)
+                                    d[k][c] = (double)p[c][node[nb[a][k]]] - (double)p[c][node[a]];
+                            const double det = d[0][0] * (d[1][1] * d[2][2] - d[1][2] * d[2][1]) -
+                                               d[0][1] * (d[1][0] * d[2][2] - d[1][2] * d[2][0]) +
+                                               d[0][2] * (d[1][0] * d[2][1] - d[1][1] * d[2][0]);
+                            if (!(det > 0)) ++bad_corners;
+                        }
+                    }
         return v;
     }
 
@@ -166,10 +211,69 @@ int test_nozzle_volume_converges() {
 // No test of the input validation: SMESH_ERROR aborts the process, so a rejected input
 // cannot be observed from inside a test.
 
+int test_nozzle_semistructured_warp() {
+    // A coarse nozzle refined to level L must, once warped, BE the nozzle at L times the
+    // resolution -- same node set, same volume -- and not the polygon its macro corners span.
+    const int       L = 4;
+    const ptrdiff_t n = 2, nb = 1, no = 1;
+    auto coarse = Mesh::create_hex8_nozzle(Communicator::self(), X, RB, NA, EXPANSION, R_EXP, n, nb, no);
+    SMESH_TEST_ASSERT(coarse != nullptr);
+    auto ss = to_semistructured(L, coarse, true, false);
+    SMESH_TEST_ASSERT(ss != nullptr);
+
+    std::vector<ptrdiff_t> na_fine;
+    for (const auto a : NA) na_fine.push_back(a * L);
+    auto fine = Mesh::create_hex8_nozzle(Communicator::self(), X, RB, na_fine, EXPANSION, R_EXP, n * L, nb * L,
+                                         no * L);
+    SMESH_TEST_ASSERT(fine != nullptr);
+    double v_fine = 0;
+    {
+        const auto *const *p  = fine->points()->data();
+        const auto *const *el = fine->elements(0)->data();
+        for (ptrdiff_t e = 0; e < fine->n_elements(0); ++e) v_fine += hex_volume(p, el, e);
+    }
+
+    ptrdiff_t    bad     = 0;
+    const double v_chord = ss_volume(ss, L, bad);
+    // On the chords the lattice misses the curved volume by the macro polygon's deficit.
+    SMESH_TEST_ASSERT(std::fabs(v_chord / v_fine - 1.0) > 1e-3);
+
+    SMESH_TEST_EQ(Mesh::warp_semistructured_hex8_nozzle(ss, X, RB, NA, EXPANSION, R_EXP, n, nb, no),
+                  (int)SMESH_SUCCESS);
+    const double v_warp = ss_volume(ss, L, bad);
+    SMESH_TEST_EQ(bad, (ptrdiff_t)0);
+    SMESH_TEST_ASSERT(std::fabs(v_warp / v_fine - 1.0) < 1e-5);
+    SMESH_TEST_EQ(ss->n_nodes(), fine->n_nodes());
+
+    // Node for node: every warped node is a node of the fine nozzle.
+    const auto *const     *pf = fine->points()->data();
+    const auto *const     *ps = ss->points()->data();
+    std::vector<ptrdiff_t> order((size_t)fine->n_nodes());
+    for (ptrdiff_t i = 0; i < fine->n_nodes(); ++i) order[(size_t)i] = i;
+    std::sort(order.begin(), order.end(), [&](ptrdiff_t a, ptrdiff_t b) { return pf[0][a] < pf[0][b]; });
+    double worst = 0;
+    for (ptrdiff_t i = 0; i < ss->n_nodes(); ++i) {
+        const double x  = ps[0][i];
+        auto         lo = std::lower_bound(order.begin(), order.end(), x - 1e-3,
+                                           [&](ptrdiff_t a, double v) { return pf[0][a] < v; });
+        double best = 1e300;
+        for (auto it = lo; it != order.end() && pf[0][*it] <= x + 1e-3; ++it) {
+            const double dx = (double)pf[0][*it] - x;
+            const double dy = (double)pf[1][*it] - (double)ps[1][i];
+            const double dz = (double)pf[2][*it] - (double)ps[2][i];
+            best            = std::min(best, dx * dx + dy * dy + dz * dz);
+        }
+        worst = std::max(worst, std::sqrt(best));
+    }
+    SMESH_TEST_ASSERT(worst < 1e-3);
+    return SMESH_TEST_SUCCESS;
+}
+
 int main(int argc, char *argv[]) {
     SMESH_UNIT_TEST_INIT(argc, argv);
     SMESH_RUN_TEST(test_nozzle_topology);
     SMESH_RUN_TEST(test_nozzle_volume_converges);
+    SMESH_RUN_TEST(test_nozzle_semistructured_warp);
     SMESH_UNIT_TEST_FINALIZE();
     return SMESH_UNIT_TEST_ERR();
 }
