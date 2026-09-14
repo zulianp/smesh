@@ -410,6 +410,23 @@ public:
       const geom_t ymax = 2, const geom_t zmax = 1, const geom_t step_x = 1,
       const geom_t step_y = 1);
 
+  /// Axisymmetric HEX8 nozzle along +x (FDA benchmark nozzle and its kin).
+  /// A bore of piecewise-linear radius `bore_radius[k]` at `x_breaks[k]`, with
+  /// `n_axial[s]` cells in segment s, opening at break `expansion` into a pipe of
+  /// `expanded_radius` (pass expansion < 0 for no expansion). Each cross-section is a
+  /// butterfly O-grid: an n_core x n_core square core (n_core even, so the axis
+  /// carries nodes), n_bore ring layers to the bore, and n_outer ring layers to the
+  /// expanded radius downstream only. The expansion face is an exterior face of the
+  /// kept elements. Elements are not affine.
+  static std::shared_ptr<Mesh> create_hex8_nozzle(
+      const std::shared_ptr<Communicator> &comm,
+      const std::vector<geom_t> &x_breaks,
+      const std::vector<geom_t> &bore_radius,
+      const std::vector<ptrdiff_t> &n_axial, const ptrdiff_t expansion,
+      const geom_t expanded_radius, const ptrdiff_t n_core,
+      const ptrdiff_t n_bore, const ptrdiff_t n_outer,
+      const geom_t core_fraction = 0.5);
+
   static std::shared_ptr<Mesh> create_semistructured_hex_cube(
       const std::shared_ptr<Communicator> &comm,
       const int micro_elements_per_dim = 2, const ptrdiff_t nx = 1,
