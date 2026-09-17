@@ -10,7 +10,7 @@
 
 using namespace smesh;
 
-static ptrdiff_t even_at_least(const ptrdiff_t v) {
+[[maybe_unused]] static ptrdiff_t even_at_least(const ptrdiff_t v) {
     const ptrdiff_t a = std::max<ptrdiff_t>(v, 2);
     return a + (a & 1);
 }

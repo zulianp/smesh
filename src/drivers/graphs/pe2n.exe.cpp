@@ -1,4 +1,6 @@
 #include "smesh_config.hpp"
+#include "smesh_common.hpp"
+#include "smesh_types.hpp"
 #include "smesh_alloc.hpp"
 
 #ifdef SMESH_ENABLE_MPI
@@ -189,7 +191,8 @@ int main(int argc, char **argv) {
                    n_local_elements + n_aura_elements, local_elements,
                    spatial_dim, n_local_nodes, local_points);
 
-    array_write(path_block / "owner.int32", owner, n_local_nodes);
+    array_write(path_block / ("owner." + str(TypeToString<i32>::value())),
+                owner, n_local_nodes);
 
     { // FIXME find better solution for coding this
       i64 *send_count = (i64 *)SMESH_ALLOC((size_t)comm_size * sizeof(i64));
@@ -219,8 +222,9 @@ int main(int argc, char **argv) {
                       recv_displs, scatter_idx, import_idx, owner_global,
                       send_buffer, recv_buffer);
 
-      array_write(path_block / "owner_global.int32", owner_global,
-                  n_local_nodes);
+      array_write(path_block /
+                      ("owner_global." + str(TypeToString<idx_t>::value())),
+                  owner_global, n_local_nodes);
 
       SMESH_FREE(send_count);
       SMESH_FREE(send_displs);

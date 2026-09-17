@@ -37,7 +37,7 @@ int main(int argc, char *argv[]) {
     bool SFEM_NEGATE_LOWER_TRIANGULAR = Env::read("SFEM_NEGATE_LOWER_TRIANGULAR", false);
     bool SFEM_DIRECTED = Env::read("SFEM_DIRECTED", false);
 
-    std::string ext = SFEM_EXPORT_FP32? "float32" : "float64";
+    std::string ext = SFEM_EXPORT_FP32 ? str(TypeToString<f32>::value()) : str(TypeToString<real_t>::value());
 
 
     auto folder = Path(argv[1]);

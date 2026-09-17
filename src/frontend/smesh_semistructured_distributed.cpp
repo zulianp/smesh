@@ -70,6 +70,7 @@ static void hier_fill_face_layers(const enum ElemType family,
                                   const int           nlevels,
                                   const int          *const levels,
                                   int                *const layer) {
+    SMESH_UNUSED(nxf);
     int t = 0;
     if (family == HEX8) {
         const int Lm1 = L - 1;

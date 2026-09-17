@@ -7,26 +7,29 @@
 #include <filesystem>
 #include <vector>
 
-#include "smesh_distributed_base.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sideset.hpp"
 #include "smesh_sstet4.hpp"
 #include "smesh_test.hpp"
 
+#ifdef SMESH_ENABLE_MPI
+#include "smesh_distributed_base.hpp"
+#endif
+
 using namespace smesh;
 
 using NodeKey = std::array<long long, 3>;
 using FaceKey = std::vector<NodeKey>;
 
-static Path make_tmp_path(const char *prefix, const int token) {
+[[maybe_unused]] static Path make_tmp_path(const char *prefix, const int token) {
     auto comm = Communicator::world();
     char buf[256];
     std::snprintf(buf, sizeof(buf), "/tmp/%s_%d_%d", prefix, comm->size(), token);
     return Path(buf);
 }
 
-static std::shared_ptr<Mesh> split_first_half(const std::shared_ptr<Mesh> &mesh) {
+[[maybe_unused]] static std::shared_ptr<Mesh> split_first_half(const std::shared_ptr<Mesh> &mesh) {
     auto            out     = mesh->clone();
     const ptrdiff_t n       = out->n_elements(0);
     const ptrdiff_t n_split = n / 2;
@@ -46,7 +49,7 @@ static NodeKey quantize_node(const geom_t *const *pts, const idx_t node) {
             std::llround(static_cast<double>(pts[2][node]) * 1e9)};
 }
 
-static int collect_face_keys(const std::shared_ptr<Mesh>                 &mesh,
+[[maybe_unused]] static int collect_face_keys(const std::shared_ptr<Mesh>                 &mesh,
                              const std::vector<std::shared_ptr<Sideset>> &sidesets,
                              std::vector<FaceKey>                        *faces,
                              enum ElemType                               *type_out,

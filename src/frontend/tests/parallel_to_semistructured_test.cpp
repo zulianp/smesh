@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "smesh_conversion.hpp"
-#include "smesh_distributed_base.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sshex8.hpp"
@@ -15,9 +14,13 @@
 #include "smesh_sstet4.hpp"
 #include "smesh_test.hpp"
 
+#ifdef SMESH_ENABLE_MPI
+#include "smesh_distributed_base.hpp"
+#endif
+
 using namespace smesh;
 
-static std::shared_ptr<Mesh> split_first_half(const std::shared_ptr<Mesh> &mesh) {
+[[maybe_unused]] static std::shared_ptr<Mesh> split_first_half(const std::shared_ptr<Mesh> &mesh) {
     auto            out     = mesh->clone();
     const ptrdiff_t n       = out->n_elements(0);
     const ptrdiff_t n_split = n / 2;
@@ -31,7 +34,7 @@ static std::shared_ptr<Mesh> split_first_half(const std::shared_ptr<Mesh> &mesh)
     return out;
 }
 
-static std::shared_ptr<Mesh> create_hex8_tet4_serial(const ptrdiff_t nx, const ptrdiff_t ny, const ptrdiff_t nz) {
+[[maybe_unused]] static std::shared_ptr<Mesh> create_hex8_tet4_serial(const ptrdiff_t nx, const ptrdiff_t ny, const ptrdiff_t nz) {
     auto            cube       = Mesh::create_hex8_cube(Communicator::self(), nx, ny, nz);
     const ptrdiff_t n_hex_all  = cube->n_elements();
     const ptrdiff_t n_hex_keep = n_hex_all / 2;
@@ -53,14 +56,14 @@ static std::shared_ptr<Mesh> create_hex8_tet4_serial(const ptrdiff_t nx, const p
     return std::make_shared<Mesh>(Communicator::self(), blocks, cube->points());
 }
 
-static Path make_tmp_path(const char *prefix, const int token) {
+[[maybe_unused]] static Path make_tmp_path(const char *prefix, const int token) {
     auto          comm = Communicator::world();
     char          buf[256];
     std::snprintf(buf, sizeof(buf), "/tmp/%s_%d_%d", prefix, comm->size(), token);
     return Path(buf);
 }
 
-static int check_owned_gids_unique(const Mesh &ss) {
+[[maybe_unused]] static int check_owned_gids_unique(const Mesh &ss) {
 #ifndef SMESH_ENABLE_MPI
     SMESH_UNUSED(ss);
     return SMESH_TEST_SUCCESS;
@@ -83,7 +86,7 @@ static int check_owned_gids_unique(const Mesh &ss) {
 #endif
 }
 
-static int check_owned_gid_prefix(const Mesh &ss, const ptrdiff_t n_prefix) {
+[[maybe_unused]] static int check_owned_gid_prefix(const Mesh &ss, const ptrdiff_t n_prefix) {
 #ifndef SMESH_ENABLE_MPI
     SMESH_UNUSED(ss);
     SMESH_UNUSED(n_prefix);
@@ -106,7 +109,7 @@ static int check_owned_gid_prefix(const Mesh &ss, const ptrdiff_t n_prefix) {
 #endif
 }
 
-static int check_block_layout_copied(const Mesh &coarse, const Mesh &ss) {
+[[maybe_unused]] static int check_block_layout_copied(const Mesh &coarse, const Mesh &ss) {
     SMESH_TEST_EQ(static_cast<int>(ss.n_blocks()), static_cast<int>(coarse.n_blocks()));
     for (size_t b = 0; b < coarse.n_blocks(); ++b) {
         auto cb = coarse.block(b);
@@ -302,7 +305,7 @@ static int test_mpi_tet4_to_ss() {
 #endif
 }
 
-static std::shared_ptr<Mesh> repeat_mesh_components(const std::shared_ptr<Mesh> &mesh, const ptrdiff_t copies) {
+[[maybe_unused]] static std::shared_ptr<Mesh> repeat_mesh_components(const std::shared_ptr<Mesh> &mesh, const ptrdiff_t copies) {
     if (!mesh || copies < 1) {
         return nullptr;
     }
@@ -339,7 +342,7 @@ static std::shared_ptr<Mesh> repeat_mesh_components(const std::shared_ptr<Mesh> 
     return std::make_shared<Mesh>(mesh->comm(), blocks, points);
 }
 
-static std::shared_ptr<Mesh> create_pyramid_pairs_serial(const ptrdiff_t pairs) {
+[[maybe_unused]] static std::shared_ptr<Mesh> create_pyramid_pairs_serial(const ptrdiff_t pairs) {
     if (pairs < 1) {
         return nullptr;
     }
@@ -705,7 +708,7 @@ static int test_mpi_mixed_hier_l4() {
 #endif
 }
 
-static std::shared_ptr<Mesh> create_quad4_square_3d(const ptrdiff_t nx, const ptrdiff_t ny) {
+[[maybe_unused]] static std::shared_ptr<Mesh> create_quad4_square_3d(const ptrdiff_t nx, const ptrdiff_t ny) {
     auto q2 = Mesh::create_quad4_square(Communicator::self(), nx, ny);
     auto p2 = q2->points()->data();
     auto p3 = create_host_buffer<geom_t>(3, q2->n_nodes());

@@ -332,6 +332,13 @@ if(SMESH_ENABLE_TESTING)
 
     list(REMOVE_DUPLICATES _smesh_test_sources)
 
+    if(NOT SMESH_ENABLE_MPI)
+        # `src/distributed` is only compiled into the library when MPI is
+        # enabled (see SMESH_LIBRARY_SCAN_DIRS), so its tests cannot build
+        # either.
+        list(FILTER _smesh_test_sources EXCLUDE REGEX "/src/distributed/")
+    endif()
+
     foreach(_test_source IN LISTS _smesh_test_sources)
         get_filename_component(_test_target "${_test_source}" NAME_WE)
 

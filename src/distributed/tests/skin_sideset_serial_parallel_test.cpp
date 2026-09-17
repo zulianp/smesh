@@ -16,7 +16,7 @@
 
 using namespace smesh;
 
-static std::vector<std::pair<element_idx_t, i16>>
+[[maybe_unused]] static std::vector<std::pair<element_idx_t, i16>>
 sorted_side_keys(const std::shared_ptr<Sideset> &sideset) {
   std::vector<std::pair<element_idx_t, i16>> keys(sideset->size());
   auto parent = sideset->parent()->data();
