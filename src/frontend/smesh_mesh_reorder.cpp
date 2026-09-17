@@ -97,6 +97,9 @@ int SFC::reorder(Mesh &mesh, const std::vector<std::shared_ptr<Sideset>> &sidese
   auto b = create_host_buffer<geom_t>(3, n_elements);
   geom_t **d_b = b->data();
   barycenters(nxe, n_elements, elems, spatial_dim, pts, d_b);
+  if (spatial_dim < 3) {
+    std::memset(d_b[2], 0, static_cast<size_t>(n_elements) * sizeof(geom_t));
+  }
 
   auto encoding = create_host_buffer<u32>(n_elements);
   u32 *d_enc = encoding->data();

@@ -20,9 +20,9 @@ Snap selected mesh node coordinates onto an analytic curve, surface, or volume m
 
 | Type | Snap |
 |------|------|
-| `CircleParametrization` | Closest point on a plane circle (center, axis, radius). A node on the axis is sent along a default in-plane direction. |
-| `SphereParametrization` | Radial from center. A node at the center is sent to `center + (radius, 0, 0)`. |
-| `PolynomialSurfaceParametrization` | Graph `ζ = p(ξ, η)` in a local orthonormal frame. `p` is a total-degree polynomial; coefficients are `ξ^i η^j` with `i` outer, `j` inner, `i + j <= degree`. Projection keeps `(ξ, η)` and replaces the normal coordinate. |
+| `CircleParametrization` | Closest point on a plane circle (center, axis, radius). A node on the axis is sent along a default in-plane direction. On `spatial_dimension()==2`, gather/scatter is xy only; the circle is in-plane (implicit `+z` axis; `cz` and the 3D axis are ignored). |
+| `SphereParametrization` | Radial from center. A node at the center is sent to `center + (radius, 0, 0)`. Requires `sdim >= 3`. |
+| `PolynomialSurfaceParametrization` | Graph `ζ = p(ξ, η)` in a local orthonormal frame. `p` is a total-degree polynomial; coefficients are `ξ^i η^j` with `i` outer, `j` inner, `i + j <= degree`. Projection keeps `(ξ, η)` and replaces the normal coordinate. Requires `sdim >= 3`. |
 | `IdentityParametrization` | No-op (placeholder volume/slot). |
 
 Eval (`u,v,w` → xyz) is deferred.
@@ -32,6 +32,7 @@ Eval (`u,v,w` → xyz) is deferred.
 - `src/mesh/geometry/smesh_parametrization.hpp`
 - `src/mesh/geometry/smesh_parametrization.cpp`
 - `src/mesh/geometry/tests/smesh_parametrization_test.cpp`
+- Planar circle: `src/mesh/geometry/tests/smesh_2d_parity_test.cpp`
 
 ## Non-goals (this phase)
 

@@ -33,7 +33,8 @@ int p1_to_p2(const enum ElemType element_type, const ptrdiff_t n_elements,
              const count_t *const SMESH_RESTRICT n2n_ptr,
              const idx_t *const SMESH_RESTRICT n2n_idx,
              idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT p2_elements,
-             geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT p2_points);
+             geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT p2_points,
+             const ptrdiff_t elem_offset = 0);
 
 template <typename idx_t, typename geom_t>
 void quad4_to_hex8_extrude(

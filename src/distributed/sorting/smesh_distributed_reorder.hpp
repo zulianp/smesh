@@ -33,7 +33,7 @@ int distributed_reorder_elements(
     const ptrdiff_t n_global_nodes,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
     large_idx_t *const SMESH_RESTRICT sorted_ids,
-    Ordering ordering = encode_hilbert3<geom_t>);
+    Ordering ordering = encode_hilbert3<geom_t>, const int spatial_dim = 3);
 
 /// Assign ownership of the union of block elements via SFC (or identity keys).
 ///
@@ -58,7 +58,7 @@ int distributed_assign_elements_sfc_multiblock(
     large_idx_t **const SMESH_RESTRICT sorted_concat_ids_out,
     ptrdiff_t **const SMESH_RESTRICT e2n_ptr_out,
     idx_t **const SMESH_RESTRICT e2n_idx_out, const bool use_sfc = true,
-    Ordering ordering = encode_hilbert3<geom_t>);
+    Ordering ordering = encode_hilbert3<geom_t>, const int spatial_dim = 3);
 
 template <typename idx_t, typename geom_t, typename global_idx_t,
           typename Ordering = OrderEncoder<geom_t>>

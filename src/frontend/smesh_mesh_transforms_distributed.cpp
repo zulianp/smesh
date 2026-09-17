@@ -659,8 +659,8 @@ std::shared_ptr<Mesh> MeshTransformsDistributed::extrude(const std::shared_ptr<M
             return nullptr;
         }
     }
-    const int n_face = (et == TRI3) ? 3 : 4;
-    if (et != QUAD4 && et != QUADSHELL4 && et != TRI3) {
+    const int n_face = (et == TRI3 || et == TRISHELL3) ? 3 : 4;
+    if (et != QUAD4 && et != QUADSHELL4 && et != TRI3 && et != TRISHELL3) {
         SMESH_ERROR("Extrusion not supported for element type %s\n", type_to_string(et));
         return nullptr;
     }
@@ -678,7 +678,18 @@ std::shared_ptr<Mesh> MeshTransformsDistributed::extrude(const std::shared_ptr<M
     const ptrdiff_t   n_coarse_global = dist->n_nodes_global();
     const large_idx_t *coarse_nmap    = dist->node_mapping()->data();
     const int         *coarse_owner   = dist->node_owner()->data();
-    auto               coarse_p       = mesh->points()->data();
+    auto               source_points  = mesh->points();
+    if (mesh->spatial_dimension() < 3) {
+        auto p3 = create_host_buffer<geom_t>(3, mesh->n_nodes());
+        for (int d = 0; d < 3; ++d) {
+            for (ptrdiff_t i = 0; i < mesh->n_nodes(); ++i) {
+                p3->data()[d][i] =
+                        d < mesh->spatial_dimension() ? source_points->data()[d][i] : geom_t(0);
+            }
+        }
+        source_points = p3;
+    }
+    auto               coarse_p       = source_points->data();
     const int          n_per          = (int)nlayers + 1;
     const geom_t       dh             = height / (geom_t)nlayers;
 
@@ -772,8 +783,8 @@ std::shared_ptr<Mesh> MeshTransformsDistributed::extrude(const std::shared_ptr<M
         }
     }
 
-    const enum ElemType out_type = (et == TRI3) ? WEDGE6 : HEX8;
-    const int           nxe_out  = (et == TRI3) ? 6 : 8;
+    const enum ElemType out_type = (et == TRI3 || et == TRISHELL3) ? WEDGE6 : HEX8;
+    const int           nxe_out  = (et == TRI3 || et == TRISHELL3) ? 6 : 8;
     std::vector<std::shared_ptr<Mesh::Block>> blocks;
     blocks.reserve(mesh->n_blocks());
     for (size_t b = 0; b < mesh->n_blocks(); ++b) {

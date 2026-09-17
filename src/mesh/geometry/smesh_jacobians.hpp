@@ -8,22 +8,34 @@
 
 namespace smesh {
 
-    // TODO: once we need 2D
-    // template <typename AdjugateType, typename DeterminantType>
-    // int tri3_adjugate_fill(
-    //     const ptrdiff_t nelements,
-    //     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
-    //     const ptrdiff_t stride,
-    //     AdjugateType *const SMESH_RESTRICT *const SMESH_RESTRICT adjugate,
-    //     DeterminantType *const SMESH_RESTRICT determinant);
+    /// Packed adjugate SoA length: 4 for planar TRI3/QUAD4, 9 for 3D families.
+    inline int jacobian_adjugate_components(const enum ElemType element_type) {
+        switch (element_type) {
+            case TRI3:
+            case QUAD4:
+                return 4;
+            default:
+                return 9;
+        }
+    }
 
-    // template <typename AdjugateType, typename DeterminantType>
-    // int quad4_adjugate_fill(
-    //     const ptrdiff_t nelements,
-    //     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
-    //     const ptrdiff_t stride,
-    //     AdjugateType *const SMESH_RESTRICT *const SMESH_RESTRICT adjugate,
-    //     DeterminantType *const SMESH_RESTRICT determinant);
+    template <typename AdjugateType, typename DeterminantType>
+    int tri3_adjugate_fill(const ptrdiff_t                                          nelements,
+                           const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT  elements,
+                           const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
+                           const ptrdiff_t                                          stride,
+                           AdjugateType *const SMESH_RESTRICT *const SMESH_RESTRICT adjugate,
+                           DeterminantType *const SMESH_RESTRICT                    determinant);
+
+    template <typename AdjugateType, typename DeterminantType>
+    int quad4_adjugate_fill(const ptrdiff_t                                          nelements,
+                            const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT  elements,
+                            const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
+                            const geom_t                                             qx,
+                            const geom_t                                             qy,
+                            const ptrdiff_t                                          stride,
+                            AdjugateType *const SMESH_RESTRICT *const SMESH_RESTRICT adjugate,
+                            DeterminantType *const SMESH_RESTRICT                    determinant);
 
     template <typename AdjugateType, typename DeterminantType>
     int tet4_adjugate_fill(const ptrdiff_t                                          nelements,
@@ -68,6 +80,10 @@ namespace smesh {
         }
 
         switch (element_type) {
+            case TRI3:
+                return tri3_adjugate_fill(nelements, elements, points, stride, adjugate, determinant);
+            case QUAD4:
+                return quad4_adjugate_fill(nelements, elements, points, 0.5, 0.5, stride, adjugate, determinant);
             case TET4:
             case TET10:
                 return tet4_adjugate_fill(nelements, elements, points, stride, adjugate, determinant);

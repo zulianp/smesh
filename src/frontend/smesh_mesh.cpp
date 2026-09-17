@@ -3372,6 +3372,21 @@ namespace smesh {
         return ret;
     }
 
+    std::shared_ptr<Mesh> Mesh::create_semistructured_quad_square(const std::shared_ptr<Communicator> &comm,
+                                                                  const int                            micro_elements_per_dim,
+                                                                  const ptrdiff_t                      nx,
+                                                                  const ptrdiff_t                      ny,
+                                                                  const geom_t                         xmin,
+                                                                  const geom_t                         ymin,
+                                                                  const geom_t                         xmax,
+                                                                  const geom_t                         ymax) {
+        auto quad = create_quad4_square(comm, nx, ny, xmin, ymin, xmax, ymax);
+        if (!quad) {
+            return nullptr;
+        }
+        return to_semistructured(micro_elements_per_dim, quad, false, false);
+    }
+
     std::shared_ptr<Mesh> Mesh::create_tri3_square(const std::shared_ptr<Communicator> &comm,
                                                    const ptrdiff_t                      nx,
                                                    const ptrdiff_t                      ny,
@@ -3501,6 +3516,23 @@ namespace smesh {
                 auto mesh = create_tri3_square(comm, nx, ny, xmin, ymin, xmax, ymax);
                 return promote_to(TRI6, mesh);
             }
+            case PROTEUS_QUAD4:
+            case PROTEUS_QUAD9:
+            case PROTEUS_QUAD16:
+            case PROTEUS_QUAD25:
+            case PROTEUS_QUAD36:
+            case PROTEUS_QUAD49:
+            case PROTEUS_QUAD64:
+            case PROTEUS_QUAD81:
+            case PROTEUS_QUAD289:
+                return create_semistructured_quad_square(comm,
+                                                         proteus_quad_micro_elements_per_dim(element_type),
+                                                         nx,
+                                                         ny,
+                                                         xmin,
+                                                         ymin,
+                                                         xmax,
+                                                         ymax);
             default:
                 SMESH_ERROR("Invalid element type: %d\n", element_type);
                 return nullptr;
@@ -5087,48 +5119,78 @@ namespace smesh {
             return std::make_shared<Mesh>(mesh.comm(), TET15, elements, points);
         };
 
-        cmap[std::make_pair(TET4, TET10)] = [](Mesh &mesh) {
-            auto n2n_upper_triangular     = mesh.node_to_node_graph_upper_triangular();
-            auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
-            auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+        auto promote_p1 = [](const enum ElemType dst, Mesh &mesh) -> std::shared_ptr<Mesh> {
+            auto n2n     = mesh.node_to_node_graph_upper_triangular();
+            auto n2n_ptr = n2n->rowptr()->data();
+            auto n2n_idx = n2n->colidx()->data();
 
-            auto elements = create_host_buffer<idx_t>(10, mesh.n_elements(0));
-            auto points =
-                    create_host_buffer<geom_t>(mesh.spatial_dimension(), n2n_upper_triangular->colidx()->size() + mesh.n_nodes());
+            const enum ElemType src     = mesh.element_type(0);
+            const int           dst_nxe = elem_num_nodes(dst);
+            const bool          face_center = (dst == QUAD9 || dst == QUADSHELL9);
 
-            p1_to_p2(TET4,
-                     mesh.n_elements(0),
-                     mesh.elements(0)->data(),
-                     mesh.spatial_dimension(),
-                     mesh.n_nodes(),
-                     mesh.points()->data(),
-                     n2n_upper_triangular_ptr,
-                     n2n_upper_triangular_idx,
-                     elements->data(),
-                     points->data());
-            return std::make_shared<Mesh>(mesh.comm(), TET10, elements, points);
+            ptrdiff_t n_elem_total = 0;
+            for (size_t b = 0; b < mesh.n_blocks(); ++b) {
+                n_elem_total += mesh.n_elements(static_cast<block_idx_t>(b));
+            }
+            const ptrdiff_t extra  = face_center ? n_elem_total : 0;
+            auto            points = create_host_buffer<geom_t>(
+                    mesh.spatial_dimension(), n2n->colidx()->size() + mesh.n_nodes() + extra);
+
+            if (mesh.n_blocks() == 1) {
+                auto elements = create_host_buffer<idx_t>(dst_nxe, mesh.n_elements(0));
+                if (p1_to_p2(src,
+                             mesh.n_elements(0),
+                             mesh.elements(0)->data(),
+                             mesh.spatial_dimension(),
+                             mesh.n_nodes(),
+                             mesh.points()->data(),
+                             n2n_ptr,
+                             n2n_idx,
+                             elements->data(),
+                             points->data(),
+                             0) != SMESH_SUCCESS) {
+                    return nullptr;
+                }
+                return std::make_shared<Mesh>(mesh.comm(), dst, elements, points);
+            }
+
+            std::vector<std::shared_ptr<Mesh::Block>> blocks;
+            blocks.reserve(mesh.n_blocks());
+            ptrdiff_t offset = 0;
+            for (size_t b = 0; b < mesh.n_blocks(); ++b) {
+                auto block    = mesh.block(b);
+                auto elements = create_host_buffer<idx_t>(dst_nxe, block->n_elements());
+                if (p1_to_p2(src,
+                             block->n_elements(),
+                             block->elements()->data(),
+                             mesh.spatial_dimension(),
+                             mesh.n_nodes(),
+                             mesh.points()->data(),
+                             n2n_ptr,
+                             n2n_idx,
+                             elements->data(),
+                             points->data(),
+                             offset) != SMESH_SUCCESS) {
+                    return nullptr;
+                }
+                offset += block->n_elements();
+                auto new_block = std::make_shared<Mesh::Block>();
+                new_block->set_name(block->name());
+                new_block->set_element_type(dst);
+                new_block->set_elements(elements);
+                blocks.push_back(new_block);
+            }
+            return std::make_shared<Mesh>(mesh.comm(), blocks, points);
         };
 
-        cmap[std::make_pair(TRI3, TRI6)] = [](Mesh &mesh) {
-            auto n2n_upper_triangular     = mesh.node_to_node_graph_upper_triangular();
-            auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
-            auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
-
-            auto elements = create_host_buffer<idx_t>(6, mesh.n_elements(0));
-            auto points =
-                    create_host_buffer<geom_t>(mesh.spatial_dimension(), n2n_upper_triangular->colidx()->size() + mesh.n_nodes());
-
-            p1_to_p2(TRI3,
-                     mesh.n_elements(0),
-                     mesh.elements(0)->data(),
-                     mesh.spatial_dimension(),
-                     mesh.n_nodes(),
-                     mesh.points()->data(),
-                     n2n_upper_triangular_ptr,
-                     n2n_upper_triangular_idx,
-                     elements->data(),
-                     points->data());
-            return std::make_shared<Mesh>(mesh.comm(), TRI6, elements, points);
+        cmap[std::make_pair(TET4, TET10)] = [promote_p1](Mesh &mesh) { return promote_p1(TET10, mesh); };
+        cmap[std::make_pair(TRI3, TRI6)] = [promote_p1](Mesh &mesh) { return promote_p1(TRI6, mesh); };
+        cmap[std::make_pair(TRISHELL3, TRISHELL6)] = [promote_p1](Mesh &mesh) {
+            return promote_p1(TRISHELL6, mesh);
+        };
+        cmap[std::make_pair(QUAD4, QUAD9)] = [promote_p1](Mesh &mesh) { return promote_p1(QUAD9, mesh); };
+        cmap[std::make_pair(QUADSHELL4, QUADSHELL9)] = [promote_p1](Mesh &mesh) {
+            return promote_p1(QUADSHELL9, mesh);
         };
 
         auto it = cmap.find(std::make_pair(mesh->element_type(0), element_type));
@@ -5148,49 +5210,6 @@ namespace smesh {
                 SMESH_ERROR("Promotion requires all blocks to share the same element type\n");
                 return nullptr;
             }
-        }
-
-        if (element_type == TET10 || element_type == TRI6) {
-            auto n2n_upper_triangular     = mesh->node_to_node_graph_upper_triangular();
-            auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
-            auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
-
-            const enum ElemType src_type = mesh->element_type(0);
-            const int           dst_nxe = elem_num_nodes(element_type);
-
-            std::vector<std::shared_ptr<Mesh::Block>> blocks;
-            blocks.reserve(mesh->n_blocks());
-
-            SharedBuffer<geom_t *> points;
-            for (size_t b = 0; b < mesh->n_blocks(); ++b) {
-                auto block = mesh->block(b);
-                auto elements =
-                        create_host_buffer<idx_t>(dst_nxe, block->n_elements());
-                if (b == 0) {
-                    points = create_host_buffer<geom_t>(
-                        mesh->spatial_dimension(),
-                        n2n_upper_triangular->colidx()->size() + mesh->n_nodes());
-                }
-
-                p1_to_p2(src_type,
-                         block->n_elements(),
-                         block->elements()->data(),
-                         mesh->spatial_dimension(),
-                         mesh->n_nodes(),
-                         mesh->points()->data(),
-                         n2n_upper_triangular_ptr,
-                         n2n_upper_triangular_idx,
-                         elements->data(),
-                         points->data());
-
-                auto new_block = std::make_shared<Mesh::Block>();
-                new_block->set_name(block->name());
-                new_block->set_element_type(element_type);
-                new_block->set_elements(elements);
-                blocks.push_back(new_block);
-            }
-
-            return std::make_shared<Mesh>(mesh->comm(), blocks, points);
         }
 
         if (element_type == TET15) {
@@ -6248,7 +6267,6 @@ namespace smesh {
             auto hex8_points = create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
             auto source_points = mesh->points();
 
-            // FIXME: avoid copying just for this, pass dim to extrude function instead
             if (mesh->spatial_dimension() < 3) {
                 auto p3 = create_host_buffer<geom_t>(3, mesh->n_nodes());
                 for (int d = 0; d < 3; ++d) {
@@ -6296,11 +6314,10 @@ namespace smesh {
             return std::make_shared<Mesh>(mesh->comm(), blocks, hex8_points);
         }
 
-        if (extrude_type == TRI3) {
+        if (extrude_type == TRI3 || extrude_type == TRISHELL3) {
             auto wedge6_points = create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
             auto source_points = mesh->points();
 
-            // FIXME: avoid copying just for this, pass dim to extrude function instead
             if (mesh->spatial_dimension() < 3) {
                 auto p3 = create_host_buffer<geom_t>(3, mesh->n_nodes());
                 for (int d = 0; d < 3; ++d) {

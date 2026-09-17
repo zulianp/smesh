@@ -55,8 +55,8 @@ int gather_scatter_prepare(Mesh                             &mesh,
     if (require_nodeset(ns, who) != SMESH_SUCCESS) {
         return SMESH_FAILURE;
     }
-    if (mesh.spatial_dimension() < 3 || !mesh.points() || !mesh.points()->data()) {
-        SMESH_ERROR("%s: mesh must have 3D points\n", who);
+    if (mesh.spatial_dimension() < 2 || !mesh.points() || !mesh.points()->data()) {
+        SMESH_ERROR("%s: mesh must have at least 2D points\n", who);
         return SMESH_FAILURE;
     }
     geom_t **const pts = mesh.points()->data();
@@ -74,7 +74,7 @@ int gather_scatter_prepare(Mesh                             &mesh,
     *ids_out = ids;
     *px      = pts[0];
     *py      = pts[1];
-    *pz      = pts[2];
+    *pz      = mesh.spatial_dimension() >= 3 ? pts[2] : nullptr;
     return SMESH_SUCCESS;
 }
 
@@ -254,9 +254,26 @@ int apply_gathered(Mesh                           &mesh,
     geom_t *const x = buf->data()[0];
     geom_t *const y = buf->data()[1];
     geom_t *const z = buf->data()[2];
-    gather_xyz(n, ids, px, py, pz, x, y, z);
+    if (pz) {
+        gather_xyz(n, ids, px, py, pz, x, y, z);
+    } else {
+        for (ptrdiff_t i = 0; i < n; ++i) {
+            const idx_t id = ids[i];
+            x[i]           = px[id];
+            y[i]           = py[id];
+            z[i]           = 0;
+        }
+    }
     kernel(n, x, y, z, ctx);
-    scatter_xyz(n, ids, x, y, z, px, py, pz);
+    if (pz) {
+        scatter_xyz(n, ids, x, y, z, px, py, pz);
+    } else {
+        for (ptrdiff_t i = 0; i < n; ++i) {
+            const idx_t id = ids[i];
+            px[id]         = x[i];
+            py[id]         = y[i];
+        }
+    }
     return SMESH_SUCCESS;
 }
 
@@ -297,6 +314,12 @@ int CircleParametrization::apply(Mesh &mesh) const {
     struct Ctx {
         geom_t cx, cy, cz, ax, ay, az, radius;
     } ctx{cx_, cy_, cz_, ax_, ay_, az_, radius_};
+    if (mesh.spatial_dimension() == 2) {
+        ctx.cz = 0;
+        ctx.ax = 0;
+        ctx.ay = 0;
+        ctx.az = 1;
+    }
     return apply_gathered(
             mesh,
             nodeset_,
@@ -331,6 +354,10 @@ std::shared_ptr<SphereParametrization> SphereParametrization::create(const std::
 }
 
 int SphereParametrization::apply(Mesh &mesh) const {
+    if (mesh.spatial_dimension() < 3) {
+        SMESH_ERROR("SphereParametrization::apply: mesh must have 3D points\n");
+        return SMESH_FAILURE;
+    }
     struct Ctx {
         geom_t cx, cy, cz, radius;
     } ctx{cx_, cy_, cz_, radius_};
@@ -407,6 +434,10 @@ std::shared_ptr<PolynomialSurfaceParametrization> PolynomialSurfaceParametrizati
 }
 
 int PolynomialSurfaceParametrization::apply(Mesh &mesh) const {
+    if (mesh.spatial_dimension() < 3) {
+        SMESH_ERROR("PolynomialSurfaceParametrization::apply: mesh must have 3D points\n");
+        return SMESH_FAILURE;
+    }
     struct Ctx {
         geom_t        ox, oy, oz;
         geom_t        e0x, e0y, e0z;

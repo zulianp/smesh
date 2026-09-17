@@ -27,8 +27,8 @@ static int gather_centroids_from_soa(
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const ptrdiff_t n_global_nodes,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
-    geom_t *const SMESH_RESTRICT cx, geom_t *const SMESH_RESTRICT cy,
-    geom_t *const SMESH_RESTRICT cz) {
+    const int spatial_dim, geom_t *const SMESH_RESTRICT cx,
+    geom_t *const SMESH_RESTRICT cy, geom_t *const SMESH_RESTRICT cz) {
   geom_t *const tmp = (geom_t *)SMESH_ALLOC(
       (size_t)(n_local > 0 ? n_local : 1) * sizeof(geom_t));
   if (!tmp) {
@@ -65,14 +65,16 @@ static int gather_centroids_from_soa(
       cy[e] += tmp[e];
     }
 
-    if (gather_mapped_field(comm, n_local, n_global_nodes, mapping,
-                            mpi_type<geom_t>(), points[2],
-                            out) != SMESH_SUCCESS) {
-      SMESH_FREE(tmp);
-      return SMESH_FAILURE;
-    }
-    for (ptrdiff_t e = 0; e < n_local; ++e) {
-      cz[e] += tmp[e];
+    if (spatial_dim > 2) {
+      if (gather_mapped_field(comm, n_local, n_global_nodes, mapping,
+                              mpi_type<geom_t>(), points[2],
+                              out) != SMESH_SUCCESS) {
+        SMESH_FREE(tmp);
+        return SMESH_FAILURE;
+      }
+      for (ptrdiff_t e = 0; e < n_local; ++e) {
+        cz[e] += tmp[e];
+      }
     }
   }
 
@@ -96,7 +98,8 @@ int distributed_reorder_elements(
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
     const ptrdiff_t n_global_nodes,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
-    large_idx_t *const SMESH_RESTRICT sorted_ids, Ordering ordering) {
+    large_idx_t *const SMESH_RESTRICT sorted_ids, Ordering ordering,
+    const int spatial_dim) {
   if (n_local_elements == 0) {
     return SMESH_SUCCESS;
   }
@@ -120,8 +123,8 @@ int distributed_reorder_elements(
   std::vector<geom_t> cy((size_t)n_local_elements);
   std::vector<geom_t> cz((size_t)n_local_elements);
   if (gather_centroids_from_soa(comm, nnodesxelem, n_local_elements, elements,
-                                n_global_nodes, points, cx.data(), cy.data(),
-                                cz.data()) != SMESH_SUCCESS) {
+                                n_global_nodes, points, spatial_dim, cx.data(),
+                                cy.data(), cz.data()) != SMESH_SUCCESS) {
     return SMESH_FAILURE;
   }
 
@@ -222,7 +225,7 @@ int distributed_assign_elements_sfc_multiblock(
     large_idx_t **const SMESH_RESTRICT sorted_concat_ids_out,
     ptrdiff_t **const SMESH_RESTRICT e2n_ptr_out,
     idx_t **const SMESH_RESTRICT e2n_idx_out, const bool use_sfc,
-    Ordering ordering) {
+    Ordering ordering, const int spatial_dim) {
   if (!n_assigned_out || !sorted_concat_ids_out || !e2n_ptr_out ||
       !e2n_idx_out || n_blocks <= 0) {
     return SMESH_FAILURE;
@@ -275,7 +278,7 @@ int distributed_assign_elements_sfc_multiblock(
 
       if (gather_centroids_from_soa(
               comm, nxe, n_local_b, elements[b], n_global_nodes, points,
-              n_local_b > 0 ? cx.data() + cursor : nullptr,
+              spatial_dim, n_local_b > 0 ? cx.data() + cursor : nullptr,
               n_local_b > 0 ? cy.data() + cursor : nullptr,
               n_local_b > 0 ? cz.data() + cursor : nullptr) != SMESH_SUCCESS) {
         return SMESH_FAILURE;
@@ -490,7 +493,7 @@ int mesh_from_folder_reordered_basic(
       n_local_elements * sizeof(smesh::large_idx_t));
   if (distributed_reorder_elements<idx_t, geom_t, Ordering>(
           comm, nnodesxelem, n_local_elements, n_global_elements, elems,
-          n_global_nodes, points, sorted_ids, ordering) != SMESH_SUCCESS) {
+          n_global_nodes, points, sorted_ids, ordering, spatial_dim) != SMESH_SUCCESS) {
     for (int d = 0; d < nnodesxelem; ++d) {
       SMESH_FREE(elems[d]);
     }
@@ -748,7 +751,7 @@ int mesh_from_folder_multiblock(
   if (distributed_assign_elements_sfc_multiblock<idx_t, geom_t, Ordering>(
           comm, n_blocks, nxe.data(), n_local_e.data(), n_global_e.data(),
           elems.data(), n_global_nodes, points, &n_assigned, &sorted_concat_ids,
-          &e2n_ptr, &e2n_idx, use_sfc, ordering) != SMESH_SUCCESS) {
+          &e2n_ptr, &e2n_idx, use_sfc, ordering, spatial_dim) != SMESH_SUCCESS) {
     for (block_idx_t b = 0; b < n_blocks; ++b) {
       for (int d = 0; d < nxe[(size_t)b]; ++d) {
         SMESH_FREE(elems[(size_t)b][d]);

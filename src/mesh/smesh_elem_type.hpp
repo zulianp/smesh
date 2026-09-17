@@ -617,8 +617,12 @@ namespace smesh {
                 return NIL;
             case TRI3:
                 return TRI6;
+            case TRISHELL3:
+                return TRISHELL6;
             case QUAD4:
                 return QUAD9;
+            case QUADSHELL4:
+                return QUADSHELL9;
             case TET4:
                 return TET10;
             case HEX8:

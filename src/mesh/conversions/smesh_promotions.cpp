@@ -25,7 +25,8 @@
       const COUNT_T *const SMESH_RESTRICT n2n_ptr,                             \
       const IDX_T *const SMESH_RESTRICT n2n_idx,                               \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT p2_elements,           \
-      GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT p2_points);
+      GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT p2_points,            \
+      const ptrdiff_t elem_offset);
 
 #define SMESH_EXPLICIT_INSTANTIATE_EXTRUSIONS(IDX_T, GEOM_T)                   \
   template void quad4_to_hex8_extrude<IDX_T, GEOM_T>(                          \

@@ -11,7 +11,7 @@ namespace smesh {
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, const ptrdiff_t,      \
       GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                      \
       large_idx_t *const SMESH_RESTRICT,                                       \
-      OrderEncoder<GEOM_T>);                                                   \
+      OrderEncoder<GEOM_T>, const int);                                        \
   template int distributed_assign_elements_sfc_multiblock<                     \
       IDX_T, GEOM_T, OrderEncoder<GEOM_T>>(                                    \
       MPI_Comm, const block_idx_t, const int *const SMESH_RESTRICT,            \
@@ -22,7 +22,7 @@ namespace smesh {
       const ptrdiff_t, GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT,     \
       ptrdiff_t *const SMESH_RESTRICT, large_idx_t **const SMESH_RESTRICT,     \
       ptrdiff_t **const SMESH_RESTRICT, IDX_T **const SMESH_RESTRICT,          \
-      const bool, OrderEncoder<GEOM_T>)
+      const bool, OrderEncoder<GEOM_T>, const int)
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER_REORDERED(                 \
     IDX_T, GEOM_T, LARGE_IDX_T)                                                \
