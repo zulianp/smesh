@@ -47,16 +47,18 @@ int mesh_write_yaml_basic(const Path &path, enum ElemType element_type,
                           const ptrdiff_t n_elements, const int spatial_dim,
                           const ptrdiff_t n_nodes,
                           const std::string_view idx_type,
-                          const std::string_view geom_type);
+                          const std::string_view geom_type,
+                          enum GeomMap geom_map = ISOPARAMETRIC);
 
 /// Overload for writers that use the compiled `idx_t`/`geom_t`.
 inline int mesh_write_yaml_basic(const Path &path, enum ElemType element_type,
                                  const ptrdiff_t n_elements,
                                  const int spatial_dim,
-                                 const ptrdiff_t n_nodes) {
+                                 const ptrdiff_t n_nodes,
+                                 enum GeomMap geom_map = ISOPARAMETRIC) {
   return mesh_write_yaml_basic(path, element_type, n_elements, spatial_dim,
                                n_nodes, TypeToString<idx_t>::value(),
-                               TypeToString<geom_t>::value());
+                               TypeToString<geom_t>::value(), geom_map);
 }
 
 template <typename idx_t, typename geom_t>
@@ -64,7 +66,8 @@ int mesh_to_folder(const Path &path, enum ElemType element_type,
                    const ptrdiff_t n_elements,
                    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
                    const int spatial_dim, const ptrdiff_t n_nodes,
-                   const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points);
+                   const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
+                   enum GeomMap geom_map = ISOPARAMETRIC);
 
 int mesh_multiblock_write_yaml(const Path &path, const uint16_t n_blocks,
                                const std::vector<std::string> &block_names,
@@ -72,7 +75,8 @@ int mesh_multiblock_write_yaml(const Path &path, const uint16_t n_blocks,
                                const std::vector<ptrdiff_t> &n_elements,
                                const int spatial_dim, const ptrdiff_t n_nodes,
                                const std::string_view idx_type,
-                               const std::string_view geom_type);
+                               const std::string_view geom_type,
+                               const std::vector<enum GeomMap> &geom_maps = {});
 
 /// Overload for writers that use the compiled `idx_t`/`geom_t`.
 inline int mesh_multiblock_write_yaml(
@@ -80,11 +84,12 @@ inline int mesh_multiblock_write_yaml(
     const std::vector<std::string> &block_names,
     const std::vector<enum ElemType> &element_types,
     const std::vector<ptrdiff_t> &n_elements, const int spatial_dim,
-    const ptrdiff_t n_nodes) {
+    const ptrdiff_t n_nodes,
+    const std::vector<enum GeomMap> &geom_maps = {}) {
   return mesh_multiblock_write_yaml(path, n_blocks, block_names, element_types,
                                     n_elements, spatial_dim, n_nodes,
                                     TypeToString<idx_t>::value(),
-                                    TypeToString<geom_t>::value());
+                                    TypeToString<geom_t>::value(), geom_maps);
 }
 
 /// Stream SoA connectivity (`elements[d][e]`) to AoS file `e * nxe + d`.
@@ -104,7 +109,8 @@ int mesh_multiblock_to_folder(const Path &path,
                                   elements[],
                               const int spatial_dim, const ptrdiff_t n_nodes,
                               const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT
-                                  points);
+                                  points,
+                              const std::vector<enum GeomMap> &geom_maps = {});
 
 } // namespace smesh
 

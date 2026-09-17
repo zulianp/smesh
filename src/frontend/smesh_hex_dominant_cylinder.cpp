@@ -304,8 +304,10 @@ std::shared_ptr<Mesh> Mesh::create_hex_dominant_cylinder(const std::shared_ptr<C
 
     std::vector<std::shared_ptr<Block>> blocks;
     blocks.push_back(std::make_shared<Block>("hex", HEX8, hex_buf));
+    blocks.back()->set_geom_map(ISOPARAMETRIC);
     if (n_wedge > 0) {
         blocks.push_back(std::make_shared<Block>("wedge", WEDGE6, wedge_buf));
+        blocks.back()->set_geom_map(AFFINE);
     }
     return std::make_shared<Mesh>(comm, blocks, points_buf);
 }

@@ -4,6 +4,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -983,6 +984,150 @@ static int test_mpi_higher_order_ss_refine_rejected() {
 #endif
 }
 
+#ifdef SMESH_ENABLE_MPI
+static int mpi_promote_check(const char *tag, const int token_off,
+                             const std::function<std::shared_ptr<Mesh>()> &make_serial,
+                             const enum ElemType                           dst) {
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+
+    int token = 0;
+    if (comm->rank() == 0) {
+        token = static_cast<int>(std::time(nullptr)) + token_off;
+    }
+    comm->broadcast(&token, 1, 0);
+    const Path path = make_tmp_path(tag, token);
+
+    ptrdiff_t serial_nnodes    = 0;
+    ptrdiff_t serial_nelements = 0;
+    int       serial_nblocks   = 0;
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+        auto serial = make_serial();
+        SMESH_TEST_ASSERT(serial != nullptr);
+        auto promoted = promote_to(dst, serial);
+        SMESH_TEST_ASSERT(promoted != nullptr);
+        SMESH_TEST_EQ(promoted->element_type(0), dst);
+        SMESH_TEST_EQ(promoted->n_elements(), serial->n_elements());
+        serial_nnodes    = promoted->n_nodes();
+        serial_nelements = promoted->n_elements();
+        serial_nblocks   = static_cast<int>(serial->n_blocks());
+        SMESH_TEST_ASSERT(serial->write(path) == SMESH_SUCCESS);
+    }
+    comm->broadcast(&serial_nnodes, 1, 0);
+    comm->broadcast(&serial_nelements, 1, 0);
+    comm->broadcast(&serial_nblocks, 1, 0);
+    comm->barrier();
+
+    auto mesh = Mesh::create_from_file(comm, path);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    SMESH_TEST_ASSERT(mesh->is_distributed());
+
+    auto promoted = promote_to(dst, mesh);
+    SMESH_TEST_ASSERT(promoted != nullptr);
+    SMESH_TEST_ASSERT(promoted->is_distributed());
+    SMESH_TEST_EQ(static_cast<int>(promoted->n_blocks()), serial_nblocks);
+    SMESH_TEST_EQ(promoted->element_type(0), dst);
+    SMESH_TEST_EQ(promoted->distributed()->n_nodes_global(), serial_nnodes);
+    SMESH_TEST_EQ(promoted->distributed()->n_elements_global(), serial_nelements);
+    SMESH_TEST_EQ(promoted->n_elements(), mesh->n_elements());
+    SMESH_TEST_EQ(promoted->block(0)->n_elements_owned(), mesh->block(0)->n_elements_owned());
+    SMESH_TEST_EQ(check_owned_gids_unique(*promoted), SMESH_TEST_SUCCESS);
+
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+    }
+    return SMESH_TEST_SUCCESS;
+}
+#endif
+
+static int test_mpi_promote_tet10() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    return mpi_promote_check("smesh_mpi_xf_promote_tet10", 50,
+                             [nx]() { return Mesh::create_tet4_cube(Communicator::self(), nx, 2, 2); }, TET10);
+#endif
+}
+
+static int test_mpi_promote_tet15() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    return mpi_promote_check("smesh_mpi_xf_promote_tet15", 51,
+                             [nx]() { return Mesh::create_tet4_cube(Communicator::self(), nx, 2, 2); }, TET15);
+#endif
+}
+
+static int test_mpi_promote_tri6() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    return mpi_promote_check("smesh_mpi_xf_promote_tri6", 52,
+                             [nx]() { return Mesh::create_tri3_square(Communicator::self(), nx, 2); }, TRI6);
+#endif
+}
+
+static int test_mpi_promote_trishell6() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    return mpi_promote_check("smesh_mpi_xf_promote_trishell6", 53, [nx]() {
+        auto tri = create_tri3_square_3d(nx, 2);
+        tri->set_element_type(0, TRISHELL3);
+        return tri;
+    }, TRISHELL6);
+#endif
+}
+
+static int test_mpi_promote_quad9() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    return mpi_promote_check("smesh_mpi_xf_promote_quad9", 54,
+                             [nx]() { return Mesh::create_quad4_square(Communicator::self(), nx, 2); }, QUAD9);
+#endif
+}
+
+static int test_mpi_promote_quadshell9() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    return mpi_promote_check("smesh_mpi_xf_promote_quadshell9", 55, [nx]() {
+        auto quad = create_quad4_square_3d(nx, 2);
+        quad->set_element_type(0, QUADSHELL4);
+        return quad;
+    }, QUADSHELL9);
+#endif
+}
+
+static int test_mpi_promote_tet10_multiblock() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    return mpi_promote_check("smesh_mpi_xf_promote_tet10_mb", 56, [nx]() {
+        auto hex = Mesh::create_hex8_checkerboard_cube(Communicator::self(), nx, 2, 2);
+        return convert_to(TET4, hex);
+    }, TET10);
+#endif
+}
+
 static int test_mpi_quad_extrude() {
 #ifndef SMESH_ENABLE_MPI
     return SMESH_TEST_SUCCESS;
@@ -1351,6 +1496,13 @@ int main(int argc, char **argv) {
     SMESH_RUN_TEST(test_mpi_pyramid_refine);
     SMESH_RUN_TEST(test_mpi_hex_dominant_refine);
     SMESH_RUN_TEST(test_mpi_higher_order_ss_refine_rejected);
+    SMESH_RUN_TEST(test_mpi_promote_tet10);
+    SMESH_RUN_TEST(test_mpi_promote_tet15);
+    SMESH_RUN_TEST(test_mpi_promote_tri6);
+    SMESH_RUN_TEST(test_mpi_promote_trishell6);
+    SMESH_RUN_TEST(test_mpi_promote_quad9);
+    SMESH_RUN_TEST(test_mpi_promote_quadshell9);
+    SMESH_RUN_TEST(test_mpi_promote_tet10_multiblock);
     SMESH_RUN_TEST(test_mpi_quad_extrude);
     SMESH_RUN_TEST(test_mpi_clone_convert);
     SMESH_RUN_TEST(test_mpi_ss_derefine);

@@ -35,6 +35,10 @@
 #include "smesh_base.hpp"
 #include "smesh_buffer.hpp"
 
+#ifdef SMESH_ENABLE_MPI
+#include "smesh_distributed_create.hpp"
+#endif
+
 #include <cmath>
 #include <vector>
 
@@ -75,6 +79,40 @@ namespace smesh {
                         fx, fy);
             return nullptr;
         }
+
+#ifdef SMESH_ENABLE_MPI
+        if (comm && comm->size() > 1) {
+            int       nxe = 0, sdim = 0;
+            ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
+            idx_t  **elems  = nullptr;
+            geom_t **points = nullptr;
+            if (hex8_lshape_create_distributed<idx_t, geom_t>(comm->get(),
+                                                              nx,
+                                                              ny,
+                                                              nz,
+                                                              xmax,
+                                                              ymax,
+                                                              zmax,
+                                                              nxs,
+                                                              nys,
+                                                              &nxe,
+                                                              &n_local_e,
+                                                              &n_global_e,
+                                                              &elems,
+                                                              &sdim,
+                                                              &n_local_n,
+                                                              &n_global_n,
+                                                              &points) != SMESH_SUCCESS) {
+                return nullptr;
+            }
+            auto mesh = Mesh::wrap_create_parallel(comm, HEX8, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
+                                                   n_global_n, points, AXIS_ALIGNED);
+            if (mesh && mesh->n_blocks() > 0) {
+                mesh->block(0)->set_name("fluid");
+            }
+            return mesh;
+        }
+#endif
 
         const ptrdiff_t ldz = (ny + 1) * (nx + 1);
         const ptrdiff_t ldy = (nx + 1);
@@ -154,6 +192,7 @@ namespace smesh {
         block->set_name("fluid");
         block->set_element_type(HEX8);
         block->set_elements(elements_buffer);
+        block->set_geom_map(AXIS_ALIGNED);
 
         return std::make_shared<Mesh>(comm, std::vector<std::shared_ptr<Block>>{block},
                                       points_buffer);

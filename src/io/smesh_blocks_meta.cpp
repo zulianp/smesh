@@ -22,7 +22,8 @@ static std::string trim_copy(const std::string &s) {
 /// Parse the `meta.yaml` written by `mesh_multiblock_write_yaml` (no RapidYAML).
 static bool read_blocks_meta_generated(const Path &meta_file,
                                        std::vector<std::string> &block_names,
-                                       std::vector<enum ElemType> &element_types) {
+                                       std::vector<enum ElemType> &element_types,
+                                       std::vector<enum GeomMap> &geom_maps) {
   std::ifstream ifs(meta_file.c_str());
   if (!ifs.good()) {
     return false;
@@ -61,9 +62,13 @@ static bool read_blocks_meta_generated(const Path &meta_file,
       }
       block_names.push_back(name);
       element_types.push_back(INVALID);
+      geom_maps.push_back(ISOPARAMETRIC);
     } else if (t.rfind("element_type:", 0) == 0 && !element_types.empty()) {
       const std::string et = trim_copy(t.substr(13));
       element_types.back() = type_from_string(et.c_str());
+    } else if (t.rfind("geom_map:", 0) == 0 && !geom_maps.empty()) {
+      const std::string gm = trim_copy(t.substr(9));
+      geom_maps.back() = geom_map_from_string(gm.c_str());
     }
   }
 
@@ -71,9 +76,11 @@ static bool read_blocks_meta_generated(const Path &meta_file,
 }
 
 bool read_blocks_meta(const Path &path, std::vector<std::string> &block_names,
-                      std::vector<enum ElemType> &element_types) {
+                      std::vector<enum ElemType> &element_types,
+                      std::vector<enum GeomMap> &geom_maps) {
   block_names.clear();
   element_types.clear();
+  geom_maps.clear();
 
   auto meta_file = Path(path) / "meta.yaml";
   if (!meta_file.exists()) {
@@ -102,6 +109,7 @@ bool read_blocks_meta(const Path &path, std::vector<std::string> &block_names,
   const size_t n = blocks.num_children();
   block_names.reserve(n);
   element_types.reserve(n);
+  geom_maps.reserve(n);
 
   for (size_t i = 0; i < n; ++i) {
     auto blk = blocks[i];
@@ -119,13 +127,21 @@ bool read_blocks_meta(const Path &path, std::vector<std::string> &block_names,
       et = type_from_string(et_str.c_str());
     }
 
+    enum GeomMap gm = ISOPARAMETRIC;
+    if (blk.has_child("geom_map")) {
+      auto gm_val = blk["geom_map"].val();
+      std::string gm_str(gm_val.str, gm_val.len);
+      gm = geom_map_from_string(gm_str.c_str());
+    }
+
     block_names.push_back(name);
     element_types.push_back(et);
+    geom_maps.push_back(gm);
   }
 
   return !block_names.empty();
 #else
-  return read_blocks_meta_generated(meta_file, block_names, element_types);
+  return read_blocks_meta_generated(meta_file, block_names, element_types, geom_maps);
 #endif
 }
 

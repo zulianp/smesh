@@ -30,7 +30,8 @@ namespace smesh {
                               const int              spatial_dim,
                               const ptrdiff_t        n_nodes,
                               const std::string_view idx_type,
-                              const std::string_view geom_type) {
+                              const std::string_view geom_type,
+                              enum GeomMap           geom_map) {
         if (smesh::create_directory(path.to_string()) != SMESH_SUCCESS) {
             return SMESH_FAILURE;
         }
@@ -50,6 +51,7 @@ namespace smesh {
         fprintf(meta_file, "spatial_dimension: %d\n", spatial_dim);
         fprintf(meta_file, "elem_num_nodes: %d\n", nxe);
         fprintf(meta_file, "element_type: %s\n", type_to_string(element_type));
+        fprintf(meta_file, "geom_map: %s\n", geom_map_to_string(geom_map));
         fprintf(meta_file, "n_elements: %ld\n", (long)n_elements);
         fprintf(meta_file, "n_nodes: %ld\n", (long)n_nodes);
 
@@ -76,7 +78,8 @@ namespace smesh {
                                    const int                         spatial_dim,
                                    const ptrdiff_t                   n_nodes,
                                    const std::string_view            idx_type,
-                                   const std::string_view            geom_type) {
+                                   const std::string_view            geom_type,
+                                   const std::vector<enum GeomMap>  &geom_maps) {
         if (smesh::create_directory(path.to_string()) != SMESH_SUCCESS) {
             return SMESH_FAILURE;
         }
@@ -99,6 +102,9 @@ namespace smesh {
             int nxe = elem_num_nodes(element_types[b]);
             fprintf(meta_file, "- name: %s\n", block_names[b].data());
             fprintf(meta_file, "  element_type: %s\n", type_to_string(element_types[b]));
+            const enum GeomMap gm =
+                    (static_cast<size_t>(b) < geom_maps.size()) ? geom_maps[b] : ISOPARAMETRIC;
+            fprintf(meta_file, "  geom_map: %s\n", geom_map_to_string(gm));
             fprintf(meta_file, "  elem_num_nodes: %d\n", nxe);
             fprintf(meta_file, "  n_elements: %ld\n", n_elements[b]);
             fprintf(meta_file, "  elements:\n");
@@ -320,7 +326,8 @@ namespace smesh {
                                                const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, \
                                                const int,                                               \
                                                const ptrdiff_t,                                         \
-                                               const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
+                                               const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT, \
+                                               enum GeomMap)
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(IDX_T, GEOM_T)                                          \
     template int mesh_multiblock_to_folder<IDX_T, GEOM_T>(const Path &,                                              \
@@ -330,7 +337,8 @@ namespace smesh {
                                                           const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT[], \
                                                           const int,                                                 \
                                                           const ptrdiff_t,                                           \
-                                                          const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
+                                                          const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT,  \
+                                                          const std::vector<enum GeomMap> &)
 
 #define SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT_FROM_EXTENSION(TYPE) \
     template int array_write_convert_from_extension<TYPE>(                  \

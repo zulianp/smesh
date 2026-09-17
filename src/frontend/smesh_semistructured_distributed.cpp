@@ -1458,6 +1458,7 @@ std::shared_ptr<Mesh> to_semistructured_distributed(const int                   
         auto ss_block = std::make_shared<Mesh::Block>();
         ss_block->set_name(coarse_block->name());
         ss_block->set_element_type(ss_type);
+        ss_block->inherit_geom_map(coarse_block->geom_map());
         ss_block->set_elements(ss_elems);
         ss_block->set_distributed_elements(coarse_block->n_elements_owned(),
                                            coarse_block->n_elements_shared(),

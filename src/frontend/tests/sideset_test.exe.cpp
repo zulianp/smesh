@@ -1223,6 +1223,62 @@ int test_registered_sideset_remap_on_sfc_reorder() {
   return SMESH_TEST_SUCCESS;
 }
 
+int test_registered_sideset_remap_on_sfc_reorder_checkerboard() {
+  auto mesh = Mesh::create_hex8_checkerboard_cube(Communicator::self(), 2, 2, 2);
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  SMESH_TEST_EQ(static_cast<int>(mesh->n_blocks()), 2);
+
+  auto sidesets = Sideset::create_from_selector(
+      mesh,
+      [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+  SMESH_TEST_ASSERT(!sidesets.empty());
+  for (size_t i = 0; i < sidesets.size(); ++i) {
+    mesh->add_sideset("left", sidesets[i]);
+  }
+
+  std::vector<FaceKey> keys_before;
+  for (size_t i = 0; i < sidesets.size(); ++i) {
+    auto keys = corner_face_keys(mesh, sidesets[i]);
+    SMESH_TEST_ASSERT(!keys.empty());
+    keys_before.insert(keys_before.end(), keys.begin(), keys.end());
+  }
+  std::sort(keys_before.begin(), keys_before.end());
+
+  SMESH_TEST_ASSERT(SFC("morton3").reorder(*mesh) == SMESH_SUCCESS);
+
+  std::vector<FaceKey> keys_mapped;
+  const auto registered = mesh->sidesets("left");
+  SMESH_TEST_EQ(registered.size(), sidesets.size());
+  for (size_t i = 0; i < registered.size(); ++i) {
+    auto keys = corner_face_keys(mesh, registered[i]);
+    keys_mapped.insert(keys_mapped.end(), keys.begin(), keys.end());
+  }
+  std::sort(keys_mapped.begin(), keys_mapped.end());
+
+  auto recreated = Sideset::create_from_selector(
+      mesh,
+      [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+  SMESH_TEST_EQ(recreated.size(), sidesets.size());
+  std::vector<FaceKey> keys_recreated;
+  for (size_t i = 0; i < recreated.size(); ++i) {
+    auto keys = corner_face_keys(mesh, recreated[i]);
+    keys_recreated.insert(keys_recreated.end(), keys.begin(), keys.end());
+  }
+  std::sort(keys_recreated.begin(), keys_recreated.end());
+
+  SMESH_TEST_EQ(keys_mapped.size(), keys_before.size());
+  SMESH_TEST_EQ(keys_recreated.size(), keys_before.size());
+  for (size_t i = 0; i < keys_before.size(); ++i) {
+    SMESH_TEST_EQ(keys_mapped[i].size(), keys_recreated[i].size());
+    for (size_t k = 0; k < keys_mapped[i].size(); ++k) {
+      SMESH_TEST_EQ(keys_mapped[i][k][0], keys_recreated[i][k][0]);
+      SMESH_TEST_EQ(keys_mapped[i][k][1], keys_recreated[i][k][1]);
+      SMESH_TEST_EQ(keys_mapped[i][k][2], keys_recreated[i][k][2]);
+    }
+  }
+  return SMESH_TEST_SUCCESS;
+}
+
 int test_registered_sideset_remap_from_tags() {
   auto mesh = make_test_mesh();
   auto sideset = make_left_boundary_sideset(mesh);
@@ -1603,6 +1659,7 @@ int main(int argc, char *argv[]) {
   SMESH_RUN_TEST(test_mesh_sideset_folder_io);
   SMESH_RUN_TEST(test_mesh_multiblock_sideset_folder_io);
   SMESH_RUN_TEST(test_registered_sideset_remap_on_sfc_reorder);
+  SMESH_RUN_TEST(test_registered_sideset_remap_on_sfc_reorder_checkerboard);
   SMESH_RUN_TEST(test_registered_sideset_remap_from_tags);
   SMESH_RUN_TEST(test_split_mixed_arity_wedge_and_pyramid);
   SMESH_RUN_TEST(test_write_with_xdmf);

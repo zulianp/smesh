@@ -1571,6 +1571,71 @@ namespace smesh {
 
     enum HEX8_Sides { HEX8_LEFT = 3, HEX8_RIGHT = 1, HEX8_BOTTOM = 4, HEX8_TOP = 5, HEX8_FRONT = 0, HEX8_BACK = 2 };
 
+    /// Geometric map of every element in a block. `AXIS_ALIGNED` is HEX/QUAD only
+    /// (including shells and Proteus families). Default for unknown meshes is
+    /// `ISOPARAMETRIC`.
+    enum GeomMap { AFFINE = 0, AXIS_ALIGNED = 1, ISOPARAMETRIC = 2 };
+
+    inline bool geom_map_allows_axis_aligned(const enum ElemType type) {
+        switch (type) {
+            case HEX8:
+            case HEX27:
+            case QUAD4:
+            case QUAD9:
+            case QUADSHELL4:
+            case QUADSHELL9:
+                return true;
+            default:
+                return is_hex_ss_family(type) || is_quad_ss_family(type);
+        }
+    }
+
+    inline bool geom_map_allowed(const enum ElemType type, const enum GeomMap geom_map) {
+        return geom_map != AXIS_ALIGNED || geom_map_allows_axis_aligned(type);
+    }
+
+    /// Keep `src` when it is valid for `dst`; otherwise `AXIS_ALIGNED` becomes
+    /// `AFFINE` and anything else becomes `ISOPARAMETRIC`.
+    inline enum GeomMap geom_map_inherit(const enum GeomMap src, const enum ElemType dst) {
+        if (geom_map_allowed(dst, src)) {
+            return src;
+        }
+        if (src == AXIS_ALIGNED) {
+            return AFFINE;
+        }
+        return ISOPARAMETRIC;
+    }
+
+    inline const char *geom_map_to_string(const enum GeomMap geom_map) {
+        switch (geom_map) {
+            case AFFINE:
+                return "Affine";
+            case AXIS_ALIGNED:
+                return "AxisAligned";
+            case ISOPARAMETRIC:
+                return "IsoParametric";
+            default:
+                return "IsoParametric";
+        }
+    }
+
+    inline enum GeomMap geom_map_from_string(const char *str) {
+        if (!str) {
+            return ISOPARAMETRIC;
+        }
+        if (!strcmp(str, "Affine")) {
+            return AFFINE;
+        }
+        if (!strcmp(str, "AxisAligned")) {
+            return AXIS_ALIGNED;
+        }
+        if (!strcmp(str, "IsoParametric")) {
+            return ISOPARAMETRIC;
+        }
+        SMESH_ERROR("No geometric map found for string: %s\n", str);
+        return ISOPARAMETRIC;
+    }
+
 }  // namespace smesh
 
 #endif  // SMESH_ELEM_TYPE_HPP

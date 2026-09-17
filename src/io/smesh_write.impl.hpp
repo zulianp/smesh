@@ -125,7 +125,8 @@ int mesh_to_folder(const Path &path, enum ElemType element_type,
                    const ptrdiff_t n_elements,
                    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
                    const int spatial_dim, const ptrdiff_t n_nodes,
-                   const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
+                   const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
+                   enum GeomMap geom_map) {
   int n_nodes_x_elem = elem_num_nodes(element_type);
   if (mesh_block_to_folder(path, n_nodes_x_elem, n_elements, elements) !=
       SMESH_SUCCESS) {
@@ -138,7 +139,7 @@ int mesh_to_folder(const Path &path, enum ElemType element_type,
 
   if (mesh_write_yaml_basic(path, element_type, n_elements, spatial_dim,
                             n_nodes, TypeToString<idx_t>::value(),
-                            TypeToString<geom_t>::value()) != SMESH_SUCCESS) {
+                            TypeToString<geom_t>::value(), geom_map) != SMESH_SUCCESS) {
     return SMESH_FAILURE;
   }
 
@@ -154,7 +155,8 @@ int mesh_multiblock_to_folder(const Path &path,
                                   elements[],
                               const int spatial_dim, const ptrdiff_t n_nodes,
                               const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT
-                                  points) {
+                                  points,
+                              const std::vector<enum GeomMap> &geom_maps) {
 
   SMESH_ASSERT(block_names.size() == element_types.size());
   SMESH_ASSERT(block_names.size() == n_elements.size());
@@ -186,7 +188,7 @@ int mesh_multiblock_to_folder(const Path &path,
   if (mesh_multiblock_write_yaml(path, n_blocks, block_names, element_types,
                                  n_elements, spatial_dim, n_nodes,
                                  TypeToString<idx_t>::value(),
-                                 TypeToString<geom_t>::value()) !=
+                                 TypeToString<geom_t>::value(), geom_maps) !=
       SMESH_SUCCESS) {
     ret = SMESH_FAILURE;
   }

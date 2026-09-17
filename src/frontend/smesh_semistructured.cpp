@@ -222,6 +222,7 @@ namespace smesh {
 
                 enum ElemType element_type = semistructured_type(TET4, level);
                 default_block->set_element_type(element_type);
+                default_block->inherit_geom_map(block->geom_map());
 
                 const int nxe      = sstet4_nxe(level);
                 auto      elements = create_host_buffer<idx_t>(nxe, mesh->n_elements());
@@ -271,6 +272,7 @@ namespace smesh {
 
                 enum ElemType element_type = semistructured_type(block->element_type(), level);
                 default_block->set_element_type(element_type);
+                default_block->inherit_geom_map(block->geom_map());
 
                 const int nxe      = ssquad4_nxe(level);
                 auto      elements = create_host_buffer<idx_t>(nxe, mesh->n_elements());
@@ -320,6 +322,7 @@ namespace smesh {
                 default_block->set_name(block->name());
                 enum ElemType element_type = semistructured_type(WEDGE6, level);
                 default_block->set_element_type(element_type);
+                default_block->inherit_geom_map(block->geom_map());
                 const int nxe      = sswedge_nxe(level);
                 auto      elements = create_host_buffer<idx_t>(nxe, mesh->n_elements());
                 ptrdiff_t n_unique_nodes{-1};
@@ -359,6 +362,7 @@ namespace smesh {
                 default_block->set_name(block->name());
                 enum ElemType element_type = semistructured_type(PYRAMID5, level);
                 default_block->set_element_type(element_type);
+                default_block->inherit_geom_map(block->geom_map());
                 const int nxe      = sspyramid_nxe(level);
                 auto      elements = create_host_buffer<idx_t>(nxe, mesh->n_elements());
                 ptrdiff_t n_unique_nodes{-1};
@@ -394,6 +398,7 @@ namespace smesh {
 
             enum ElemType element_type = semistructured_type(block->element_type(), level);
             default_block->set_element_type(element_type);
+            default_block->inherit_geom_map(block->geom_map());
 
             const int nxe      = sshex8_nxe(level);
             auto      elements = create_host_buffer<idx_t>(nxe, mesh->n_elements());
@@ -542,6 +547,7 @@ namespace smesh {
                 auto ss_block = std::make_shared<Mesh::Block>();
                 ss_block->set_name(block->name());
                 ss_block->set_element_type(semistructured_type(family, level));
+                ss_block->inherit_geom_map(block->geom_map());
                 ss_block->set_elements(ss_elems);
                 ss_blocks[bi] = ss_block;
 
@@ -640,6 +646,7 @@ namespace smesh {
                 auto ss_block = std::make_shared<Mesh::Block>();
                 ss_block->set_name(block->name());
                 ss_block->set_element_type(semistructured_type(block->element_type(), level));
+                ss_block->inherit_geom_map(block->geom_map());
                 ss_block->set_elements(ss_elems);
                 ss_blocks[bi] = ss_block;
             }
@@ -743,6 +750,7 @@ namespace smesh {
                 auto ss_block = std::make_shared<Mesh::Block>();
                 ss_block->set_name(block->name());
                 ss_block->set_element_type(semistructured_type(family, level));
+                ss_block->inherit_geom_map(block->geom_map());
                 ss_block->set_elements(ss_elems);
                 ss_blocks[bi] = ss_block;
                 hft_keep[bi]  = mesh->half_face_table(static_cast<block_idx_t>(b));
@@ -828,6 +836,7 @@ namespace smesh {
                 auto ss_block   = std::make_shared<Mesh::Block>();
                 ss_block->set_name(block->name());
                 ss_block->set_element_type(ss_element_type);
+                ss_block->inherit_geom_map(block->geom_map());
                 ss_block->set_elements(ss_elems);
                 ss_blocks[bi] = ss_block;
                 hft_keep[bi]  = mesh->half_face_table(static_cast<block_idx_t>(b));
@@ -902,6 +911,7 @@ namespace smesh {
                 auto ss_block   = std::make_shared<Mesh::Block>();
                 ss_block->set_name(block->name());
                 ss_block->set_element_type(ss_element_type);
+                ss_block->inherit_geom_map(block->geom_map());
                 ss_block->set_elements(ss_elems);
                 ss_blocks[bi] = ss_block;
                 hft_keep[bi]  = mesh->half_face_table(static_cast<block_idx_t>(b));
@@ -978,6 +988,7 @@ namespace smesh {
             auto ss_block = std::make_shared<Mesh::Block>();
             ss_block->set_name(block->name());
             ss_block->set_element_type(ss_element_type);
+            ss_block->inherit_geom_map(block->geom_map());
             ss_block->set_elements(ss_elems);
             ss_blocks[bi] = ss_block;
 
@@ -1096,6 +1107,7 @@ namespace smesh {
                 auto ss_block = std::make_shared<Mesh::Block>();
                 ss_block->set_name(block->name());
                 ss_block->set_element_type(ss_element_type);
+                ss_block->inherit_geom_map(block->geom_map());
                 ss_block->set_elements(ss_elems);
                 ss_blocks[bi] = ss_block;
 
@@ -1159,6 +1171,7 @@ namespace smesh {
         new_block.set_name(block.name());
         new_block.set_elements(hex8_elements);
         new_block.set_element_type(HEX8);
+        new_block.inherit_geom_map(block.geom_map());
     }
 
     void ssquad_block_to_quad4_block(const Mesh::Block &block, Mesh::Block &new_block) {
@@ -1172,6 +1185,7 @@ namespace smesh {
         new_block.set_name(block.name());
         new_block.set_elements(surface);
         new_block.set_element_type(ssquad_linear_type(block.element_type()));
+        new_block.inherit_geom_map(block.geom_map());
     }
 
     void sstet_block_to_tet4_block(const Mesh::Block &block, Mesh::Block &new_block) {
@@ -1184,6 +1198,7 @@ namespace smesh {
         new_block.set_name(block.name());
         new_block.set_elements(tet4_elements);
         new_block.set_element_type(TET4);
+        new_block.inherit_geom_map(block.geom_map());
     }
 
     void sswedge_block_to_wedge6_block(const Mesh::Block &block, Mesh::Block &new_block) {
@@ -1194,6 +1209,7 @@ namespace smesh {
         new_block.set_name(block.name());
         new_block.set_elements(wedge6_elements);
         new_block.set_element_type(WEDGE6);
+        new_block.inherit_geom_map(block.geom_map());
     }
 
     /// Explode one PYRAMID SS block into a PYRAMID5 block (in-place) and an optional new TET4 block.
@@ -1221,12 +1237,14 @@ namespace smesh {
         pyr_block.set_name(block.name());
         pyr_block.set_elements(pyr5_elements);
         pyr_block.set_element_type(PYRAMID5);
+        pyr_block.inherit_geom_map(block.geom_map());
 
         if (n_tet > 0) {
             tet_block = std::make_shared<Mesh::Block>();
             tet_block->set_name(block.name() + "_tets");
             tet_block->set_elements(tet4_elements);
             tet_block->set_element_type(TET4);
+            tet_block->inherit_geom_map(block.geom_map());
         } else {
             tet_block = nullptr;
         }
@@ -1516,6 +1534,7 @@ namespace smesh {
                 auto derefined_block = std::make_shared<Mesh::Block>();
                 derefined_block->set_name(block->name());
                 derefined_block->set_element_type(semistructured_type(bf, to_level));
+                derefined_block->inherit_geom_map(block->geom_map());
                 derefined_block->set_elements(view);
                 blocks.push_back(derefined_block);
 
@@ -1573,6 +1592,7 @@ namespace smesh {
                 auto derefined_block = std::make_shared<Mesh::Block>();
                 derefined_block->set_name(block->name());
                 derefined_block->set_element_type(semistructured_type(TET4, to_level));
+                derefined_block->inherit_geom_map(block->geom_map());
                 derefined_block->set_elements(view);
                 blocks.push_back(derefined_block);
 
@@ -1630,6 +1650,7 @@ namespace smesh {
                 const enum ElemType src =
                         (shell_type(block->element_type()) == block->element_type()) ? QUADSHELL4 : QUAD4;
                 derefined_block->set_element_type(semistructured_type(src, to_level));
+                derefined_block->inherit_geom_map(block->geom_map());
                 derefined_block->set_elements(view);
                 blocks.push_back(derefined_block);
 
@@ -1684,6 +1705,7 @@ namespace smesh {
                 auto derefined_block = std::make_shared<Mesh::Block>();
                 derefined_block->set_name(block->name());
                 derefined_block->set_element_type(semistructured_type(WEDGE6, to_level));
+                derefined_block->inherit_geom_map(block->geom_map());
                 derefined_block->set_elements(view);
                 blocks.push_back(derefined_block);
                 auto            vv        = view->data();
@@ -1736,6 +1758,7 @@ namespace smesh {
                 auto derefined_block = std::make_shared<Mesh::Block>();
                 derefined_block->set_name(block->name());
                 derefined_block->set_element_type(semistructured_type(PYRAMID5, to_level));
+                derefined_block->inherit_geom_map(block->geom_map());
                 derefined_block->set_elements(view);
                 blocks.push_back(derefined_block);
                 auto            vv        = view->data();
@@ -1788,6 +1811,7 @@ namespace smesh {
             auto derefined_block = std::make_shared<Mesh::Block>();
             derefined_block->set_name(block->name());
             derefined_block->set_element_type(element_type);
+            derefined_block->inherit_geom_map(block->geom_map());
             derefined_block->set_elements(view);
             blocks.push_back(derefined_block);
 

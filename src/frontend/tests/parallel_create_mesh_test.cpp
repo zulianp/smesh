@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
@@ -110,6 +111,24 @@ static int test_create_size_one_serial() {
     SMESH_TEST_ASSERT(!ring->is_distributed());
     SMESH_TEST_EQ(ring->element_type(0), QUAD4);
     SMESH_TEST_EQ(ring->n_elements(), static_cast<ptrdiff_t>(16));
+
+    auto lshape = Mesh::create_hex8_lshape(comm, 4, 2, 2, 4, 2, 1, 1, 1);
+    SMESH_TEST_ASSERT(lshape != nullptr);
+    SMESH_TEST_ASSERT(!lshape->is_distributed());
+    SMESH_TEST_EQ(lshape->element_type(0), HEX8);
+    SMESH_TEST_ASSERT(lshape->block(0)->name() == "fluid");
+    SMESH_TEST_EQ(lshape->n_elements(), static_cast<ptrdiff_t>(4 * 2 * 2 - 1 * 1 * 2));
+    SMESH_TEST_EQ(lshape->n_nodes(), static_cast<ptrdiff_t>(5 * 3 * 3 - 1 * 1 * 3));
+
+    const std::vector<geom_t>    nxb = {0, 1, 2};
+    const std::vector<geom_t>    nrb = {2, 2, 1};
+    const std::vector<ptrdiff_t> nna = {2, 2};
+    auto nozzle = Mesh::create_hex8_nozzle(comm, nxb, nrb, nna, -1, 3, 2, 1, 1);
+    SMESH_TEST_ASSERT(nozzle != nullptr);
+    SMESH_TEST_ASSERT(!nozzle->is_distributed());
+    SMESH_TEST_EQ(nozzle->element_type(0), HEX8);
+    SMESH_TEST_ASSERT(nozzle->block(0)->name() == "fluid");
+    SMESH_TEST_ASSERT(nozzle->n_elements() > 0);
 
     return SMESH_TEST_SUCCESS;
 }
@@ -352,6 +371,78 @@ static int test_create_remaining_a17_generators() {
 #endif
 }
 
+static double owned_coord_sum(const Mesh &mesh) {
+    const auto     *p = mesh.points()->data();
+    const ptrdiff_t n =
+        mesh.is_distributed() ? mesh.distributed()->n_nodes_owned() : mesh.n_nodes();
+    double s = 0;
+    for (ptrdiff_t i = 0; i < n; ++i) {
+        s += (double)p[0][i] + (double)p[1][i] + (double)p[2][i];
+    }
+    if (!mesh.is_distributed()) {
+        return s;
+    }
+    return mesh.comm()->sum(s);
+}
+
+static int test_create_lshape_and_nozzle() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+
+    const ptrdiff_t lnx = 4 * std::max<ptrdiff_t>(comm->size(), 1);
+    auto lshape_serial =
+        Mesh::create_hex8_lshape(Communicator::self(), lnx, 4, 2, 4, 2, 1, 1, 1);
+    auto lshape = Mesh::create_hex8_lshape(comm, lnx, 4, 2, 4, 2, 1, 1, 1);
+    SMESH_TEST_ASSERT(lshape_serial != nullptr);
+    SMESH_TEST_ASSERT(lshape != nullptr);
+    SMESH_TEST_ASSERT(lshape->is_distributed());
+    SMESH_TEST_ASSERT(lshape->block(0)->name() == "fluid");
+    SMESH_TEST_EQ(lshape->element_type(0), HEX8);
+    SMESH_TEST_EQ(lshape->distributed()->n_nodes_global(), lshape_serial->n_nodes());
+    SMESH_TEST_EQ(lshape->distributed()->n_elements_global(), lshape_serial->n_elements());
+    {
+        const double serial_sum = owned_coord_sum(*lshape_serial);
+        const double mpi_sum    = owned_coord_sum(*lshape);
+        SMESH_TEST_ASSERT(std::fabs(mpi_sum - serial_sum) <= 1e-4 * (1.0 + std::fabs(serial_sum)));
+    }
+
+    const std::vector<geom_t>    xb = {0, 1, 2, 4};
+    const std::vector<geom_t>    rb = {2, 2, 1, 1};
+    const std::vector<ptrdiff_t> na = {2, 2, std::max<ptrdiff_t>(4, 2 * comm->size())};
+    auto nozzle_serial =
+        Mesh::create_hex8_nozzle(Communicator::self(), xb, rb, na, 2, 3, 2, 1, 1);
+    auto nozzle = Mesh::create_hex8_nozzle(comm, xb, rb, na, 2, 3, 2, 1, 1);
+    SMESH_TEST_ASSERT(nozzle_serial != nullptr);
+    SMESH_TEST_ASSERT(nozzle != nullptr);
+    SMESH_TEST_ASSERT(nozzle->is_distributed());
+    SMESH_TEST_ASSERT(nozzle->block(0)->name() == "fluid");
+    SMESH_TEST_EQ(nozzle->element_type(0), HEX8);
+    SMESH_TEST_EQ(nozzle->distributed()->n_nodes_global(), nozzle_serial->n_nodes());
+    SMESH_TEST_EQ(nozzle->distributed()->n_elements_global(), nozzle_serial->n_elements());
+    {
+        const double serial_sum = owned_coord_sum(*nozzle_serial);
+        const double mpi_sum    = owned_coord_sum(*nozzle);
+        SMESH_TEST_ASSERT(std::fabs(mpi_sum - serial_sum) <= 1e-4 * (1.0 + std::fabs(serial_sum)));
+    }
+
+    auto pipe_serial =
+        Mesh::create_hex8_nozzle(Communicator::self(), xb, rb, na, -1, 3, 2, 1, 1);
+    auto pipe = Mesh::create_hex8_nozzle(comm, xb, rb, na, -1, 3, 2, 1, 1);
+    SMESH_TEST_ASSERT(pipe_serial != nullptr);
+    SMESH_TEST_ASSERT(pipe != nullptr);
+    SMESH_TEST_ASSERT(pipe->is_distributed());
+    SMESH_TEST_EQ(pipe->distributed()->n_nodes_global(), pipe_serial->n_nodes());
+    SMESH_TEST_EQ(pipe->distributed()->n_elements_global(), pipe_serial->n_elements());
+
+    return SMESH_TEST_SUCCESS;
+#endif
+}
+
 int main(int argc, char *argv[]) {
     SMESH_UNIT_TEST_INIT(argc, argv);
     SMESH_RUN_TEST(test_create_size_one_serial);
@@ -359,6 +450,7 @@ int main(int argc, char *argv[]) {
     SMESH_RUN_TEST(test_create_tet4_quad4_vs_serial);
     SMESH_RUN_TEST(test_create_checkerboard_and_hex_tet);
     SMESH_RUN_TEST(test_create_remaining_a17_generators);
+    SMESH_RUN_TEST(test_create_lshape_and_nozzle);
     SMESH_UNIT_TEST_FINALIZE();
     return SMESH_UNIT_TEST_ERR();
 }

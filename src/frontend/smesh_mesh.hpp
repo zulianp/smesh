@@ -5,6 +5,7 @@
 #include "smesh_buffer.hpp"
 #include "smesh_communicator.hpp"
 #include "smesh_crs_graph.hpp"
+#include "smesh_elem_type.hpp"
 #include "smesh_forward_declarations.hpp"
 
 // STL
@@ -198,11 +199,17 @@ public:
 
     const std::string &name() const;
     enum ElemType element_type() const;
+    enum GeomMap geom_map() const;
     int n_nodes_per_element() const;
     const SharedBuffer<idx_t *> &elements() const;
 
     void set_name(const std::string &name);
     void set_element_type(enum ElemType element_type);
+    /// `AXIS_ALIGNED` is HEX/QUAD only. Returns `SMESH_FAILURE` and leaves the
+    /// previous value if the map is not allowed for `element_type()`.
+    int set_geom_map(enum GeomMap geom_map);
+    /// `set_geom_map(geom_map_inherit(src, element_type()))`.
+    int inherit_geom_map(enum GeomMap src);
     void set_elements(SharedBuffer<idx_t *> elements);
     ptrdiff_t n_elements() const;
 
@@ -327,6 +334,7 @@ public:
   int n_nodes_per_element(block_idx_t block_id) const;
   ptrdiff_t n_elements(block_idx_t block_id) const;
   enum ElemType element_type(block_idx_t block_id) const;
+  enum GeomMap geom_map(block_idx_t block_id) const;
   SharedBuffer<idx_t *> elements(block_idx_t block_id);
   SharedBuffer<idx_t *> elements(block_idx_t block_id) const;
 
@@ -541,6 +549,15 @@ public:
   void set_comm(const std::shared_ptr<Communicator> &comm);
   void set_element_type(const block_idx_t block_id,
                         const enum ElemType element_type);
+  int set_geom_map(const block_idx_t block_id, const enum GeomMap geom_map);
+  /// Classify from coordinates. Does not write the stored map. MPI AND across ranks;
+  /// a rank with no local elements does not constrain the result. All-empty → IsoParametric.
+  enum GeomMap detect_geom_map(block_idx_t block_id = 0) const;
+  enum GeomMap detect_geom_map(block_idx_t block_id, geom_t rel_tol) const;
+  int detect_and_set_geom_map(block_idx_t block_id = 0);
+  int detect_and_set_geom_map(block_idx_t block_id, geom_t rel_tol);
+  int detect_and_set_geom_maps();
+  int detect_and_set_geom_maps(geom_t rel_tol);
   std::pair<SharedBuffer<geom_t>, SharedBuffer<geom_t>> compute_bounding_box();
 
   std::shared_ptr<Mesh> clone() const;
@@ -616,7 +633,8 @@ private:
                        enum ElemType element_type, int nnodesxelem,
                        ptrdiff_t n_local_elements, ptrdiff_t n_global_elements,
                        idx_t **elems, int spatial_dim, ptrdiff_t n_local_nodes,
-                       ptrdiff_t n_global_nodes, geom_t **points);
+                       ptrdiff_t n_global_nodes, geom_t **points,
+                       enum GeomMap geom_map = ISOPARAMETRIC);
   static std::shared_ptr<Mesh> with_nodal_distributed(
       const std::shared_ptr<Mesh> &src,
       const std::vector<std::shared_ptr<Block>> &blocks,
@@ -669,6 +687,8 @@ public:
   static std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
                                        const geom_t height,
                                        const ptrdiff_t nlayers);
+  static std::shared_ptr<Mesh> promote(const std::shared_ptr<Mesh> &mesh,
+                                       const enum ElemType element_type);
   static void clone_distributed(const Mesh &src, Mesh &dst);
   static int attach_convert_distributed(const Mesh &src, Mesh &dst);
   static std::shared_ptr<Mesh>

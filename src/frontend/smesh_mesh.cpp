@@ -28,6 +28,7 @@
 #include "smesh_volume_to_surface.hpp"
 #include "smesh_write.hpp"
 
+#include "smesh_geom_map.hpp"
 #include "smesh_jacobians.hpp"
 #include "smesh_kernel_data.hpp"
 
@@ -430,10 +431,11 @@ namespace smesh {
 
     class Mesh::Block::Impl {
     public:
-        std::string                      name;
-        enum ElemType                    element_type;
-        SharedBuffer<idx_t *>            elements;
-        std::shared_ptr<smesh::Elements> device_elements;
+        std::string                       name;
+        enum ElemType                     element_type{INVALID};
+        enum GeomMap                      geom_map{ISOPARAMETRIC};
+        SharedBuffer<idx_t *>             elements;
+        std::shared_ptr<smesh::Elements>  device_elements;
         std::shared_ptr<DistributedBlock> distributed;
     };
 
@@ -481,11 +483,30 @@ namespace smesh {
 
     const std::string           &Mesh::Block::name() const { return impl_->name; }
     enum ElemType                Mesh::Block::element_type() const { return impl_->element_type; }
+    enum GeomMap                 Mesh::Block::geom_map() const { return impl_->geom_map; }
     int                          Mesh::Block::n_nodes_per_element() const { return elem_num_nodes(impl_->element_type); }
     const SharedBuffer<idx_t *> &Mesh::Block::elements() const { return impl_->elements; }
 
     void Mesh::Block::set_name(const std::string &name) { impl_->name = name; }
-    void Mesh::Block::set_element_type(enum ElemType element_type) { impl_->element_type = element_type; }
+    void Mesh::Block::set_element_type(enum ElemType element_type) {
+        impl_->element_type = element_type;
+        if (!geom_map_allowed(element_type, impl_->geom_map)) {
+            impl_->geom_map = geom_map_inherit(impl_->geom_map, element_type);
+        }
+    }
+    int Mesh::Block::set_geom_map(enum GeomMap geom_map) {
+        if (!geom_map_allowed(impl_->element_type, geom_map)) {
+            fprintf(stderr,
+                    "set_geom_map: AxisAligned is only valid for HEX and QUAD families (got %s)\n",
+                    type_to_string(impl_->element_type));
+            return SMESH_FAILURE;
+        }
+        impl_->geom_map = geom_map;
+        return SMESH_SUCCESS;
+    }
+    int Mesh::Block::inherit_geom_map(enum GeomMap src) {
+        return set_geom_map(geom_map_inherit(src, impl_->element_type));
+    }
     void Mesh::Block::set_elements(SharedBuffer<idx_t *> elements) {
         impl_->elements        = elements;
         impl_->device_elements = std::make_shared<smesh::Elements>();
@@ -1203,7 +1224,8 @@ namespace smesh {
         return out;
     }
 
-    void read_meta(const std::shared_ptr<Communicator> &comm, const Path &path, enum ElemType &element_type) {
+    void read_meta(const std::shared_ptr<Communicator> &comm, const Path &path, enum ElemType &element_type,
+                   enum GeomMap &geom_map) {
         if (!comm->rank()) {
             auto meta_file = Path(path) / "meta.yaml";
             if (meta_file.exists()) {
@@ -1219,6 +1241,11 @@ namespace smesh {
                             std::string s(v.str, v.len);
                             element_type = type_from_string(s.c_str());
                         }
+                        if (root.has_child("geom_map")) {
+                            auto        v = root["geom_map"].val();
+                            std::string s(v.str, v.len);
+                            geom_map = geom_map_from_string(s.c_str());
+                        }
                     }
                 }
 #else
@@ -1229,7 +1256,9 @@ namespace smesh {
                     if (line.find("element_type:") != std::string::npos) {
                         auto element_type_str = trim(line.substr(line.find(":") + 1));
                         element_type          = type_from_string(element_type_str.c_str());
-                        break;
+                    } else if (line.find("geom_map:") != std::string::npos) {
+                        auto geom_map_str = trim(line.substr(line.find(":") + 1));
+                        geom_map          = geom_map_from_string(geom_map_str.c_str());
                     }
                 }
 #endif
@@ -1240,6 +1269,9 @@ namespace smesh {
             int element_type_int = (int)element_type;
             comm->broadcast(&element_type_int, 1, 0);
             element_type = (enum ElemType)element_type_int;
+            int geom_map_int = (int)geom_map;
+            comm->broadcast(&geom_map_int, 1, 0);
+            geom_map = (enum GeomMap)geom_map_int;
         }
     }
 
@@ -1767,7 +1799,8 @@ namespace smesh {
         if (impl_->comm->size() == 1) {
             std::vector<std::string>   block_names;
             std::vector<enum ElemType> element_types;
-            const bool                 has_blocks = read_blocks_meta(path, block_names, element_types);
+            std::vector<enum GeomMap>  geom_maps;
+            const bool                 has_blocks = read_blocks_meta(path, block_names, element_types, geom_maps);
 
             impl_->blocks.clear();
 
@@ -1804,6 +1837,9 @@ namespace smesh {
                     auto block = std::make_shared<Block>();
                     block->set_name(block_names[b]);
                     block->set_element_type(et);
+                    if (b < geom_maps.size()) {
+                        block->set_geom_map(geom_maps[b]);
+                    }
                     block->set_elements(elements_buffer);
                     this->add_block(block);
                 }
@@ -1826,11 +1862,13 @@ namespace smesh {
                 impl_->points        = manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
 
                 enum ElemType element_type = (enum ElemType)nnodesxelem;
-                read_meta(impl_->comm, path, element_type);
+                enum GeomMap  geom_map     = ISOPARAMETRIC;
+                read_meta(impl_->comm, path, element_type, geom_map);
 
                 auto default_block = std::make_shared<Block>();
                 default_block->set_name("default");
                 default_block->set_element_type(element_type);
+                default_block->set_geom_map(geom_map);
                 default_block->set_elements(elements_buffer);
                 this->add_block(default_block);
             }
@@ -1839,7 +1877,8 @@ namespace smesh {
         else {
             std::vector<std::string>   block_names;
             std::vector<enum ElemType> element_types;
-            const bool                 has_blocks = read_blocks_meta(path, block_names, element_types);
+            std::vector<enum GeomMap>  geom_maps;
+            const bool                 has_blocks = read_blocks_meta(path, block_names, element_types, geom_maps);
 
             auto         dist = std::make_shared<Distributed>();
             int          nnodesxelem;
@@ -1976,6 +2015,9 @@ namespace smesh {
                     auto block = std::make_shared<Block>();
                     block->set_name(block_names[b]);
                     block->set_element_type(et);
+                    if (b < geom_maps.size()) {
+                        block->set_geom_map(geom_maps[b]);
+                    }
                     block->set_elements(elements_buffer);
                     block->set_distributed_elements(n_owned_per_block[b],
                                                     n_shared_per_block[b],
@@ -2126,11 +2168,13 @@ namespace smesh {
                                                   ghosts);
 
                 enum ElemType element_type = (enum ElemType)nnodesxelem;
-                read_meta(impl_->comm, path, element_type);
+                enum GeomMap  geom_map     = ISOPARAMETRIC;
+                read_meta(impl_->comm, path, element_type, geom_map);
 
                 auto default_block = std::make_shared<Block>();
                 default_block->set_name("default");
                 default_block->set_element_type(element_type);
+                default_block->set_geom_map(geom_map);
                 default_block->set_elements(elements_buffer);
                 default_block->set_distributed_elements(dist->n_elements_owned(),
                                                         dist->n_elements_shared(),
@@ -2196,16 +2240,19 @@ namespace smesh {
                                        impl_->blocks[0]->elements()->data(),
                                        this->spatial_dimension(),
                                        this->n_nodes(),
-                                       this->points()->data()));
+                                       this->points()->data(),
+                                       impl_->blocks[0]->geom_map()));
             } else {
                 std::vector<ptrdiff_t>     n_elements;
                 std::vector<enum ElemType> element_types;
+                std::vector<enum GeomMap>  geom_maps;
                 std::vector<idx_t **>      elements;
                 std::vector<std::string>   block_names;
 
                 for (auto &block : impl_->blocks) {
                     n_elements.push_back(block->elements()->extent(1));
                     element_types.push_back(block->element_type());
+                    geom_maps.push_back(block->geom_map());
                     elements.push_back(block->elements()->data());
                     block_names.push_back(block->name());
                 }
@@ -2219,7 +2266,8 @@ namespace smesh {
                                                   elements.data(),
                                                   this->spatial_dimension(),
                                                   this->n_nodes(),
-                                                  this->points()->data()));
+                                                  this->points()->data(),
+                                                  geom_maps));
             }
         }
 #ifdef SMESH_ENABLE_MPI
@@ -2244,23 +2292,30 @@ namespace smesh {
                 const enum ElemType et  = impl_->blocks[0]->element_type();
                 const int           nxe = elem_num_nodes(et);
 
-                return write_topology_then_sidesets(
-                        *this,
+                int err = write_distributed_mesh_topology(
+                        comm,
                         path,
-                        write_distributed_mesh_topology(
-                                comm,
-                                path,
-                                et,
-                                this->spatial_dimension(),
-                                dist->n_elements_global(),
-                                dist->n_elements_owned(),
-                                dist->impl_->element_mapping->data(),
-                                nxe,
-                                impl_->blocks[0]->elements()->data(),
-                                dist->n_nodes_global(),
-                                dist->n_nodes_owned(),
-                                node_mapping,
-                                impl_->points->data()));
+                        et,
+                        this->spatial_dimension(),
+                        dist->n_elements_global(),
+                        dist->n_elements_owned(),
+                        dist->impl_->element_mapping->data(),
+                        nxe,
+                        impl_->blocks[0]->elements()->data(),
+                        dist->n_nodes_global(),
+                        dist->n_nodes_owned(),
+                        node_mapping,
+                        impl_->points->data());
+                if (err == SMESH_SUCCESS && impl_->comm->rank() == 0) {
+                    err = mesh_write_yaml_basic(path,
+                                                et,
+                                                dist->n_elements_global(),
+                                                this->spatial_dimension(),
+                                                dist->n_nodes_global(),
+                                                impl_->blocks[0]->geom_map());
+                }
+                impl_->comm->barrier();
+                return write_topology_then_sidesets(*this, path, err);
             }
 
             const size_t n_blocks = impl_->blocks.size();
@@ -2305,13 +2360,16 @@ namespace smesh {
 
             std::vector<std::string>   block_names;
             std::vector<enum ElemType> element_types;
+            std::vector<enum GeomMap>  geom_maps;
             block_names.reserve(n_blocks);
             element_types.reserve(n_blocks);
+            geom_maps.reserve(n_blocks);
 
             for (size_t b = 0; b < n_blocks; ++b) {
                 auto block = impl_->blocks[b];
                 block_names.push_back(block->name());
                 element_types.push_back(block->element_type());
+                geom_maps.push_back(block->geom_map());
 
                 const ptrdiff_t n_owned = block->n_elements_owned();
                 auto            elem_map = block->element_mapping();
@@ -2347,7 +2405,8 @@ namespace smesh {
                                                  element_types,
                                                  n_global_per_block,
                                                  this->spatial_dimension(),
-                                                 dist->n_nodes_global());
+                                                 dist->n_nodes_global(),
+                                                 geom_maps);
             }
             impl_->comm->barrier();
 
@@ -2750,7 +2809,8 @@ namespace smesh {
                                                            int                                  spatial_dim,
                                                            ptrdiff_t                            n_local_nodes,
                                                            ptrdiff_t                            n_global_nodes,
-                                                           geom_t                             **points) {
+                                                           geom_t                             **points,
+                                                           enum GeomMap                         geom_map) {
         auto        mesh = std::make_shared<Mesh>(comm);
         int         nxe_out = 0, sdim_out = 0;
         ptrdiff_t   nge = 0, noe = 0, nse = 0, ngelem_ghost = 0;
@@ -2820,6 +2880,9 @@ namespace smesh {
                                       offsets,
                                       ghosts) != SMESH_SUCCESS) {
             return nullptr;
+        }
+        if (mesh->n_blocks() > 0) {
+            mesh->block(0)->set_geom_map(geom_map);
         }
         return mesh;
     }
@@ -2919,6 +2982,7 @@ namespace smesh {
         auto block = std::make_shared<Mesh::Block>();
         block->set_name(name);
         block->set_element_type(HEX8);
+        block->set_geom_map(AXIS_ALIGNED);
         block->set_elements(elems);
         block->set_distributed_elements(n_owned_c, n_shared_c, n_ghosts_c, emap, amap);
         return block;
@@ -3035,6 +3099,7 @@ namespace smesh {
         auto block = std::make_shared<Mesh::Block>();
         block->set_name(name);
         block->set_element_type(HEX8);
+        block->set_geom_map(AXIS_ALIGNED);
         block->set_elements(elems);
         block->set_distributed_elements(n_owned_c, n_shared_c, n_ghosts_c, emap, amap);
         return block;
@@ -3217,12 +3282,14 @@ namespace smesh {
         auto hex_out = std::make_shared<Mesh::Block>();
         hex_out->set_name("hex");
         hex_out->set_element_type(HEX8);
+        hex_out->set_geom_map(AXIS_ALIGNED);
         hex_out->set_elements(hex_elems);
         hex_out->set_distributed_elements(hex_owned_c, hex_shared, hex_ghosts, hex_emap, hex_amap);
 
         auto tet_out = std::make_shared<Mesh::Block>();
         tet_out->set_name("tet");
         tet_out->set_element_type(TET4);
+        tet_out->set_geom_map(AFFINE);
         tet_out->set_elements(tet_elems);
         tet_out->set_distributed_elements(tet_owned_c, tet_shared, tet_ghosts, tet_emap, tet_amap);
 
@@ -3288,8 +3355,9 @@ namespace smesh {
                                                             &points) != SMESH_SUCCESS) {
                 return nullptr;
             }
-            return Mesh::wrap_create_parallel(comm, HEX8, nxe, n_local_e, n_global_e, elems, sdim, n_local_n, n_global_n,
-                                             points);
+            auto mesh = Mesh::wrap_create_parallel(comm, HEX8, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
+                                                 n_global_n, points, AXIS_ALIGNED);
+            return mesh;
         }
 #endif
         auto            ret       = std::make_shared<Mesh>(comm);
@@ -3309,6 +3377,7 @@ namespace smesh {
         default_block->set_name("default");
         default_block->set_element_type(HEX8);
         default_block->set_elements(elements_buffer);
+        default_block->set_geom_map(AXIS_ALIGNED);
         ret->add_block(default_block);
 
         return ret;
@@ -3367,6 +3436,7 @@ namespace smesh {
         default_block->set_name("default");
         default_block->set_element_type(proteus_hex_type(micro_elements_per_dim));
         default_block->set_elements(elements);
+        default_block->set_geom_map(AXIS_ALIGNED);
         ret->add_block(default_block);
 
         return ret;
@@ -3417,8 +3487,9 @@ namespace smesh {
                                                               &points) != SMESH_SUCCESS) {
                 return nullptr;
             }
-            return Mesh::wrap_create_parallel(comm, TRI3, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
-                                             n_global_n, points);
+            auto mesh = Mesh::wrap_create_parallel(comm, TRI3, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
+                                                 n_global_n, points, AFFINE);
+            return mesh;
         }
 #endif
         auto            ret       = std::make_shared<Mesh>(comm);
@@ -3438,6 +3509,7 @@ namespace smesh {
         default_block->set_name("default");
         default_block->set_element_type(TRI3);
         default_block->set_elements(elements_buffer);
+        default_block->set_geom_map(AFFINE);
         ret->add_block(default_block);
 
         return ret;
@@ -3473,8 +3545,9 @@ namespace smesh {
                                                                &points) != SMESH_SUCCESS) {
                 return nullptr;
             }
-            return Mesh::wrap_create_parallel(comm, QUAD4, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
-                                             n_global_n, points);
+            auto mesh = Mesh::wrap_create_parallel(comm, QUAD4, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
+                                                 n_global_n, points, AXIS_ALIGNED);
+            return mesh;
         }
 #endif
         auto            ret       = std::make_shared<Mesh>(comm);
@@ -3494,6 +3567,7 @@ namespace smesh {
         default_block->set_name("default");
         default_block->set_element_type(QUAD4);
         default_block->set_elements(elements_buffer);
+        default_block->set_geom_map(AXIS_ALIGNED);
         ret->impl_->blocks.push_back(default_block);
 
         return ret;
@@ -3566,7 +3640,7 @@ namespace smesh {
                 return nullptr;
             }
             return Mesh::wrap_create_parallel(comm, QUAD4, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
-                                             n_global_n, points);
+                                             n_global_n, points, ISOPARAMETRIC);
         }
 #endif
         auto elements = create_host_buffer<idx_t>(4, nlayers * nelements);
@@ -3574,6 +3648,9 @@ namespace smesh {
         mesh_fill_quad4_ring<idx_t, geom_t>(inner_radius, outer_radius, nlayers, nelements, elements->data(), points->data());
 
         auto ret = std::make_shared<Mesh>(comm, QUAD4, elements, points);
+        if (ret->n_blocks() > 0) {
+            ret->block(0)->set_geom_map(ISOPARAMETRIC);
+        }
         return ret;
     }
 
@@ -3749,7 +3826,8 @@ namespace smesh {
                 }
             }
 
-            return Mesh::wrap_create_parallel(comm, TET4, 4, n_local_e, nelements, elems, 3, n_local_n, nnodes, points);
+            return Mesh::wrap_create_parallel(comm, TET4, 4, n_local_e, nelements, elems, 3, n_local_n, nnodes, points,
+                                             AFFINE);
         }
 #endif
         auto ret = std::make_shared<Mesh>(comm);
@@ -3925,6 +4003,7 @@ namespace smesh {
         default_block->set_name("default");
         default_block->set_element_type(TET4);
         default_block->set_elements(elements_buffer);
+        default_block->set_geom_map(AFFINE);
         ret->add_block(default_block);
 
         return ret;
@@ -3970,6 +4049,9 @@ namespace smesh {
                     points[1][n] = 0;
                     points[2][n] = 0;
                 }
+            }
+            if (ret->n_blocks() > 0) {
+                ret->block(0)->set_geom_map(ISOPARAMETRIC);
             }
             return ret;
         }
@@ -4059,6 +4141,7 @@ namespace smesh {
         default_block->set_name("default");
         default_block->set_element_type(HEX8);
         default_block->set_elements(elements_buffer);
+        default_block->set_geom_map(ISOPARAMETRIC);
         ret->add_block(default_block);
 
         return ret;
@@ -4107,12 +4190,14 @@ namespace smesh {
         white_block->set_name("white");
         white_block->set_element_type(HEX8);
         white_block->set_elements(white_elements_buffer);
+        white_block->set_geom_map(AXIS_ALIGNED);
         ret->add_block(white_block);
 
         auto black_block = std::make_shared<Block>();
         black_block->set_name("black");
         black_block->set_element_type(HEX8);
         black_block->set_elements(black_elements_buffer);
+        black_block->set_geom_map(AXIS_ALIGNED);
         ret->add_block(black_block);
         return ret;
     }
@@ -4153,7 +4238,9 @@ namespace smesh {
         mesh_hex8_to_6x_tet4<idx_t>(n_hex_conv, hex_tail, tet_buf->data());
         std::vector<std::shared_ptr<Block>> blocks;
         blocks.push_back(std::make_shared<Block>("hex", HEX8, hex_keep));
+        blocks.back()->set_geom_map(AXIS_ALIGNED);
         blocks.push_back(std::make_shared<Block>("tet", TET4, tet_buf));
+        blocks.back()->set_geom_map(AFFINE);
         return std::make_shared<Mesh>(comm, blocks, cube->points());
     }
 
@@ -4196,12 +4283,14 @@ namespace smesh {
         left_block->set_name("left");
         left_block->set_element_type(HEX8);
         left_block->set_elements(left_elements_buffer);
+        left_block->set_geom_map(AXIS_ALIGNED);
         ret->add_block(left_block);
 
         auto right_block = std::make_shared<Block>();
         right_block->set_name("right");
         right_block->set_element_type(HEX8);
         right_block->set_elements(right_elements_buffer);
+        right_block->set_geom_map(AXIS_ALIGNED);
         ret->add_block(right_block);
 
         return ret;
@@ -4255,9 +4344,13 @@ namespace smesh {
 
         std::vector<std::shared_ptr<Block>> blocks;
         blocks.push_back(std::make_shared<Block>("hex", HEX8, hex_buf));
+        blocks.back()->set_geom_map(AXIS_ALIGNED);
         blocks.push_back(std::make_shared<Block>("pyramid", PYRAMID5, pyr_buf));
+        blocks.back()->set_geom_map(ISOPARAMETRIC);
         blocks.push_back(std::make_shared<Block>("tet", TET4, tet_buf));
+        blocks.back()->set_geom_map(AFFINE);
         blocks.push_back(std::make_shared<Block>("wedge", WEDGE6, wedge_buf));
+        blocks.back()->set_geom_map(AFFINE);
         return std::make_shared<Mesh>(comm, blocks, points_buf);
     }
 
@@ -4282,6 +4375,12 @@ namespace smesh {
         auto blk = this->block(block_id);
         SMESH_ASSERT(blk);
         return blk->element_type();
+    }
+
+    enum GeomMap Mesh::geom_map(block_idx_t block_id) const {
+        auto blk = this->block(block_id);
+        SMESH_ASSERT(blk);
+        return blk->geom_map();
     }
 
     SharedBuffer<geom_t *> Mesh::points() { return impl_->points; }
@@ -4309,6 +4408,69 @@ namespace smesh {
         auto blk = this->block(block_id);
         SMESH_ASSERT(blk);
         blk->set_element_type(element_type);
+    }
+
+    int Mesh::set_geom_map(const block_idx_t block_id, const enum GeomMap geom_map) {
+        auto blk = this->block(block_id);
+        SMESH_ASSERT(blk);
+        return blk->set_geom_map(geom_map);
+    }
+
+    enum GeomMap Mesh::detect_geom_map(block_idx_t block_id) const {
+        return detect_geom_map(block_id, geom_map_default_rel_tol());
+    }
+
+    enum GeomMap Mesh::detect_geom_map(block_idx_t block_id, geom_t rel_tol) const {
+        auto blk = this->block(block_id);
+        SMESH_ASSERT(blk);
+        const ptrdiff_t ne   = blk->elements() ? blk->n_elements() : 0;
+        const int       has  = ne > 0 ? 1 : 0;
+        int             aff  = 1;
+        int             aa   = 1;
+        if (has) {
+            const idx_t  *const *els = blk->elements()->data();
+            const geom_t *const *pts = points() ? points()->data() : nullptr;
+            const enum GeomMap   local =
+                    ::smesh::detect_geom_map(blk->element_type(), ne, els, spatial_dimension(), pts, rel_tol);
+            aff = local != ISOPARAMETRIC;
+            aa  = local == AXIS_ALIGNED;
+        }
+
+        if (impl_->comm) {
+            const int has_g = impl_->comm->max(has);
+            const int n_aff = impl_->comm->max(aff ? 0 : 1);
+            const int n_aa  = impl_->comm->max(aa ? 0 : 1);
+            if (!has_g) {
+                return ISOPARAMETRIC;
+            }
+            aff = n_aff ? 0 : 1;
+            aa  = n_aa ? 0 : 1;
+        } else if (!has) {
+            return ISOPARAMETRIC;
+        }
+
+        if (aa && geom_map_allows_axis_aligned(blk->element_type())) {
+            return AXIS_ALIGNED;
+        }
+        return aff ? AFFINE : ISOPARAMETRIC;
+    }
+
+    int Mesh::detect_and_set_geom_map(block_idx_t block_id) {
+        return detect_and_set_geom_map(block_id, geom_map_default_rel_tol());
+    }
+
+    int Mesh::detect_and_set_geom_map(block_idx_t block_id, geom_t rel_tol) {
+        return set_geom_map(block_id, detect_geom_map(block_id, rel_tol));
+    }
+
+    int Mesh::detect_and_set_geom_maps() { return detect_and_set_geom_maps(geom_map_default_rel_tol()); }
+
+    int Mesh::detect_and_set_geom_maps(geom_t rel_tol) {
+        int err = SMESH_SUCCESS;
+        for (size_t b = 0; b < n_blocks(); ++b) {
+            err |= detect_and_set_geom_map(static_cast<block_idx_t>(b), rel_tol);
+        }
+        return err;
     }
 
     std::vector<std::shared_ptr<Mesh::Block>> Mesh::blocks(const std::vector<std::string> &block_names) const {
@@ -4341,6 +4503,7 @@ namespace smesh {
         default_block->set_name("default");
         default_block->set_element_type(HEX8);
         default_block->set_elements(elements_buffer);
+        default_block->set_geom_map(AXIS_ALIGNED);
         ret->add_block(default_block);
 
         return ret;
@@ -4382,8 +4545,9 @@ namespace smesh {
                                                             &points) != SMESH_SUCCESS) {
                 return nullptr;
             }
-            return Mesh::wrap_create_parallel(comm, TET4, nxe, n_local_e, n_global_e, elems, sdim, n_local_n, n_global_n,
-                                             points);
+            auto mesh = Mesh::wrap_create_parallel(comm, TET4, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
+                                                 n_global_n, points, AFFINE);
+            return mesh;
         }
 #endif
         auto            ret             = std::make_shared<Mesh>(comm);
@@ -4403,6 +4567,7 @@ namespace smesh {
         default_block->set_name("default");
         default_block->set_element_type(TET4);
         default_block->set_elements(elements_buffer);
+        default_block->set_geom_map(AFFINE);
         ret->add_block(default_block);
 
         return ret;
@@ -4517,6 +4682,17 @@ namespace smesh {
         if (mesh->n_blocks() > 0) {
             mesh->block(0)->set_name("fluid");
         }
+        if (hump_height > 0) {
+            for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+                auto              blk = mesh->block(b);
+                const enum ElemType t = blk->element_type();
+                if (t == TET4 || t == TRI3 || t == TRISHELL3) {
+                    blk->set_geom_map(AFFINE);
+                } else {
+                    blk->set_geom_map(ISOPARAMETRIC);
+                }
+            }
+        }
         return mesh;
     }
 
@@ -4623,6 +4799,7 @@ namespace smesh {
                 auto block = std::make_shared<Block>();
                 block->set_name(name);
                 block->set_element_type(source_block->element_type());
+                block->inherit_geom_map(source_block->geom_map());
                 block->set_elements(bdry_elements);
                 this->add_block(block);
             }
@@ -4631,6 +4808,7 @@ namespace smesh {
                 auto block = std::make_shared<Block>();
                 block->set_name(source_block->name());
                 block->set_element_type(source_block->element_type());
+                block->inherit_geom_map(source_block->geom_map());
                 block->set_elements(interior_elements);
                 this->add_block(block);
             }
@@ -4903,6 +5081,7 @@ namespace smesh {
             auto new_block = std::make_shared<Block>();
             new_block->set_name(block->name());
             new_block->set_element_type(block->element_type());
+            new_block->inherit_geom_map(block->geom_map());
             new_block->set_elements(dst_elems);
             ret->add_block(new_block);
         }
@@ -5066,6 +5245,7 @@ namespace smesh {
                 }
             }
 
+            new_block->inherit_geom_map(block->geom_map());
             blocks.push_back(new_block);
         }
 
@@ -5081,11 +5261,6 @@ namespace smesh {
     }
 
     std::shared_ptr<Mesh> promote_to(const enum ElemType element_type, const std::shared_ptr<Mesh> &mesh) {
-        if (mesh->comm()->size() > 1) {
-            SMESH_ERROR("Promotion to %s is not supported for distributed meshes\n", type_to_string(element_type));
-            return nullptr;
-        }
-
         std::map<std::pair<enum ElemType, enum ElemType>, std::function<std::shared_ptr<Mesh>(Mesh &)>> cmap;
 
         cmap[std::make_pair(TET4, TET15)] = [](Mesh &mesh) -> std::shared_ptr<Mesh> {
@@ -5116,7 +5291,12 @@ namespace smesh {
                                       elements->data(),
                                       points->data());
 
-            return std::make_shared<Mesh>(mesh.comm(), TET15, elements, points);
+            auto out = std::make_shared<Mesh>(mesh.comm(), TET15, elements, points);
+            if (out->n_blocks() > 0) {
+                out->block(0)->set_name(mesh.block(0)->name());
+                out->block(0)->inherit_geom_map(mesh.block(0)->geom_map());
+            }
+            return out;
         };
 
         auto promote_p1 = [](const enum ElemType dst, Mesh &mesh) -> std::shared_ptr<Mesh> {
@@ -5151,7 +5331,12 @@ namespace smesh {
                              0) != SMESH_SUCCESS) {
                     return nullptr;
                 }
-                return std::make_shared<Mesh>(mesh.comm(), dst, elements, points);
+                auto out = std::make_shared<Mesh>(mesh.comm(), dst, elements, points);
+                if (out->n_blocks() > 0) {
+                    out->block(0)->set_name(mesh.block(0)->name());
+                    out->block(0)->inherit_geom_map(mesh.block(0)->geom_map());
+                }
+                return out;
             }
 
             std::vector<std::shared_ptr<Mesh::Block>> blocks;
@@ -5177,6 +5362,7 @@ namespace smesh {
                 auto new_block = std::make_shared<Mesh::Block>();
                 new_block->set_name(block->name());
                 new_block->set_element_type(dst);
+                new_block->inherit_geom_map(block->geom_map());
                 new_block->set_elements(elements);
                 blocks.push_back(new_block);
             }
@@ -5201,15 +5387,25 @@ namespace smesh {
             return nullptr;
         }
 
-        if (mesh->n_blocks() == 1) {
-            return it->second(*mesh);
-        }
-
         for (size_t b = 1; b < mesh->n_blocks(); ++b) {
             if (mesh->element_type(static_cast<block_idx_t>(b)) != mesh->element_type(0)) {
                 SMESH_ERROR("Promotion requires all blocks to share the same element type\n");
                 return nullptr;
             }
+        }
+
+#ifdef SMESH_ENABLE_MPI
+        if (mesh->is_distributed()) {
+            return MeshTransformsDistributed::promote(mesh, element_type);
+        }
+#endif
+        if (mesh->comm()->size() > 1) {
+            SMESH_ERROR("Promotion to %s is not supported for distributed meshes\n", type_to_string(element_type));
+            return nullptr;
+        }
+
+        if (mesh->n_blocks() == 1) {
+            return it->second(*mesh);
         }
 
         if (element_type == TET15) {
@@ -5250,6 +5446,7 @@ namespace smesh {
                 auto new_block = std::make_shared<Mesh::Block>();
                 new_block->set_name(block->name());
                 new_block->set_element_type(TET15);
+                new_block->inherit_geom_map(block->geom_map());
                 new_block->set_elements(elements);
                 blocks.push_back(new_block);
             }
@@ -5402,6 +5599,7 @@ namespace smesh {
                     auto new_block = std::make_shared<Mesh::Block>();
                     new_block->set_name(block->name());
                     new_block->set_element_type(block->element_type());
+                    new_block->inherit_geom_map(block->geom_map());
                     new_block->set_elements(refined_elements);
                     blocks.push_back(new_block);
                 }
@@ -6307,6 +6505,7 @@ namespace smesh {
                 auto new_block = std::make_shared<Mesh::Block>();
                 new_block->set_name(block->name());
                 new_block->set_element_type(HEX8);
+                new_block->inherit_geom_map(block->geom_map());
                 new_block->set_elements(hex8_elements);
                 blocks.push_back(new_block);
             }
@@ -6347,6 +6546,7 @@ namespace smesh {
                 auto new_block = std::make_shared<Mesh::Block>();
                 new_block->set_name(block->name());
                 new_block->set_element_type(WEDGE6);
+                new_block->inherit_geom_map(block->geom_map());
                 new_block->set_elements(wedge6_elements);
                 blocks.push_back(new_block);
             }
@@ -6405,6 +6605,9 @@ namespace smesh {
             auto new_block = std::make_shared<Mesh::Block>();
             new_block->set_name("concatenated");
             new_block->set_element_type(mesh1->element_type(0));
+            if (mesh1->geom_map(0) == mesh2->geom_map(0)) {
+                new_block->inherit_geom_map(mesh1->geom_map(0));
+            }
             new_block->set_elements(new_elements);
             new_blocks.push_back(new_block);
         } else {
@@ -6437,7 +6640,8 @@ namespace smesh {
         os << "n_blocks: " << n_blocks() << "\n";
 
         for (size_t i = 0; i < n_blocks(); i++) {
-            os << i << ")\n";
+            os << i << ") " << block(i)->name() << " " << type_to_string(block(i)->element_type())
+               << " " << geom_map_to_string(block(i)->geom_map()) << "\n";
             block(i)->elements()->print(os);
         }
 

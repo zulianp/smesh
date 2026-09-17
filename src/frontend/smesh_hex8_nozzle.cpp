@@ -37,202 +37,17 @@
 
 #include "smesh_base.hpp"
 #include "smesh_buffer.hpp"
+#include "smesh_hex8_nozzle_grid.hpp"
 #include "smesh_sshex8.hpp"
+
+#ifdef SMESH_ENABLE_MPI
+#include "smesh_distributed_create.hpp"
+#endif
 
 #include <cmath>
 #include <vector>
 
 namespace smesh {
-
-    namespace {
-
-        bool nozzle_arguments_valid(const std::vector<geom_t> &x_breaks, const std::vector<geom_t> &bore_radius,
-                                    const std::vector<ptrdiff_t> &n_axial, const ptrdiff_t expansion,
-                                    const geom_t expanded_radius, const ptrdiff_t n_core, const ptrdiff_t n_bore,
-                                    const ptrdiff_t n_outer, const geom_t core_fraction, const char *const who) {
-            const ptrdiff_t n_segments = (ptrdiff_t)n_axial.size();
-            if (n_segments < 1 || (ptrdiff_t)x_breaks.size() != n_segments + 1 ||
-                (ptrdiff_t)bore_radius.size() != n_segments + 1) {
-                SMESH_ERROR("%s: need S >= 1 segments, S+1 breaks and S+1 radii", who);
-                return false;
-            }
-            for (ptrdiff_t s = 0; s < n_segments; ++s) {
-                if (n_axial[(size_t)s] < 1 || !(x_breaks[(size_t)s + 1] > x_breaks[(size_t)s])) {
-                    SMESH_ERROR("%s: segment %td needs n_axial >= 1 and increasing x", who, s);
-                    return false;
-                }
-            }
-            for (ptrdiff_t k = 0; k <= n_segments; ++k) {
-                if (!(bore_radius[(size_t)k] > 0)) {
-                    SMESH_ERROR("%s: bore radius must be positive at break %td", who, k);
-                    return false;
-                }
-            }
-            // Even, so that the core has node lines on both symmetry planes and therefore a
-            // column of nodes on the axis. Centreline data is what this geometry is compared on,
-            // and interpolating it off-axis would be a second approximation on top of the scheme.
-            if (n_core < 2 || n_core % 2 != 0 || n_bore < 1 || !(core_fraction > 0) || !(core_fraction < 1)) {
-                SMESH_ERROR("%s: need an even n_core >= 2, n_bore >= 1 and "
-                            "0 < core_fraction < 1", who);
-                return false;
-            }
-            const bool has_expansion = expansion >= 0 && expansion < n_segments;
-            if (has_expansion) {
-                if (n_outer < 1) {
-                    SMESH_ERROR("%s: an expansion needs n_outer >= 1", who);
-                    return false;
-                }
-                for (ptrdiff_t k = expansion; k <= n_segments; ++k) {
-                    if (!(bore_radius[(size_t)k] < expanded_radius)) {
-                        SMESH_ERROR("%s: downstream of the expansion the bore "
-                                    "(break %td) must be narrower than the expanded radius", who, k);
-                        return false;
-                    }
-                }
-            }
-            return true;
-        }
-
-        // ---- the cross-section, in (y, z) ----
-        //
-        // Core nodes (i, j) first, then one loop of 4 n_core nodes per ring layer l >= 1.
-        // Loop 0 is the core boundary and is not stored twice: loop_node(0, m) returns the
-        // core node it coincides with.
-        //
-        // A position is split into the part that scales with the bore radius and the part that
-        // spans the outer ring, so a plane is placed by
-        //     p = rb * bore_part + (R - rb) * outer_part.
-        struct NozzleSection {
-            ptrdiff_t n{0}, n_bore{0}, n_outer{0}, n_perim{0}, n_loops{0}, n_core_nodes{0}, n2d{0};
-            double    c{0};
-
-            NozzleSection(const ptrdiff_t n_core, const ptrdiff_t nb, const ptrdiff_t no, const bool has_expansion,
-                          const double core_fraction)
-                : n(n_core),
-                  n_bore(nb),
-                  n_outer(no),
-                  n_perim(4 * n_core),
-                  n_loops(nb + (has_expansion ? no : 0)),  // beyond loop 0
-                  n_core_nodes((n_core + 1) * (n_core + 1)),
-                  n2d((n_core + 1) * (n_core + 1) + (nb + (has_expansion ? no : 0)) * 4 * n_core),
-                  c(core_fraction) {}
-
-            ptrdiff_t core_node(const ptrdiff_t i, const ptrdiff_t j) const { return i + j * (n + 1); }
-
-            // Counter-clockwise from the corner (1, -1).
-            void perim_ij(const ptrdiff_t m, ptrdiff_t &i, ptrdiff_t &j) const {
-                if (m < n) { i = n; j = m; }
-                else if (m < 2 * n) { i = 2 * n - m; j = n; }
-                else if (m < 3 * n) { i = 0; j = 3 * n - m; }
-                else { i = m - 3 * n; j = 0; }
-            }
-
-            ptrdiff_t loop_node(const ptrdiff_t l, const ptrdiff_t m) const {
-                const ptrdiff_t mm = ((m % n_perim) + n_perim) % n_perim;
-                if (l == 0) {
-                    ptrdiff_t i, j;
-                    perim_ij(mm, i, j);
-                    return core_node(i, j);
-                }
-                return n_core_nodes + (l - 1) * n_perim + mm;
-            }
-
-            // The core square at continuous (i, j).
-            void core(const double i, const double j, double &by, double &bz, double &oy, double &oz) const {
-                by = c * (-1.0 + 2.0 * i / (double)n);
-                bz = c * (-1.0 + 2.0 * j / (double)n);
-                oy = 0;
-                oz = 0;
-            }
-
-            // A ring at continuous loop coordinate l and perimeter coordinate m. `outer` selects
-            // the bore-to-expanded layers (l >= n_bore) over the core-to-bore ones; at l = n_bore
-            // the two agree. The square perimeter is taken through the same (i, j) arithmetic as
-            // perim_ij and core(), so a node on the core boundary is bit-identical whichever
-            // element places it.
-            void ring(const double l, const double m, const bool outer, double &by, double &bz, double &oy,
-                      double &oz) const {
-                const double dn = (double)n;
-                double       mm = std::fmod(m, (double)n_perim);
-                if (mm < 0) mm += (double)n_perim;
-                double si, sj;
-                if (mm < dn) { si = dn; sj = mm; }
-                else if (mm < 2 * dn) { si = 2 * dn - mm; sj = dn; }
-                else if (mm < 3 * dn) { si = 0; sj = 3 * dn - mm; }
-                else { si = mm - 3 * dn; sj = 0; }
-                const double sq_y = -1.0 + 2.0 * si / dn;
-                const double sq_z = -1.0 + 2.0 * sj / dn;
-                // Equiangular on the circle: the square corner (1,-1) goes to -45 degrees and
-                // a side midpoint to 0, so every ring cell subtends the same angle.
-                const double th = -0.25 * M_PI + 0.5 * M_PI * m / dn;
-                const double cy = std::cos(th), cz = std::sin(th);
-                if (!outer) {
-                    const double s = l / (double)n_bore;
-                    by             = (1.0 - s) * c * sq_y + s * cy;
-                    bz             = (1.0 - s) * c * sq_z + s * cz;
-                    oy             = 0;
-                    oz             = 0;
-                } else {
-                    const double s = (l - (double)n_bore) / (double)n_outer;
-                    by             = cy;
-                    bz             = cz;
-                    oy             = s * cy;
-                    oz             = s * cz;
-                }
-            }
-
-            // Reference position of every 2D node of the integer grid.
-            void reference(std::vector<double> &by, std::vector<double> &bz, std::vector<double> &oy,
-                           std::vector<double> &oz) const {
-                by.assign((size_t)n2d, 0);
-                bz.assign((size_t)n2d, 0);
-                oy.assign((size_t)n2d, 0);
-                oz.assign((size_t)n2d, 0);
-                for (ptrdiff_t j = 0; j <= n; ++j)
-                    for (ptrdiff_t i = 0; i <= n; ++i) {
-                        const ptrdiff_t v = core_node(i, j);
-                        core((double)i, (double)j, by[(size_t)v], bz[(size_t)v], oy[(size_t)v], oz[(size_t)v]);
-                    }
-                for (ptrdiff_t l = 1; l <= n_loops; ++l)
-                    for (ptrdiff_t m = 0; m < n_perim; ++m) {
-                        const ptrdiff_t v = loop_node(l, m);
-                        ring((double)l, (double)m, l > n_bore, by[(size_t)v], bz[(size_t)v], oy[(size_t)v],
-                             oz[(size_t)v]);
-                    }
-            }
-        };
-
-        // ---- the axial planes ----
-        struct NozzlePlanes {
-            ptrdiff_t              n_cells_x{0}, n_planes{0};
-            std::vector<double>    plane_x, plane_rb;
-            std::vector<ptrdiff_t> cell_segment;
-
-            NozzlePlanes(const std::vector<geom_t> &x_breaks, const std::vector<geom_t> &bore_radius,
-                         const std::vector<ptrdiff_t> &n_axial) {
-                const ptrdiff_t n_segments = (ptrdiff_t)n_axial.size();
-                for (auto na : n_axial) n_cells_x += na;
-                n_planes = n_cells_x + 1;
-                plane_x.resize((size_t)n_planes);
-                plane_rb.resize((size_t)n_planes);
-                cell_segment.resize((size_t)n_cells_x);
-                ptrdiff_t k = 0;
-                for (ptrdiff_t s = 0; s < n_segments; ++s) {
-                    const ptrdiff_t na = n_axial[(size_t)s];
-                    for (ptrdiff_t a = 0; a < na; ++a, ++k) {
-                        const double t     = (double)a / (double)na;
-                        plane_x[(size_t)k]  = (1 - t) * x_breaks[(size_t)s] + t * x_breaks[(size_t)s + 1];
-                        plane_rb[(size_t)k] = (1 - t) * bore_radius[(size_t)s] + t * bore_radius[(size_t)s + 1];
-                        cell_segment[(size_t)k] = s;
-                    }
-                }
-                // Written from the break itself, not accumulated, so the end planes are exact.
-                plane_x[(size_t)k]  = x_breaks[(size_t)n_segments];
-                plane_rb[(size_t)k] = bore_radius[(size_t)n_segments];
-            }
-        };
-
-    }  // namespace
 
     std::shared_ptr<Mesh> Mesh::create_hex8_nozzle(const std::shared_ptr<Communicator> &comm,
                                                    const std::vector<geom_t>           &x_breaks,
@@ -247,6 +62,41 @@ namespace smesh {
         if (!nozzle_arguments_valid(x_breaks, bore_radius, n_axial, expansion, expanded_radius, n_core, n_bore,
                                     n_outer, core_fraction, "create_hex8_nozzle"))
             return nullptr;
+#ifdef SMESH_ENABLE_MPI
+        if (comm && comm->size() > 1) {
+            int       nxe = 0, sdim = 0;
+            ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
+            idx_t  **elems  = nullptr;
+            geom_t **points = nullptr;
+            if (hex8_nozzle_create_distributed<idx_t, geom_t>(comm->get(),
+                                                              x_breaks.data(),
+                                                              bore_radius.data(),
+                                                              n_axial.data(),
+                                                              (ptrdiff_t)n_axial.size(),
+                                                              expansion,
+                                                              expanded_radius,
+                                                              n_core,
+                                                              n_bore,
+                                                              n_outer,
+                                                              core_fraction,
+                                                              &nxe,
+                                                              &n_local_e,
+                                                              &n_global_e,
+                                                              &elems,
+                                                              &sdim,
+                                                              &n_local_n,
+                                                              &n_global_n,
+                                                              &points) != SMESH_SUCCESS) {
+                return nullptr;
+            }
+            auto mesh = Mesh::wrap_create_parallel(comm, HEX8, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
+                                                   n_global_n, points, ISOPARAMETRIC);
+            if (mesh && mesh->n_blocks() > 0) {
+                mesh->block(0)->set_name("fluid");
+            }
+            return mesh;
+        }
+#endif
         const ptrdiff_t n_segments    = (ptrdiff_t)n_axial.size();
         const bool      has_expansion = expansion >= 0 && expansion < n_segments;
 
@@ -258,30 +108,14 @@ namespace smesh {
         // 2D quads, counter-clockwise in (y, z) so that extrusion along +x gives a positive
         // Jacobian in the corner order below. `outer` marks the quads that exist only
         // downstream of the expansion.
-        struct Quad {
-            ptrdiff_t v[4];
-            bool      outer;
-        };
-        const ptrdiff_t   n       = sec.n;
-        const ptrdiff_t   n_perim = sec.n_perim;
-        std::vector<Quad> quads;
-        quads.reserve((size_t)(n * n + sec.n_loops * n_perim));
-        for (ptrdiff_t j = 0; j < n; ++j)
-            for (ptrdiff_t i = 0; i < n; ++i)
-                quads.push_back({{sec.core_node(i, j), sec.core_node(i + 1, j), sec.core_node(i + 1, j + 1),
-                                  sec.core_node(i, j + 1)},
-                                 false});
-        for (ptrdiff_t l = 0; l < sec.n_loops; ++l)
-            for (ptrdiff_t m = 0; m < n_perim; ++m)
-                quads.push_back({{sec.loop_node(l, m), sec.loop_node(l + 1, m), sec.loop_node(l + 1, m + 1),
-                                  sec.loop_node(l, m + 1)},
-                                 l >= n_bore});
+        std::vector<NozzleQuad> quads;
+        nozzle_build_quads(sec, quads);
 
         const NozzlePlanes pl(x_breaks, bore_radius, n_axial);
         const ptrdiff_t    n_cells_x = pl.n_cells_x;
         const ptrdiff_t    n_planes  = pl.n_planes;
 
-        auto kept = [&](const Quad &q, const ptrdiff_t k) {
+        auto kept = [&](const NozzleQuad &q, const ptrdiff_t k) {
             return !q.outer || pl.cell_segment[(size_t)k] >= expansion;
         };
 
@@ -339,6 +173,7 @@ namespace smesh {
         block->set_name("fluid");
         block->set_element_type(HEX8);
         block->set_elements(elements_buffer);
+        block->set_geom_map(ISOPARAMETRIC);
 
         return std::make_shared<Mesh>(comm, std::vector<std::shared_ptr<Block>>{block},
                                       points_buffer);
@@ -483,6 +318,9 @@ namespace smesh {
                         pts[2][node]     = (geom_t)(rb * qz + (R - rb) * rz);
                     }
             }
+        }
+        for (size_t b = 0; b < sshex->n_blocks(); ++b) {
+            sshex->block(b)->set_geom_map(ISOPARAMETRIC);
         }
         return SMESH_SUCCESS;
     }
