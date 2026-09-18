@@ -99,13 +99,16 @@ int hex8_lshape_create_distributed(
     ptrdiff_t *n_global_nodes_out, geom_t ***points_out);
 
 // Rank-split of the compacted arrays `create_hex8_nozzle` would write.
+// `radial_grading` and `axial_grading` carry through unchanged, so a distributed
+// mesh is the same mesh the serial generator would build; 0 is ungraded.
 template <typename idx_t, typename geom_t>
 int hex8_nozzle_create_distributed(
     MPI_Comm comm, const geom_t *x_breaks, const geom_t *bore_radius,
     const ptrdiff_t *n_axial, const ptrdiff_t n_segments,
     const ptrdiff_t expansion, const geom_t expanded_radius,
     const ptrdiff_t n_core, const ptrdiff_t n_bore, const ptrdiff_t n_outer,
-    const geom_t core_fraction, int *nnodesxelem_out,
+    const geom_t core_fraction, const geom_t radial_grading,
+    const geom_t axial_grading, int *nnodesxelem_out,
     ptrdiff_t *n_local_elements_out, ptrdiff_t *n_global_elements_out,
     idx_t ***elems_out, int *spatial_dim_out, ptrdiff_t *n_local_nodes_out,
     ptrdiff_t *n_global_nodes_out, geom_t ***points_out);

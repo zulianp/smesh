@@ -667,7 +667,8 @@ int hex8_nozzle_create_distributed(
     const ptrdiff_t *n_axial, const ptrdiff_t n_segments,
     const ptrdiff_t expansion, const geom_t expanded_radius,
     const ptrdiff_t n_core, const ptrdiff_t n_bore, const ptrdiff_t n_outer,
-    const geom_t core_fraction, int *nnodesxelem_out,
+    const geom_t core_fraction, const geom_t radial_grading,
+    const geom_t axial_grading, int *nnodesxelem_out,
     ptrdiff_t *n_local_elements_out, ptrdiff_t *n_global_elements_out,
     idx_t ***elems_out, int *spatial_dim_out, ptrdiff_t *n_local_nodes_out,
     ptrdiff_t *n_global_nodes_out, geom_t ***points_out) {
@@ -678,6 +679,7 @@ int hex8_nozzle_create_distributed(
   std::vector<ptrdiff_t> na_vec(n_axial, n_axial + n_segments);
   if (!nozzle_arguments_valid(x_vec, r_vec, na_vec, expansion, expanded_radius,
                               n_core, n_bore, n_outer, core_fraction,
+                              radial_grading, axial_grading,
                               "hex8_nozzle_create_distributed")) {
     return SMESH_FAILURE;
   }
@@ -690,8 +692,8 @@ int hex8_nozzle_create_distributed(
   constexpr int kSpatialDim = 3;
   const bool has_expansion = expansion >= 0 && expansion < n_segments;
   const NozzleSection sec(n_core, n_bore, n_outer, has_expansion,
-                          (double)core_fraction);
-  const NozzlePlanes pl(x_vec, r_vec, na_vec);
+                          (double)core_fraction, (double)radial_grading);
+  const NozzlePlanes pl(x_vec, r_vec, na_vec, (double)axial_grading);
   std::vector<NozzleQuad> quads;
   nozzle_build_quads(sec, quads);
 
