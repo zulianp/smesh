@@ -1,25 +1,25 @@
 #include "smesh_mesh.hpp"
 #include "smesh_adjacency.hpp"
 #include "smesh_alloc.hpp"
+#include "smesh_blocks_meta.hpp"
 #include "smesh_build.hpp"
 #include "smesh_conversion.hpp"
 #include "smesh_device_buffer.hpp"
+#include "smesh_edgeset.hpp"
 #include "smesh_file_extensions.hpp"
 #include "smesh_glob.hpp"
 #include "smesh_graph.hpp"
 #include "smesh_mask.hpp"
 #include "smesh_multiblock_graph.hpp"
+#include "smesh_nodeset.hpp"
+#include "smesh_parametrization.hpp"
 #include "smesh_path.hpp"
 #include "smesh_promotions.hpp"
-#include "smesh_blocks_meta.hpp"
 #include "smesh_read.hpp"
 #include "smesh_refine.hpp"
 #include "smesh_reorder.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sideset.hpp"
-#include "smesh_edgeset.hpp"
-#include "smesh_nodeset.hpp"
-#include "smesh_parametrization.hpp"
 #include "smesh_sshex8.hpp"
 #include "smesh_sshex8_graph.hpp"
 #include "smesh_sshex8_mesh.hpp"
@@ -43,21 +43,20 @@
 #endif
 
 #ifdef SMESH_ENABLE_RYAML
+#include "smesh_io_yaml.hpp"
 #include <ryml.hpp>
 #include <ryml_std.hpp>
-#include "smesh_io_yaml.hpp"
 #endif
 
-#include <math.h>
 #include <algorithm>
 #include <array>
 #include <cstdlib>
-#include <cstring>
 #include <cstring>
 #include <fstream>
 #include <limits>
 #include <list>
 #include <map>
+#include <math.h>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -66,6758 +65,6658 @@
 namespace smesh {
 
 #ifdef SMESH_ENABLE_MPI
-    template <typename T>
-    static int encode_cartesian3_default(const ptrdiff_t               n_points,
-                                         const T *const SMESH_RESTRICT x,
-                                         const T *const SMESH_RESTRICT y,
-                                         const T *const SMESH_RESTRICT z,
-                                         const T                       x_min,
-                                         const T                       x_max,
-                                         const T                       y_min,
-                                         const T                       y_max,
-                                         const T                       z_min,
-                                         const T                       z_max,
-                                         u32 *const SMESH_RESTRICT     encoding) {
-        return encode_cartesian3<T>(n_points, x, y, z, x_min, x_max, y_min, y_max, z_min, z_max, 0, 1, 2, encoding);
-    }
+template <typename T>
+static int encode_cartesian3_default(
+    const ptrdiff_t n_points, const T *const SMESH_RESTRICT x,
+    const T *const SMESH_RESTRICT y, const T *const SMESH_RESTRICT z,
+    const T x_min, const T x_max, const T y_min, const T y_max, const T z_min,
+    const T z_max, u32 *const SMESH_RESTRICT encoding) {
+  return encode_cartesian3<T>(n_points, x, y, z, x_min, x_max, y_min, y_max,
+                              z_min, z_max, 0, 1, 2, encoding);
+}
 
-    template <typename T>
-    static int encode_random3_bounded(const ptrdiff_t               n_points,
-                                      const T *const SMESH_RESTRICT x,
-                                      const T *const SMESH_RESTRICT y,
-                                      const T *const SMESH_RESTRICT z,
-                                      const T                       x_min,
-                                      const T                       x_max,
-                                      const T                       y_min,
-                                      const T                       y_max,
-                                      const T                       z_min,
-                                      const T                       z_max,
-                                      u32 *const SMESH_RESTRICT     encoding) {
-        SMESH_UNUSED(x_min);
-        SMESH_UNUSED(x_max);
-        SMESH_UNUSED(y_min);
-        SMESH_UNUSED(y_max);
-        SMESH_UNUSED(z_min);
-        SMESH_UNUSED(z_max);
-        return encode_random3<T>(n_points, x, y, z, encoding);
-    }
+template <typename T>
+static int encode_random3_bounded(const ptrdiff_t n_points,
+                                  const T *const SMESH_RESTRICT x,
+                                  const T *const SMESH_RESTRICT y,
+                                  const T *const SMESH_RESTRICT z,
+                                  const T x_min, const T x_max, const T y_min,
+                                  const T y_max, const T z_min, const T z_max,
+                                  u32 *const SMESH_RESTRICT encoding) {
+  SMESH_UNUSED(x_min);
+  SMESH_UNUSED(x_max);
+  SMESH_UNUSED(y_min);
+  SMESH_UNUSED(y_max);
+  SMESH_UNUSED(z_min);
+  SMESH_UNUSED(z_max);
+  return encode_random3<T>(n_points, x, y, z, encoding);
+}
 #endif
 
-    class Distributed::Impl {
-    public:
-        ptrdiff_t n_nodes_global = 0;
-        ptrdiff_t n_nodes_owned  = 0;
-        ptrdiff_t n_nodes_shared = 0;
-        ptrdiff_t n_nodes_ghosts = 0;
-        ptrdiff_t n_nodes_aura   = 0;
+class Distributed::Impl {
+public:
+  ptrdiff_t n_nodes_global = 0;
+  ptrdiff_t n_nodes_owned = 0;
+  ptrdiff_t n_nodes_shared = 0;
+  ptrdiff_t n_nodes_ghosts = 0;
+  ptrdiff_t n_nodes_aura = 0;
 
-        ptrdiff_t n_elements_global = 0;
-        ptrdiff_t n_elements_owned  = 0;
-        ptrdiff_t n_elements_shared = 0;
-        ptrdiff_t n_elements_ghosts = 0;
+  ptrdiff_t n_elements_global = 0;
+  ptrdiff_t n_elements_owned = 0;
+  ptrdiff_t n_elements_shared = 0;
+  ptrdiff_t n_elements_ghosts = 0;
 
-        SharedBuffer<large_idx_t> node_mapping;
-        SharedBuffer<large_idx_t> element_mapping;
+  SharedBuffer<large_idx_t> node_mapping;
+  SharedBuffer<large_idx_t> element_mapping;
 
-        SharedBuffer<int>       node_owner;
-        SharedBuffer<ptrdiff_t> node_offsets;
-        SharedBuffer<idx_t>     ghosts_and_aura;
+  SharedBuffer<int> node_owner;
+  SharedBuffer<ptrdiff_t> node_offsets;
+  SharedBuffer<idx_t> ghosts_and_aura;
 
-        // Only exists for aura elements (global id)
-        SharedBuffer<large_idx_t> aura_element_mapping;
-    };
+  // Only exists for aura elements (global id)
+  SharedBuffer<large_idx_t> aura_element_mapping;
+};
 
-    SharedBuffer<large_idx_t> Distributed::node_mapping() const {
-        SMESH_ASSERT(impl_->node_mapping);
-        return impl_->node_mapping;
+SharedBuffer<large_idx_t> Distributed::node_mapping() const {
+  SMESH_ASSERT(impl_->node_mapping);
+  return impl_->node_mapping;
+}
+
+SharedBuffer<large_idx_t> Distributed::element_mapping() const {
+  return impl_->element_mapping;
+}
+SharedBuffer<large_idx_t> Distributed::aura_element_mapping() const {
+  return impl_->aura_element_mapping;
+}
+SharedBuffer<int> Distributed::node_owner() const { return impl_->node_owner; }
+SharedBuffer<ptrdiff_t> Distributed::node_offsets() const {
+  return impl_->node_offsets;
+}
+SharedBuffer<idx_t> Distributed::ghosts() const {
+  return view(impl_->ghosts_and_aura, 0, impl_->n_nodes_ghosts);
+}
+SharedBuffer<idx_t> Distributed::ghosts_and_aura() const {
+  return impl_->ghosts_and_aura;
+}
+
+Distributed::Distributed() : impl_(std::make_unique<Impl>()) {}
+Distributed::~Distributed() = default;
+
+ptrdiff_t Distributed::n_nodes_global() const { return impl_->n_nodes_global; }
+ptrdiff_t Distributed::n_elements_global() const {
+  return impl_->n_elements_global;
+}
+ptrdiff_t Distributed::n_nodes_local() const {
+  return impl_->n_nodes_owned + impl_->n_nodes_ghosts + impl_->n_nodes_aura;
+}
+ptrdiff_t Distributed::n_nodes_owned_not_shared() const {
+  return impl_->n_nodes_owned - impl_->n_nodes_shared;
+}
+ptrdiff_t Distributed::n_nodes_owned() const { return impl_->n_nodes_owned; }
+ptrdiff_t Distributed::n_nodes_shared() const { return impl_->n_nodes_shared; }
+ptrdiff_t Distributed::n_nodes_ghosts() const { return impl_->n_nodes_ghosts; }
+ptrdiff_t Distributed::n_nodes_aura() const { return impl_->n_nodes_aura; }
+ptrdiff_t Distributed::n_elements_local() const {
+  return impl_->n_elements_owned + impl_->n_elements_ghosts;
+}
+ptrdiff_t Distributed::n_elements_owned_not_shared() const {
+  return impl_->n_elements_owned - impl_->n_elements_shared;
+}
+ptrdiff_t Distributed::n_elements_owned() const {
+  return impl_->n_elements_owned;
+}
+ptrdiff_t Distributed::n_elements_shared() const {
+  return impl_->n_elements_shared;
+}
+ptrdiff_t Distributed::n_elements_ghosts() const {
+  return impl_->n_elements_ghosts;
+}
+
+void Distributed::set_nodes(ptrdiff_t n_global, ptrdiff_t n_owned,
+                            ptrdiff_t n_shared, ptrdiff_t n_ghosts,
+                            ptrdiff_t n_aura,
+                            SharedBuffer<large_idx_t> node_mapping,
+                            SharedBuffer<int> node_owner,
+                            SharedBuffer<ptrdiff_t> node_offsets,
+                            SharedBuffer<idx_t> ghosts_and_aura) {
+  impl_->n_nodes_global = n_global;
+  impl_->n_nodes_owned = n_owned;
+  impl_->n_nodes_shared = n_shared;
+  impl_->n_nodes_ghosts = n_ghosts;
+  impl_->n_nodes_aura = n_aura;
+  impl_->node_mapping = std::move(node_mapping);
+  impl_->node_owner = std::move(node_owner);
+  impl_->node_offsets = std::move(node_offsets);
+  impl_->ghosts_and_aura = std::move(ghosts_and_aura);
+}
+
+void Distributed::set_elements(ptrdiff_t n_global, ptrdiff_t n_owned,
+                               ptrdiff_t n_shared, ptrdiff_t n_ghosts,
+                               SharedBuffer<large_idx_t> element_mapping,
+                               SharedBuffer<large_idx_t> aura_element_mapping) {
+  impl_->n_elements_global = n_global;
+  impl_->n_elements_owned = n_owned;
+  impl_->n_elements_shared = n_shared;
+  impl_->n_elements_ghosts = n_ghosts;
+  impl_->element_mapping = std::move(element_mapping);
+  impl_->aura_element_mapping = std::move(aura_element_mapping);
+}
+
+class DistributedBlock::Impl {
+public:
+  ptrdiff_t n_elements_owned = 0;
+  ptrdiff_t n_elements_shared = 0;
+  ptrdiff_t n_elements_ghosts = 0;
+  SharedBuffer<large_idx_t> element_mapping;
+  SharedBuffer<large_idx_t> aura_element_mapping;
+};
+
+DistributedBlock::DistributedBlock() : impl_(std::make_unique<Impl>()) {}
+DistributedBlock::~DistributedBlock() = default;
+
+ptrdiff_t DistributedBlock::n_elements_local() const {
+  return impl_->n_elements_owned + impl_->n_elements_ghosts;
+}
+ptrdiff_t DistributedBlock::n_elements_owned_not_shared() const {
+  return impl_->n_elements_owned - impl_->n_elements_shared;
+}
+ptrdiff_t DistributedBlock::n_elements_owned() const {
+  return impl_->n_elements_owned;
+}
+ptrdiff_t DistributedBlock::n_elements_shared() const {
+  return impl_->n_elements_shared;
+}
+ptrdiff_t DistributedBlock::n_elements_ghosts() const {
+  return impl_->n_elements_ghosts;
+}
+
+SharedBuffer<large_idx_t> DistributedBlock::element_mapping() const {
+  return impl_->element_mapping;
+}
+SharedBuffer<large_idx_t> DistributedBlock::aura_element_mapping() const {
+  return impl_->aura_element_mapping;
+}
+
+void DistributedBlock::set_elements(
+    ptrdiff_t n_owned, ptrdiff_t n_shared, ptrdiff_t n_ghosts,
+    SharedBuffer<large_idx_t> element_mapping,
+    SharedBuffer<large_idx_t> aura_element_mapping) {
+  impl_->n_elements_owned = n_owned;
+  impl_->n_elements_shared = n_shared;
+  impl_->n_elements_ghosts = n_ghosts;
+  impl_->element_mapping = std::move(element_mapping);
+  impl_->aura_element_mapping = std::move(aura_element_mapping);
+}
+
+static ptrdiff_t
+max_node_id(const enum ElemType element_type, const ptrdiff_t n_elements,
+            const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems) {
+  const int nxe = elem_num_nodes(element_type);
+  idx_t max_id{-1};
+  for (int v = 0; v < nxe; ++v) {
+    const idx_t *const col = elems[v];
+    for (ptrdiff_t e = 0; e < n_elements; ++e) {
+      max_id = std::max(max_id, col[e]);
     }
+  }
+  return static_cast<ptrdiff_t>(max_id);
+}
 
-    SharedBuffer<large_idx_t> Distributed::element_mapping() const { return impl_->element_mapping; }
-    SharedBuffer<large_idx_t> Distributed::aura_element_mapping() const { return impl_->aura_element_mapping; }
-    SharedBuffer<int>         Distributed::node_owner() const { return impl_->node_owner; }
-    SharedBuffer<ptrdiff_t>   Distributed::node_offsets() const { return impl_->node_offsets; }
-    SharedBuffer<idx_t>       Distributed::ghosts() const { return view(impl_->ghosts_and_aura, 0, impl_->n_nodes_ghosts); }
-    SharedBuffer<idx_t>       Distributed::ghosts_and_aura() const { return impl_->ghosts_and_aura; }
+// class KernelData::Impl {
+// public:
+//     std::vector<SharedBuffer<idx_t *>> elements_SoA;
+//     std::vector<SharedBuffer<idx_t>>   elements_AoS;
 
-    Distributed::Distributed() : impl_(std::make_unique<Impl>()) {}
-    Distributed::~Distributed() = default;
+//     SharedBuffer<geom_t *> points_SoA;
+//     SharedBuffer<geom_t>   points_AoS;
 
-    ptrdiff_t Distributed::n_nodes_global() const { return impl_->n_nodes_global; }
-    ptrdiff_t Distributed::n_elements_global() const { return impl_->n_elements_global; }
-    ptrdiff_t Distributed::n_nodes_local() const { return impl_->n_nodes_owned + impl_->n_nodes_ghosts + impl_->n_nodes_aura; }
-    ptrdiff_t Distributed::n_nodes_owned_not_shared() const { return impl_->n_nodes_owned - impl_->n_nodes_shared; }
-    ptrdiff_t Distributed::n_nodes_owned() const { return impl_->n_nodes_owned; }
-    ptrdiff_t Distributed::n_nodes_shared() const { return impl_->n_nodes_shared; }
-    ptrdiff_t Distributed::n_nodes_ghosts() const { return impl_->n_nodes_ghosts; }
-    ptrdiff_t Distributed::n_nodes_aura() const { return impl_->n_nodes_aura; }
-    ptrdiff_t Distributed::n_elements_local() const { return impl_->n_elements_owned + impl_->n_elements_ghosts; }
-    ptrdiff_t Distributed::n_elements_owned_not_shared() const { return impl_->n_elements_owned - impl_->n_elements_shared; }
-    ptrdiff_t Distributed::n_elements_owned() const { return impl_->n_elements_owned; }
-    ptrdiff_t Distributed::n_elements_shared() const { return impl_->n_elements_shared; }
-    ptrdiff_t Distributed::n_elements_ghosts() const { return impl_->n_elements_ghosts; }
+//     std::vector<SharedBuffer<jacobian_t *>> jacobians_SoA;
+//     std::vector<SharedBuffer<jacobian_t>>   jacobians_AoS;
+//     std::vector<SharedBuffer<jacobian_t *>> jacobian_adjugate_SoA;
+//     std::vector<SharedBuffer<jacobian_t>>   jacobian_adjugate_AoS;
+//     std::vector<SharedBuffer<geom_t>>       jacobian_determinant;
 
-    void Distributed::set_nodes(ptrdiff_t                  n_global,
-                                ptrdiff_t                  n_owned,
-                                ptrdiff_t                  n_shared,
-                                ptrdiff_t                  n_ghosts,
-                                ptrdiff_t                  n_aura,
-                                SharedBuffer<large_idx_t>  node_mapping,
-                                SharedBuffer<int>          node_owner,
-                                SharedBuffer<ptrdiff_t>    node_offsets,
-                                SharedBuffer<idx_t>        ghosts_and_aura) {
-        impl_->n_nodes_global  = n_global;
-        impl_->n_nodes_owned   = n_owned;
-        impl_->n_nodes_shared  = n_shared;
-        impl_->n_nodes_ghosts  = n_ghosts;
-        impl_->n_nodes_aura    = n_aura;
-        impl_->node_mapping    = std::move(node_mapping);
-        impl_->node_owner      = std::move(node_owner);
-        impl_->node_offsets    = std::move(node_offsets);
-        impl_->ghosts_and_aura = std::move(ghosts_and_aura);
+//     std::vector<SharedBuffer<jacobian_t *>> fff_SoA;
+//     std::vector<SharedBuffer<jacobian_t>>   fff_AoS;
+
+//     ~Impl() {}
+
+//     void clear() {
+//         elements_SoA.clear();
+//         elements_AoS.clear();
+//         points_SoA = nullptr;
+//         points_AoS = nullptr;
+//         jacobians_SoA.clear();
+//         jacobians_AoS.clear();
+//         jacobian_adjugate_SoA.clear();
+//         jacobian_adjugate_AoS.clear();
+//         jacobian_determinant.clear();
+//     }
+// };
+
+// KernelData::KernelData() : impl_(std::make_unique<Impl>()) {}
+// KernelData::~KernelData() = default;
+
+// SharedBuffer<idx_t *> KernelData::elements_SoA(const block_idx_t block_id) {
+//     SMESH_ASSERT(impl_->elements_SoA.size() > block_id);
+//     return impl_->elements_SoA[block_id];
+// }
+
+// SharedBuffer<idx_t> KernelData::elements_AoS(const block_idx_t block_id) {
+//     SMESH_ASSERT(impl_->elements_AoS.size() > block_id);
+//     return impl_->elements_AoS[block_id];
+// }
+
+// SharedBuffer<geom_t *> KernelData::points_SoA() {
+//     SMESH_ASSERT(impl_->points_SoA);
+//     return impl_->points_SoA;
+// }
+
+// SharedBuffer<geom_t> KernelData::points_AoS() {
+//     SMESH_ASSERT(impl_->points_AoS);
+//     return impl_->points_AoS;
+// }
+
+// SharedBuffer<jacobian_t *> KernelData::jacobians_SoA(const block_idx_t
+// block_id) {
+//     SMESH_ASSERT(impl_->jacobians_SoA.size() > block_id);
+//     return impl_->jacobians_SoA[block_id];
+// }
+
+// SharedBuffer<jacobian_t> KernelData::jacobians_AoS(const block_idx_t
+// block_id) {
+//     SMESH_ASSERT(impl_->jacobians_AoS.size() > block_id);
+//     return impl_->jacobians_AoS[block_id];
+// }
+
+// SharedBuffer<jacobian_t *> KernelData::jacobian_adjugate_SoA(const
+// block_idx_t block_id) {
+//     SMESH_ASSERT(impl_->jacobian_adjugate_SoA.size() > block_id);
+//     return impl_->jacobian_adjugate_SoA[block_id];
+// }
+
+// SharedBuffer<jacobian_t> KernelData::jacobian_adjugate_AoS(const block_idx_t
+// block_id) {
+//     SMESH_ASSERT(impl_->jacobian_adjugate_AoS.size() > block_id);
+//     return impl_->jacobian_adjugate_AoS[block_id];
+// }
+
+// SharedBuffer<geom_t> KernelData::jacobian_determinant(const block_idx_t
+// block_id) {
+//     SMESH_ASSERT(impl_->jacobian_determinant.size() > block_id);
+//     return impl_->jacobian_determinant[block_id];
+// }
+
+// void KernelData::set_num_blocks(const ptrdiff_t num_blocks) {
+//     impl_->elements_SoA.resize(num_blocks);
+//     impl_->elements_AoS.resize(num_blocks);
+//     impl_->jacobians_SoA.resize(num_blocks);
+//     impl_->jacobians_AoS.resize(num_blocks);
+//     impl_->jacobian_adjugate_SoA.resize(num_blocks);
+//     impl_->jacobian_adjugate_AoS.resize(num_blocks);
+//     impl_->jacobian_determinant.resize(num_blocks);
+// }
+
+// void KernelData::set_elements_SoA(const block_idx_t block_id, const
+// SharedBuffer<idx_t *> &elements) {
+//     SMESH_ASSERT(impl_->elements_SoA.size() > block_id);
+//     impl_->elements_SoA[block_id] = elements;
+// }
+// void KernelData::set_elements_AoS(const block_idx_t block_id, const
+// SharedBuffer<idx_t> &elements) {
+//     SMESH_ASSERT(impl_->elements_AoS.size() > block_id);
+//     impl_->elements_AoS[block_id] = elements;
+// }
+// void KernelData::set_points_SoA(const SharedBuffer<geom_t *> &points) {
+// impl_->points_SoA = points; } void KernelData::set_points_AoS(const
+// SharedBuffer<geom_t> &points) { impl_->points_AoS = points; } void
+// KernelData::set_jacobians_SoA(const block_idx_t block_id, const
+// SharedBuffer<jacobian_t *> &jacobians) {
+//     SMESH_ASSERT(impl_->jacobians_SoA.size() > block_id);
+//     impl_->jacobians_SoA[block_id] = jacobians;
+// }
+// void KernelData::set_jacobians_AoS(const block_idx_t block_id, const
+// SharedBuffer<jacobian_t> &jacobians) {
+//     SMESH_ASSERT(impl_->jacobians_AoS.size() > block_id);
+//     impl_->jacobians_AoS[block_id] = jacobians;
+// }
+// void KernelData::set_jacobian_adjugate_SoA(const block_idx_t block_id, const
+// SharedBuffer<jacobian_t *> &jacobian_adjugate)
+// {
+//     SMESH_ASSERT(impl_->jacobian_adjugate_SoA.size() > block_id);
+//     impl_->jacobian_adjugate_SoA[block_id] = jacobian_adjugate;
+// }
+// void KernelData::set_jacobian_adjugate_AoS(const block_idx_t block_id, const
+// SharedBuffer<jacobian_t> &jacobian_adjugate) {
+//     SMESH_ASSERT(impl_->jacobian_adjugate_AoS.size() > block_id);
+//     impl_->jacobian_adjugate_AoS[block_id] = jacobian_adjugate;
+// }
+// void KernelData::set_jacobian_determinant(const block_idx_t block_id, const
+// SharedBuffer<geom_t> &jacobian_determinant) {
+//     SMESH_ASSERT(impl_->jacobian_determinant.size() > block_id);
+//     impl_->jacobian_determinant[block_id] = jacobian_determinant;
+// }
+
+// int KernelData::send_to_device() {
+//     int n_blocks = impl_->elements_SoA.size();
+//     for (int i = 0; i < n_blocks; ++i) {
+//         if (impl_->elements_SoA[i]) {
+//             impl_->elements_SoA[i] = to_device(impl_->elements_SoA[i]);
+//         }
+//     }
+//     for (int i = 0; i < n_blocks; ++i) {
+//         if (impl_->elements_AoS[i]) {
+//             impl_->elements_AoS[i] = to_device(impl_->elements_AoS[i]);
+//         }
+//     }
+//     if (impl_->points_AoS) {
+//         impl_->points_AoS = to_device(impl_->points_AoS);
+//     }
+//     if (impl_->points_SoA) {
+//         impl_->points_SoA = to_device(impl_->points_SoA);
+//     }
+
+//     for (int i = 0; i < n_blocks; ++i) {
+//         if (impl_->jacobians_SoA[i]) {
+//             impl_->jacobians_SoA[i] = to_device(impl_->jacobians_SoA[i]);
+//         }
+//     }
+//     for (int i = 0; i < n_blocks; ++i) {
+//         if (impl_->jacobians_AoS[i]) {
+//             impl_->jacobians_AoS[i] = to_device(impl_->jacobians_AoS[i]);
+//         }
+//     }
+//     for (int i = 0; i < n_blocks; ++i) {
+//         if (impl_->jacobian_adjugate_SoA[i]) {
+//             impl_->jacobian_adjugate_SoA[i] =
+//             to_device(impl_->jacobian_adjugate_SoA[i]);
+//         }
+//     }
+//     for (int i = 0; i < n_blocks; ++i) {
+//         if (impl_->jacobian_adjugate_AoS[i]) {
+//             impl_->jacobian_adjugate_AoS[i] =
+//             to_device(impl_->jacobian_adjugate_AoS[i]);
+//         }
+//     }
+//     for (int i = 0; i < n_blocks; ++i) {
+//         if (impl_->jacobian_determinant[i]) {
+//             impl_->jacobian_determinant[i] =
+//             to_device(impl_->jacobian_determinant[i]);
+//         }
+//     }
+
+//     return SMESH_SUCCESS;
+// }
+
+class Mesh::Block::Impl {
+public:
+  std::string name;
+  enum ElemType element_type { INVALID };
+  enum GeomMap geom_map { ISOPARAMETRIC };
+  SharedBuffer<idx_t *> elements;
+  std::shared_ptr<smesh::Elements> device_elements;
+  std::shared_ptr<DistributedBlock> distributed;
+};
+
+Mesh::Block::Block(const std::string &name, enum ElemType element_type,
+                   SharedBuffer<idx_t *> elements)
+    : impl_(std::make_unique<Impl>()) {
+  impl_->name = name;
+  impl_->element_type = element_type;
+  impl_->elements = elements;
+  // Create empty buffer for device elements
+  impl_->device_elements = std::make_shared<smesh::Elements>();
+}
+
+SharedBuffer<idx_t *> Mesh::Block::device_elements_SoA() {
+  if (!impl_->device_elements) {
+    impl_->device_elements = std::make_shared<smesh::Elements>();
+  }
+
+  if (!impl_->device_elements->has_SoA()) {
+    impl_->device_elements->init_SoA(impl_->elements, MEMORY_SPACE_DEVICE);
+  }
+
+  return impl_->device_elements->elements_SoA();
+}
+
+SharedBuffer<idx_t> Mesh::Block::device_elements_AoS() {
+  if (!impl_->device_elements) {
+    impl_->device_elements = std::make_shared<smesh::Elements>();
+  }
+
+  if (!impl_->device_elements->has_AoS()) {
+    impl_->device_elements->init_AoS(impl_->elements, MEMORY_SPACE_DEVICE);
+  }
+  return impl_->device_elements->elements_AoS();
+}
+
+void Mesh::Block::set_device_elements_SoA(
+    const SharedBuffer<idx_t *> &elements) {
+  if (!impl_->device_elements) {
+    impl_->device_elements = std::make_shared<smesh::Elements>();
+  }
+  impl_->device_elements->adopt_SoA(elements);
+}
+
+Mesh::Block::Block() : impl_(std::make_unique<Impl>()) {
+  impl_->device_elements = std::make_shared<smesh::Elements>();
+}
+Mesh::Block::~Block() = default;
+
+const std::string &Mesh::Block::name() const { return impl_->name; }
+enum ElemType Mesh::Block::element_type() const { return impl_->element_type; }
+enum GeomMap Mesh::Block::geom_map() const { return impl_->geom_map; }
+int Mesh::Block::n_nodes_per_element() const {
+  return elem_num_nodes(impl_->element_type);
+}
+const SharedBuffer<idx_t *> &Mesh::Block::elements() const {
+  return impl_->elements;
+}
+
+void Mesh::Block::set_name(const std::string &name) { impl_->name = name; }
+void Mesh::Block::set_element_type(enum ElemType element_type) {
+  impl_->element_type = element_type;
+  if (!geom_map_allowed(element_type, impl_->geom_map)) {
+    impl_->geom_map = geom_map_inherit(impl_->geom_map, element_type);
+  }
+}
+int Mesh::Block::set_geom_map(enum GeomMap geom_map) {
+  if (!geom_map_allowed(impl_->element_type, geom_map)) {
+    fprintf(stderr,
+            "set_geom_map: AxisAligned is only valid for HEX and QUAD families "
+            "(got %s)\n",
+            type_to_string(impl_->element_type));
+    return SMESH_FAILURE;
+  }
+  impl_->geom_map = geom_map;
+  return SMESH_SUCCESS;
+}
+int Mesh::Block::inherit_geom_map(enum GeomMap src) {
+  return set_geom_map(geom_map_inherit(src, impl_->element_type));
+}
+void Mesh::Block::set_elements(SharedBuffer<idx_t *> elements) {
+  impl_->elements = elements;
+  impl_->device_elements = std::make_shared<smesh::Elements>();
+  impl_->distributed = nullptr;
+}
+
+ptrdiff_t Mesh::Block::n_elements() const { return impl_->elements->extent(1); }
+
+std::shared_ptr<DistributedBlock> Mesh::Block::distributed() const {
+  return impl_->distributed;
+}
+
+void Mesh::Block::set_distributed(
+    const std::shared_ptr<DistributedBlock> &distributed) {
+  impl_->distributed = distributed;
+}
+
+ptrdiff_t Mesh::Block::n_elements_owned() const {
+  return impl_->distributed ? impl_->distributed->n_elements_owned() : 0;
+}
+ptrdiff_t Mesh::Block::n_elements_shared() const {
+  return impl_->distributed ? impl_->distributed->n_elements_shared() : 0;
+}
+ptrdiff_t Mesh::Block::n_elements_ghosts() const {
+  return impl_->distributed ? impl_->distributed->n_elements_ghosts() : 0;
+}
+ptrdiff_t Mesh::Block::n_elements_owned_not_shared() const {
+  return impl_->distributed ? impl_->distributed->n_elements_owned_not_shared()
+                            : 0;
+}
+SharedBuffer<large_idx_t> Mesh::Block::element_mapping() const {
+  return impl_->distributed ? impl_->distributed->element_mapping() : nullptr;
+}
+SharedBuffer<large_idx_t> Mesh::Block::aura_element_mapping() const {
+  return impl_->distributed ? impl_->distributed->aura_element_mapping()
+                            : nullptr;
+}
+void Mesh::Block::set_distributed_elements(
+    ptrdiff_t n_owned, ptrdiff_t n_shared, ptrdiff_t n_ghosts,
+    SharedBuffer<large_idx_t> element_mapping,
+    SharedBuffer<large_idx_t> aura_element_mapping) {
+  if (!impl_->distributed) {
+    impl_->distributed = std::make_shared<DistributedBlock>();
+  }
+  impl_->distributed->set_elements(n_owned, n_shared, n_ghosts,
+                                   std::move(element_mapping),
+                                   std::move(aura_element_mapping));
+}
+
+class Mesh::Impl {
+public:
+  std::shared_ptr<Communicator> comm;
+  std::vector<std::shared_ptr<Block>> blocks;
+  std::vector<std::pair<std::string, std::shared_ptr<Sideset>>> sidesets;
+  std::vector<std::pair<std::string, std::shared_ptr<Edgeset>>> edgesets;
+  std::vector<std::pair<std::string, std::shared_ptr<Nodeset>>> nodesets;
+  std::vector<std::pair<std::string, std::shared_ptr<Parametrization>>>
+      parametrizations;
+  SharedBuffer<geom_t *> points;
+  SharedBuffer<idx_t> node_mapping;
+
+  std::shared_ptr<Distributed> distributed;
+  std::shared_ptr<NodeToNodeGraph> crs_graph;
+  std::shared_ptr<NodeToNodeGraph> crs_graph_upper_triangular;
+  std::shared_ptr<NodeToElementGraph> node_to_element_graph;
+  SharedBuffer<block_idx_t> n2e_block_number;
+  std::shared_ptr<NodeToNodeGraph> edge_graph;
+
+  count_t *dual_ptr{nullptr};
+  element_idx_t *dual_idx{nullptr};
+  block_idx_t *dual_block{nullptr};
+  std::vector<SharedBuffer<element_idx_t>> half_face_tables;
+  std::vector<SharedBuffer<block_idx_t>> half_face_neighbor_blocks;
+
+  std::shared_ptr<Points> device_points;
+
+  Impl() : device_points(std::make_shared<Points>()) {}
+
+  ~Impl() {}
+
+  // Everything derived from the mesh that is indexed or valued by node number,
+  // and so is wrong the moment the nodes are renumbered.
+  //
+  // These are built lazily and cached, which means a stale one is not merely
+  // unused -- it is returned to the next caller in place of a correct one, and
+  // the caller has no way to tell. Dropping them costs a rebuild; keeping them
+  // costs correctness. The dual graph, the half-face tables and the sidesets
+  // are deliberately not in this list: they are indexed by element and valued
+  // by element or local face index, all of which a node renumbering leaves
+  // alone.
+  void invalidate_node_indexed_caches() {
+    crs_graph = nullptr;
+    crs_graph_upper_triangular = nullptr;
+    edge_graph = nullptr;
+    node_to_element_graph = nullptr;
+    n2e_block_number = nullptr;
+    device_points = std::make_shared<Points>();
+  }
+
+  void clear() {
+    comm = nullptr;
+    blocks.clear();
+    sidesets.clear();
+    edgesets.clear();
+    nodesets.clear();
+    points = nullptr;
+    distributed = nullptr;
+    invalidate_node_indexed_caches();
+    // kernel_data                = nullptr;
+  }
+
+  // Helper methods for backward compatibility
+  ptrdiff_t total_elements() const {
+    ptrdiff_t total = 0;
+    for (const auto &block : blocks) {
+      if (block && block->elements()) {
+        total += block->n_elements();
+      }
     }
+    return total;
+  }
 
-    void Distributed::set_elements(ptrdiff_t                 n_global,
-                                   ptrdiff_t                 n_owned,
-                                   ptrdiff_t                 n_shared,
-                                   ptrdiff_t                 n_ghosts,
-                                   SharedBuffer<large_idx_t> element_mapping,
-                                   SharedBuffer<large_idx_t> aura_element_mapping) {
-        impl_->n_elements_global     = n_global;
-        impl_->n_elements_owned      = n_owned;
-        impl_->n_elements_shared     = n_shared;
-        impl_->n_elements_ghosts     = n_ghosts;
-        impl_->element_mapping       = std::move(element_mapping);
-        impl_->aura_element_mapping  = std::move(aura_element_mapping);
+  void create_node_to_element_graph() {
+    if (node_to_element_graph) {
+      return;
     }
+    node_to_element_graph = std::make_shared<NodeToElementGraph>();
 
-    class DistributedBlock::Impl {
-    public:
-        ptrdiff_t                 n_elements_owned  = 0;
-        ptrdiff_t                 n_elements_shared = 0;
-        ptrdiff_t                 n_elements_ghosts = 0;
-        SharedBuffer<large_idx_t> element_mapping;
-        SharedBuffer<large_idx_t> aura_element_mapping;
-    };
+    count_t *rowptr{nullptr};
+    element_idx_t *colidx{nullptr};
+    block_idx_t *block_number{nullptr};
 
-    DistributedBlock::DistributedBlock() : impl_(std::make_unique<Impl>()) {}
-    DistributedBlock::~DistributedBlock() = default;
+    const ptrdiff_t nnodes = points->extent(1);
+    if (blocks.size() == 1) {
+      auto block0 = blocks[0];
+      create_n2e(block0->n_elements(), nnodes, block0->n_nodes_per_element(),
+                 block0->elements()->data(), &rowptr, &colidx);
+    } else {
+      // Multiblock: build node-to-element graph over all blocks.
+      std::vector<enum ElemType> element_types;
+      std::vector<ptrdiff_t> n_elements;
+      std::vector<idx_t **> elements;
 
-    ptrdiff_t DistributedBlock::n_elements_local() const {
-        return impl_->n_elements_owned + impl_->n_elements_ghosts;
-    }
-    ptrdiff_t DistributedBlock::n_elements_owned_not_shared() const {
-        return impl_->n_elements_owned - impl_->n_elements_shared;
-    }
-    ptrdiff_t DistributedBlock::n_elements_owned() const { return impl_->n_elements_owned; }
-    ptrdiff_t DistributedBlock::n_elements_shared() const { return impl_->n_elements_shared; }
-    ptrdiff_t DistributedBlock::n_elements_ghosts() const { return impl_->n_elements_ghosts; }
-
-    SharedBuffer<large_idx_t> DistributedBlock::element_mapping() const {
-        return impl_->element_mapping;
-    }
-    SharedBuffer<large_idx_t> DistributedBlock::aura_element_mapping() const {
-        return impl_->aura_element_mapping;
-    }
-
-    void DistributedBlock::set_elements(ptrdiff_t n_owned, ptrdiff_t n_shared, ptrdiff_t n_ghosts,
-                                        SharedBuffer<large_idx_t> element_mapping,
-                                        SharedBuffer<large_idx_t> aura_element_mapping) {
-        impl_->n_elements_owned     = n_owned;
-        impl_->n_elements_shared    = n_shared;
-        impl_->n_elements_ghosts    = n_ghosts;
-        impl_->element_mapping      = std::move(element_mapping);
-        impl_->aura_element_mapping = std::move(aura_element_mapping);
-    }
-
-    static ptrdiff_t max_node_id(const enum ElemType                                     element_type,
-                                 const ptrdiff_t                                         n_elements,
-                                 const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems) {
-        const int nxe = elem_num_nodes(element_type);
-        idx_t     max_id{-1};
-        for (int v = 0; v < nxe; ++v) {
-            const idx_t *const col = elems[v];
-            for (ptrdiff_t e = 0; e < n_elements; ++e) {
-                max_id = std::max(max_id, col[e]);
-            }
+      for (auto &block : blocks) {
+        if (!block || !block->elements()) {
+          continue;
         }
-        return static_cast<ptrdiff_t>(max_id);
+        element_types.push_back(block->element_type());
+        n_elements.push_back(block->elements()->extent(1));
+        elements.push_back(block->elements()->data());
+      }
+
+      create_multiblock_n2e<idx_t, count_t, element_idx_t>(
+          static_cast<block_idx_t>(element_types.size()), element_types.data(),
+          n_elements.data(), elements.data(), nnodes, &block_number, &rowptr,
+          &colidx);
+      if (block_number) {
+        n2e_block_number =
+            manage_host_buffer<block_idx_t>(rowptr[nnodes], block_number);
+      }
     }
 
-    // class KernelData::Impl {
-    // public:
-    //     std::vector<SharedBuffer<idx_t *>> elements_SoA;
-    //     std::vector<SharedBuffer<idx_t>>   elements_AoS;
+    node_to_element_graph = std::make_shared<Mesh::NodeToElementGraph>(
+        Buffer<count_t>::own(nnodes + 1, rowptr, free, MEMORY_SPACE_HOST),
+        Buffer<element_idx_t>::own(rowptr[nnodes], colidx, free,
+                                   MEMORY_SPACE_HOST));
+  }
 
-    //     SharedBuffer<geom_t *> points_SoA;
-    //     SharedBuffer<geom_t>   points_AoS;
-
-    //     std::vector<SharedBuffer<jacobian_t *>> jacobians_SoA;
-    //     std::vector<SharedBuffer<jacobian_t>>   jacobians_AoS;
-    //     std::vector<SharedBuffer<jacobian_t *>> jacobian_adjugate_SoA;
-    //     std::vector<SharedBuffer<jacobian_t>>   jacobian_adjugate_AoS;
-    //     std::vector<SharedBuffer<geom_t>>       jacobian_determinant;
-
-    //     std::vector<SharedBuffer<jacobian_t *>> fff_SoA;
-    //     std::vector<SharedBuffer<jacobian_t>>   fff_AoS;
-
-    //     ~Impl() {}
-
-    //     void clear() {
-    //         elements_SoA.clear();
-    //         elements_AoS.clear();
-    //         points_SoA = nullptr;
-    //         points_AoS = nullptr;
-    //         jacobians_SoA.clear();
-    //         jacobians_AoS.clear();
-    //         jacobian_adjugate_SoA.clear();
-    //         jacobian_adjugate_AoS.clear();
-    //         jacobian_determinant.clear();
-    //     }
-    // };
-
-    // KernelData::KernelData() : impl_(std::make_unique<Impl>()) {}
-    // KernelData::~KernelData() = default;
-
-    // SharedBuffer<idx_t *> KernelData::elements_SoA(const block_idx_t block_id) {
-    //     SMESH_ASSERT(impl_->elements_SoA.size() > block_id);
-    //     return impl_->elements_SoA[block_id];
-    // }
-
-    // SharedBuffer<idx_t> KernelData::elements_AoS(const block_idx_t block_id) {
-    //     SMESH_ASSERT(impl_->elements_AoS.size() > block_id);
-    //     return impl_->elements_AoS[block_id];
-    // }
-
-    // SharedBuffer<geom_t *> KernelData::points_SoA() {
-    //     SMESH_ASSERT(impl_->points_SoA);
-    //     return impl_->points_SoA;
-    // }
-
-    // SharedBuffer<geom_t> KernelData::points_AoS() {
-    //     SMESH_ASSERT(impl_->points_AoS);
-    //     return impl_->points_AoS;
-    // }
-
-    // SharedBuffer<jacobian_t *> KernelData::jacobians_SoA(const block_idx_t
-    // block_id) {
-    //     SMESH_ASSERT(impl_->jacobians_SoA.size() > block_id);
-    //     return impl_->jacobians_SoA[block_id];
-    // }
-
-    // SharedBuffer<jacobian_t> KernelData::jacobians_AoS(const block_idx_t
-    // block_id) {
-    //     SMESH_ASSERT(impl_->jacobians_AoS.size() > block_id);
-    //     return impl_->jacobians_AoS[block_id];
-    // }
-
-    // SharedBuffer<jacobian_t *> KernelData::jacobian_adjugate_SoA(const
-    // block_idx_t block_id) {
-    //     SMESH_ASSERT(impl_->jacobian_adjugate_SoA.size() > block_id);
-    //     return impl_->jacobian_adjugate_SoA[block_id];
-    // }
-
-    // SharedBuffer<jacobian_t> KernelData::jacobian_adjugate_AoS(const block_idx_t
-    // block_id) {
-    //     SMESH_ASSERT(impl_->jacobian_adjugate_AoS.size() > block_id);
-    //     return impl_->jacobian_adjugate_AoS[block_id];
-    // }
-
-    // SharedBuffer<geom_t> KernelData::jacobian_determinant(const block_idx_t
-    // block_id) {
-    //     SMESH_ASSERT(impl_->jacobian_determinant.size() > block_id);
-    //     return impl_->jacobian_determinant[block_id];
-    // }
-
-    // void KernelData::set_num_blocks(const ptrdiff_t num_blocks) {
-    //     impl_->elements_SoA.resize(num_blocks);
-    //     impl_->elements_AoS.resize(num_blocks);
-    //     impl_->jacobians_SoA.resize(num_blocks);
-    //     impl_->jacobians_AoS.resize(num_blocks);
-    //     impl_->jacobian_adjugate_SoA.resize(num_blocks);
-    //     impl_->jacobian_adjugate_AoS.resize(num_blocks);
-    //     impl_->jacobian_determinant.resize(num_blocks);
-    // }
-
-    // void KernelData::set_elements_SoA(const block_idx_t block_id, const
-    // SharedBuffer<idx_t *> &elements) {
-    //     SMESH_ASSERT(impl_->elements_SoA.size() > block_id);
-    //     impl_->elements_SoA[block_id] = elements;
-    // }
-    // void KernelData::set_elements_AoS(const block_idx_t block_id, const
-    // SharedBuffer<idx_t> &elements) {
-    //     SMESH_ASSERT(impl_->elements_AoS.size() > block_id);
-    //     impl_->elements_AoS[block_id] = elements;
-    // }
-    // void KernelData::set_points_SoA(const SharedBuffer<geom_t *> &points) {
-    // impl_->points_SoA = points; } void KernelData::set_points_AoS(const
-    // SharedBuffer<geom_t> &points) { impl_->points_AoS = points; } void
-    // KernelData::set_jacobians_SoA(const block_idx_t block_id, const
-    // SharedBuffer<jacobian_t *> &jacobians) {
-    //     SMESH_ASSERT(impl_->jacobians_SoA.size() > block_id);
-    //     impl_->jacobians_SoA[block_id] = jacobians;
-    // }
-    // void KernelData::set_jacobians_AoS(const block_idx_t block_id, const
-    // SharedBuffer<jacobian_t> &jacobians) {
-    //     SMESH_ASSERT(impl_->jacobians_AoS.size() > block_id);
-    //     impl_->jacobians_AoS[block_id] = jacobians;
-    // }
-    // void KernelData::set_jacobian_adjugate_SoA(const block_idx_t block_id, const
-    // SharedBuffer<jacobian_t *> &jacobian_adjugate)
-    // {
-    //     SMESH_ASSERT(impl_->jacobian_adjugate_SoA.size() > block_id);
-    //     impl_->jacobian_adjugate_SoA[block_id] = jacobian_adjugate;
-    // }
-    // void KernelData::set_jacobian_adjugate_AoS(const block_idx_t block_id, const
-    // SharedBuffer<jacobian_t> &jacobian_adjugate) {
-    //     SMESH_ASSERT(impl_->jacobian_adjugate_AoS.size() > block_id);
-    //     impl_->jacobian_adjugate_AoS[block_id] = jacobian_adjugate;
-    // }
-    // void KernelData::set_jacobian_determinant(const block_idx_t block_id, const
-    // SharedBuffer<geom_t> &jacobian_determinant) {
-    //     SMESH_ASSERT(impl_->jacobian_determinant.size() > block_id);
-    //     impl_->jacobian_determinant[block_id] = jacobian_determinant;
-    // }
-
-    // int KernelData::send_to_device() {
-    //     int n_blocks = impl_->elements_SoA.size();
-    //     for (int i = 0; i < n_blocks; ++i) {
-    //         if (impl_->elements_SoA[i]) {
-    //             impl_->elements_SoA[i] = to_device(impl_->elements_SoA[i]);
-    //         }
-    //     }
-    //     for (int i = 0; i < n_blocks; ++i) {
-    //         if (impl_->elements_AoS[i]) {
-    //             impl_->elements_AoS[i] = to_device(impl_->elements_AoS[i]);
-    //         }
-    //     }
-    //     if (impl_->points_AoS) {
-    //         impl_->points_AoS = to_device(impl_->points_AoS);
-    //     }
-    //     if (impl_->points_SoA) {
-    //         impl_->points_SoA = to_device(impl_->points_SoA);
-    //     }
-
-    //     for (int i = 0; i < n_blocks; ++i) {
-    //         if (impl_->jacobians_SoA[i]) {
-    //             impl_->jacobians_SoA[i] = to_device(impl_->jacobians_SoA[i]);
-    //         }
-    //     }
-    //     for (int i = 0; i < n_blocks; ++i) {
-    //         if (impl_->jacobians_AoS[i]) {
-    //             impl_->jacobians_AoS[i] = to_device(impl_->jacobians_AoS[i]);
-    //         }
-    //     }
-    //     for (int i = 0; i < n_blocks; ++i) {
-    //         if (impl_->jacobian_adjugate_SoA[i]) {
-    //             impl_->jacobian_adjugate_SoA[i] =
-    //             to_device(impl_->jacobian_adjugate_SoA[i]);
-    //         }
-    //     }
-    //     for (int i = 0; i < n_blocks; ++i) {
-    //         if (impl_->jacobian_adjugate_AoS[i]) {
-    //             impl_->jacobian_adjugate_AoS[i] =
-    //             to_device(impl_->jacobian_adjugate_AoS[i]);
-    //         }
-    //     }
-    //     for (int i = 0; i < n_blocks; ++i) {
-    //         if (impl_->jacobian_determinant[i]) {
-    //             impl_->jacobian_determinant[i] =
-    //             to_device(impl_->jacobian_determinant[i]);
-    //         }
-    //     }
-
-    //     return SMESH_SUCCESS;
-    // }
-
-    class Mesh::Block::Impl {
-    public:
-        std::string                       name;
-        enum ElemType                     element_type{INVALID};
-        enum GeomMap                      geom_map{ISOPARAMETRIC};
-        SharedBuffer<idx_t *>             elements;
-        std::shared_ptr<smesh::Elements>  device_elements;
-        std::shared_ptr<DistributedBlock> distributed;
-    };
-
-    Mesh::Block::Block(const std::string &name, enum ElemType element_type, SharedBuffer<idx_t *> elements)
-        : impl_(std::make_unique<Impl>()) {
-        impl_->name         = name;
-        impl_->element_type = element_type;
-        impl_->elements     = elements;
-        // Create empty buffer for device elements
-        impl_->device_elements = std::make_shared<smesh::Elements>();
+  void ensure_dual_graph() {
+    if (dual_ptr) {
+      return;
     }
 
-    SharedBuffer<idx_t *> Mesh::Block::device_elements_SoA() {
-        if (!impl_->device_elements) {
-            impl_->device_elements = std::make_shared<smesh::Elements>();
-        }
-
-        if (!impl_->device_elements->has_SoA()) {
-            impl_->device_elements->init_SoA(impl_->elements, MEMORY_SPACE_DEVICE);
-        }
-
-        return impl_->device_elements->elements_SoA();
+    const block_idx_t n_blocks = static_cast<block_idx_t>(blocks.size());
+    if (n_blocks == 1) {
+      auto block0 = blocks[0];
+      create_dual_graph(block0->n_elements(), points->extent(1),
+                        block0->element_type(), block0->elements()->data(),
+                        &dual_ptr, &dual_idx);
+      return;
     }
 
-    SharedBuffer<idx_t> Mesh::Block::device_elements_AoS() {
-        if (!impl_->device_elements) {
-            impl_->device_elements = std::make_shared<smesh::Elements>();
-        }
-
-        if (!impl_->device_elements->has_AoS()) {
-            impl_->device_elements->init_AoS(impl_->elements, MEMORY_SPACE_DEVICE);
-        }
-        return impl_->device_elements->elements_AoS();
+    std::vector<enum ElemType> element_types(n_blocks);
+    std::vector<ptrdiff_t> n_elements(n_blocks);
+    std::vector<idx_t **> elements(n_blocks);
+    for (block_idx_t i = 0; i < n_blocks; ++i) {
+      element_types[i] = blocks[i]->element_type();
+      n_elements[i] = blocks[i]->n_elements();
+      elements[i] = blocks[i]->elements()->data();
     }
 
-    void Mesh::Block::set_device_elements_SoA(const SharedBuffer<idx_t *> &elements) {
-        if (!impl_->device_elements) {
-            impl_->device_elements = std::make_shared<smesh::Elements>();
-        }
-        impl_->device_elements->adopt_SoA(elements);
+    block_idx_t *n2e_block = nullptr;
+    count_t *n2e_ptr = nullptr;
+    element_idx_t *n2e_idx = nullptr;
+    create_multiblock_n2e<idx_t, count_t, element_idx_t>(
+        n_blocks, element_types.data(), n_elements.data(), elements.data(),
+        points->extent(1), &n2e_block, &n2e_ptr, &n2e_idx);
+    create_multiblock_dual_graph_from_n2e<idx_t, count_t, element_idx_t>(
+        n_blocks, element_types.data(), n_elements.data(), points->extent(1),
+        elements.data(), n2e_ptr, n2e_idx, n2e_block, &dual_ptr, &dual_idx,
+        &dual_block);
+
+    SMESH_FREE(n2e_block);
+    SMESH_FREE(n2e_ptr);
+    SMESH_FREE(n2e_idx);
+  }
+
+  void ensure_half_face_tables() {
+    if (!half_face_tables.empty()) {
+      return;
     }
+    ensure_dual_graph();
+    const block_idx_t n_blocks = static_cast<block_idx_t>(blocks.size());
+    half_face_tables.resize(n_blocks);
+    half_face_neighbor_blocks.resize(n_blocks);
 
-    Mesh::Block::Block() : impl_(std::make_unique<Impl>()) { impl_->device_elements = std::make_shared<smesh::Elements>(); }
-    Mesh::Block::~Block() = default;
-
-    const std::string           &Mesh::Block::name() const { return impl_->name; }
-    enum ElemType                Mesh::Block::element_type() const { return impl_->element_type; }
-    enum GeomMap                 Mesh::Block::geom_map() const { return impl_->geom_map; }
-    int                          Mesh::Block::n_nodes_per_element() const { return elem_num_nodes(impl_->element_type); }
-    const SharedBuffer<idx_t *> &Mesh::Block::elements() const { return impl_->elements; }
-
-    void Mesh::Block::set_name(const std::string &name) { impl_->name = name; }
-    void Mesh::Block::set_element_type(enum ElemType element_type) {
-        impl_->element_type = element_type;
-        if (!geom_map_allowed(element_type, impl_->geom_map)) {
-            impl_->geom_map = geom_map_inherit(impl_->geom_map, element_type);
-        }
+    std::vector<enum ElemType> element_types(n_blocks);
+    std::vector<ptrdiff_t> n_elements(n_blocks);
+    std::vector<idx_t **> elements(n_blocks);
+    std::vector<element_idx_t> block_base(n_blocks + 1);
+    element_idx_t global_base = 0;
+    for (block_idx_t b = 0; b < n_blocks; ++b) {
+      element_types[b] = blocks[b]->element_type();
+      n_elements[b] = blocks[b]->n_elements();
+      elements[b] = blocks[b]->elements()->data();
+      block_base[b] = global_base;
+      global_base += static_cast<element_idx_t>(n_elements[b]);
     }
-    int Mesh::Block::set_geom_map(enum GeomMap geom_map) {
-        if (!geom_map_allowed(impl_->element_type, geom_map)) {
-            fprintf(stderr,
-                    "set_geom_map: AxisAligned is only valid for HEX and QUAD families (got %s)\n",
-                    type_to_string(impl_->element_type));
-            return SMESH_FAILURE;
-        }
-        impl_->geom_map = geom_map;
-        return SMESH_SUCCESS;
+    block_base[n_blocks] = global_base;
+
+    for (block_idx_t b = 0; b < n_blocks; ++b) {
+      element_idx_t *table = nullptr;
+      block_idx_t *neighbor_block = nullptr;
+      create_multiblock_half_face_table_for_block<idx_t, count_t,
+                                                  element_idx_t>(
+          b, n_blocks, element_types.data(), n_elements.data(), elements.data(),
+          dual_ptr, dual_idx, dual_block, block_base.data(), &table,
+          &neighbor_block);
+
+      const int nsides = elem_num_sides(element_types[b]);
+      half_face_tables[b] =
+          manage_host_buffer<element_idx_t>(n_elements[b] * nsides, table);
+      half_face_neighbor_blocks[b] = manage_host_buffer<block_idx_t>(
+          n_elements[b] * nsides, neighbor_block);
     }
-    int Mesh::Block::inherit_geom_map(enum GeomMap src) {
-        return set_geom_map(geom_map_inherit(src, impl_->element_type));
+  }
+};
+
+// std::shared_ptr<KernelData> Mesh::kernel_data() const {
+//     SMESH_ASSERT(impl_->kernel_data);
+//     if (!impl_->kernel_data) {
+//         SMESH_ERROR("Geometric data not initialized");
+//         return nullptr;
+//     }
+//     return impl_->kernel_data;
+// }
+
+std::shared_ptr<Communicator> Mesh::comm() const { return impl_->comm; }
+
+std::shared_ptr<Distributed> Mesh::distributed() const {
+  SMESH_ASSERT(impl_->distributed);
+  return impl_->distributed;
+}
+
+bool Mesh::is_distributed() const { return impl_->distributed != nullptr; }
+
+void Mesh::set_distributed(const std::shared_ptr<Distributed> &distributed) {
+  impl_->distributed = distributed;
+}
+
+//     std::shared_ptr<KernelData> Mesh::create_kernel_data(const int flags,
+//     const enum ExecutionSpace space) {
+//         auto geo_data = std::make_shared<KernelData>();
+
+//         auto &blocks = impl_->blocks;
+//         auto &points = impl_->points;
+
+//         const ptrdiff_t n_blocks = blocks.size();
+
+//         geo_data->set_num_blocks(blocks.size());
+//         if (flags & GEO_ELEMENT_SOA) {
+//             for (ptrdiff_t i = 0; i < n_blocks; ++i) {
+//                 auto block = blocks[i];
+//                 if (block && block->elements()) {
+//                     geo_data->set_elements_SoA(i, block->elements());
+//                 } else {
+//                     geo_data->set_elements_SoA(i, nullptr);
+//                 }
+//             }
+//         }
+
+//         if (flags & GEO_ELEMENT_AOS) {
+//             for (ptrdiff_t i = 0; i < n_blocks; ++i) {
+//                 auto block = blocks[i];
+//                 if (block && block->elements()) {
+//                     auto elements = soa_to_aos(block->n_nodes_per_element(),
+//                     block->n_elements(), block->elements());
+//                     geo_data->set_elements_AoS(i, elements);
+//                 }
+//             }
+//         }
+
+//         if (flags & GEO_POINT_SOA) {
+//             geo_data->set_points_SoA(points);
+//         }
+
+//         if (flags & GEO_POINT_AOS) {
+//             geo_data->set_points_AoS(soa_to_aos(points->extent(0),
+//             points->extent(1), points));
+//         }
+
+//         if (flags & GEO_JACOBIAN_SOA) {
+//             for (ptrdiff_t i = 0; i < n_blocks; ++i) {
+//                 auto block = blocks[i];
+//                 if (block) {
+//                     SMESH_ERROR("GEO_JACOBIAN_SOA is not supported yet!");
+//                 } else {
+//                     geo_data->set_jacobians_SoA(i, nullptr);
+//                 }
+//             }
+//         }
+
+//         if (flags & GEO_JACOBIAN_AOS) {
+//             for (ptrdiff_t i = 0; i < n_blocks; ++i) {
+//                 auto block = blocks[i];
+//                 if (block) {
+//                     SMESH_ERROR("GEO_JACOBIAN_AOS is not supported yet!");
+//                 } else {
+//                     geo_data->set_jacobians_AoS(i, nullptr);
+//                 }
+//             }
+//         }
+
+//         if (flags & GEO_JACOBIAN_ADJUGATE_SOA) {
+//             for (ptrdiff_t i = 0; i < n_blocks; ++i) {
+//                 auto block = blocks[i];
+//                 if (block) {
+//                     auto adjugate =
+//                     create_host_buffer<jacobian_t>(block->n_nodes_per_element(),
+//                     block->n_elements());
+
+//                     auto determinant =
+//                     create_host_buffer<jacobian_t>(block->n_elements());
+
+//                     adjugate_fill(block->element_type(),
+//                                   block->n_elements(),
+//                                   block->elements()->data(),
+//                                   points->data(),
+//                                   1,
+//                                   adjugate->data(),
+//                                   determinant->data());
+
+//                     geo_data->set_jacobian_adjugate_SoA(i, adjugate);
+//                     geo_data->set_jacobian_determinant(i, determinant);
+
+//                 } else {
+//                     geo_data->set_jacobian_adjugate_SoA(i, nullptr);
+//                     geo_data->set_jacobian_determinant(i, nullptr);
+//                 }
+//             }
+//         }
+
+//         if (flags & GEO_JACOBIAN_ADJUGATE_AOS) {
+//             for (ptrdiff_t i = 0; i < n_blocks; ++i) {
+//                 auto block = blocks[i];
+//                 if (block) {
+//                     auto adjugate =
+//                     create_host_buffer<jacobian_t>(block->n_elements() *
+//                     block->n_nodes_per_element());
+
+//                     auto fake_adjugate =
+//                     convert_host_buffer_to_fake_SoA(block->n_nodes_per_element(),
+//                     adjugate);
+
+//                     auto      determinant =
+//                     create_host_buffer<jacobian_t>(block->n_elements());
+//                     const int dim         = spatial_dimension();
+
+//                     adjugate_fill(block->element_type(),
+//                                   block->n_elements(),
+//                                   block->elements()->data(),
+//                                   points->data(),
+//                                   dim * dim,
+//                                   fake_adjugate->data(),
+//                                   determinant->data());
+
+//                     geo_data->set_jacobian_adjugate_AoS(i, adjugate);
+//                     geo_data->set_jacobian_determinant(i, determinant);
+
+//                 } else {
+//                     geo_data->set_jacobian_adjugate_AoS(i, nullptr);
+//                     geo_data->set_jacobian_determinant(i, nullptr);
+//                 }
+//             }
+//         }
+
+// #ifdef SMESH_ENABLE_CUDA
+//         if (space == EXECUTION_SPACE_DEVICE) {
+//             geo_data->send_to_device();
+//         }
+// #else
+//         SMESH_UNUSED(space);
+// #endif  // SMESH_ENABLE_CUDA
+
+//         return geo_data;
+//     }
+
+// int Mesh::init_kernel_data(const int flags, const enum ExecutionSpace space)
+// {
+//     auto geo_data      = create_kernel_data(flags, space);
+//     impl_->kernel_data = geo_data;
+//     return SMESH_SUCCESS;
+// }
+
+Mesh::Mesh(const std::shared_ptr<Communicator> &comm,
+           enum ElemType element_type, SharedBuffer<idx_t *> elements,
+           SharedBuffer<geom_t *> points)
+    : impl_(std::make_unique<Impl>()) {
+  impl_->comm = comm;
+  impl_->points = points;
+
+  // Create default block
+  auto default_block = std::make_shared<Block>();
+  default_block->set_name("default");
+  default_block->set_element_type(element_type);
+  default_block->set_elements(elements);
+  impl_->blocks.push_back(default_block);
+}
+
+Mesh::Mesh(const std::shared_ptr<Communicator> &comm,
+           const std::vector<std::shared_ptr<Block>> &blocks,
+           SharedBuffer<geom_t *> points)
+    : impl_(std::make_unique<Impl>()) {
+  impl_->comm = comm;
+  impl_->points = points;
+  impl_->blocks = blocks;
+}
+
+Mesh::Mesh() : impl_(std::make_unique<Impl>()) {
+  impl_->clear();
+  impl_->comm = Communicator::world();
+}
+
+Mesh::Mesh(const std::shared_ptr<Communicator> &comm)
+    : impl_(std::make_unique<Impl>()) {
+  impl_->clear();
+  impl_->comm = comm;
+}
+
+Mesh::~Mesh() = default;
+
+// Block-related methods
+size_t Mesh::n_blocks() const { return impl_->blocks.size(); }
+
+std::shared_ptr<const Mesh::Block> Mesh::block(size_t index) const {
+  if (index >= impl_->blocks.size() || !impl_->blocks[index]) {
+    SMESH_ERROR("Block index out of range");
+  }
+  return impl_->blocks[index];
+}
+
+std::shared_ptr<Mesh::Block> Mesh::block(size_t index) {
+  if (index >= impl_->blocks.size() || !impl_->blocks[index]) {
+    SMESH_ERROR("Block index out of range");
+  }
+  return impl_->blocks[index];
+}
+
+void Mesh::add_block(const std::string &name, enum ElemType element_type,
+                     SharedBuffer<idx_t *> elements) {
+  auto new_block = std::make_shared<Block>();
+  new_block->set_name(name);
+  new_block->set_element_type(element_type);
+  new_block->set_elements(elements);
+  impl_->blocks.push_back(new_block);
+}
+
+void Mesh::add_block(const std::shared_ptr<Block> &block) {
+  impl_->blocks.push_back(block);
+}
+
+void Mesh::remove_block(size_t index) {
+  if (index >= impl_->blocks.size()) {
+    SMESH_ERROR("Block index out of range");
+  }
+
+  impl_->blocks.erase(impl_->blocks.begin() + index);
+}
+
+void Mesh::add_sideset(const std::string &name,
+                       const std::shared_ptr<Sideset> &ss) {
+  if (!ss) {
+    return;
+  }
+  impl_->sidesets.emplace_back(name, ss);
+}
+
+void Mesh::add_sidesets(const std::string &name,
+                        const std::vector<std::shared_ptr<Sideset>> &ss) {
+  for (size_t i = 0; i < ss.size(); ++i) {
+    add_sideset(name, ss[i]);
+  }
+}
+
+void Mesh::clear_sidesets() { impl_->sidesets.clear(); }
+
+const std::vector<std::pair<std::string, std::shared_ptr<Sideset>>> &
+Mesh::sidesets() const {
+  return impl_->sidesets;
+}
+
+std::vector<std::shared_ptr<Sideset>>
+Mesh::sidesets(const std::string &name) const {
+  std::vector<std::shared_ptr<Sideset>> out;
+  const auto &reg = impl_->sidesets;
+  for (size_t i = 0; i < reg.size(); ++i) {
+    if (reg[i].first == name) {
+      out.push_back(reg[i].second);
     }
-    void Mesh::Block::set_elements(SharedBuffer<idx_t *> elements) {
-        impl_->elements        = elements;
-        impl_->device_elements = std::make_shared<smesh::Elements>();
-        impl_->distributed     = nullptr;
+  }
+  return out;
+}
+
+int Mesh::remap_registered_sidesets(
+    block_idx_t block_id, const element_idx_t *old_to_new, ptrdiff_t n,
+    const std::vector<std::shared_ptr<Sideset>> &already) {
+  if (!old_to_new || n <= 0) {
+    return SMESH_SUCCESS;
+  }
+  const auto &reg = impl_->sidesets;
+  for (size_t i = 0; i < reg.size(); ++i) {
+    const auto &ss = reg[i].second;
+    if (!ss || ss->block_id() != block_id) {
+      continue;
     }
-
-    ptrdiff_t Mesh::Block::n_elements() const { return impl_->elements->extent(1); }
-
-    std::shared_ptr<DistributedBlock> Mesh::Block::distributed() const { return impl_->distributed; }
-
-    void Mesh::Block::set_distributed(const std::shared_ptr<DistributedBlock> &distributed) {
-        impl_->distributed = distributed;
+    int skip = 0;
+    for (size_t j = 0; j < already.size(); ++j) {
+      if (already[j].get() == ss.get()) {
+        skip = 1;
+        break;
+      }
     }
-
-    ptrdiff_t Mesh::Block::n_elements_owned() const {
-        return impl_->distributed ? impl_->distributed->n_elements_owned() : 0;
+    if (skip) {
+      continue;
     }
-    ptrdiff_t Mesh::Block::n_elements_shared() const {
-        return impl_->distributed ? impl_->distributed->n_elements_shared() : 0;
+    if (ss->remap_parents(old_to_new, n) != SMESH_SUCCESS) {
+      return SMESH_FAILURE;
     }
-    ptrdiff_t Mesh::Block::n_elements_ghosts() const {
-        return impl_->distributed ? impl_->distributed->n_elements_ghosts() : 0;
+  }
+  return SMESH_SUCCESS;
+}
+
+void Mesh::add_edgeset(const std::string &name,
+                       const std::shared_ptr<Edgeset> &es) {
+  if (!es) {
+    return;
+  }
+  impl_->edgesets.emplace_back(name, es);
+}
+
+void Mesh::add_edgesets(const std::string &name,
+                        const std::vector<std::shared_ptr<Edgeset>> &es) {
+  for (size_t i = 0; i < es.size(); ++i) {
+    add_edgeset(name, es[i]);
+  }
+}
+
+void Mesh::clear_edgesets() { impl_->edgesets.clear(); }
+
+const std::vector<std::pair<std::string, std::shared_ptr<Edgeset>>> &
+Mesh::edgesets() const {
+  return impl_->edgesets;
+}
+
+std::vector<std::shared_ptr<Edgeset>>
+Mesh::edgesets(const std::string &name) const {
+  std::vector<std::shared_ptr<Edgeset>> out;
+  const auto &reg = impl_->edgesets;
+  for (size_t i = 0; i < reg.size(); ++i) {
+    if (reg[i].first == name) {
+      out.push_back(reg[i].second);
     }
-    ptrdiff_t Mesh::Block::n_elements_owned_not_shared() const {
-        return impl_->distributed ? impl_->distributed->n_elements_owned_not_shared() : 0;
+  }
+  return out;
+}
+
+int Mesh::remap_registered_edgesets(
+    block_idx_t block_id, const element_idx_t *old_to_new, ptrdiff_t n,
+    const std::vector<std::shared_ptr<Edgeset>> &already) {
+  if (!old_to_new || n <= 0) {
+    return SMESH_SUCCESS;
+  }
+  const auto &reg = impl_->edgesets;
+  for (size_t i = 0; i < reg.size(); ++i) {
+    const auto &es = reg[i].second;
+    if (!es || es->block_id() != block_id) {
+      continue;
     }
-    SharedBuffer<large_idx_t> Mesh::Block::element_mapping() const {
-        return impl_->distributed ? impl_->distributed->element_mapping() : nullptr;
+    int skip = 0;
+    for (size_t j = 0; j < already.size(); ++j) {
+      if (already[j].get() == es.get()) {
+        skip = 1;
+        break;
+      }
     }
-    SharedBuffer<large_idx_t> Mesh::Block::aura_element_mapping() const {
-        return impl_->distributed ? impl_->distributed->aura_element_mapping() : nullptr;
+    if (skip) {
+      continue;
     }
-    void Mesh::Block::set_distributed_elements(ptrdiff_t n_owned, ptrdiff_t n_shared, ptrdiff_t n_ghosts,
-                                               SharedBuffer<large_idx_t> element_mapping,
-                                               SharedBuffer<large_idx_t> aura_element_mapping) {
-        if (!impl_->distributed) {
-            impl_->distributed = std::make_shared<DistributedBlock>();
-        }
-        impl_->distributed->set_elements(n_owned, n_shared, n_ghosts, std::move(element_mapping),
-                                         std::move(aura_element_mapping));
+    if (es->remap_parents(old_to_new, n) != SMESH_SUCCESS) {
+      return SMESH_FAILURE;
     }
+  }
+  return SMESH_SUCCESS;
+}
 
-    class Mesh::Impl {
-    public:
-        std::shared_ptr<Communicator>       comm;
-        std::vector<std::shared_ptr<Block>> blocks;
-        std::vector<std::pair<std::string, std::shared_ptr<Sideset>>> sidesets;
-        std::vector<std::pair<std::string, std::shared_ptr<Edgeset>>> edgesets;
-        std::vector<std::pair<std::string, std::shared_ptr<Nodeset>>> nodesets;
-        std::vector<std::pair<std::string, std::shared_ptr<Parametrization>>> parametrizations;
-        SharedBuffer<geom_t *>              points;
-        SharedBuffer<idx_t>                 node_mapping;
+void Mesh::add_nodeset(const std::string &name,
+                       const std::shared_ptr<Nodeset> &ns) {
+  if (!ns) {
+    return;
+  }
+  impl_->nodesets.emplace_back(name, ns);
+}
 
-        std::shared_ptr<Distributed>        distributed;
-        std::shared_ptr<NodeToNodeGraph>    crs_graph;
-        std::shared_ptr<NodeToNodeGraph>    crs_graph_upper_triangular;
-        std::shared_ptr<NodeToElementGraph> node_to_element_graph;
-        SharedBuffer<block_idx_t>           n2e_block_number;
-        std::shared_ptr<NodeToNodeGraph>    edge_graph;
+void Mesh::add_nodesets(const std::string &name,
+                        const std::vector<std::shared_ptr<Nodeset>> &ns) {
+  for (size_t i = 0; i < ns.size(); ++i) {
+    add_nodeset(name, ns[i]);
+  }
+}
 
-        count_t              *dual_ptr{nullptr};
-        element_idx_t        *dual_idx{nullptr};
-        block_idx_t          *dual_block{nullptr};
-        std::vector<SharedBuffer<element_idx_t>> half_face_tables;
-        std::vector<SharedBuffer<block_idx_t>>   half_face_neighbor_blocks;
+void Mesh::clear_nodesets() { impl_->nodesets.clear(); }
 
-        std::shared_ptr<Points> device_points;
+const std::vector<std::pair<std::string, std::shared_ptr<Nodeset>>> &
+Mesh::nodesets() const {
+  return impl_->nodesets;
+}
 
-        Impl() : device_points(std::make_shared<Points>()) {}
-
-        ~Impl() {}
-
-        // Everything derived from the mesh that is indexed or valued by node number, and so
-        // is wrong the moment the nodes are renumbered.
-        //
-        // These are built lazily and cached, which means a stale one is not merely unused --
-        // it is returned to the next caller in place of a correct one, and the caller has no
-        // way to tell. Dropping them costs a rebuild; keeping them costs correctness. The
-        // dual graph, the half-face tables and the sidesets are deliberately not in this
-        // list: they are indexed by element and valued by element or local face index, all
-        // of which a node renumbering leaves alone.
-        void invalidate_node_indexed_caches() {
-            crs_graph                  = nullptr;
-            crs_graph_upper_triangular = nullptr;
-            edge_graph                 = nullptr;
-            node_to_element_graph      = nullptr;
-            n2e_block_number           = nullptr;
-            device_points              = std::make_shared<Points>();
-        }
-
-        void clear() {
-            comm = nullptr;
-            blocks.clear();
-            sidesets.clear();
-            edgesets.clear();
-            nodesets.clear();
-            points      = nullptr;
-            distributed = nullptr;
-            invalidate_node_indexed_caches();
-            // kernel_data                = nullptr;
-        }
-
-        // Helper methods for backward compatibility
-        ptrdiff_t total_elements() const {
-            ptrdiff_t total = 0;
-            for (const auto &block : blocks) {
-                if (block && block->elements()) {
-                    total += block->n_elements();
-                }
-            }
-            return total;
-        }
-
-        void create_node_to_element_graph() {
-            if (node_to_element_graph) {
-                return;
-            }
-            node_to_element_graph = std::make_shared<NodeToElementGraph>();
-
-            count_t       *rowptr{nullptr};
-            element_idx_t *colidx{nullptr};
-            block_idx_t   *block_number{nullptr};
-
-            const ptrdiff_t nnodes = points->extent(1);
-            if (blocks.size() == 1) {
-                auto block0 = blocks[0];
-                create_n2e(block0->n_elements(),
-                           nnodes,
-                           block0->n_nodes_per_element(),
-                           block0->elements()->data(),
-                           &rowptr,
-                           &colidx);
-            } else {
-                // Multiblock: build node-to-element graph over all blocks.
-                std::vector<enum ElemType> element_types;
-                std::vector<ptrdiff_t>     n_elements;
-                std::vector<idx_t **>      elements;
-
-                for (auto &block : blocks) {
-                    if (!block || !block->elements()) {
-                        continue;
-                    }
-                    element_types.push_back(block->element_type());
-                    n_elements.push_back(block->elements()->extent(1));
-                    elements.push_back(block->elements()->data());
-                }
-
-                create_multiblock_n2e<idx_t, count_t, element_idx_t>(static_cast<block_idx_t>(element_types.size()),
-                                                                     element_types.data(),
-                                                                     n_elements.data(),
-                                                                     elements.data(),
-                                                                     nnodes,
-                                                                     &block_number,
-                                                                     &rowptr,
-                                                                     &colidx);
-                if (block_number) {
-                    n2e_block_number = manage_host_buffer<block_idx_t>(
-                        rowptr[nnodes], block_number);
-                }
-            }
-
-            node_to_element_graph = std::make_shared<Mesh::NodeToElementGraph>(
-                    Buffer<count_t>::own(nnodes + 1, rowptr, free, MEMORY_SPACE_HOST),
-                    Buffer<element_idx_t>::own(rowptr[nnodes], colidx, free, MEMORY_SPACE_HOST));
-        }
-
-        void ensure_dual_graph() {
-            if (dual_ptr) {
-                return;
-            }
-
-            const block_idx_t n_blocks = static_cast<block_idx_t>(blocks.size());
-            if (n_blocks == 1) {
-                auto block0 = blocks[0];
-                create_dual_graph(block0->n_elements(),
-                                  points->extent(1),
-                                  block0->element_type(),
-                                  block0->elements()->data(),
-                                  &dual_ptr,
-                                  &dual_idx);
-                return;
-            }
-
-            std::vector<enum ElemType> element_types(n_blocks);
-            std::vector<ptrdiff_t>     n_elements(n_blocks);
-            std::vector<idx_t **>      elements(n_blocks);
-            for (block_idx_t i = 0; i < n_blocks; ++i) {
-                element_types[i] = blocks[i]->element_type();
-                n_elements[i] = blocks[i]->n_elements();
-                elements[i] = blocks[i]->elements()->data();
-            }
-
-            block_idx_t *n2e_block = nullptr;
-            count_t     *n2e_ptr = nullptr;
-            element_idx_t *n2e_idx = nullptr;
-            create_multiblock_n2e<idx_t, count_t, element_idx_t>(n_blocks,
-                                                                 element_types.data(),
-                                                                 n_elements.data(),
-                                                                 elements.data(),
-                                                                 points->extent(1),
-                                                                 &n2e_block,
-                                                                 &n2e_ptr,
-                                                                 &n2e_idx);
-            create_multiblock_dual_graph_from_n2e<idx_t, count_t, element_idx_t>(
-                n_blocks,
-                element_types.data(),
-                n_elements.data(),
-                points->extent(1),
-                elements.data(),
-                n2e_ptr,
-                n2e_idx,
-                n2e_block,
-                &dual_ptr,
-                &dual_idx,
-                &dual_block);
-
-            SMESH_FREE(n2e_block);
-            SMESH_FREE(n2e_ptr);
-            SMESH_FREE(n2e_idx);
-        }
-
-        void ensure_half_face_tables() {
-            if (!half_face_tables.empty()) {
-                return;
-            }
-            ensure_dual_graph();
-            const block_idx_t n_blocks = static_cast<block_idx_t>(blocks.size());
-            half_face_tables.resize(n_blocks);
-            half_face_neighbor_blocks.resize(n_blocks);
-
-            std::vector<enum ElemType> element_types(n_blocks);
-            std::vector<ptrdiff_t>     n_elements(n_blocks);
-            std::vector<idx_t **>      elements(n_blocks);
-            std::vector<element_idx_t> block_base(n_blocks + 1);
-            element_idx_t global_base = 0;
-            for (block_idx_t b = 0; b < n_blocks; ++b) {
-                element_types[b] = blocks[b]->element_type();
-                n_elements[b] = blocks[b]->n_elements();
-                elements[b] = blocks[b]->elements()->data();
-                block_base[b] = global_base;
-                global_base += static_cast<element_idx_t>(n_elements[b]);
-            }
-            block_base[n_blocks] = global_base;
-
-            for (block_idx_t b = 0; b < n_blocks; ++b) {
-                element_idx_t *table = nullptr;
-                block_idx_t   *neighbor_block = nullptr;
-                create_multiblock_half_face_table_for_block<idx_t, count_t, element_idx_t>(
-                    b,
-                    n_blocks,
-                    element_types.data(),
-                    n_elements.data(),
-                    elements.data(),
-                    dual_ptr,
-                    dual_idx,
-                    dual_block,
-                    block_base.data(),
-                    &table,
-                    &neighbor_block);
-
-                const int nsides = elem_num_sides(element_types[b]);
-                half_face_tables[b] =
-                    manage_host_buffer<element_idx_t>(n_elements[b] * nsides, table);
-                half_face_neighbor_blocks[b] =
-                    manage_host_buffer<block_idx_t>(n_elements[b] * nsides, neighbor_block);
-            }
-        }
-    };
-
-    // std::shared_ptr<KernelData> Mesh::kernel_data() const {
-    //     SMESH_ASSERT(impl_->kernel_data);
-    //     if (!impl_->kernel_data) {
-    //         SMESH_ERROR("Geometric data not initialized");
-    //         return nullptr;
-    //     }
-    //     return impl_->kernel_data;
-    // }
-
-    std::shared_ptr<Communicator> Mesh::comm() const { return impl_->comm; }
-
-    std::shared_ptr<Distributed> Mesh::distributed() const {
-        SMESH_ASSERT(impl_->distributed);
-        return impl_->distributed;
+std::vector<std::shared_ptr<Nodeset>>
+Mesh::nodesets(const std::string &name) const {
+  std::vector<std::shared_ptr<Nodeset>> out;
+  const auto &reg = impl_->nodesets;
+  for (size_t i = 0; i < reg.size(); ++i) {
+    if (reg[i].first == name) {
+      out.push_back(reg[i].second);
     }
+  }
+  return out;
+}
 
-    bool Mesh::is_distributed() const { return impl_->distributed != nullptr; }
-
-    void Mesh::set_distributed(const std::shared_ptr<Distributed> &distributed) {
-        impl_->distributed = distributed;
+int Mesh::remap_registered_nodesets(
+    const idx_t *old_to_new, ptrdiff_t n,
+    const std::vector<std::shared_ptr<Nodeset>> &already) {
+  if (!old_to_new || n <= 0) {
+    return SMESH_SUCCESS;
+  }
+  const auto &reg = impl_->nodesets;
+  for (size_t i = 0; i < reg.size(); ++i) {
+    const auto &ns = reg[i].second;
+    if (!ns) {
+      continue;
     }
-
-    //     std::shared_ptr<KernelData> Mesh::create_kernel_data(const int flags,
-    //     const enum ExecutionSpace space) {
-    //         auto geo_data = std::make_shared<KernelData>();
-
-    //         auto &blocks = impl_->blocks;
-    //         auto &points = impl_->points;
-
-    //         const ptrdiff_t n_blocks = blocks.size();
-
-    //         geo_data->set_num_blocks(blocks.size());
-    //         if (flags & GEO_ELEMENT_SOA) {
-    //             for (ptrdiff_t i = 0; i < n_blocks; ++i) {
-    //                 auto block = blocks[i];
-    //                 if (block && block->elements()) {
-    //                     geo_data->set_elements_SoA(i, block->elements());
-    //                 } else {
-    //                     geo_data->set_elements_SoA(i, nullptr);
-    //                 }
-    //             }
-    //         }
-
-    //         if (flags & GEO_ELEMENT_AOS) {
-    //             for (ptrdiff_t i = 0; i < n_blocks; ++i) {
-    //                 auto block = blocks[i];
-    //                 if (block && block->elements()) {
-    //                     auto elements = soa_to_aos(block->n_nodes_per_element(),
-    //                     block->n_elements(), block->elements());
-    //                     geo_data->set_elements_AoS(i, elements);
-    //                 }
-    //             }
-    //         }
-
-    //         if (flags & GEO_POINT_SOA) {
-    //             geo_data->set_points_SoA(points);
-    //         }
-
-    //         if (flags & GEO_POINT_AOS) {
-    //             geo_data->set_points_AoS(soa_to_aos(points->extent(0),
-    //             points->extent(1), points));
-    //         }
-
-    //         if (flags & GEO_JACOBIAN_SOA) {
-    //             for (ptrdiff_t i = 0; i < n_blocks; ++i) {
-    //                 auto block = blocks[i];
-    //                 if (block) {
-    //                     SMESH_ERROR("GEO_JACOBIAN_SOA is not supported yet!");
-    //                 } else {
-    //                     geo_data->set_jacobians_SoA(i, nullptr);
-    //                 }
-    //             }
-    //         }
-
-    //         if (flags & GEO_JACOBIAN_AOS) {
-    //             for (ptrdiff_t i = 0; i < n_blocks; ++i) {
-    //                 auto block = blocks[i];
-    //                 if (block) {
-    //                     SMESH_ERROR("GEO_JACOBIAN_AOS is not supported yet!");
-    //                 } else {
-    //                     geo_data->set_jacobians_AoS(i, nullptr);
-    //                 }
-    //             }
-    //         }
-
-    //         if (flags & GEO_JACOBIAN_ADJUGATE_SOA) {
-    //             for (ptrdiff_t i = 0; i < n_blocks; ++i) {
-    //                 auto block = blocks[i];
-    //                 if (block) {
-    //                     auto adjugate =
-    //                     create_host_buffer<jacobian_t>(block->n_nodes_per_element(),
-    //                     block->n_elements());
-
-    //                     auto determinant =
-    //                     create_host_buffer<jacobian_t>(block->n_elements());
-
-    //                     adjugate_fill(block->element_type(),
-    //                                   block->n_elements(),
-    //                                   block->elements()->data(),
-    //                                   points->data(),
-    //                                   1,
-    //                                   adjugate->data(),
-    //                                   determinant->data());
-
-    //                     geo_data->set_jacobian_adjugate_SoA(i, adjugate);
-    //                     geo_data->set_jacobian_determinant(i, determinant);
-
-    //                 } else {
-    //                     geo_data->set_jacobian_adjugate_SoA(i, nullptr);
-    //                     geo_data->set_jacobian_determinant(i, nullptr);
-    //                 }
-    //             }
-    //         }
-
-    //         if (flags & GEO_JACOBIAN_ADJUGATE_AOS) {
-    //             for (ptrdiff_t i = 0; i < n_blocks; ++i) {
-    //                 auto block = blocks[i];
-    //                 if (block) {
-    //                     auto adjugate =
-    //                     create_host_buffer<jacobian_t>(block->n_elements() *
-    //                     block->n_nodes_per_element());
-
-    //                     auto fake_adjugate =
-    //                     convert_host_buffer_to_fake_SoA(block->n_nodes_per_element(),
-    //                     adjugate);
-
-    //                     auto      determinant =
-    //                     create_host_buffer<jacobian_t>(block->n_elements());
-    //                     const int dim         = spatial_dimension();
-
-    //                     adjugate_fill(block->element_type(),
-    //                                   block->n_elements(),
-    //                                   block->elements()->data(),
-    //                                   points->data(),
-    //                                   dim * dim,
-    //                                   fake_adjugate->data(),
-    //                                   determinant->data());
-
-    //                     geo_data->set_jacobian_adjugate_AoS(i, adjugate);
-    //                     geo_data->set_jacobian_determinant(i, determinant);
-
-    //                 } else {
-    //                     geo_data->set_jacobian_adjugate_AoS(i, nullptr);
-    //                     geo_data->set_jacobian_determinant(i, nullptr);
-    //                 }
-    //             }
-    //         }
-
-    // #ifdef SMESH_ENABLE_CUDA
-    //         if (space == EXECUTION_SPACE_DEVICE) {
-    //             geo_data->send_to_device();
-    //         }
-    // #else
-    //         SMESH_UNUSED(space);
-    // #endif  // SMESH_ENABLE_CUDA
-
-    //         return geo_data;
-    //     }
-
-    // int Mesh::init_kernel_data(const int flags, const enum ExecutionSpace space)
-    // {
-    //     auto geo_data      = create_kernel_data(flags, space);
-    //     impl_->kernel_data = geo_data;
-    //     return SMESH_SUCCESS;
-    // }
-
-    Mesh::Mesh(const std::shared_ptr<Communicator> &comm,
-               enum ElemType                        element_type,
-               SharedBuffer<idx_t *>                elements,
-               SharedBuffer<geom_t *>               points)
-        : impl_(std::make_unique<Impl>()) {
-        impl_->comm   = comm;
-        impl_->points = points;
-
-        // Create default block
-        auto default_block = std::make_shared<Block>();
-        default_block->set_name("default");
-        default_block->set_element_type(element_type);
-        default_block->set_elements(elements);
-        impl_->blocks.push_back(default_block);
+    int skip = 0;
+    for (size_t j = 0; j < already.size(); ++j) {
+      if (already[j].get() == ns.get()) {
+        skip = 1;
+        break;
+      }
     }
-
-    Mesh::Mesh(const std::shared_ptr<Communicator>       &comm,
-               const std::vector<std::shared_ptr<Block>> &blocks,
-               SharedBuffer<geom_t *>                     points)
-        : impl_(std::make_unique<Impl>()) {
-        impl_->comm   = comm;
-        impl_->points = points;
-        impl_->blocks = blocks;
+    if (skip) {
+      continue;
     }
-
-    Mesh::Mesh() : impl_(std::make_unique<Impl>()) {
-        impl_->clear();
-        impl_->comm = Communicator::world();
+    if (ns->remap_nodes(old_to_new, n) != SMESH_SUCCESS) {
+      return SMESH_FAILURE;
     }
+  }
+  return SMESH_SUCCESS;
+}
 
-    Mesh::Mesh(const std::shared_ptr<Communicator> &comm) : impl_(std::make_unique<Impl>()) {
-        impl_->clear();
-        impl_->comm = comm;
+void Mesh::add_parametrization(const std::string &name,
+                               const std::shared_ptr<Parametrization> &p) {
+  if (!p) {
+    return;
+  }
+  impl_->parametrizations.emplace_back(name, p);
+}
+
+void Mesh::clear_parametrizations() { impl_->parametrizations.clear(); }
+
+const std::vector<std::pair<std::string, std::shared_ptr<Parametrization>>> &
+Mesh::parametrizations() const {
+  return impl_->parametrizations;
+}
+
+std::vector<std::shared_ptr<Parametrization>>
+Mesh::parametrizations(const std::string &name) const {
+  std::vector<std::shared_ptr<Parametrization>> out;
+  const auto &reg = impl_->parametrizations;
+  for (size_t i = 0; i < reg.size(); ++i) {
+    if (reg[i].first == name) {
+      out.push_back(reg[i].second);
     }
+  }
+  return out;
+}
 
-    Mesh::~Mesh() = default;
-
-    // Block-related methods
-    size_t Mesh::n_blocks() const { return impl_->blocks.size(); }
-
-    std::shared_ptr<const Mesh::Block> Mesh::block(size_t index) const {
-        if (index >= impl_->blocks.size() || !impl_->blocks[index]) {
-            SMESH_ERROR("Block index out of range");
-        }
-        return impl_->blocks[index];
-    }
-
-    std::shared_ptr<Mesh::Block> Mesh::block(size_t index) {
-        if (index >= impl_->blocks.size() || !impl_->blocks[index]) {
-            SMESH_ERROR("Block index out of range");
-        }
-        return impl_->blocks[index];
-    }
-
-    void Mesh::add_block(const std::string &name, enum ElemType element_type, SharedBuffer<idx_t *> elements) {
-        auto new_block = std::make_shared<Block>();
-        new_block->set_name(name);
-        new_block->set_element_type(element_type);
-        new_block->set_elements(elements);
-        impl_->blocks.push_back(new_block);
-    }
-
-    void Mesh::add_block(const std::shared_ptr<Block> &block) { impl_->blocks.push_back(block); }
-
-    void Mesh::remove_block(size_t index) {
-        if (index >= impl_->blocks.size()) {
-            SMESH_ERROR("Block index out of range");
-        }
-
-        impl_->blocks.erase(impl_->blocks.begin() + index);
-    }
-
-    void Mesh::add_sideset(const std::string &name, const std::shared_ptr<Sideset> &ss) {
-        if (!ss) {
-            return;
-        }
-        impl_->sidesets.emplace_back(name, ss);
-    }
-
-    void Mesh::add_sidesets(const std::string                          &name,
-                            const std::vector<std::shared_ptr<Sideset>> &ss) {
-        for (size_t i = 0; i < ss.size(); ++i) {
-            add_sideset(name, ss[i]);
-        }
-    }
-
-    void Mesh::clear_sidesets() { impl_->sidesets.clear(); }
-
-    const std::vector<std::pair<std::string, std::shared_ptr<Sideset>>> &
-    Mesh::sidesets() const {
-        return impl_->sidesets;
-    }
-
-    std::vector<std::shared_ptr<Sideset>> Mesh::sidesets(const std::string &name) const {
-        std::vector<std::shared_ptr<Sideset>> out;
-        const auto                           &reg = impl_->sidesets;
-        for (size_t i = 0; i < reg.size(); ++i) {
-            if (reg[i].first == name) {
-                out.push_back(reg[i].second);
-            }
-        }
-        return out;
-    }
-
-    int Mesh::remap_registered_sidesets(block_idx_t                                  block_id,
-                                        const element_idx_t                         *old_to_new,
-                                        ptrdiff_t                                    n,
-                                        const std::vector<std::shared_ptr<Sideset>> &already) {
-        if (!old_to_new || n <= 0) {
-            return SMESH_SUCCESS;
-        }
-        const auto &reg = impl_->sidesets;
-        for (size_t i = 0; i < reg.size(); ++i) {
-            const auto &ss = reg[i].second;
-            if (!ss || ss->block_id() != block_id) {
-                continue;
-            }
-            int skip = 0;
-            for (size_t j = 0; j < already.size(); ++j) {
-                if (already[j].get() == ss.get()) {
-                    skip = 1;
-                    break;
-                }
-            }
-            if (skip) {
-                continue;
-            }
-            if (ss->remap_parents(old_to_new, n) != SMESH_SUCCESS) {
-                return SMESH_FAILURE;
-            }
-        }
-        return SMESH_SUCCESS;
-    }
-
-    void Mesh::add_edgeset(const std::string &name, const std::shared_ptr<Edgeset> &es) {
-        if (!es) {
-            return;
-        }
-        impl_->edgesets.emplace_back(name, es);
-    }
-
-    void Mesh::add_edgesets(const std::string                          &name,
-                            const std::vector<std::shared_ptr<Edgeset>> &es) {
-        for (size_t i = 0; i < es.size(); ++i) {
-            add_edgeset(name, es[i]);
-        }
-    }
-
-    void Mesh::clear_edgesets() { impl_->edgesets.clear(); }
-
-    const std::vector<std::pair<std::string, std::shared_ptr<Edgeset>>> &
-    Mesh::edgesets() const {
-        return impl_->edgesets;
-    }
-
-    std::vector<std::shared_ptr<Edgeset>> Mesh::edgesets(const std::string &name) const {
-        std::vector<std::shared_ptr<Edgeset>> out;
-        const auto                           &reg = impl_->edgesets;
-        for (size_t i = 0; i < reg.size(); ++i) {
-            if (reg[i].first == name) {
-                out.push_back(reg[i].second);
-            }
-        }
-        return out;
-    }
-
-    int Mesh::remap_registered_edgesets(block_idx_t                                  block_id,
-                                        const element_idx_t                         *old_to_new,
-                                        ptrdiff_t                                    n,
-                                        const std::vector<std::shared_ptr<Edgeset>> &already) {
-        if (!old_to_new || n <= 0) {
-            return SMESH_SUCCESS;
-        }
-        const auto &reg = impl_->edgesets;
-        for (size_t i = 0; i < reg.size(); ++i) {
-            const auto &es = reg[i].second;
-            if (!es || es->block_id() != block_id) {
-                continue;
-            }
-            int skip = 0;
-            for (size_t j = 0; j < already.size(); ++j) {
-                if (already[j].get() == es.get()) {
-                    skip = 1;
-                    break;
-                }
-            }
-            if (skip) {
-                continue;
-            }
-            if (es->remap_parents(old_to_new, n) != SMESH_SUCCESS) {
-                return SMESH_FAILURE;
-            }
-        }
-        return SMESH_SUCCESS;
-    }
-
-    void Mesh::add_nodeset(const std::string &name, const std::shared_ptr<Nodeset> &ns) {
-        if (!ns) {
-            return;
-        }
-        impl_->nodesets.emplace_back(name, ns);
-    }
-
-    void Mesh::add_nodesets(const std::string                          &name,
-                            const std::vector<std::shared_ptr<Nodeset>> &ns) {
-        for (size_t i = 0; i < ns.size(); ++i) {
-            add_nodeset(name, ns[i]);
-        }
-    }
-
-    void Mesh::clear_nodesets() { impl_->nodesets.clear(); }
-
-    const std::vector<std::pair<std::string, std::shared_ptr<Nodeset>>> &
-    Mesh::nodesets() const {
-        return impl_->nodesets;
-    }
-
-    std::vector<std::shared_ptr<Nodeset>> Mesh::nodesets(const std::string &name) const {
-        std::vector<std::shared_ptr<Nodeset>> out;
-        const auto                           &reg = impl_->nodesets;
-        for (size_t i = 0; i < reg.size(); ++i) {
-            if (reg[i].first == name) {
-                out.push_back(reg[i].second);
-            }
-        }
-        return out;
-    }
-
-    int Mesh::remap_registered_nodesets(const idx_t                                 *old_to_new,
-                                        ptrdiff_t                                    n,
-                                        const std::vector<std::shared_ptr<Nodeset>> &already) {
-        if (!old_to_new || n <= 0) {
-            return SMESH_SUCCESS;
-        }
-        const auto &reg = impl_->nodesets;
-        for (size_t i = 0; i < reg.size(); ++i) {
-            const auto &ns = reg[i].second;
-            if (!ns) {
-                continue;
-            }
-            int skip = 0;
-            for (size_t j = 0; j < already.size(); ++j) {
-                if (already[j].get() == ns.get()) {
-                    skip = 1;
-                    break;
-                }
-            }
-            if (skip) {
-                continue;
-            }
-            if (ns->remap_nodes(old_to_new, n) != SMESH_SUCCESS) {
-                return SMESH_FAILURE;
-            }
-        }
-        return SMESH_SUCCESS;
-    }
-
-    void Mesh::add_parametrization(const std::string &name, const std::shared_ptr<Parametrization> &p) {
-        if (!p) {
-            return;
-        }
-        impl_->parametrizations.emplace_back(name, p);
-    }
-
-    void Mesh::clear_parametrizations() { impl_->parametrizations.clear(); }
-
-    const std::vector<std::pair<std::string, std::shared_ptr<Parametrization>>> &
-    Mesh::parametrizations() const {
-        return impl_->parametrizations;
-    }
-
-    std::vector<std::shared_ptr<Parametrization>> Mesh::parametrizations(const std::string &name) const {
-        std::vector<std::shared_ptr<Parametrization>> out;
-        const auto                                   &reg = impl_->parametrizations;
-        for (size_t i = 0; i < reg.size(); ++i) {
-            if (reg[i].first == name) {
-                out.push_back(reg[i].second);
-            }
-        }
-        return out;
-    }
-
-    void read_meta(const std::shared_ptr<Communicator> &comm, const Path &path, enum ElemType &element_type,
-                   enum GeomMap &geom_map) {
-        if (!comm->rank()) {
-            auto meta_file = Path(path) / "meta.yaml";
-            if (meta_file.exists()) {
+void read_meta(const std::shared_ptr<Communicator> &comm, const Path &path,
+               enum ElemType &element_type, enum GeomMap &geom_map) {
+  if (!comm->rank()) {
+    auto meta_file = Path(path) / "meta.yaml";
+    if (meta_file.exists()) {
 #if defined(SMESH_ENABLE_RYAML)
-                std::ifstream ifs(meta_file.c_str(), std::ios::binary);
-                if (ifs.good()) {
-                    std::string yaml((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-                    if (!yaml.empty()) {
-                        ryml::Tree tree = ryml::parse_in_arena(ryml::to_csubstr(yaml));  // modifies input
-                        auto       root = tree.rootref();
-                        if (root.has_child("element_type")) {
-                            auto        v = root["element_type"].val();
-                            std::string s(v.str, v.len);
-                            element_type = type_from_string(s.c_str());
-                        }
-                        if (root.has_child("geom_map")) {
-                            auto        v = root["geom_map"].val();
-                            std::string s(v.str, v.len);
-                            geom_map = geom_map_from_string(s.c_str());
-                        }
-                    }
-                }
+      std::ifstream ifs(meta_file.c_str(), std::ios::binary);
+      if (ifs.good()) {
+        std::string yaml((std::istreambuf_iterator<char>(ifs)),
+                         std::istreambuf_iterator<char>());
+        if (!yaml.empty()) {
+          ryml::Tree tree =
+              ryml::parse_in_arena(ryml::to_csubstr(yaml)); // modifies input
+          auto root = tree.rootref();
+          if (root.has_child("element_type")) {
+            auto v = root["element_type"].val();
+            std::string s(v.str, v.len);
+            element_type = type_from_string(s.c_str());
+          }
+          if (root.has_child("geom_map")) {
+            auto v = root["geom_map"].val();
+            std::string s(v.str, v.len);
+            geom_map = geom_map_from_string(s.c_str());
+          }
+        }
+      }
 #else
-                std::ifstream ifs(meta_file.c_str());
-                while (ifs.good()) {
-                    std::string line;
-                    std::getline(ifs, line);
-                    if (line.find("element_type:") != std::string::npos) {
-                        auto element_type_str = trim(line.substr(line.find(":") + 1));
-                        element_type          = type_from_string(element_type_str.c_str());
-                    } else if (line.find("geom_map:") != std::string::npos) {
-                        auto geom_map_str = trim(line.substr(line.find(":") + 1));
-                        geom_map          = geom_map_from_string(geom_map_str.c_str());
-                    }
-                }
+      std::ifstream ifs(meta_file.c_str());
+      while (ifs.good()) {
+        std::string line;
+        std::getline(ifs, line);
+        if (line.find("element_type:") != std::string::npos) {
+          auto element_type_str = trim(line.substr(line.find(":") + 1));
+          element_type = type_from_string(element_type_str.c_str());
+        } else if (line.find("geom_map:") != std::string::npos) {
+          auto geom_map_str = trim(line.substr(line.find(":") + 1));
+          geom_map = geom_map_from_string(geom_map_str.c_str());
+        }
+      }
 #endif
-            }
-        }
-
-        if (comm->size() > 1) {
-            int element_type_int = (int)element_type;
-            comm->broadcast(&element_type_int, 1, 0);
-            element_type = (enum ElemType)element_type_int;
-            int geom_map_int = (int)geom_map;
-            comm->broadcast(&geom_map_int, 1, 0);
-            geom_map = (enum GeomMap)geom_map_int;
-        }
     }
+  }
 
-    static int is_sideset_folder(const Path &folder) {
-        return folder.is_dir() && (folder / "meta.yaml").exists() ? 1 : 0;
+  if (comm->size() > 1) {
+    int element_type_int = (int)element_type;
+    comm->broadcast(&element_type_int, 1, 0);
+    element_type = (enum ElemType)element_type_int;
+    int geom_map_int = (int)geom_map;
+    comm->broadcast(&geom_map_int, 1, 0);
+    geom_map = (enum GeomMap)geom_map_int;
+  }
+}
+
+static int is_sideset_folder(const Path &folder) {
+  return folder.is_dir() && (folder / "meta.yaml").exists() ? 1 : 0;
+}
+
+static void collect_subdirs(const Path &dir, std::vector<Path> *out) {
+  for (auto it = dir.iter(); it; ++it) {
+    Path child = *it;
+    if (child.is_dir()) {
+      out->push_back(child);
     }
+  }
+  std::sort(out->begin(), out->end(), [](const Path &a, const Path &b) {
+    return a.to_string() < b.to_string();
+  });
+}
 
-    static void collect_subdirs(const Path &dir, std::vector<Path> *out) {
-        for (auto it = dir.iter(); it; ++it) {
-            Path child = *it;
-            if (child.is_dir()) {
-                out->push_back(child);
-            }
-        }
-        std::sort(out->begin(), out->end(), [](const Path &a, const Path &b) {
-            return a.to_string() < b.to_string();
-        });
-    }
+static std::shared_ptr<Mesh> mesh_nonowning_alias(Mesh *mesh) {
+  return std::shared_ptr<Mesh>(mesh, [](Mesh *) {});
+}
 
-    static std::shared_ptr<Mesh> mesh_nonowning_alias(Mesh *mesh) {
-        return std::shared_ptr<Mesh>(mesh, [](Mesh *) {});
-    }
+static int load_one_sideset(Mesh &mesh, const std::string &name,
+                            const Path &folder) {
+  auto ss = std::make_shared<Sideset>();
+  int err = SMESH_FAILURE;
+  if (mesh.comm()->size() > 1) {
+    err = ss->read_and_redistibute(mesh_nonowning_alias(&mesh), folder);
+  } else {
+    err = ss->read(mesh.comm(), folder);
+  }
+  if (err != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+  mesh.add_sideset(name, ss);
+  return SMESH_SUCCESS;
+}
 
-    static int load_one_sideset(Mesh &mesh, const std::string &name, const Path &folder) {
-        auto ss = std::make_shared<Sideset>();
-        int  err = SMESH_FAILURE;
-        if (mesh.comm()->size() > 1) {
-            err = ss->read_and_redistibute(mesh_nonowning_alias(&mesh), folder);
-        } else {
-            err = ss->read(mesh.comm(), folder);
-        }
-        if (err != SMESH_SUCCESS) {
-            return SMESH_FAILURE;
-        }
-        mesh.add_sideset(name, ss);
-        return SMESH_SUCCESS;
-    }
+static int read_registered_sidesets(Mesh &mesh, const Path &path) {
+  mesh.clear_sidesets();
+  const Path root = path / "sidesets";
+  if (!root.is_dir()) {
+    return SMESH_SUCCESS;
+  }
 
-    static int read_registered_sidesets(Mesh &mesh, const Path &path) {
+  std::vector<Path> children;
+  collect_subdirs(root, &children);
+  for (size_t i = 0; i < children.size(); ++i) {
+    const Path &child = children[i];
+    const std::string name = child.file_name();
+    if (is_sideset_folder(child)) {
+      if (load_one_sideset(mesh, name, child) != SMESH_SUCCESS) {
         mesh.clear_sidesets();
-        const Path root = path / "sidesets";
-        if (!root.is_dir()) {
-            return SMESH_SUCCESS;
-        }
-
-        std::vector<Path> children;
-        collect_subdirs(root, &children);
-        for (size_t i = 0; i < children.size(); ++i) {
-            const Path        &child = children[i];
-            const std::string  name  = child.file_name();
-            if (is_sideset_folder(child)) {
-                if (load_one_sideset(mesh, name, child) != SMESH_SUCCESS) {
-                    mesh.clear_sidesets();
-                    return SMESH_FAILURE;
-                }
-                continue;
-            }
-
-            std::vector<Path> members;
-            collect_subdirs(child, &members);
-            for (size_t j = 0; j < members.size(); ++j) {
-                if (!is_sideset_folder(members[j])) {
-                    continue;
-                }
-                if (load_one_sideset(mesh, name, members[j]) != SMESH_SUCCESS) {
-                    mesh.clear_sidesets();
-                    return SMESH_FAILURE;
-                }
-            }
-        }
-        return SMESH_SUCCESS;
-    }
-
-    static int write_registered_sidesets(const Mesh &mesh, const Path &path) {
-        const auto &reg = mesh.sidesets();
-        if (reg.empty()) {
-            return SMESH_SUCCESS;
-        }
-
-        std::vector<std::string>                           names;
-        std::vector<std::vector<std::shared_ptr<Sideset>>> groups;
-        for (size_t i = 0; i < reg.size(); ++i) {
-            size_t gi = names.size();
-            for (size_t g = 0; g < names.size(); ++g) {
-                if (names[g] == reg[i].first) {
-                    gi = g;
-                    break;
-                }
-            }
-            if (gi == names.size()) {
-                names.push_back(reg[i].first);
-                groups.emplace_back();
-            }
-            groups[gi].push_back(reg[i].second);
-        }
-
-        auto comm = mesh.comm();
-        int  err  = SMESH_SUCCESS;
-        if (!comm->rank()) {
-            if (create_directory(path / "sidesets") != SMESH_SUCCESS) {
-                err = SMESH_FAILURE;
-            }
-            for (size_t g = 0; err == SMESH_SUCCESS && g < names.size(); ++g) {
-                const Path name_dir = path / "sidesets" / names[g];
-                if (create_directory(name_dir) != SMESH_SUCCESS) {
-                    err = SMESH_FAILURE;
-                    break;
-                }
-                if (groups[g].size() <= 1) {
-                    continue;
-                }
-                for (size_t k = 0; k < groups[g].size(); ++k) {
-                    if (!groups[g][k]) {
-                        continue;
-                    }
-                    const Path leaf =
-                            name_dir / std::to_string(static_cast<long long>(groups[g][k]->block_id()));
-                    if (create_directory(leaf) != SMESH_SUCCESS) {
-                        err = SMESH_FAILURE;
-                        break;
-                    }
-                }
-            }
-        }
-        comm->broadcast(&err, 1, 0);
-        if (err != SMESH_SUCCESS) {
-            return SMESH_FAILURE;
-        }
-
-        for (size_t g = 0; g < names.size(); ++g) {
-            const Path name_dir = path / "sidesets" / names[g];
-            if (groups[g].size() == 1) {
-                if (!groups[g][0]) {
-                    continue;
-                }
-                if (groups[g][0]->write(name_dir) != SMESH_SUCCESS) {
-                    return SMESH_FAILURE;
-                }
-                continue;
-            }
-            for (size_t k = 0; k < groups[g].size(); ++k) {
-                if (!groups[g][k]) {
-                    continue;
-                }
-                const Path leaf =
-                        name_dir / std::to_string(static_cast<long long>(groups[g][k]->block_id()));
-                if (groups[g][k]->write(leaf) != SMESH_SUCCESS) {
-                    return SMESH_FAILURE;
-                }
-            }
-        }
-        return SMESH_SUCCESS;
-    }
-
-    static int is_edgeset_folder(const Path &folder) {
-        return folder.is_dir() && (folder / "meta.yaml").exists() ? 1 : 0;
-    }
-
-    static int is_nodeset_folder(const Path &folder) {
-        if (!folder.is_dir()) {
-            return 0;
-        }
-        if ((folder / "meta.yaml").exists()) {
-            return 1;
-        }
-        auto nodes = detect_files(folder / "nodes.*", {"raw", "int16", "int32", "int64"});
-        return nodes.empty() ? 0 : 1;
-    }
-
-    static int load_one_edgeset(Mesh &mesh, const std::string &name, const Path &folder) {
-        auto es  = std::make_shared<Edgeset>();
-        int  err = SMESH_FAILURE;
-        if (mesh.comm()->size() > 1) {
-            err = es->read_and_redistibute(mesh_nonowning_alias(&mesh), folder);
-        } else {
-            err = es->read(mesh.comm(), folder);
-        }
-        if (err != SMESH_SUCCESS) {
-            return SMESH_FAILURE;
-        }
-        mesh.add_edgeset(name, es);
-        return SMESH_SUCCESS;
-    }
-
-    static int load_one_nodeset(Mesh &mesh, const std::string &name, const Path &folder) {
-        auto ns  = std::make_shared<Nodeset>();
-        int  err = SMESH_FAILURE;
-        if (mesh.comm()->size() > 1) {
-            err = ns->read_and_redistibute(mesh_nonowning_alias(&mesh), folder);
-        } else {
-            err = ns->read(mesh.comm(), folder);
-        }
-        if (err != SMESH_SUCCESS) {
-            return SMESH_FAILURE;
-        }
-        mesh.add_nodeset(name, ns);
-        return SMESH_SUCCESS;
-    }
-
-    static int read_registered_edgesets(Mesh &mesh, const Path &path) {
-        mesh.clear_edgesets();
-        const Path root = path / "edgesets";
-        if (!root.is_dir()) {
-            return SMESH_SUCCESS;
-        }
-
-        std::vector<Path> children;
-        collect_subdirs(root, &children);
-        for (size_t i = 0; i < children.size(); ++i) {
-            const Path       &child = children[i];
-            const std::string name  = child.file_name();
-            if (is_edgeset_folder(child)) {
-                if (load_one_edgeset(mesh, name, child) != SMESH_SUCCESS) {
-                    mesh.clear_edgesets();
-                    return SMESH_FAILURE;
-                }
-                continue;
-            }
-            std::vector<Path> members;
-            collect_subdirs(child, &members);
-            for (size_t j = 0; j < members.size(); ++j) {
-                if (!is_edgeset_folder(members[j])) {
-                    continue;
-                }
-                if (load_one_edgeset(mesh, name, members[j]) != SMESH_SUCCESS) {
-                    mesh.clear_edgesets();
-                    return SMESH_FAILURE;
-                }
-            }
-        }
-        return SMESH_SUCCESS;
-    }
-
-    static int read_registered_nodesets(Mesh &mesh, const Path &path) {
-        mesh.clear_nodesets();
-        const Path root = path / "nodesets";
-        if (!root.is_dir()) {
-            return SMESH_SUCCESS;
-        }
-
-        std::vector<Path> children;
-        collect_subdirs(root, &children);
-        for (size_t i = 0; i < children.size(); ++i) {
-            const Path       &child = children[i];
-            const std::string name  = child.file_name();
-            if (is_nodeset_folder(child)) {
-                if (load_one_nodeset(mesh, name, child) != SMESH_SUCCESS) {
-                    mesh.clear_nodesets();
-                    return SMESH_FAILURE;
-                }
-                continue;
-            }
-            std::vector<Path> members;
-            collect_subdirs(child, &members);
-            for (size_t j = 0; j < members.size(); ++j) {
-                if (!is_nodeset_folder(members[j])) {
-                    continue;
-                }
-                if (load_one_nodeset(mesh, name, members[j]) != SMESH_SUCCESS) {
-                    mesh.clear_nodesets();
-                    return SMESH_FAILURE;
-                }
-            }
-        }
-        return SMESH_SUCCESS;
-    }
-
-    static int write_registered_edgesets(const Mesh &mesh, const Path &path) {
-        const auto &reg = mesh.edgesets();
-        if (reg.empty()) {
-            return SMESH_SUCCESS;
-        }
-
-        std::vector<std::string>                           names;
-        std::vector<std::vector<std::shared_ptr<Edgeset>>> groups;
-        for (size_t i = 0; i < reg.size(); ++i) {
-            size_t gi = names.size();
-            for (size_t g = 0; g < names.size(); ++g) {
-                if (names[g] == reg[i].first) {
-                    gi = g;
-                    break;
-                }
-            }
-            if (gi == names.size()) {
-                names.push_back(reg[i].first);
-                groups.emplace_back();
-            }
-            groups[gi].push_back(reg[i].second);
-        }
-
-        auto comm = mesh.comm();
-        int  err  = SMESH_SUCCESS;
-        if (!comm->rank()) {
-            if (create_directory(path / "edgesets") != SMESH_SUCCESS) {
-                err = SMESH_FAILURE;
-            }
-            for (size_t g = 0; err == SMESH_SUCCESS && g < names.size(); ++g) {
-                const Path name_dir = path / "edgesets" / names[g];
-                if (create_directory(name_dir) != SMESH_SUCCESS) {
-                    err = SMESH_FAILURE;
-                    break;
-                }
-                if (groups[g].size() <= 1) {
-                    continue;
-                }
-                for (size_t k = 0; k < groups[g].size(); ++k) {
-                    if (!groups[g][k]) {
-                        continue;
-                    }
-                    const Path leaf =
-                            name_dir / std::to_string(static_cast<long long>(groups[g][k]->block_id()));
-                    if (create_directory(leaf) != SMESH_SUCCESS) {
-                        err = SMESH_FAILURE;
-                        break;
-                    }
-                }
-            }
-        }
-        comm->broadcast(&err, 1, 0);
-        if (err != SMESH_SUCCESS) {
-            return SMESH_FAILURE;
-        }
-
-        for (size_t g = 0; g < names.size(); ++g) {
-            const Path name_dir = path / "edgesets" / names[g];
-            if (groups[g].size() == 1) {
-                if (!groups[g][0]) {
-                    continue;
-                }
-                if (groups[g][0]->write(name_dir) != SMESH_SUCCESS) {
-                    return SMESH_FAILURE;
-                }
-                continue;
-            }
-            for (size_t k = 0; k < groups[g].size(); ++k) {
-                if (!groups[g][k]) {
-                    continue;
-                }
-                const Path leaf =
-                        name_dir / std::to_string(static_cast<long long>(groups[g][k]->block_id()));
-                if (groups[g][k]->write(leaf) != SMESH_SUCCESS) {
-                    return SMESH_FAILURE;
-                }
-            }
-        }
-        return SMESH_SUCCESS;
-    }
-
-    static int write_registered_nodesets(const Mesh &mesh, const Path &path) {
-        const auto &reg = mesh.nodesets();
-        if (reg.empty()) {
-            return SMESH_SUCCESS;
-        }
-
-        std::vector<std::string>                           names;
-        std::vector<std::vector<std::shared_ptr<Nodeset>>> groups;
-        for (size_t i = 0; i < reg.size(); ++i) {
-            size_t gi = names.size();
-            for (size_t g = 0; g < names.size(); ++g) {
-                if (names[g] == reg[i].first) {
-                    gi = g;
-                    break;
-                }
-            }
-            if (gi == names.size()) {
-                names.push_back(reg[i].first);
-                groups.emplace_back();
-            }
-            groups[gi].push_back(reg[i].second);
-        }
-
-        auto comm = mesh.comm();
-        int  err  = SMESH_SUCCESS;
-        if (!comm->rank()) {
-            if (create_directory(path / "nodesets") != SMESH_SUCCESS) {
-                err = SMESH_FAILURE;
-            }
-            for (size_t g = 0; err == SMESH_SUCCESS && g < names.size(); ++g) {
-                const Path name_dir = path / "nodesets" / names[g];
-                if (create_directory(name_dir) != SMESH_SUCCESS) {
-                    err = SMESH_FAILURE;
-                    break;
-                }
-                if (groups[g].size() <= 1) {
-                    continue;
-                }
-                for (size_t k = 0; k < groups[g].size(); ++k) {
-                    const Path leaf = name_dir / std::to_string(static_cast<long long>(k));
-                    if (create_directory(leaf) != SMESH_SUCCESS) {
-                        err = SMESH_FAILURE;
-                        break;
-                    }
-                }
-            }
-        }
-        comm->broadcast(&err, 1, 0);
-        if (err != SMESH_SUCCESS) {
-            return SMESH_FAILURE;
-        }
-
-        for (size_t g = 0; g < names.size(); ++g) {
-            const Path name_dir = path / "nodesets" / names[g];
-            if (groups[g].size() == 1) {
-                if (!groups[g][0]) {
-                    continue;
-                }
-                if (groups[g][0]->write(name_dir) != SMESH_SUCCESS) {
-                    return SMESH_FAILURE;
-                }
-                continue;
-            }
-            for (size_t k = 0; k < groups[g].size(); ++k) {
-                if (!groups[g][k]) {
-                    continue;
-                }
-                const Path leaf = name_dir / std::to_string(static_cast<long long>(k));
-                if (groups[g][k]->write(leaf) != SMESH_SUCCESS) {
-                    return SMESH_FAILURE;
-                }
-            }
-        }
-        return SMESH_SUCCESS;
-    }
-
-    static int write_topology_then_sidesets(const Mesh &mesh, const Path &path, const int topology_err) {
-        if (topology_err != SMESH_SUCCESS) {
-            return topology_err;
-        }
-        if (write_registered_sidesets(mesh, path) != SMESH_SUCCESS) {
-            return SMESH_FAILURE;
-        }
-        if (write_registered_edgesets(mesh, path) != SMESH_SUCCESS) {
-            return SMESH_FAILURE;
-        }
-        return write_registered_nodesets(mesh, path);
-    }
-
-    static std::shared_ptr<Sideset> clone_sideset(const Mesh                     &dst,
-                                                  const std::shared_ptr<Sideset> &ss) {
-        if (!ss) {
-            return nullptr;
-        }
-        const ptrdiff_t n      = ss->size();
-        auto            parent = create_host_buffer<element_idx_t>((size_t)n);
-        auto            lfi    = create_host_buffer<i16>((size_t)n);
-        if (n > 0) {
-            std::memcpy(parent->data(), ss->parent()->data(), (size_t)n * sizeof(element_idx_t));
-            std::memcpy(lfi->data(), ss->lfi()->data(), (size_t)n * sizeof(i16));
-        }
-
-        SharedBuffer<large_idx_t> mapping = nullptr;
-        if (dst.is_distributed()) {
-            auto block = dst.block(ss->block_id());
-            if (block) {
-                mapping = block->element_mapping();
-            }
-        } else if (ss->element_mapping()) {
-            const ptrdiff_t nm = ss->element_mapping()->size();
-            mapping            = create_host_buffer<large_idx_t>((size_t)nm);
-            if (nm > 0) {
-                std::memcpy(mapping->data(), ss->element_mapping()->data(), (size_t)nm * sizeof(large_idx_t));
-            }
-        }
-        return Sideset::create(dst.comm(), parent, lfi, ss->block_id(), mapping);
-    }
-
-    static std::shared_ptr<Edgeset> clone_edgeset(const Mesh                     &dst,
-                                                  const std::shared_ptr<Edgeset> &es) {
-        if (!es) {
-            return nullptr;
-        }
-        const ptrdiff_t n      = es->size();
-        auto            parent = create_host_buffer<element_idx_t>((size_t)n);
-        auto            lei    = create_host_buffer<i16>((size_t)n);
-        if (n > 0) {
-            std::memcpy(parent->data(), es->parent()->data(), (size_t)n * sizeof(element_idx_t));
-            std::memcpy(lei->data(), es->lei()->data(), (size_t)n * sizeof(i16));
-        }
-
-        SharedBuffer<large_idx_t> mapping = nullptr;
-        if (dst.is_distributed()) {
-            auto block = dst.block(es->block_id());
-            if (block) {
-                mapping = block->element_mapping();
-            }
-        } else if (es->element_mapping()) {
-            const ptrdiff_t nm = es->element_mapping()->size();
-            mapping            = create_host_buffer<large_idx_t>((size_t)nm);
-            if (nm > 0) {
-                std::memcpy(mapping->data(), es->element_mapping()->data(), (size_t)nm * sizeof(large_idx_t));
-            }
-        }
-        return Edgeset::create(dst.comm(), parent, lei, es->block_id(), mapping);
-    }
-
-    static std::shared_ptr<Nodeset> clone_nodeset(const Mesh                     &dst,
-                                                  const std::shared_ptr<Nodeset> &ns) {
-        if (!ns) {
-            return nullptr;
-        }
-        const ptrdiff_t n     = ns->size();
-        auto            nodes = create_host_buffer<idx_t>((size_t)n);
-        if (n > 0) {
-            std::memcpy(nodes->data(), ns->nodes()->data(), (size_t)n * sizeof(idx_t));
-        }
-        SharedBuffer<large_idx_t> mapping = nullptr;
-        if (dst.is_distributed() && dst.distributed()) {
-            mapping = dst.distributed()->node_mapping();
-        } else if (ns->node_mapping()) {
-            const ptrdiff_t nm = ns->node_mapping()->size();
-            mapping            = create_host_buffer<large_idx_t>((size_t)nm);
-            if (nm > 0) {
-                std::memcpy(mapping->data(), ns->node_mapping()->data(), (size_t)nm * sizeof(large_idx_t));
-            }
-        }
-        return Nodeset::create(dst.comm(), nodes, mapping);
-    }
-
-    int Mesh::read(const Path &path) {
-        SMESH_TRACE_SCOPE("Mesh::read");
-        impl_->sidesets.clear();
-        impl_->edgesets.clear();
-        impl_->nodesets.clear();
-
-        if (impl_->comm->size() == 1) {
-            std::vector<std::string>   block_names;
-            std::vector<enum ElemType> element_types;
-            std::vector<enum GeomMap>  geom_maps;
-            const bool                 has_blocks = read_blocks_meta(path, block_names, element_types, geom_maps);
-
-            impl_->blocks.clear();
-
-            if (has_blocks) {
-                // Shared coordinates for all blocks
-                geom_t  **points      = nullptr;
-                int       spatial_dim = 0;
-                ptrdiff_t nnodes      = 0;
-                if (mesh_coordinates_from_folder(path, &spatial_dim, &points, &nnodes) != SMESH_SUCCESS) {
-                    return SMESH_FAILURE;
-                }
-                impl_->points = manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
-
-                const size_t n_blocks = block_names.size();
-                for (size_t b = 0; b < n_blocks; ++b) {
-                    int       nnodesxelem = 0;
-                    ptrdiff_t nelements   = 0;
-                    idx_t   **elements    = nullptr;
-
-                    Path block_folder = Path(path) / "blocks" / block_names[b];
-                    if (mesh_block_from_folder(block_folder, &nnodesxelem, &elements, &nelements) != SMESH_SUCCESS) {
-                        return SMESH_FAILURE;
-                    }
-
-                    auto elements_buffer = manage_host_buffer<idx_t>(nnodesxelem, nelements, elements);
-
-                    enum ElemType et = element_types[b];
-                    if (et == INVALID) {
-                        // Fallback: infer from number of nodes per element when metadata
-                        // is missing.
-                        et = (enum ElemType)nnodesxelem;
-                    }
-
-                    auto block = std::make_shared<Block>();
-                    block->set_name(block_names[b]);
-                    block->set_element_type(et);
-                    if (b < geom_maps.size()) {
-                        block->set_geom_map(geom_maps[b]);
-                    }
-                    block->set_elements(elements_buffer);
-                    this->add_block(block);
-                }
-            } else {
-                // Legacy single-block layout: connectivity and points live directly
-                // under path.
-                idx_t   **elements = nullptr;
-                geom_t  **points   = nullptr;
-                int       nnodesxelem;
-                int       spatial_dim;
-                ptrdiff_t nnodes;
-                ptrdiff_t nelements;
-
-                if (mesh_from_folder(path, &nnodesxelem, &nelements, &elements, &spatial_dim, &nnodes, &points) !=
-                    SMESH_SUCCESS) {
-                    return SMESH_FAILURE;
-                }
-
-                auto elements_buffer = manage_host_buffer<idx_t>(nnodesxelem, nelements, elements);
-                impl_->points        = manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
-
-                enum ElemType element_type = (enum ElemType)nnodesxelem;
-                enum GeomMap  geom_map     = ISOPARAMETRIC;
-                read_meta(impl_->comm, path, element_type, geom_map);
-
-                auto default_block = std::make_shared<Block>();
-                default_block->set_name("default");
-                default_block->set_element_type(element_type);
-                default_block->set_geom_map(geom_map);
-                default_block->set_elements(elements_buffer);
-                this->add_block(default_block);
-            }
-        }
-#ifdef SMESH_ENABLE_MPI
-        else {
-            std::vector<std::string>   block_names;
-            std::vector<enum ElemType> element_types;
-            std::vector<enum GeomMap>  geom_maps;
-            const bool                 has_blocks = read_blocks_meta(path, block_names, element_types, geom_maps);
-
-            auto         dist = std::make_shared<Distributed>();
-            int          nnodesxelem;
-            large_idx_t *element_mapping      = nullptr;
-            large_idx_t *aura_element_mapping = nullptr;
-            large_idx_t *node_mapping         = nullptr;
-            geom_t     **points               = nullptr;
-            ptrdiff_t   *node_offsets         = nullptr;
-            int         *node_owner           = nullptr;
-            idx_t       *ghosts               = nullptr;
-            ptrdiff_t    n_nodes_aura         = 0;
-            int          spatial_dim          = 0;
-
-            const char *const reorder = std::getenv("SMESH_REORDER");
-            int               read_status = SMESH_FAILURE;
-
-            auto parse_ordering = [&](OrderEncoder<geom_t> *ordering_out,
-                                      bool                  *use_sfc_out) -> int {
-                *use_sfc_out = true;
-                *ordering_out = encode_hilbert3<geom_t>;
-                if (!reorder || reorder[0] == '\0') {
-                    return SMESH_SUCCESS;
-                }
-                if (std::strcmp(reorder, "none") == 0 || std::strcmp(reorder, "0") == 0) {
-                    *use_sfc_out = false;
-                    return SMESH_SUCCESS;
-                }
-                if (std::strcmp(reorder, "hilbert3") == 0) {
-                    *ordering_out = encode_hilbert3<geom_t>;
-                } else if (std::strcmp(reorder, "morton3") == 0) {
-                    *ordering_out = encode_morton3<geom_t>;
-                } else if (std::strcmp(reorder, "cartesian3") == 0) {
-                    *ordering_out = encode_cartesian3_default<geom_t>;
-                } else if (std::strcmp(reorder, "random3") == 0) {
-                    *ordering_out = encode_random3_bounded<geom_t>;
-                } else {
-                    SMESH_ERROR("Unsupported SMESH_REORDER=%s\n", reorder);
-                    return SMESH_FAILURE;
-                }
-                return SMESH_SUCCESS;
-            };
-
-            impl_->blocks.clear();
-
-            if (has_blocks) {
-                // Multi-block MPI: SFC over the union (default Hilbert).
-                // SMESH_REORDER=none|0 → concat-id / file-order partition.
-                OrderEncoder<geom_t> ordering = encode_hilbert3<geom_t>;
-                bool                 use_sfc  = true;
-                if (parse_ordering(&ordering, &use_sfc) != SMESH_SUCCESS) {
-                    return SMESH_FAILURE;
-                }
-
-                ptrdiff_t    *n_local_per_block              = nullptr;
-                ptrdiff_t    *n_owned_per_block              = nullptr;
-                ptrdiff_t    *n_shared_per_block             = nullptr;
-                ptrdiff_t    *n_ghosts_per_block             = nullptr;
-                large_idx_t **element_mapping_per_block      = nullptr;
-                large_idx_t **aura_element_mapping_per_block = nullptr;
-                idx_t      ***elements_per_block             = nullptr;
-                int          *nxe_per_block                  = nullptr;
-
-                read_status = mesh_from_folder_multiblock(
-                        impl_->comm->get(),
-                        path,
-                        block_names,
-                        element_types,
-                        &dist->impl_->n_elements_global,
-                        &dist->impl_->n_elements_owned,
-                        &dist->impl_->n_elements_shared,
-                        &dist->impl_->n_elements_ghosts,
-                        &element_mapping,
-                        &aura_element_mapping,
-                        &nxe_per_block,
-                        &n_local_per_block,
-                        &n_owned_per_block,
-                        &n_shared_per_block,
-                        &n_ghosts_per_block,
-                        &element_mapping_per_block,
-                        &aura_element_mapping_per_block,
-                        &elements_per_block,
-                        &spatial_dim,
-                        &dist->impl_->n_nodes_global,
-                        &dist->impl_->n_nodes_owned,
-                        &dist->impl_->n_nodes_shared,
-                        &dist->impl_->n_nodes_ghosts,
-                        &n_nodes_aura,
-                        &node_mapping,
-                        &points,
-                        &node_owner,
-                        &node_offsets,
-                        &ghosts,
-                        use_sfc,
-                        ordering);
-
-                if (read_status != SMESH_SUCCESS) {
-                    SMESH_ERROR("Failed to read multi-block mesh from folder %s\n", path.c_str());
-                    return SMESH_FAILURE;
-                }
-
-                dist->impl_->n_nodes_aura = n_nodes_aura;
-                impl_->points = manage_host_buffer<geom_t>(spatial_dim, dist->n_nodes_local(), points);
-                dist->impl_->node_mapping =
-                        manage_host_buffer<large_idx_t>(dist->n_nodes_local(), node_mapping);
-                dist->impl_->node_owner = manage_host_buffer<int>(dist->n_nodes_local(), node_owner);
-                dist->impl_->element_mapping =
-                        manage_host_buffer<large_idx_t>(dist->n_elements_owned(), element_mapping);
-                dist->impl_->aura_element_mapping =
-                        manage_host_buffer<large_idx_t>(dist->n_elements_ghosts(), aura_element_mapping);
-
-                int comm_size = 0;
-                MPI_Comm_size(impl_->comm->get(), &comm_size);
-                dist->impl_->node_offsets = manage_host_buffer<ptrdiff_t>(comm_size + 1, node_offsets);
-                dist->impl_->ghosts_and_aura =
-                        manage_host_buffer<idx_t>(dist->impl_->n_nodes_ghosts + dist->impl_->n_nodes_aura,
-                                                  ghosts);
-
-                const size_t n_blocks = block_names.size();
-                ptrdiff_t    sum_owned  = 0;
-                ptrdiff_t    sum_shared = 0;
-                ptrdiff_t    sum_ghosts = 0;
-                for (size_t b = 0; b < n_blocks; ++b) {
-                    enum ElemType et = element_types[b];
-                    const int     nxe_b = nxe_per_block[b];
-                    if (et == INVALID) {
-                        et = (enum ElemType)nxe_b;
-                    }
-                    auto elements_buffer =
-                            manage_host_buffer<idx_t>(nxe_b, n_local_per_block[b], elements_per_block[b]);
-                    auto owned_map = manage_host_buffer<large_idx_t>(n_owned_per_block[b],
-                                                                     element_mapping_per_block[b]);
-                    auto aura_map  = manage_host_buffer<large_idx_t>(n_ghosts_per_block[b],
-                                                                    aura_element_mapping_per_block[b]);
-                    auto block = std::make_shared<Block>();
-                    block->set_name(block_names[b]);
-                    block->set_element_type(et);
-                    if (b < geom_maps.size()) {
-                        block->set_geom_map(geom_maps[b]);
-                    }
-                    block->set_elements(elements_buffer);
-                    block->set_distributed_elements(n_owned_per_block[b],
-                                                    n_shared_per_block[b],
-                                                    n_ghosts_per_block[b],
-                                                    owned_map,
-                                                    aura_map);
-                    this->add_block(block);
-                    sum_owned += n_owned_per_block[b];
-                    sum_shared += n_shared_per_block[b];
-                    sum_ghosts += n_ghosts_per_block[b];
-                    if (block->n_elements() != n_owned_per_block[b] + n_ghosts_per_block[b]) {
-                        SMESH_ERROR(
-                                "Mesh::read: block %s local SoA size %ld != owned (%ld) + "
-                                "ghosts (%ld)\n",
-                                block_names[b].c_str(),
-                                (long)block->n_elements(),
-                                (long)n_owned_per_block[b],
-                                (long)n_ghosts_per_block[b]);
-                        return SMESH_FAILURE;
-                    }
-                }
-                if (sum_owned != dist->n_elements_owned() || sum_shared != dist->n_elements_shared() ||
-                    sum_ghosts != dist->n_elements_ghosts()) {
-                    SMESH_ERROR(
-                            "Mesh::read: per-block element counts (%ld owned, %ld shared, %ld "
-                            "ghosts) do not match Distributed (%ld, %ld, %ld)\n",
-                            (long)sum_owned,
-                            (long)sum_shared,
-                            (long)sum_ghosts,
-                            (long)dist->n_elements_owned(),
-                            (long)dist->n_elements_shared(),
-                            (long)dist->n_elements_ghosts());
-                    return SMESH_FAILURE;
-                }
-                SMESH_FREE(n_local_per_block);
-                SMESH_FREE(n_owned_per_block);
-                SMESH_FREE(n_shared_per_block);
-                SMESH_FREE(n_ghosts_per_block);
-                SMESH_FREE(element_mapping_per_block);
-                SMESH_FREE(aura_element_mapping_per_block);
-                SMESH_FREE(elements_per_block);
-                SMESH_FREE(nxe_per_block);
-
-                impl_->distributed = dist;
-            } else {
-                // Legacy single-block MPI path (unchanged layout).
-                idx_t **elements = nullptr;
-
-                // Single-block: SMESH_REORDER remains opt-in (unset → no SFC).
-                if (reorder && reorder[0] != '\0') {
-                    if (std::strcmp(reorder, "none") == 0 || std::strcmp(reorder, "0") == 0) {
-                        read_status = mesh_from_folder(impl_->comm->get(),
-                                                       path,
-                                                       &nnodesxelem,
-                                                       &dist->impl_->n_elements_global,
-                                                       &dist->impl_->n_elements_owned,
-                                                       &dist->impl_->n_elements_shared,
-                                                       &dist->impl_->n_elements_ghosts,
-                                                       &element_mapping,
-                                                       &aura_element_mapping,
-                                                       &elements,
-                                                       &spatial_dim,
-                                                       &dist->impl_->n_nodes_global,
-                                                       &dist->impl_->n_nodes_owned,
-                                                       &dist->impl_->n_nodes_shared,
-                                                       &dist->impl_->n_nodes_ghosts,
-                                                       &n_nodes_aura,
-                                                       &node_mapping,
-                                                       &points,
-                                                       &node_owner,
-                                                       &node_offsets,
-                                                       &ghosts);
-                    } else {
-                        OrderEncoder<geom_t> ordering = nullptr;
-                        bool                 use_sfc  = true;
-                        if (parse_ordering(&ordering, &use_sfc) != SMESH_SUCCESS || !use_sfc) {
-                            return SMESH_FAILURE;
-                        }
-                        read_status = mesh_from_folder_reordered(impl_->comm->get(),
-                                                                 path,
-                                                                 &nnodesxelem,
-                                                                 &dist->impl_->n_elements_global,
-                                                                 &dist->impl_->n_elements_owned,
-                                                                 &dist->impl_->n_elements_shared,
-                                                                 &dist->impl_->n_elements_ghosts,
-                                                                 &element_mapping,
-                                                                 &aura_element_mapping,
-                                                                 &elements,
-                                                                 &spatial_dim,
-                                                                 &dist->impl_->n_nodes_global,
-                                                                 &dist->impl_->n_nodes_owned,
-                                                                 &dist->impl_->n_nodes_shared,
-                                                                 &dist->impl_->n_nodes_ghosts,
-                                                                 &n_nodes_aura,
-                                                                 &node_mapping,
-                                                                 &points,
-                                                                 &node_owner,
-                                                                 &node_offsets,
-                                                                 &ghosts,
-                                                                 ordering);
-                    }
-                } else {
-                    read_status = mesh_from_folder(impl_->comm->get(),
-                                                   path,
-                                                   &nnodesxelem,
-                                                   &dist->impl_->n_elements_global,
-                                                   &dist->impl_->n_elements_owned,
-                                                   &dist->impl_->n_elements_shared,
-                                                   &dist->impl_->n_elements_ghosts,
-                                                   &element_mapping,
-                                                   &aura_element_mapping,
-                                                   &elements,
-                                                   &spatial_dim,
-                                                   &dist->impl_->n_nodes_global,
-                                                   &dist->impl_->n_nodes_owned,
-                                                   &dist->impl_->n_nodes_shared,
-                                                   &dist->impl_->n_nodes_ghosts,
-                                                   &n_nodes_aura,
-                                                   &node_mapping,
-                                                   &points,
-                                                   &node_owner,
-                                                   &node_offsets,
-                                                   &ghosts);
-                }
-
-                if (read_status != SMESH_SUCCESS) {
-                    SMESH_ERROR("Failed to read mesh from folder %s\n", path.c_str());
-                    return SMESH_FAILURE;
-                }
-                dist->impl_->n_nodes_aura = n_nodes_aura;
-
-                auto elements_buffer =
-                        manage_host_buffer<idx_t>(nnodesxelem, dist->n_elements_local(), elements);
-                impl_->points = manage_host_buffer<geom_t>(spatial_dim, dist->n_nodes_local(), points);
-                dist->impl_->node_mapping =
-                        manage_host_buffer<large_idx_t>(dist->n_nodes_local(), node_mapping);
-                dist->impl_->node_owner = manage_host_buffer<int>(dist->n_nodes_local(), node_owner);
-                dist->impl_->element_mapping =
-                        manage_host_buffer<large_idx_t>(dist->n_elements_owned(), element_mapping);
-                dist->impl_->aura_element_mapping =
-                        manage_host_buffer<large_idx_t>(dist->n_elements_ghosts(), aura_element_mapping);
-
-                int comm_size = 0;
-                MPI_Comm_size(impl_->comm->get(), &comm_size);
-                dist->impl_->node_offsets = manage_host_buffer<ptrdiff_t>(comm_size + 1, node_offsets);
-                dist->impl_->ghosts_and_aura =
-                        manage_host_buffer<idx_t>(dist->impl_->n_nodes_ghosts + dist->impl_->n_nodes_aura,
-                                                  ghosts);
-
-                enum ElemType element_type = (enum ElemType)nnodesxelem;
-                enum GeomMap  geom_map     = ISOPARAMETRIC;
-                read_meta(impl_->comm, path, element_type, geom_map);
-
-                auto default_block = std::make_shared<Block>();
-                default_block->set_name("default");
-                default_block->set_element_type(element_type);
-                default_block->set_geom_map(geom_map);
-                default_block->set_elements(elements_buffer);
-                default_block->set_distributed_elements(dist->n_elements_owned(),
-                                                        dist->n_elements_shared(),
-                                                        dist->n_elements_ghosts(),
-                                                        dist->element_mapping(),
-                                                        dist->aura_element_mapping());
-                this->add_block(default_block);
-
-                impl_->distributed = dist;
-            }
-        }
-#endif  // SMESH_ENABLE_MPI
-
-        if (read_registered_sidesets(*this, path) != SMESH_SUCCESS) {
-            return SMESH_FAILURE;
-        }
-        if (read_registered_edgesets(*this, path) != SMESH_SUCCESS) {
-            return SMESH_FAILURE;
-        }
-        if (read_registered_nodesets(*this, path) != SMESH_SUCCESS) {
-            return SMESH_FAILURE;
-        }
-
-        int SMESH_USE_MACRO = 0;
-        SMESH_READ_ENV(SMESH_USE_MACRO, atoi);
-
-        if (SMESH_USE_MACRO) {
-            for (auto &block : blocks()) {
-                if (block) {
-                    block->set_element_type(macro_type_variant(block->element_type()));
-                }
-            }
-        }
-
-        return SMESH_SUCCESS;
-    }
-
-    const std::vector<std::shared_ptr<Mesh::Block>> &Mesh::blocks() const { return impl_->blocks; }
-
-    int Mesh::write(const Path &path) const {
-        SMESH_TRACE_SCOPE("Mesh::write");
-
-        create_directory(path);
-
-        if (impl_->comm->size() == 1) {
-            if (impl_->node_mapping) {
-                Path path_node_mapping = path / ("node_mapping." + std::string(TypeToString<idx_t>::value()));
-                impl_->node_mapping->to_file(path_node_mapping);
-            }
-
-            // Write the default block (block 0)
-            if (impl_->blocks.empty() || !impl_->blocks[0]) {
-                return SMESH_FAILURE;
-            }
-
-            const std::string &b0_name = impl_->blocks[0]->name();
-            const bool legacy_single =
-                    impl_->blocks.size() == 1 &&
-                    (b0_name.empty() || b0_name == "default");
-            if (legacy_single) {
-                return write_topology_then_sidesets(
-                        *this,
-                        path,
-                        mesh_to_folder(path,
-                                       impl_->blocks[0]->element_type(),
-                                       impl_->blocks[0]->elements()->extent(1),
-                                       impl_->blocks[0]->elements()->data(),
-                                       this->spatial_dimension(),
-                                       this->n_nodes(),
-                                       this->points()->data(),
-                                       impl_->blocks[0]->geom_map()));
-            } else {
-                std::vector<ptrdiff_t>     n_elements;
-                std::vector<enum ElemType> element_types;
-                std::vector<enum GeomMap>  geom_maps;
-                std::vector<idx_t **>      elements;
-                std::vector<std::string>   block_names;
-
-                for (auto &block : impl_->blocks) {
-                    n_elements.push_back(block->elements()->extent(1));
-                    element_types.push_back(block->element_type());
-                    geom_maps.push_back(block->geom_map());
-                    elements.push_back(block->elements()->data());
-                    block_names.push_back(block->name());
-                }
-                return write_topology_then_sidesets(
-                        *this,
-                        path,
-                        mesh_multiblock_to_folder(path,
-                                                  block_names,
-                                                  element_types,
-                                                  n_elements,
-                                                  elements.data(),
-                                                  this->spatial_dimension(),
-                                                  this->n_nodes(),
-                                                  this->points()->data(),
-                                                  geom_maps));
-            }
-        }
-#ifdef SMESH_ENABLE_MPI
-        else {
-            if (!impl_->distributed) {
-                SMESH_ERROR(
-                        "Mesh::write (MPI) requires a Distributed object. "
-                        "Did you create the mesh via distributed read?\n");
-                return SMESH_FAILURE;
-            }
-
-            if (impl_->blocks.empty()) {
-                return SMESH_FAILURE;
-            }
-
-            auto        dist  = impl_->distributed;
-            MPI_Comm    comm  = impl_->comm->get();
-            const auto *node_mapping =
-                    dist->impl_->node_mapping->data();
-
-            if (impl_->blocks.size() == 1 && impl_->blocks[0]) {
-                const enum ElemType et  = impl_->blocks[0]->element_type();
-                const int           nxe = elem_num_nodes(et);
-
-                int err = write_distributed_mesh_topology(
-                        comm,
-                        path,
-                        et,
-                        this->spatial_dimension(),
-                        dist->n_elements_global(),
-                        dist->n_elements_owned(),
-                        dist->impl_->element_mapping->data(),
-                        nxe,
-                        impl_->blocks[0]->elements()->data(),
-                        dist->n_nodes_global(),
-                        dist->n_nodes_owned(),
-                        node_mapping,
-                        impl_->points->data());
-                if (err == SMESH_SUCCESS && impl_->comm->rank() == 0) {
-                    err = mesh_write_yaml_basic(path,
-                                                et,
-                                                dist->n_elements_global(),
-                                                this->spatial_dimension(),
-                                                dist->n_nodes_global(),
-                                                impl_->blocks[0]->geom_map());
-                }
-                impl_->comm->barrier();
-                return write_topology_then_sidesets(*this, path, err);
-            }
-
-            const size_t n_blocks = impl_->blocks.size();
-            if (impl_->comm->rank() == 0) {
-                if (create_directory(path / "blocks") != SMESH_SUCCESS) {
-                    return SMESH_FAILURE;
-                }
-                for (size_t b = 0; b < n_blocks; ++b) {
-                    if (!impl_->blocks[b]) {
-                        return SMESH_FAILURE;
-                    }
-                    if (create_directory(path / "blocks" / impl_->blocks[b]->name()) !=
-                        SMESH_SUCCESS) {
-                        return SMESH_FAILURE;
-                    }
-                }
-            }
-            impl_->comm->barrier();
-
-            int err = write_distributed_mesh_coordinates(comm,
-                                                         path,
-                                                         this->spatial_dimension(),
-                                                         dist->n_nodes_global(),
-                                                         dist->n_nodes_owned(),
-                                                         node_mapping,
-                                                         impl_->points->data());
-            if (err != SMESH_SUCCESS) {
-                return err;
-            }
-
-            std::vector<ptrdiff_t> n_owned_local(n_blocks);
-            for (size_t b = 0; b < n_blocks; ++b) {
-                n_owned_local[b] = impl_->blocks[b]->n_elements_owned();
-            }
-            std::vector<ptrdiff_t> n_global_per_block(n_blocks);
-            MPI_Allreduce(n_owned_local.data(),
-                          n_global_per_block.data(),
-                          static_cast<int>(n_blocks),
-                          mpi_type<ptrdiff_t>(),
-                          MPI_SUM,
-                          comm);
-
-            std::vector<std::string>   block_names;
-            std::vector<enum ElemType> element_types;
-            std::vector<enum GeomMap>  geom_maps;
-            block_names.reserve(n_blocks);
-            element_types.reserve(n_blocks);
-            geom_maps.reserve(n_blocks);
-
-            for (size_t b = 0; b < n_blocks; ++b) {
-                auto block = impl_->blocks[b];
-                block_names.push_back(block->name());
-                element_types.push_back(block->element_type());
-                geom_maps.push_back(block->geom_map());
-
-                const ptrdiff_t n_owned = block->n_elements_owned();
-                auto            elem_map = block->element_mapping();
-                if (n_owned > 0 && !elem_map) {
-                    SMESH_ERROR(
-                            "Mesh::write (MPI): block %s has %ld owned elements "
-                            "but no element_mapping.\n",
-                            block->name().c_str(),
-                            (long)n_owned);
-                    return SMESH_FAILURE;
-                }
-
-                const Path block_path = path / "blocks" / block->name();
-                err |= write_distributed_block_connectivity(
-                        comm,
-                        block_path,
-                        n_global_per_block[b],
-                        n_owned,
-                        n_owned > 0 ? elem_map->data() : nullptr,
-                        block->n_nodes_per_element(),
-                        block->elements()->data(),
-                        node_mapping);
-            }
-
-            if (err != SMESH_SUCCESS) {
-                return SMESH_FAILURE;
-            }
-
-            if (impl_->comm->rank() == 0) {
-                err = mesh_multiblock_write_yaml(path,
-                                                 static_cast<uint16_t>(n_blocks),
-                                                 block_names,
-                                                 element_types,
-                                                 n_global_per_block,
-                                                 this->spatial_dimension(),
-                                                 dist->n_nodes_global(),
-                                                 geom_maps);
-            }
-            impl_->comm->barrier();
-
-            return write_topology_then_sidesets(
-                    *this, path, err == SMESH_SUCCESS ? SMESH_SUCCESS : SMESH_FAILURE);
-        }
-#endif
-
         return SMESH_FAILURE;
+      }
+      continue;
     }
 
-
-    std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::node_to_node_graph() {
-        initialize_node_to_node_graph();
-        return impl_->crs_graph;
+    std::vector<Path> members;
+    collect_subdirs(child, &members);
+    for (size_t j = 0; j < members.size(); ++j) {
+      if (!is_sideset_folder(members[j])) {
+        continue;
+      }
+      if (load_one_sideset(mesh, name, members[j]) != SMESH_SUCCESS) {
+        mesh.clear_sidesets();
+        return SMESH_FAILURE;
+      }
     }
+  }
+  return SMESH_SUCCESS;
+}
 
-    std::shared_ptr<Mesh::NodeToElementGraph> Mesh::node_to_element_graph() {
-        impl_->create_node_to_element_graph();
-        return impl_->node_to_element_graph;
+static int write_registered_sidesets(const Mesh &mesh, const Path &path) {
+  const auto &reg = mesh.sidesets();
+  if (reg.empty()) {
+    return SMESH_SUCCESS;
+  }
+
+  std::vector<std::string> names;
+  std::vector<std::vector<std::shared_ptr<Sideset>>> groups;
+  for (size_t i = 0; i < reg.size(); ++i) {
+    size_t gi = names.size();
+    for (size_t g = 0; g < names.size(); ++g) {
+      if (names[g] == reg[i].first) {
+        gi = g;
+        break;
+      }
     }
-
-    SharedBuffer<block_idx_t> Mesh::node_to_element_block_number() const {
-        const_cast<Mesh *>(this)->impl_->create_node_to_element_graph();
-        return impl_->n2e_block_number;
+    if (gi == names.size()) {
+      names.push_back(reg[i].first);
+      groups.emplace_back();
     }
+    groups[gi].push_back(reg[i].second);
+  }
 
-    SharedBuffer<element_idx_t> Mesh::half_face_table() {
-        if (n_blocks() > 1) {
-            return half_face_table(0);
-        }
-
-        const block_idx_t block_id = 0;
-        element_idx_t *table{nullptr};
-        create_element_adj_table(n_elements(block_id), n_nodes(), element_type(block_id), elements(block_id)->data(), &table);
-
-        int nsxe = elem_num_sides(element_type(block_id));
-        return manage_host_buffer<element_idx_t>(n_elements(block_id) * nsxe, table);
+  auto comm = mesh.comm();
+  int err = SMESH_SUCCESS;
+  if (!comm->rank()) {
+    if (create_directory(path / "sidesets") != SMESH_SUCCESS) {
+      err = SMESH_FAILURE;
     }
-
-    SharedBuffer<element_idx_t> Mesh::half_face_table(block_idx_t block_id) {
-        if (n_blocks() == 1) {
-            return half_face_table();
+    for (size_t g = 0; err == SMESH_SUCCESS && g < names.size(); ++g) {
+      const Path name_dir = path / "sidesets" / names[g];
+      if (create_directory(name_dir) != SMESH_SUCCESS) {
+        err = SMESH_FAILURE;
+        break;
+      }
+      if (groups[g].size() <= 1) {
+        continue;
+      }
+      for (size_t k = 0; k < groups[g].size(); ++k) {
+        if (!groups[g][k]) {
+          continue;
         }
-
-        if (static_cast<size_t>(block_id) >= n_blocks()) {
-            SMESH_ERROR("half_face_table: invalid block_id %d\n", block_id);
-            return nullptr;
+        const Path leaf =
+            name_dir /
+            std::to_string(static_cast<long long>(groups[g][k]->block_id()));
+        if (create_directory(leaf) != SMESH_SUCCESS) {
+          err = SMESH_FAILURE;
+          break;
         }
-
-        impl_->ensure_half_face_tables();
-        return impl_->half_face_tables[block_id];
+      }
     }
+  }
+  comm->broadcast(&err, 1, 0);
+  if (err != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
 
-    SharedBuffer<block_idx_t> Mesh::half_face_neighbor_block(block_idx_t block_id) {
-        if (n_blocks() == 1) {
-            SMESH_ERROR("half_face_neighbor_block requires multiblock mesh\n");
-            return nullptr;
-        }
-
-        if (static_cast<size_t>(block_id) >= n_blocks()) {
-            SMESH_ERROR("half_face_neighbor_block: invalid block_id %d\n", block_id);
-            return nullptr;
-        }
-
-        impl_->ensure_half_face_tables();
-        return impl_->half_face_neighbor_blocks[block_id];
+  for (size_t g = 0; g < names.size(); ++g) {
+    const Path name_dir = path / "sidesets" / names[g];
+    if (groups[g].size() == 1) {
+      if (!groups[g][0]) {
+        continue;
+      }
+      if (groups[g][0]->write(name_dir) != SMESH_SUCCESS) {
+        return SMESH_FAILURE;
+      }
+      continue;
     }
-
-    std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::create_node_to_node_graph(const enum ElemType element_type) {
-        if (is_semistructured_type(element_type)) {
-            const enum ElemType want = ss_source_family(element_type);
-            if (want != HEX8 && want != TET4 && want != QUAD4) {
-                SMESH_ERROR("create_node_to_node_graph: SS family %s is not implemented\n",
-                            type_to_string(want));
-                return nullptr;
-            }
-            for (size_t b = 0; b < n_blocks(); ++b) {
-                const enum ElemType t = this->element_type(static_cast<block_idx_t>(b));
-                if (!is_semistructured_type(t) || ss_source_family(t) != want) {
-                    SMESH_ERROR("create_node_to_node_graph: mixed SS families are not supported\n");
-                    return nullptr;
-                }
-            }
-            return node_to_node_graph();
-        }
-
-        bool all_same_type = true;
-        for (size_t b = 0; b < n_blocks(); ++b) {
-            if (this->element_type(static_cast<block_idx_t>(b)) != element_type) {
-                all_same_type = false;
-                break;
-            }
-        }
-        if (all_same_type) {
-            return node_to_node_graph();
-        }
-
-        if (n_blocks() == 1) {
-            const ptrdiff_t n_nodes =
-                max_node_id(element_type, n_elements(0), elements(0)->data()) + 1;
-
-            count_t *rowptr{nullptr};
-            idx_t   *colidx{nullptr};
-            if (is_semistructured_type(this->element_type(0))) {
-                SMESH_ERROR(
-                    "Semistructured meshes by create_node_to_node_graph for "
-                    "different element type!\n");
-                return nullptr;
-            }
-
-            create_crs_graph_for_elem_type(
-                element_type, n_elements(0), n_nodes, elements(0)->data(), &rowptr, &colidx);
-
-            return std::make_shared<Mesh::NodeToNodeGraph>(
-                Buffer<count_t>::own(n_nodes + 1, rowptr, free, MEMORY_SPACE_HOST),
-                Buffer<idx_t>::own(rowptr[n_nodes], colidx, free, MEMORY_SPACE_HOST));
-        }
-
-        std::vector<enum ElemType> element_types(n_blocks());
-        std::vector<ptrdiff_t>     n_elements_per_block(n_blocks());
-        std::vector<idx_t **>      block_elements(n_blocks());
-        for (size_t b = 0; b < n_blocks(); ++b) {
-            element_types[b] = element_type;
-            n_elements_per_block[b] = n_elements(static_cast<block_idx_t>(b));
-            block_elements[b] = elements(static_cast<block_idx_t>(b))->data();
-        }
-
-        count_t *rowptr{nullptr};
-        idx_t   *colidx{nullptr};
-        create_multiblock_crs_graph(static_cast<block_idx_t>(n_blocks()),
-                                    element_types.data(),
-                                    n_elements_per_block.data(),
-                                    block_elements.data(),
-                                    this->n_nodes(),
-                                    &rowptr,
-                                    &colidx);
-
-        return std::make_shared<Mesh::NodeToNodeGraph>(
-            Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free, MEMORY_SPACE_HOST),
-            Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free, MEMORY_SPACE_HOST));
+    for (size_t k = 0; k < groups[g].size(); ++k) {
+      if (!groups[g][k]) {
+        continue;
+      }
+      const Path leaf =
+          name_dir /
+          std::to_string(static_cast<long long>(groups[g][k]->block_id()));
+      if (groups[g][k]->write(leaf) != SMESH_SUCCESS) {
+        return SMESH_FAILURE;
+      }
     }
+  }
+  return SMESH_SUCCESS;
+}
 
-    int Mesh::initialize_node_to_node_graph() {
-        if (impl_->crs_graph) {
-            return SMESH_SUCCESS;
+static int is_edgeset_folder(const Path &folder) {
+  return folder.is_dir() && (folder / "meta.yaml").exists() ? 1 : 0;
+}
+
+static int is_nodeset_folder(const Path &folder) {
+  if (!folder.is_dir()) {
+    return 0;
+  }
+  if ((folder / "meta.yaml").exists()) {
+    return 1;
+  }
+  auto nodes =
+      detect_files(folder / "nodes.*", {"raw", "int16", "int32", "int64"});
+  return nodes.empty() ? 0 : 1;
+}
+
+static int load_one_edgeset(Mesh &mesh, const std::string &name,
+                            const Path &folder) {
+  auto es = std::make_shared<Edgeset>();
+  int err = SMESH_FAILURE;
+  if (mesh.comm()->size() > 1) {
+    err = es->read_and_redistibute(mesh_nonowning_alias(&mesh), folder);
+  } else {
+    err = es->read(mesh.comm(), folder);
+  }
+  if (err != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+  mesh.add_edgeset(name, es);
+  return SMESH_SUCCESS;
+}
+
+static int load_one_nodeset(Mesh &mesh, const std::string &name,
+                            const Path &folder) {
+  auto ns = std::make_shared<Nodeset>();
+  int err = SMESH_FAILURE;
+  if (mesh.comm()->size() > 1) {
+    err = ns->read_and_redistibute(mesh_nonowning_alias(&mesh), folder);
+  } else {
+    err = ns->read(mesh.comm(), folder);
+  }
+  if (err != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+  mesh.add_nodeset(name, ns);
+  return SMESH_SUCCESS;
+}
+
+static int read_registered_edgesets(Mesh &mesh, const Path &path) {
+  mesh.clear_edgesets();
+  const Path root = path / "edgesets";
+  if (!root.is_dir()) {
+    return SMESH_SUCCESS;
+  }
+
+  std::vector<Path> children;
+  collect_subdirs(root, &children);
+  for (size_t i = 0; i < children.size(); ++i) {
+    const Path &child = children[i];
+    const std::string name = child.file_name();
+    if (is_edgeset_folder(child)) {
+      if (load_one_edgeset(mesh, name, child) != SMESH_SUCCESS) {
+        mesh.clear_edgesets();
+        return SMESH_FAILURE;
+      }
+      continue;
+    }
+    std::vector<Path> members;
+    collect_subdirs(child, &members);
+    for (size_t j = 0; j < members.size(); ++j) {
+      if (!is_edgeset_folder(members[j])) {
+        continue;
+      }
+      if (load_one_edgeset(mesh, name, members[j]) != SMESH_SUCCESS) {
+        mesh.clear_edgesets();
+        return SMESH_FAILURE;
+      }
+    }
+  }
+  return SMESH_SUCCESS;
+}
+
+static int read_registered_nodesets(Mesh &mesh, const Path &path) {
+  mesh.clear_nodesets();
+  const Path root = path / "nodesets";
+  if (!root.is_dir()) {
+    return SMESH_SUCCESS;
+  }
+
+  std::vector<Path> children;
+  collect_subdirs(root, &children);
+  for (size_t i = 0; i < children.size(); ++i) {
+    const Path &child = children[i];
+    const std::string name = child.file_name();
+    if (is_nodeset_folder(child)) {
+      if (load_one_nodeset(mesh, name, child) != SMESH_SUCCESS) {
+        mesh.clear_nodesets();
+        return SMESH_FAILURE;
+      }
+      continue;
+    }
+    std::vector<Path> members;
+    collect_subdirs(child, &members);
+    for (size_t j = 0; j < members.size(); ++j) {
+      if (!is_nodeset_folder(members[j])) {
+        continue;
+      }
+      if (load_one_nodeset(mesh, name, members[j]) != SMESH_SUCCESS) {
+        mesh.clear_nodesets();
+        return SMESH_FAILURE;
+      }
+    }
+  }
+  return SMESH_SUCCESS;
+}
+
+static int write_registered_edgesets(const Mesh &mesh, const Path &path) {
+  const auto &reg = mesh.edgesets();
+  if (reg.empty()) {
+    return SMESH_SUCCESS;
+  }
+
+  std::vector<std::string> names;
+  std::vector<std::vector<std::shared_ptr<Edgeset>>> groups;
+  for (size_t i = 0; i < reg.size(); ++i) {
+    size_t gi = names.size();
+    for (size_t g = 0; g < names.size(); ++g) {
+      if (names[g] == reg[i].first) {
+        gi = g;
+        break;
+      }
+    }
+    if (gi == names.size()) {
+      names.push_back(reg[i].first);
+      groups.emplace_back();
+    }
+    groups[gi].push_back(reg[i].second);
+  }
+
+  auto comm = mesh.comm();
+  int err = SMESH_SUCCESS;
+  if (!comm->rank()) {
+    if (create_directory(path / "edgesets") != SMESH_SUCCESS) {
+      err = SMESH_FAILURE;
+    }
+    for (size_t g = 0; err == SMESH_SUCCESS && g < names.size(); ++g) {
+      const Path name_dir = path / "edgesets" / names[g];
+      if (create_directory(name_dir) != SMESH_SUCCESS) {
+        err = SMESH_FAILURE;
+        break;
+      }
+      if (groups[g].size() <= 1) {
+        continue;
+      }
+      for (size_t k = 0; k < groups[g].size(); ++k) {
+        if (!groups[g][k]) {
+          continue;
+        }
+        const Path leaf =
+            name_dir /
+            std::to_string(static_cast<long long>(groups[g][k]->block_id()));
+        if (create_directory(leaf) != SMESH_SUCCESS) {
+          err = SMESH_FAILURE;
+          break;
+        }
+      }
+    }
+  }
+  comm->broadcast(&err, 1, 0);
+  if (err != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+
+  for (size_t g = 0; g < names.size(); ++g) {
+    const Path name_dir = path / "edgesets" / names[g];
+    if (groups[g].size() == 1) {
+      if (!groups[g][0]) {
+        continue;
+      }
+      if (groups[g][0]->write(name_dir) != SMESH_SUCCESS) {
+        return SMESH_FAILURE;
+      }
+      continue;
+    }
+    for (size_t k = 0; k < groups[g].size(); ++k) {
+      if (!groups[g][k]) {
+        continue;
+      }
+      const Path leaf =
+          name_dir /
+          std::to_string(static_cast<long long>(groups[g][k]->block_id()));
+      if (groups[g][k]->write(leaf) != SMESH_SUCCESS) {
+        return SMESH_FAILURE;
+      }
+    }
+  }
+  return SMESH_SUCCESS;
+}
+
+static int write_registered_nodesets(const Mesh &mesh, const Path &path) {
+  const auto &reg = mesh.nodesets();
+  if (reg.empty()) {
+    return SMESH_SUCCESS;
+  }
+
+  std::vector<std::string> names;
+  std::vector<std::vector<std::shared_ptr<Nodeset>>> groups;
+  for (size_t i = 0; i < reg.size(); ++i) {
+    size_t gi = names.size();
+    for (size_t g = 0; g < names.size(); ++g) {
+      if (names[g] == reg[i].first) {
+        gi = g;
+        break;
+      }
+    }
+    if (gi == names.size()) {
+      names.push_back(reg[i].first);
+      groups.emplace_back();
+    }
+    groups[gi].push_back(reg[i].second);
+  }
+
+  auto comm = mesh.comm();
+  int err = SMESH_SUCCESS;
+  if (!comm->rank()) {
+    if (create_directory(path / "nodesets") != SMESH_SUCCESS) {
+      err = SMESH_FAILURE;
+    }
+    for (size_t g = 0; err == SMESH_SUCCESS && g < names.size(); ++g) {
+      const Path name_dir = path / "nodesets" / names[g];
+      if (create_directory(name_dir) != SMESH_SUCCESS) {
+        err = SMESH_FAILURE;
+        break;
+      }
+      if (groups[g].size() <= 1) {
+        continue;
+      }
+      for (size_t k = 0; k < groups[g].size(); ++k) {
+        const Path leaf = name_dir / std::to_string(static_cast<long long>(k));
+        if (create_directory(leaf) != SMESH_SUCCESS) {
+          err = SMESH_FAILURE;
+          break;
+        }
+      }
+    }
+  }
+  comm->broadcast(&err, 1, 0);
+  if (err != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+
+  for (size_t g = 0; g < names.size(); ++g) {
+    const Path name_dir = path / "nodesets" / names[g];
+    if (groups[g].size() == 1) {
+      if (!groups[g][0]) {
+        continue;
+      }
+      if (groups[g][0]->write(name_dir) != SMESH_SUCCESS) {
+        return SMESH_FAILURE;
+      }
+      continue;
+    }
+    for (size_t k = 0; k < groups[g].size(); ++k) {
+      if (!groups[g][k]) {
+        continue;
+      }
+      const Path leaf = name_dir / std::to_string(static_cast<long long>(k));
+      if (groups[g][k]->write(leaf) != SMESH_SUCCESS) {
+        return SMESH_FAILURE;
+      }
+    }
+  }
+  return SMESH_SUCCESS;
+}
+
+static int write_topology_then_sidesets(const Mesh &mesh, const Path &path,
+                                        const int topology_err) {
+  if (topology_err != SMESH_SUCCESS) {
+    return topology_err;
+  }
+  if (write_registered_sidesets(mesh, path) != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+  if (write_registered_edgesets(mesh, path) != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+  return write_registered_nodesets(mesh, path);
+}
+
+static std::shared_ptr<Sideset>
+clone_sideset(const Mesh &dst, const std::shared_ptr<Sideset> &ss) {
+  if (!ss) {
+    return nullptr;
+  }
+  const ptrdiff_t n = ss->size();
+  auto parent = create_host_buffer<element_idx_t>((size_t)n);
+  auto lfi = create_host_buffer<i16>((size_t)n);
+  if (n > 0) {
+    std::memcpy(parent->data(), ss->parent()->data(),
+                (size_t)n * sizeof(element_idx_t));
+    std::memcpy(lfi->data(), ss->lfi()->data(), (size_t)n * sizeof(i16));
+  }
+
+  SharedBuffer<large_idx_t> mapping = nullptr;
+  if (dst.is_distributed()) {
+    auto block = dst.block(ss->block_id());
+    if (block) {
+      mapping = block->element_mapping();
+    }
+  } else if (ss->element_mapping()) {
+    const ptrdiff_t nm = ss->element_mapping()->size();
+    mapping = create_host_buffer<large_idx_t>((size_t)nm);
+    if (nm > 0) {
+      std::memcpy(mapping->data(), ss->element_mapping()->data(),
+                  (size_t)nm * sizeof(large_idx_t));
+    }
+  }
+  return Sideset::create(dst.comm(), parent, lfi, ss->block_id(), mapping);
+}
+
+static std::shared_ptr<Edgeset>
+clone_edgeset(const Mesh &dst, const std::shared_ptr<Edgeset> &es) {
+  if (!es) {
+    return nullptr;
+  }
+  const ptrdiff_t n = es->size();
+  auto parent = create_host_buffer<element_idx_t>((size_t)n);
+  auto lei = create_host_buffer<i16>((size_t)n);
+  if (n > 0) {
+    std::memcpy(parent->data(), es->parent()->data(),
+                (size_t)n * sizeof(element_idx_t));
+    std::memcpy(lei->data(), es->lei()->data(), (size_t)n * sizeof(i16));
+  }
+
+  SharedBuffer<large_idx_t> mapping = nullptr;
+  if (dst.is_distributed()) {
+    auto block = dst.block(es->block_id());
+    if (block) {
+      mapping = block->element_mapping();
+    }
+  } else if (es->element_mapping()) {
+    const ptrdiff_t nm = es->element_mapping()->size();
+    mapping = create_host_buffer<large_idx_t>((size_t)nm);
+    if (nm > 0) {
+      std::memcpy(mapping->data(), es->element_mapping()->data(),
+                  (size_t)nm * sizeof(large_idx_t));
+    }
+  }
+  return Edgeset::create(dst.comm(), parent, lei, es->block_id(), mapping);
+}
+
+static std::shared_ptr<Nodeset>
+clone_nodeset(const Mesh &dst, const std::shared_ptr<Nodeset> &ns) {
+  if (!ns) {
+    return nullptr;
+  }
+  const ptrdiff_t n = ns->size();
+  auto nodes = create_host_buffer<idx_t>((size_t)n);
+  if (n > 0) {
+    std::memcpy(nodes->data(), ns->nodes()->data(), (size_t)n * sizeof(idx_t));
+  }
+  SharedBuffer<large_idx_t> mapping = nullptr;
+  if (dst.is_distributed() && dst.distributed()) {
+    mapping = dst.distributed()->node_mapping();
+  } else if (ns->node_mapping()) {
+    const ptrdiff_t nm = ns->node_mapping()->size();
+    mapping = create_host_buffer<large_idx_t>((size_t)nm);
+    if (nm > 0) {
+      std::memcpy(mapping->data(), ns->node_mapping()->data(),
+                  (size_t)nm * sizeof(large_idx_t));
+    }
+  }
+  return Nodeset::create(dst.comm(), nodes, mapping);
+}
+
+int Mesh::read(const Path &path) {
+  SMESH_TRACE_SCOPE("Mesh::read");
+  impl_->sidesets.clear();
+  impl_->edgesets.clear();
+  impl_->nodesets.clear();
+
+  if (impl_->comm->size() == 1) {
+    std::vector<std::string> block_names;
+    std::vector<enum ElemType> element_types;
+    std::vector<enum GeomMap> geom_maps;
+    const bool has_blocks =
+        read_blocks_meta(path, block_names, element_types, geom_maps);
+
+    impl_->blocks.clear();
+
+    if (has_blocks) {
+      // Shared coordinates for all blocks
+      geom_t **points = nullptr;
+      int spatial_dim = 0;
+      ptrdiff_t nnodes = 0;
+      if (mesh_coordinates_from_folder(path, &spatial_dim, &points, &nnodes) !=
+          SMESH_SUCCESS) {
+        return SMESH_FAILURE;
+      }
+      impl_->points = manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
+
+      const size_t n_blocks = block_names.size();
+      for (size_t b = 0; b < n_blocks; ++b) {
+        int nnodesxelem = 0;
+        ptrdiff_t nelements = 0;
+        idx_t **elements = nullptr;
+
+        Path block_folder = Path(path) / "blocks" / block_names[b];
+        if (mesh_block_from_folder(block_folder, &nnodesxelem, &elements,
+                                   &nelements) != SMESH_SUCCESS) {
+          return SMESH_FAILURE;
         }
 
-        SMESH_TRACE_SCOPE("Mesh::initialize_node_to_node_graph");
+        auto elements_buffer =
+            manage_host_buffer<idx_t>(nnodesxelem, nelements, elements);
 
-        impl_->crs_graph = std::make_shared<NodeToNodeGraph>();
-
-        count_t *rowptr{nullptr};
-        idx_t   *colidx{nullptr};
-
-        if (impl_->blocks.size() == 1) {
-            if (is_semistructured_type(this->element_type(0))) {
-                sshex8_crs_graph<element_idx_t, count_t, idx_t>(proteus_hex_micro_elements_per_dim(this->element_type(0)),
-                                                                this->n_elements(0),
-                                                                this->n_nodes(),
-                                                                this->elements(0)->data(),
-                                                                &rowptr,
-                                                                &colidx);
-
-            } else {
-                create_crs_graph_for_elem_type(
-                        this->element_type(0), this->n_elements(0), this->n_nodes(), this->elements(0)->data(), &rowptr, &colidx);
-            }
-        } else {
-            bool          all_ss    = true;
-            bool          any_ss    = false;
-            bool          mixed_ss  = false;
-            enum ElemType ss_family = INVALID;
-            for (auto &block : impl_->blocks) {
-                const enum ElemType t = block->element_type();
-                if (is_semistructured_type(t)) {
-                    any_ss                   = true;
-                    const enum ElemType family = ss_source_family(t);
-                    if (ss_family == INVALID) {
-                        ss_family = family;
-                    } else if (family != ss_family) {
-                        mixed_ss = true;
-                    }
-                } else {
-                    all_ss = false;
-                }
-            }
-
-            if (any_ss && !all_ss) {
-                SMESH_ERROR("Mixed semi-structured and unstructured blocks are not supported for node_to_node_graph\n");
-                return SMESH_FAILURE;
-            }
-            if (all_ss && (mixed_ss || (ss_family != HEX8 && ss_family != TET4 && ss_family != QUAD4))) {
-                SMESH_ERROR("Semistructured multi-block graph is implemented for homogeneous HEX/TET/QUAD only\n");
-                return SMESH_FAILURE;
-            }
-            // AoS to SoA
-            std::vector<enum ElemType> element_types;
-            std::vector<ptrdiff_t>     n_elements;
-            std::vector<idx_t **>      elements;
-
-            for (auto &block : impl_->blocks) {
-                element_types.push_back(block->element_type());
-                n_elements.push_back(block->elements()->extent(1));
-                elements.push_back(block->elements()->data());
-            }
-
-            create_multiblock_crs_graph(impl_->blocks.size(),
-                                        element_types.data(),
-                                        n_elements.data(),
-                                        elements.data(),
-                                        this->n_nodes(),
-                                        &rowptr,
-                                        &colidx);
+        enum ElemType et = element_types[b];
+        if (et == INVALID) {
+          // Fallback: infer from number of nodes per element when metadata
+          // is missing.
+          et = (enum ElemType)nnodesxelem;
         }
 
-        impl_->crs_graph = std::make_shared<Mesh::NodeToNodeGraph>(
-                Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free, MEMORY_SPACE_HOST),
-                Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free, MEMORY_SPACE_HOST));
+        auto block = std::make_shared<Block>();
+        block->set_name(block_names[b]);
+        block->set_element_type(et);
+        if (b < geom_maps.size()) {
+          block->set_geom_map(geom_maps[b]);
+        }
+        block->set_elements(elements_buffer);
+        this->add_block(block);
+      }
+    } else {
+      // Legacy single-block layout: connectivity and points live directly
+      // under path.
+      idx_t **elements = nullptr;
+      geom_t **points = nullptr;
+      int nnodesxelem;
+      int spatial_dim;
+      ptrdiff_t nnodes;
+      ptrdiff_t nelements;
 
+      if (mesh_from_folder(path, &nnodesxelem, &nelements, &elements,
+                           &spatial_dim, &nnodes, &points) != SMESH_SUCCESS) {
+        return SMESH_FAILURE;
+      }
+
+      auto elements_buffer =
+          manage_host_buffer<idx_t>(nnodesxelem, nelements, elements);
+      impl_->points = manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
+
+      enum ElemType element_type = (enum ElemType)nnodesxelem;
+      enum GeomMap geom_map = ISOPARAMETRIC;
+      read_meta(impl_->comm, path, element_type, geom_map);
+
+      auto default_block = std::make_shared<Block>();
+      default_block->set_name("default");
+      default_block->set_element_type(element_type);
+      default_block->set_geom_map(geom_map);
+      default_block->set_elements(elements_buffer);
+      this->add_block(default_block);
+    }
+  }
+#ifdef SMESH_ENABLE_MPI
+  else {
+    std::vector<std::string> block_names;
+    std::vector<enum ElemType> element_types;
+    std::vector<enum GeomMap> geom_maps;
+    const bool has_blocks =
+        read_blocks_meta(path, block_names, element_types, geom_maps);
+
+    auto dist = std::make_shared<Distributed>();
+    int nnodesxelem;
+    large_idx_t *element_mapping = nullptr;
+    large_idx_t *aura_element_mapping = nullptr;
+    large_idx_t *node_mapping = nullptr;
+    geom_t **points = nullptr;
+    ptrdiff_t *node_offsets = nullptr;
+    int *node_owner = nullptr;
+    idx_t *ghosts = nullptr;
+    ptrdiff_t n_nodes_aura = 0;
+    int spatial_dim = 0;
+
+    const char *const reorder = std::getenv("SMESH_REORDER");
+    int read_status = SMESH_FAILURE;
+
+    auto parse_ordering = [&](OrderEncoder<geom_t> *ordering_out,
+                              bool *use_sfc_out) -> int {
+      *use_sfc_out = true;
+      *ordering_out = encode_hilbert3<geom_t>;
+      if (!reorder || reorder[0] == '\0') {
         return SMESH_SUCCESS;
-    }
-
-    std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::edge_graph() {
-        if (impl_->edge_graph) {
-            return impl_->edge_graph;
-        }
-
-        bool all_simplex = true;
-        for (size_t b = 0; b < n_blocks(); ++b) {
-            const enum ElemType et = block(static_cast<block_idx_t>(b))->element_type();
-            if (et != TET4 && et != TRI3 && et != TRISHELL3) {
-                all_simplex = false;
-                break;
-            }
-        }
-
-        if (all_simplex) {
-            impl_->edge_graph = node_to_node_graph_upper_triangular();
-            return impl_->edge_graph;
-        }
-
-        count_t *rowptr{nullptr};
-        idx_t   *colidx{nullptr};
-
-        if (n_blocks() == 1) {
-            auto n2e = node_to_element_graph();
-            create_edge_graph_for_element_from_n2e(block(0)->element_type(),
-                                                   block(0)->n_elements(),
-                                                   this->n_nodes(),
-                                                   block(0)->elements()->data(),
-                                                   n2e->rowptr()->data(),
-                                                   n2e->colidx()->data(),
-                                                   &rowptr,
-                                                   &colidx);
-        } else {
-            impl_->create_node_to_element_graph();
-            auto n2e = impl_->node_to_element_graph;
-
-            std::vector<enum ElemType> element_types(n_blocks());
-            std::vector<ptrdiff_t>     n_elements_per_block(n_blocks());
-            std::vector<idx_t **>      block_elements(n_blocks());
-            for (size_t b = 0; b < n_blocks(); ++b) {
-                element_types[b] = element_type(static_cast<block_idx_t>(b));
-                n_elements_per_block[b] = n_elements(static_cast<block_idx_t>(b));
-                block_elements[b] = elements(static_cast<block_idx_t>(b))->data();
-            }
-
-            create_multiblock_edge_graph_from_n2e<idx_t, count_t, element_idx_t>(
-                static_cast<block_idx_t>(n_blocks()),
-                element_types.data(),
-                n_elements_per_block.data(),
-                block_elements.data(),
-                this->n_nodes(),
-                n2e->rowptr()->data(),
-                n2e->colidx()->data(),
-                impl_->n2e_block_number->data(),
-                &rowptr,
-                &colidx);
-        }
-
-        impl_->edge_graph = std::make_shared<Mesh::NodeToNodeGraph>(
-                Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free, MEMORY_SPACE_HOST),
-                Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free, MEMORY_SPACE_HOST));
-
-        return impl_->edge_graph;
-    }
-
-    std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::node_to_node_graph_upper_triangular() {
-        if (impl_->crs_graph_upper_triangular) return impl_->crs_graph_upper_triangular;
-        SMESH_TRACE_SCOPE("Mesh::node_to_node_graph_upper_triangular");
-
-        count_t *rowptr{nullptr};
-        idx_t   *colidx{nullptr};
-
-        if (impl_->blocks.size() == 1) {
-            create_crs_graph_upper_triangular_from_element(impl_->total_elements(),
-                                                           this->n_nodes(),
-                                                           elem_num_nodes(this->element_type(0)),
-                                                           this->elements(0)->data(),
-                                                           &rowptr,
-                                                           &colidx);
-        } else {
-            // AoS to SoA
-            std::vector<enum ElemType> element_types;
-            std::vector<ptrdiff_t>     n_elements;
-            std::vector<idx_t **>      elements;
-
-            for (auto &block : impl_->blocks) {
-                element_types.push_back(block->element_type());
-                n_elements.push_back(block->elements()->extent(1));
-                elements.push_back(block->elements()->data());
-            }
-
-            create_multiblock_crs_graph_upper_triangular(impl_->blocks.size(),
-                                                         element_types.data(),
-                                                         n_elements.data(),
-                                                         elements.data(),
-                                                         this->n_nodes(),
-                                                         &rowptr,
-                                                         &colidx);
-        }
-
-        impl_->crs_graph_upper_triangular = std::make_shared<Mesh::NodeToNodeGraph>(
-                Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free, MEMORY_SPACE_HOST),
-                Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free, MEMORY_SPACE_HOST));
-
-        return impl_->crs_graph_upper_triangular;
-    }
-
-    int Mesh::convert_to_macro_element_mesh() {
-        for (auto &block : impl_->blocks) {
-            if (!block) {
-                continue;
-            }
-            const enum ElemType t = block->element_type();
-            if (t == TET10 || t == TRI6) {
-                block->set_element_type(macro_type_variant(t));
-            }
-        }
+      }
+      if (std::strcmp(reorder, "none") == 0 || std::strcmp(reorder, "0") == 0) {
+        *use_sfc_out = false;
         return SMESH_SUCCESS;
+      }
+      if (std::strcmp(reorder, "hilbert3") == 0) {
+        *ordering_out = encode_hilbert3<geom_t>;
+      } else if (std::strcmp(reorder, "morton3") == 0) {
+        *ordering_out = encode_morton3<geom_t>;
+      } else if (std::strcmp(reorder, "cartesian3") == 0) {
+        *ordering_out = encode_cartesian3_default<geom_t>;
+      } else if (std::strcmp(reorder, "random3") == 0) {
+        *ordering_out = encode_random3_bounded<geom_t>;
+      } else {
+        SMESH_ERROR("Unsupported SMESH_REORDER=%s\n", reorder);
+        return SMESH_FAILURE;
+      }
+      return SMESH_SUCCESS;
+    };
+
+    impl_->blocks.clear();
+
+    if (has_blocks) {
+      // Multi-block MPI: SFC over the union (default Hilbert).
+      // SMESH_REORDER=none|0 → concat-id / file-order partition.
+      OrderEncoder<geom_t> ordering = encode_hilbert3<geom_t>;
+      bool use_sfc = true;
+      if (parse_ordering(&ordering, &use_sfc) != SMESH_SUCCESS) {
+        return SMESH_FAILURE;
+      }
+
+      ptrdiff_t *n_local_per_block = nullptr;
+      ptrdiff_t *n_owned_per_block = nullptr;
+      ptrdiff_t *n_shared_per_block = nullptr;
+      ptrdiff_t *n_ghosts_per_block = nullptr;
+      large_idx_t **element_mapping_per_block = nullptr;
+      large_idx_t **aura_element_mapping_per_block = nullptr;
+      idx_t ***elements_per_block = nullptr;
+      int *nxe_per_block = nullptr;
+
+      read_status = mesh_from_folder_multiblock(
+          impl_->comm->get(), path, block_names, element_types,
+          &dist->impl_->n_elements_global, &dist->impl_->n_elements_owned,
+          &dist->impl_->n_elements_shared, &dist->impl_->n_elements_ghosts,
+          &element_mapping, &aura_element_mapping, &nxe_per_block,
+          &n_local_per_block, &n_owned_per_block, &n_shared_per_block,
+          &n_ghosts_per_block, &element_mapping_per_block,
+          &aura_element_mapping_per_block, &elements_per_block, &spatial_dim,
+          &dist->impl_->n_nodes_global, &dist->impl_->n_nodes_owned,
+          &dist->impl_->n_nodes_shared, &dist->impl_->n_nodes_ghosts,
+          &n_nodes_aura, &node_mapping, &points, &node_owner, &node_offsets,
+          &ghosts, use_sfc, ordering);
+
+      if (read_status != SMESH_SUCCESS) {
+        SMESH_ERROR("Failed to read multi-block mesh from folder %s\n",
+                    path.c_str());
+        return SMESH_FAILURE;
+      }
+
+      dist->impl_->n_nodes_aura = n_nodes_aura;
+      impl_->points = manage_host_buffer<geom_t>(spatial_dim,
+                                                 dist->n_nodes_local(), points);
+      dist->impl_->node_mapping =
+          manage_host_buffer<large_idx_t>(dist->n_nodes_local(), node_mapping);
+      dist->impl_->node_owner =
+          manage_host_buffer<int>(dist->n_nodes_local(), node_owner);
+      dist->impl_->element_mapping = manage_host_buffer<large_idx_t>(
+          dist->n_elements_owned(), element_mapping);
+      dist->impl_->aura_element_mapping = manage_host_buffer<large_idx_t>(
+          dist->n_elements_ghosts(), aura_element_mapping);
+
+      int comm_size = 0;
+      MPI_Comm_size(impl_->comm->get(), &comm_size);
+      dist->impl_->node_offsets =
+          manage_host_buffer<ptrdiff_t>(comm_size + 1, node_offsets);
+      dist->impl_->ghosts_and_aura = manage_host_buffer<idx_t>(
+          dist->impl_->n_nodes_ghosts + dist->impl_->n_nodes_aura, ghosts);
+
+      const size_t n_blocks = block_names.size();
+      ptrdiff_t sum_owned = 0;
+      ptrdiff_t sum_shared = 0;
+      ptrdiff_t sum_ghosts = 0;
+      for (size_t b = 0; b < n_blocks; ++b) {
+        enum ElemType et = element_types[b];
+        const int nxe_b = nxe_per_block[b];
+        if (et == INVALID) {
+          et = (enum ElemType)nxe_b;
+        }
+        auto elements_buffer = manage_host_buffer<idx_t>(
+            nxe_b, n_local_per_block[b], elements_per_block[b]);
+        auto owned_map = manage_host_buffer<large_idx_t>(
+            n_owned_per_block[b], element_mapping_per_block[b]);
+        auto aura_map = manage_host_buffer<large_idx_t>(
+            n_ghosts_per_block[b], aura_element_mapping_per_block[b]);
+        auto block = std::make_shared<Block>();
+        block->set_name(block_names[b]);
+        block->set_element_type(et);
+        if (b < geom_maps.size()) {
+          block->set_geom_map(geom_maps[b]);
+        }
+        block->set_elements(elements_buffer);
+        block->set_distributed_elements(
+            n_owned_per_block[b], n_shared_per_block[b], n_ghosts_per_block[b],
+            owned_map, aura_map);
+        this->add_block(block);
+        sum_owned += n_owned_per_block[b];
+        sum_shared += n_shared_per_block[b];
+        sum_ghosts += n_ghosts_per_block[b];
+        if (block->n_elements() !=
+            n_owned_per_block[b] + n_ghosts_per_block[b]) {
+          SMESH_ERROR(
+              "Mesh::read: block %s local SoA size %ld != owned (%ld) + "
+              "ghosts (%ld)\n",
+              block_names[b].c_str(), (long)block->n_elements(),
+              (long)n_owned_per_block[b], (long)n_ghosts_per_block[b]);
+          return SMESH_FAILURE;
+        }
+      }
+      if (sum_owned != dist->n_elements_owned() ||
+          sum_shared != dist->n_elements_shared() ||
+          sum_ghosts != dist->n_elements_ghosts()) {
+        SMESH_ERROR(
+            "Mesh::read: per-block element counts (%ld owned, %ld shared, %ld "
+            "ghosts) do not match Distributed (%ld, %ld, %ld)\n",
+            (long)sum_owned, (long)sum_shared, (long)sum_ghosts,
+            (long)dist->n_elements_owned(), (long)dist->n_elements_shared(),
+            (long)dist->n_elements_ghosts());
+        return SMESH_FAILURE;
+      }
+      SMESH_FREE(n_local_per_block);
+      SMESH_FREE(n_owned_per_block);
+      SMESH_FREE(n_shared_per_block);
+      SMESH_FREE(n_ghosts_per_block);
+      SMESH_FREE(element_mapping_per_block);
+      SMESH_FREE(aura_element_mapping_per_block);
+      SMESH_FREE(elements_per_block);
+      SMESH_FREE(nxe_per_block);
+
+      impl_->distributed = dist;
+    } else {
+      // Legacy single-block MPI path (unchanged layout).
+      idx_t **elements = nullptr;
+
+      // Single-block: SMESH_REORDER remains opt-in (unset → no SFC).
+      if (reorder && reorder[0] != '\0') {
+        if (std::strcmp(reorder, "none") == 0 ||
+            std::strcmp(reorder, "0") == 0) {
+          read_status = mesh_from_folder(
+              impl_->comm->get(), path, &nnodesxelem,
+              &dist->impl_->n_elements_global, &dist->impl_->n_elements_owned,
+              &dist->impl_->n_elements_shared, &dist->impl_->n_elements_ghosts,
+              &element_mapping, &aura_element_mapping, &elements, &spatial_dim,
+              &dist->impl_->n_nodes_global, &dist->impl_->n_nodes_owned,
+              &dist->impl_->n_nodes_shared, &dist->impl_->n_nodes_ghosts,
+              &n_nodes_aura, &node_mapping, &points, &node_owner, &node_offsets,
+              &ghosts);
+        } else {
+          OrderEncoder<geom_t> ordering = nullptr;
+          bool use_sfc = true;
+          if (parse_ordering(&ordering, &use_sfc) != SMESH_SUCCESS ||
+              !use_sfc) {
+            return SMESH_FAILURE;
+          }
+          read_status = mesh_from_folder_reordered(
+              impl_->comm->get(), path, &nnodesxelem,
+              &dist->impl_->n_elements_global, &dist->impl_->n_elements_owned,
+              &dist->impl_->n_elements_shared, &dist->impl_->n_elements_ghosts,
+              &element_mapping, &aura_element_mapping, &elements, &spatial_dim,
+              &dist->impl_->n_nodes_global, &dist->impl_->n_nodes_owned,
+              &dist->impl_->n_nodes_shared, &dist->impl_->n_nodes_ghosts,
+              &n_nodes_aura, &node_mapping, &points, &node_owner, &node_offsets,
+              &ghosts, ordering);
+        }
+      } else {
+        read_status = mesh_from_folder(
+            impl_->comm->get(), path, &nnodesxelem,
+            &dist->impl_->n_elements_global, &dist->impl_->n_elements_owned,
+            &dist->impl_->n_elements_shared, &dist->impl_->n_elements_ghosts,
+            &element_mapping, &aura_element_mapping, &elements, &spatial_dim,
+            &dist->impl_->n_nodes_global, &dist->impl_->n_nodes_owned,
+            &dist->impl_->n_nodes_shared, &dist->impl_->n_nodes_ghosts,
+            &n_nodes_aura, &node_mapping, &points, &node_owner, &node_offsets,
+            &ghosts);
+      }
+
+      if (read_status != SMESH_SUCCESS) {
+        SMESH_ERROR("Failed to read mesh from folder %s\n", path.c_str());
+        return SMESH_FAILURE;
+      }
+      dist->impl_->n_nodes_aura = n_nodes_aura;
+
+      auto elements_buffer = manage_host_buffer<idx_t>(
+          nnodesxelem, dist->n_elements_local(), elements);
+      impl_->points = manage_host_buffer<geom_t>(spatial_dim,
+                                                 dist->n_nodes_local(), points);
+      dist->impl_->node_mapping =
+          manage_host_buffer<large_idx_t>(dist->n_nodes_local(), node_mapping);
+      dist->impl_->node_owner =
+          manage_host_buffer<int>(dist->n_nodes_local(), node_owner);
+      dist->impl_->element_mapping = manage_host_buffer<large_idx_t>(
+          dist->n_elements_owned(), element_mapping);
+      dist->impl_->aura_element_mapping = manage_host_buffer<large_idx_t>(
+          dist->n_elements_ghosts(), aura_element_mapping);
+
+      int comm_size = 0;
+      MPI_Comm_size(impl_->comm->get(), &comm_size);
+      dist->impl_->node_offsets =
+          manage_host_buffer<ptrdiff_t>(comm_size + 1, node_offsets);
+      dist->impl_->ghosts_and_aura = manage_host_buffer<idx_t>(
+          dist->impl_->n_nodes_ghosts + dist->impl_->n_nodes_aura, ghosts);
+
+      enum ElemType element_type = (enum ElemType)nnodesxelem;
+      enum GeomMap geom_map = ISOPARAMETRIC;
+      read_meta(impl_->comm, path, element_type, geom_map);
+
+      auto default_block = std::make_shared<Block>();
+      default_block->set_name("default");
+      default_block->set_element_type(element_type);
+      default_block->set_geom_map(geom_map);
+      default_block->set_elements(elements_buffer);
+      default_block->set_distributed_elements(
+          dist->n_elements_owned(), dist->n_elements_shared(),
+          dist->n_elements_ghosts(), dist->element_mapping(),
+          dist->aura_element_mapping());
+      this->add_block(default_block);
+
+      impl_->distributed = dist;
+    }
+  }
+#endif // SMESH_ENABLE_MPI
+
+  if (read_registered_sidesets(*this, path) != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+  if (read_registered_edgesets(*this, path) != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+  if (read_registered_nodesets(*this, path) != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+
+  int SMESH_USE_MACRO = 0;
+  SMESH_READ_ENV(SMESH_USE_MACRO, atoi);
+
+  if (SMESH_USE_MACRO) {
+    for (auto &block : blocks()) {
+      if (block) {
+        block->set_element_type(macro_type_variant(block->element_type()));
+      }
+    }
+  }
+
+  return SMESH_SUCCESS;
+}
+
+const std::vector<std::shared_ptr<Mesh::Block>> &Mesh::blocks() const {
+  return impl_->blocks;
+}
+
+int Mesh::write(const Path &path) const {
+  SMESH_TRACE_SCOPE("Mesh::write");
+
+  create_directory(path);
+
+  if (impl_->comm->size() == 1) {
+    if (impl_->node_mapping) {
+      Path path_node_mapping =
+          path / ("node_mapping." + std::string(TypeToString<idx_t>::value()));
+      impl_->node_mapping->to_file(path_node_mapping);
     }
 
-    // SharedBuffer<count_t> Mesh::node_to_node_rowptr() const {
-    //   return this->node_to_node_graph()->rowptr();
-    // }
-    // SharedBuffer<idx_t> Mesh::node_to_node_colidx() const {
-    //   return this->node_to_node_graph()->colidx();
-    // }
+    // Write the default block (block 0)
+    if (impl_->blocks.empty() || !impl_->blocks[0]) {
+      return SMESH_FAILURE;
+    }
 
+    const std::string &b0_name = impl_->blocks[0]->name();
+    const bool legacy_single =
+        impl_->blocks.size() == 1 && (b0_name.empty() || b0_name == "default");
+    if (legacy_single) {
+      return write_topology_then_sidesets(
+          *this, path,
+          mesh_to_folder(path, impl_->blocks[0]->element_type(),
+                         impl_->blocks[0]->elements()->extent(1),
+                         impl_->blocks[0]->elements()->data(),
+                         this->spatial_dimension(), this->n_nodes(),
+                         this->points()->data(), impl_->blocks[0]->geom_map()));
+    } else {
+      std::vector<ptrdiff_t> n_elements;
+      std::vector<enum ElemType> element_types;
+      std::vector<enum GeomMap> geom_maps;
+      std::vector<idx_t **> elements;
+      std::vector<std::string> block_names;
+
+      for (auto &block : impl_->blocks) {
+        n_elements.push_back(block->elements()->extent(1));
+        element_types.push_back(block->element_type());
+        geom_maps.push_back(block->geom_map());
+        elements.push_back(block->elements()->data());
+        block_names.push_back(block->name());
+      }
+      return write_topology_then_sidesets(
+          *this, path,
+          mesh_multiblock_to_folder(path, block_names, element_types,
+                                    n_elements, elements.data(),
+                                    this->spatial_dimension(), this->n_nodes(),
+                                    this->points()->data(), geom_maps));
+    }
+  }
 #ifdef SMESH_ENABLE_MPI
-    int Mesh::adopt_parallel_arrays(Mesh *mesh, enum ElemType element_type, const char *block_name,
-                                    int nnodesxelem, ptrdiff_t n_global_elements, ptrdiff_t n_owned_elements,
-                                    ptrdiff_t n_shared_elements, ptrdiff_t n_ghost_elements,
-                                    large_idx_t *element_mapping, large_idx_t *aura_element_mapping,
-                                    idx_t **elements, int spatial_dim, ptrdiff_t n_global_nodes,
-                                    ptrdiff_t n_owned_nodes, ptrdiff_t n_shared_nodes, ptrdiff_t n_ghost_nodes,
-                                    ptrdiff_t n_aura_nodes, large_idx_t *node_mapping, geom_t **points,
-                                    int *node_owner, ptrdiff_t *node_offsets, idx_t *ghosts) {
-        auto dist = std::make_shared<Distributed>();
-        dist->set_nodes(n_global_nodes,
-                        n_owned_nodes,
-                        n_shared_nodes,
-                        n_ghost_nodes,
-                        n_aura_nodes,
-                        manage_host_buffer<large_idx_t>(n_owned_nodes + n_ghost_nodes + n_aura_nodes, node_mapping),
-                        manage_host_buffer<int>(n_owned_nodes + n_ghost_nodes + n_aura_nodes, node_owner),
-                        manage_host_buffer<ptrdiff_t>(static_cast<size_t>(mesh->comm()->size()) + 1, node_offsets),
-                        manage_host_buffer<idx_t>(n_ghost_nodes + n_aura_nodes, ghosts));
-        dist->set_elements(n_global_elements,
-                           n_owned_elements,
-                           n_shared_elements,
-                           n_ghost_elements,
-                           manage_host_buffer<large_idx_t>(n_owned_elements, element_mapping),
-                           manage_host_buffer<large_idx_t>(n_ghost_elements, aura_element_mapping));
-
-        auto elements_buffer = manage_host_buffer<idx_t>(nnodesxelem, dist->n_elements_local(), elements);
-        mesh->set_points(manage_host_buffer<geom_t>(spatial_dim, dist->n_nodes_local(), points));
-
-        auto default_block = std::make_shared<Mesh::Block>();
-        default_block->set_name(block_name);
-        default_block->set_element_type(element_type);
-        default_block->set_elements(elements_buffer);
-        default_block->set_distributed_elements(dist->n_elements_owned(),
-                                                dist->n_elements_shared(),
-                                                dist->n_elements_ghosts(),
-                                                dist->element_mapping(),
-                                                dist->aura_element_mapping());
-        mesh->add_block(default_block);
-        mesh->set_distributed(dist);
-        return SMESH_SUCCESS;
+  else {
+    if (!impl_->distributed) {
+      SMESH_ERROR("Mesh::write (MPI) requires a Distributed object. "
+                  "Did you create the mesh via distributed read?\n");
+      return SMESH_FAILURE;
     }
 
-    std::shared_ptr<Mesh> Mesh::wrap_create_parallel(const std::shared_ptr<Communicator> &comm,
-                                                           enum ElemType                        element_type,
-                                                           int                                  nnodesxelem,
-                                                           ptrdiff_t                            n_local_elements,
-                                                           ptrdiff_t                            n_global_elements,
-                                                           idx_t                              **elems,
-                                                           int                                  spatial_dim,
-                                                           ptrdiff_t                            n_local_nodes,
-                                                           ptrdiff_t                            n_global_nodes,
-                                                           geom_t                             **points,
-                                                           enum GeomMap                         geom_map) {
-        auto        mesh = std::make_shared<Mesh>(comm);
-        int         nxe_out = 0, sdim_out = 0;
-        ptrdiff_t   nge = 0, noe = 0, nse = 0, ngelem_ghost = 0;
-        large_idx_t *emap = nullptr, *amap = nullptr;
-        idx_t      **elements = nullptr;
-        ptrdiff_t    ngn = 0, non = 0, nsn = 0, nghostn = 0, nan = 0;
-        large_idx_t *nmap     = nullptr;
-        geom_t     **pts      = nullptr;
-        int         *owner    = nullptr;
-        ptrdiff_t   *offsets  = nullptr;
-        idx_t       *ghosts   = nullptr;
-
-        if (mesh_create_parallel<idx_t, geom_t, large_idx_t>(comm->get(),
-                                                             comm->size(),
-                                                             comm->rank(),
-                                                             nnodesxelem,
-                                                             elems,
-                                                             n_local_elements,
-                                                             n_global_elements,
-                                                             spatial_dim,
-                                                             points,
-                                                             n_local_nodes,
-                                                             n_global_nodes,
-                                                             nullptr,
-                                                             &nxe_out,
-                                                             &nge,
-                                                             &noe,
-                                                             &nse,
-                                                             &ngelem_ghost,
-                                                             &emap,
-                                                             &amap,
-                                                             &elements,
-                                                             &sdim_out,
-                                                             &ngn,
-                                                             &non,
-                                                             &nsn,
-                                                             &nghostn,
-                                                             &nan,
-                                                             &nmap,
-                                                             &pts,
-                                                             &owner,
-                                                             &offsets,
-                                                             &ghosts) != SMESH_SUCCESS) {
-            return nullptr;
-        }
-
-        if (Mesh::adopt_parallel_arrays(mesh.get(),
-                                      element_type,
-                                      "default",
-                                      nxe_out,
-                                      nge,
-                                      noe,
-                                      nse,
-                                      ngelem_ghost,
-                                      emap,
-                                      amap,
-                                      elements,
-                                      sdim_out,
-                                      ngn,
-                                      non,
-                                      nsn,
-                                      nghostn,
-                                      nan,
-                                      nmap,
-                                      pts,
-                                      owner,
-                                      offsets,
-                                      ghosts) != SMESH_SUCCESS) {
-            return nullptr;
-        }
-        if (mesh->n_blocks() > 0) {
-            mesh->block(0)->set_geom_map(geom_map);
-        }
-        return mesh;
+    if (impl_->blocks.empty()) {
+      return SMESH_FAILURE;
     }
 
-    static int hex8_gid_color(const large_idx_t gid, const ptrdiff_t nx, const ptrdiff_t ny) {
-        const ptrdiff_t exy = nx * ny;
-        const ptrdiff_t zi  = static_cast<ptrdiff_t>(gid) / exy;
-        const ptrdiff_t rem = static_cast<ptrdiff_t>(gid) - zi * exy;
-        const ptrdiff_t yi  = rem / nx;
-        const ptrdiff_t xi  = rem - yi * nx;
-        return static_cast<int>((xi + yi + zi) & 1);
+    auto dist = impl_->distributed;
+    MPI_Comm comm = impl_->comm->get();
+    const auto *node_mapping = dist->impl_->node_mapping->data();
+
+    if (impl_->blocks.size() == 1 && impl_->blocks[0]) {
+      const enum ElemType et = impl_->blocks[0]->element_type();
+      const int nxe = elem_num_nodes(et);
+
+      int err = write_distributed_mesh_topology(
+          comm, path, et, this->spatial_dimension(), dist->n_elements_global(),
+          dist->n_elements_owned(), dist->impl_->element_mapping->data(), nxe,
+          impl_->blocks[0]->elements()->data(), dist->n_nodes_global(),
+          dist->n_nodes_owned(), node_mapping, impl_->points->data());
+      if (err == SMESH_SUCCESS && impl_->comm->rank() == 0) {
+        err = mesh_write_yaml_basic(
+            path, et, dist->n_elements_global(), this->spatial_dimension(),
+            dist->n_nodes_global(), impl_->blocks[0]->geom_map());
+      }
+      impl_->comm->barrier();
+      return write_topology_then_sidesets(*this, path, err);
     }
 
-    static void copy_hex8_element(idx_t **dst, const ptrdiff_t di, idx_t **src, const ptrdiff_t si) {
-        for (int v = 0; v < 8; ++v) {
-            dst[v][di] = src[v][si];
+    const size_t n_blocks = impl_->blocks.size();
+    if (impl_->comm->rank() == 0) {
+      if (create_directory(path / "blocks") != SMESH_SUCCESS) {
+        return SMESH_FAILURE;
+      }
+      for (size_t b = 0; b < n_blocks; ++b) {
+        if (!impl_->blocks[b]) {
+          return SMESH_FAILURE;
         }
+        if (create_directory(path / "blocks" / impl_->blocks[b]->name()) !=
+            SMESH_SUCCESS) {
+          return SMESH_FAILURE;
+        }
+      }
+    }
+    impl_->comm->barrier();
+
+    int err = write_distributed_mesh_coordinates(
+        comm, path, this->spatial_dimension(), dist->n_nodes_global(),
+        dist->n_nodes_owned(), node_mapping, impl_->points->data());
+    if (err != SMESH_SUCCESS) {
+      return err;
     }
 
-    std::shared_ptr<Mesh> Mesh::with_nodal_distributed(const std::shared_ptr<Mesh>                    &src,
-                                                             const std::vector<std::shared_ptr<Mesh::Block>> &blocks,
-                                                             ptrdiff_t n_elements_global, ptrdiff_t n_owned,
-                                                             ptrdiff_t n_shared, ptrdiff_t n_ghosts,
-                                                             SharedBuffer<large_idx_t> element_mapping,
-                                                             SharedBuffer<large_idx_t> aura_element_mapping) {
-        auto out  = std::make_shared<Mesh>(src->comm(), blocks, src->points());
-        auto dist = std::make_shared<Distributed>();
-        auto sd   = src->distributed();
-        dist->set_nodes(sd->n_nodes_global(),
-                        sd->n_nodes_owned(),
-                        sd->n_nodes_shared(),
-                        sd->n_nodes_ghosts(),
-                        sd->n_nodes_aura(),
-                        sd->node_mapping(),
-                        sd->node_owner(),
-                        sd->node_offsets(),
-                        sd->ghosts_and_aura());
-        dist->set_elements(n_elements_global, n_owned, n_shared, n_ghosts, std::move(element_mapping),
-                           std::move(aura_element_mapping));
-        out->set_distributed(dist);
-        return out;
+    std::vector<ptrdiff_t> n_owned_local(n_blocks);
+    for (size_t b = 0; b < n_blocks; ++b) {
+      n_owned_local[b] = impl_->blocks[b]->n_elements_owned();
+    }
+    std::vector<ptrdiff_t> n_global_per_block(n_blocks);
+    MPI_Allreduce(n_owned_local.data(), n_global_per_block.data(),
+                  static_cast<int>(n_blocks), mpi_type<ptrdiff_t>(), MPI_SUM,
+                  comm);
+
+    std::vector<std::string> block_names;
+    std::vector<enum ElemType> element_types;
+    std::vector<enum GeomMap> geom_maps;
+    block_names.reserve(n_blocks);
+    element_types.reserve(n_blocks);
+    geom_maps.reserve(n_blocks);
+
+    for (size_t b = 0; b < n_blocks; ++b) {
+      auto block = impl_->blocks[b];
+      block_names.push_back(block->name());
+      element_types.push_back(block->element_type());
+      geom_maps.push_back(block->geom_map());
+
+      const ptrdiff_t n_owned = block->n_elements_owned();
+      auto elem_map = block->element_mapping();
+      if (n_owned > 0 && !elem_map) {
+        SMESH_ERROR("Mesh::write (MPI): block %s has %ld owned elements "
+                    "but no element_mapping.\n",
+                    block->name().c_str(), (long)n_owned);
+        return SMESH_FAILURE;
+      }
+
+      const Path block_path = path / "blocks" / block->name();
+      err |= write_distributed_block_connectivity(
+          comm, block_path, n_global_per_block[b], n_owned,
+          n_owned > 0 ? elem_map->data() : nullptr,
+          block->n_nodes_per_element(), block->elements()->data(),
+          node_mapping);
     }
 
-    static std::shared_ptr<Mesh::Block> make_hex8_color_block(const char *name, idx_t **src, const large_idx_t *owned_map,
-                                                              const large_idx_t *aura_map, const ptrdiff_t n_ons,
-                                                              const ptrdiff_t n_owned, const ptrdiff_t n_ghosts,
-                                                              const int color, const ptrdiff_t nx, const ptrdiff_t ny) {
-        ptrdiff_t n_ons_c = 0, n_shared_c = 0, n_ghosts_c = 0;
-        const ptrdiff_t n_shared = n_owned - n_ons;
-        for (ptrdiff_t i = 0; i < n_ons; ++i) {
-            n_ons_c += (hex8_gid_color(owned_map[i], nx, ny) == color);
-        }
-        for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
-            n_shared_c += (hex8_gid_color(owned_map[i], nx, ny) == color);
-        }
-        for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
-            n_ghosts_c += (hex8_gid_color(aura_map[i], nx, ny) == color);
-        }
-        SMESH_UNUSED(n_shared);
-
-        const ptrdiff_t n_owned_c = n_ons_c + n_shared_c;
-        const ptrdiff_t n_local_c = n_owned_c + n_ghosts_c;
-        auto            elems     = create_host_buffer<idx_t>(8, static_cast<size_t>(n_local_c));
-        auto            emap      = create_host_buffer<large_idx_t>(static_cast<size_t>(n_owned_c));
-        auto            amap      = create_host_buffer<large_idx_t>(static_cast<size_t>(n_ghosts_c));
-        idx_t         **ed        = elems->data();
-        large_idx_t    *emd       = n_owned_c ? emap->data() : nullptr;
-        large_idx_t    *amd       = n_ghosts_c ? amap->data() : nullptr;
-
-        ptrdiff_t w = 0;
-        for (ptrdiff_t i = 0; i < n_ons; ++i) {
-            if (hex8_gid_color(owned_map[i], nx, ny) != color) {
-                continue;
-            }
-            copy_hex8_element(ed, w, src, i);
-            emd[w] = owned_map[i];
-            ++w;
-        }
-        for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
-            if (hex8_gid_color(owned_map[i], nx, ny) != color) {
-                continue;
-            }
-            copy_hex8_element(ed, w, src, i);
-            emd[w] = owned_map[i];
-            ++w;
-        }
-        ptrdiff_t wa = 0;
-        for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
-            if (hex8_gid_color(aura_map[i], nx, ny) != color) {
-                continue;
-            }
-            copy_hex8_element(ed, n_owned_c + wa, src, n_owned + i);
-            amd[wa] = aura_map[i];
-            ++wa;
-        }
-
-        auto block = std::make_shared<Mesh::Block>();
-        block->set_name(name);
-        block->set_element_type(HEX8);
-        block->set_geom_map(AXIS_ALIGNED);
-        block->set_elements(elems);
-        block->set_distributed_elements(n_owned_c, n_shared_c, n_ghosts_c, emap, amap);
-        return block;
+    if (err != SMESH_SUCCESS) {
+      return SMESH_FAILURE;
     }
 
-    std::shared_ptr<Mesh> Mesh::split_hex8_checkerboard_distributed(const std::shared_ptr<Mesh> &hex_mesh,
-                                                                     const ptrdiff_t nx, const ptrdiff_t ny) {
-        auto            hex_block = hex_mesh->block(0);
-        idx_t         **src       = hex_block->elements()->data();
-        const ptrdiff_t n_owned   = hex_block->n_elements_owned();
-        const ptrdiff_t n_shared  = hex_block->n_elements_shared();
-        const ptrdiff_t n_ghosts  = hex_block->n_elements_ghosts();
-        const ptrdiff_t n_ons     = n_owned - n_shared;
-        const large_idx_t *owned_map = hex_block->element_mapping()->data();
-        const large_idx_t *aura_map =
-                (n_ghosts > 0 && hex_block->aura_element_mapping()) ? hex_block->aura_element_mapping()->data() : nullptr;
-
-        auto white = make_hex8_color_block("white", src, owned_map, aura_map, n_ons, n_owned, n_ghosts, 0, nx, ny);
-        auto black = make_hex8_color_block("black", src, owned_map, aura_map, n_ons, n_owned, n_ghosts, 1, nx, ny);
-
-        std::vector<std::shared_ptr<Mesh::Block>> blocks;
-        blocks.push_back(white);
-        blocks.push_back(black);
-
-        auto sd = hex_mesh->distributed();
-        return Mesh::with_nodal_distributed(hex_mesh, blocks, sd->n_elements_global(), sd->n_elements_owned(),
-                                           sd->n_elements_shared(), sd->n_elements_ghosts(), sd->element_mapping(),
-                                           sd->aura_element_mapping());
+    if (impl_->comm->rank() == 0) {
+      err = mesh_multiblock_write_yaml(
+          path, static_cast<uint16_t>(n_blocks), block_names, element_types,
+          n_global_per_block, this->spatial_dimension(), dist->n_nodes_global(),
+          geom_maps);
     }
-
-    static int hex8_gid_bidomain_side(const large_idx_t gid, const ptrdiff_t nx, const ptrdiff_t ny,
-                                      const ptrdiff_t split) {
-        const ptrdiff_t exy = nx * ny;
-        const ptrdiff_t zi  = static_cast<ptrdiff_t>(gid) / exy;
-        const ptrdiff_t rem = static_cast<ptrdiff_t>(gid) - zi * exy;
-        const ptrdiff_t yi  = rem / nx;
-        const ptrdiff_t xi  = rem - yi * nx;
-        SMESH_UNUSED(zi);
-        SMESH_UNUSED(yi);
-        return xi < split ? 0 : 1;
-    }
-
-    static large_idx_t hex8_gid_bidomain_local(const large_idx_t gid, const ptrdiff_t nx, const ptrdiff_t ny,
-                                               const ptrdiff_t split) {
-        const ptrdiff_t exy = nx * ny;
-        const ptrdiff_t zi  = static_cast<ptrdiff_t>(gid) / exy;
-        const ptrdiff_t rem = static_cast<ptrdiff_t>(gid) - zi * exy;
-        const ptrdiff_t yi  = rem / nx;
-        const ptrdiff_t xi  = rem - yi * nx;
-        if (xi < split) {
-            return static_cast<large_idx_t>(zi * ny * split + yi * split + xi);
-        }
-        const ptrdiff_t nx_right = nx - split;
-        return static_cast<large_idx_t>(zi * ny * nx_right + yi * nx_right + (xi - split));
-    }
-
-    static std::shared_ptr<Mesh::Block> make_hex8_bidomain_block(const char *name, idx_t **src,
-                                                                 const large_idx_t *owned_map,
-                                                                 const large_idx_t *aura_map,
-                                                                 const ptrdiff_t n_ons,
-                                                                 const ptrdiff_t n_owned,
-                                                                 const ptrdiff_t n_ghosts,
-                                                                 const int side,
-                                                                 const ptrdiff_t nx,
-                                                                 const ptrdiff_t ny,
-                                                                 const ptrdiff_t split) {
-        ptrdiff_t n_ons_c = 0, n_shared_c = 0, n_ghosts_c = 0;
-        for (ptrdiff_t i = 0; i < n_ons; ++i) {
-            n_ons_c += (hex8_gid_bidomain_side(owned_map[i], nx, ny, split) == side);
-        }
-        for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
-            n_shared_c += (hex8_gid_bidomain_side(owned_map[i], nx, ny, split) == side);
-        }
-        for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
-            n_ghosts_c += (hex8_gid_bidomain_side(aura_map[i], nx, ny, split) == side);
-        }
-
-        const ptrdiff_t n_owned_c = n_ons_c + n_shared_c;
-        const ptrdiff_t n_local_c = n_owned_c + n_ghosts_c;
-        auto            elems     = create_host_buffer<idx_t>(8, static_cast<size_t>(n_local_c));
-        auto            emap      = create_host_buffer<large_idx_t>(static_cast<size_t>(n_owned_c));
-        auto            amap      = create_host_buffer<large_idx_t>(static_cast<size_t>(n_ghosts_c));
-        idx_t         **ed        = elems->data();
-        large_idx_t    *emd       = n_owned_c ? emap->data() : nullptr;
-        large_idx_t    *amd       = n_ghosts_c ? amap->data() : nullptr;
-
-        ptrdiff_t w = 0;
-        for (ptrdiff_t i = 0; i < n_ons; ++i) {
-            if (hex8_gid_bidomain_side(owned_map[i], nx, ny, split) != side) {
-                continue;
-            }
-            copy_hex8_element(ed, w, src, i);
-            emd[w] = hex8_gid_bidomain_local(owned_map[i], nx, ny, split);
-            ++w;
-        }
-        for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
-            if (hex8_gid_bidomain_side(owned_map[i], nx, ny, split) != side) {
-                continue;
-            }
-            copy_hex8_element(ed, w, src, i);
-            emd[w] = hex8_gid_bidomain_local(owned_map[i], nx, ny, split);
-            ++w;
-        }
-        ptrdiff_t wa = 0;
-        for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
-            if (hex8_gid_bidomain_side(aura_map[i], nx, ny, split) != side) {
-                continue;
-            }
-            copy_hex8_element(ed, n_owned_c + wa, src, n_owned + i);
-            amd[wa] = hex8_gid_bidomain_local(aura_map[i], nx, ny, split);
-            ++wa;
-        }
-
-        auto block = std::make_shared<Mesh::Block>();
-        block->set_name(name);
-        block->set_element_type(HEX8);
-        block->set_geom_map(AXIS_ALIGNED);
-        block->set_elements(elems);
-        block->set_distributed_elements(n_owned_c, n_shared_c, n_ghosts_c, emap, amap);
-        return block;
-    }
-
-    std::shared_ptr<Mesh> Mesh::split_hex8_bidomain_distributed(const std::shared_ptr<Mesh> &hex_mesh,
-                                                                 const ptrdiff_t nx,
-                                                                 const ptrdiff_t ny,
-                                                                 const ptrdiff_t nz,
-                                                                 const ptrdiff_t split) {
-        auto                 hex_block = hex_mesh->block(0);
-        idx_t              **src       = hex_block->elements()->data();
-        const ptrdiff_t      n_owned   = hex_block->n_elements_owned();
-        const ptrdiff_t      n_shared  = hex_block->n_elements_shared();
-        const ptrdiff_t      n_ghosts  = hex_block->n_elements_ghosts();
-        const ptrdiff_t      n_ons     = n_owned - n_shared;
-        const large_idx_t   *owned_map = hex_block->element_mapping()->data();
-        const large_idx_t   *aura_map =
-                (n_ghosts > 0 && hex_block->aura_element_mapping()) ? hex_block->aura_element_mapping()->data() : nullptr;
-
-        auto left  = make_hex8_bidomain_block("left", src, owned_map, aura_map, n_ons, n_owned, n_ghosts, 0, nx, ny, split);
-        auto right = make_hex8_bidomain_block("right", src, owned_map, aura_map, n_ons, n_owned, n_ghosts, 1, nx, ny, split);
-
-        std::vector<std::shared_ptr<Mesh::Block>> blocks;
-        blocks.push_back(left);
-        blocks.push_back(right);
-
-        const ptrdiff_t n_left_global = split * ny * nz;
-        auto            concat_owned  = create_host_buffer<large_idx_t>(static_cast<size_t>(n_owned));
-        auto            concat_aura   = create_host_buffer<large_idx_t>(static_cast<size_t>(n_ghosts));
-        const ptrdiff_t n_left_owned  = left->n_elements_owned();
-        const ptrdiff_t n_right_owned = right->n_elements_owned();
-        const ptrdiff_t n_left_ghosts = left->n_elements_ghosts();
-        const ptrdiff_t n_right_ghosts = right->n_elements_ghosts();
-        if (n_left_owned) {
-            std::memcpy(concat_owned->data(), left->element_mapping()->data(), static_cast<size_t>(n_left_owned) * sizeof(large_idx_t));
-        }
-        if (n_right_owned) {
-            for (ptrdiff_t i = 0; i < n_right_owned; ++i) {
-                concat_owned->data()[n_left_owned + i] = n_left_global + right->element_mapping()->data()[i];
-            }
-        }
-        if (n_left_ghosts) {
-            std::memcpy(concat_aura->data(), left->aura_element_mapping()->data(), static_cast<size_t>(n_left_ghosts) * sizeof(large_idx_t));
-        }
-        if (n_right_ghosts) {
-            for (ptrdiff_t i = 0; i < n_right_ghosts; ++i) {
-                concat_aura->data()[n_left_ghosts + i] = n_left_global + right->aura_element_mapping()->data()[i];
-            }
-        }
-        SMESH_ASSERT(n_left_owned + n_right_owned == n_owned);
-        SMESH_ASSERT(n_left_ghosts + n_right_ghosts == n_ghosts);
-
-        return Mesh::with_nodal_distributed(hex_mesh, blocks, nx * ny * nz, n_owned, n_shared, n_ghosts, concat_owned, concat_aura);
-    }
-
-    static void hex8_to_six_tets(idx_t **hex_src, const ptrdiff_t si, idx_t **tet_dst, const ptrdiff_t di0) {
-        idx_t  hex_one[8];
-        idx_t *hex_ptr[8];
-        idx_t  tet_one[4][6];
-        idx_t *tet_ptr[4];
-        for (int v = 0; v < 8; ++v) {
-            hex_one[v] = hex_src[v][si];
-            hex_ptr[v] = &hex_one[v];
-        }
-        for (int v = 0; v < 4; ++v) {
-            tet_ptr[v] = tet_one[v];
-        }
-        mesh_hex8_to_6x_tet4<idx_t>(1, hex_ptr, tet_ptr);
-        for (int k = 0; k < 6; ++k) {
-            for (int v = 0; v < 4; ++v) {
-                tet_dst[v][di0 + k] = tet_ptr[v][k];
-            }
-        }
-    }
-
-    std::shared_ptr<Mesh> Mesh::split_hex8_tet4_distributed(const std::shared_ptr<Mesh> &hex_mesh,
-                                                             const ptrdiff_t n_hex_all) {
-        auto              hex_block  = hex_mesh->block(0);
-        idx_t           **src        = hex_block->elements()->data();
-        const ptrdiff_t   n_owned    = hex_block->n_elements_owned();
-        const ptrdiff_t   n_shared   = hex_block->n_elements_shared();
-        const ptrdiff_t   n_ghosts   = hex_block->n_elements_ghosts();
-        const ptrdiff_t   n_ons      = n_owned - n_shared;
-        const large_idx_t n_hex_keep = static_cast<large_idx_t>(n_hex_all / 2);
-        const large_idx_t *owned_map = hex_block->element_mapping()->data();
-        const large_idx_t *aura_map =
-                (n_ghosts > 0 && hex_block->aura_element_mapping()) ? hex_block->aura_element_mapping()->data() : nullptr;
-
-        ptrdiff_t hex_ons = 0, hex_shared = 0, hex_ghosts = 0;
-        ptrdiff_t tet_ons_hex = 0, tet_shared_hex = 0, tet_ghosts_hex = 0;
-        for (ptrdiff_t i = 0; i < n_ons; ++i) {
-            if (owned_map[i] < n_hex_keep) {
-                ++hex_ons;
-            } else {
-                ++tet_ons_hex;
-            }
-        }
-        for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
-            if (owned_map[i] < n_hex_keep) {
-                ++hex_shared;
-            } else {
-                ++tet_shared_hex;
-            }
-        }
-        for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
-            if (aura_map[i] < n_hex_keep) {
-                ++hex_ghosts;
-            } else {
-                ++tet_ghosts_hex;
-            }
-        }
-
-        const ptrdiff_t hex_owned_c = hex_ons + hex_shared;
-        const ptrdiff_t tet_ons     = tet_ons_hex * 6;
-        const ptrdiff_t tet_shared  = tet_shared_hex * 6;
-        const ptrdiff_t tet_ghosts  = tet_ghosts_hex * 6;
-        const ptrdiff_t tet_owned_c = tet_ons + tet_shared;
-
-        auto hex_elems = create_host_buffer<idx_t>(8, static_cast<size_t>(hex_owned_c + hex_ghosts));
-        auto hex_emap  = create_host_buffer<large_idx_t>(static_cast<size_t>(hex_owned_c));
-        auto hex_amap  = create_host_buffer<large_idx_t>(static_cast<size_t>(hex_ghosts));
-        auto tet_elems = create_host_buffer<idx_t>(4, static_cast<size_t>(tet_owned_c + tet_ghosts));
-        auto tet_emap  = create_host_buffer<large_idx_t>(static_cast<size_t>(tet_owned_c));
-        auto tet_amap  = create_host_buffer<large_idx_t>(static_cast<size_t>(tet_ghosts));
-
-        idx_t      **he = hex_elems->data();
-        idx_t      **te = tet_elems->data();
-        large_idx_t *hem = hex_owned_c ? hex_emap->data() : nullptr;
-        large_idx_t *ham = hex_ghosts ? hex_amap->data() : nullptr;
-        large_idx_t *tem = tet_owned_c ? tet_emap->data() : nullptr;
-        large_idx_t *tam = tet_ghosts ? tet_amap->data() : nullptr;
-
-        auto tet_gid = [n_hex_keep](const large_idx_t hex_gid, const int k) -> large_idx_t {
-            return (hex_gid - n_hex_keep) * 6 + k;
-        };
-
-        ptrdiff_t hw = 0, tw = 0;
-        for (ptrdiff_t i = 0; i < n_ons; ++i) {
-            if (owned_map[i] < n_hex_keep) {
-                copy_hex8_element(he, hw, src, i);
-                hem[hw] = owned_map[i];
-                ++hw;
-            } else {
-                hex8_to_six_tets(src, i, te, tw);
-                for (int k = 0; k < 6; ++k) {
-                    tem[tw + k] = tet_gid(owned_map[i], k);
-                }
-                tw += 6;
-            }
-        }
-        for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
-            if (owned_map[i] < n_hex_keep) {
-                copy_hex8_element(he, hw, src, i);
-                hem[hw] = owned_map[i];
-                ++hw;
-            } else {
-                hex8_to_six_tets(src, i, te, tw);
-                for (int k = 0; k < 6; ++k) {
-                    tem[tw + k] = tet_gid(owned_map[i], k);
-                }
-                tw += 6;
-            }
-        }
-        ptrdiff_t hwa = 0, twa = 0;
-        for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
-            if (aura_map[i] < n_hex_keep) {
-                copy_hex8_element(he, hex_owned_c + hwa, src, n_owned + i);
-                ham[hwa] = aura_map[i];
-                ++hwa;
-            } else {
-                hex8_to_six_tets(src, n_owned + i, te, tet_owned_c + twa);
-                for (int k = 0; k < 6; ++k) {
-                    tam[twa + k] = tet_gid(aura_map[i], k);
-                }
-                twa += 6;
-            }
-        }
-
-        auto hex_out = std::make_shared<Mesh::Block>();
-        hex_out->set_name("hex");
-        hex_out->set_element_type(HEX8);
-        hex_out->set_geom_map(AXIS_ALIGNED);
-        hex_out->set_elements(hex_elems);
-        hex_out->set_distributed_elements(hex_owned_c, hex_shared, hex_ghosts, hex_emap, hex_amap);
-
-        auto tet_out = std::make_shared<Mesh::Block>();
-        tet_out->set_name("tet");
-        tet_out->set_element_type(TET4);
-        tet_out->set_geom_map(AFFINE);
-        tet_out->set_elements(tet_elems);
-        tet_out->set_distributed_elements(tet_owned_c, tet_shared, tet_ghosts, tet_emap, tet_amap);
-
-        std::vector<std::shared_ptr<Mesh::Block>> blocks;
-        blocks.push_back(hex_out);
-        blocks.push_back(tet_out);
-
-        const ptrdiff_t n_hex_keep_g = n_hex_all / 2;
-        const ptrdiff_t n_tet_g      = (n_hex_all - n_hex_keep_g) * 6;
-        auto            concat_owned = create_host_buffer<large_idx_t>(static_cast<size_t>(hex_owned_c + tet_owned_c));
-        auto            concat_aura  = create_host_buffer<large_idx_t>(static_cast<size_t>(hex_ghosts + tet_ghosts));
-        if (hex_owned_c && hem) {
-            std::memcpy(concat_owned->data(), hem, static_cast<size_t>(hex_owned_c) * sizeof(large_idx_t));
-        }
-        if (tet_owned_c && tem) {
-            std::memcpy(concat_owned->data() + hex_owned_c, tem, static_cast<size_t>(tet_owned_c) * sizeof(large_idx_t));
-        }
-        if (hex_ghosts && ham) {
-            std::memcpy(concat_aura->data(), ham, static_cast<size_t>(hex_ghosts) * sizeof(large_idx_t));
-        }
-        if (tet_ghosts && tam) {
-            std::memcpy(concat_aura->data() + hex_ghosts, tam, static_cast<size_t>(tet_ghosts) * sizeof(large_idx_t));
-        }
-
-        return Mesh::with_nodal_distributed(hex_mesh, blocks, n_hex_keep_g + n_tet_g, hex_owned_c + tet_owned_c,
-                                           hex_shared + tet_shared, hex_ghosts + tet_ghosts, concat_owned, concat_aura);
-    }
-#endif  // SMESH_ENABLE_MPI
-
-    std::shared_ptr<Mesh> Mesh::create_hex8_cube(const std::shared_ptr<Communicator> &comm,
-                                                 const ptrdiff_t                      nx,
-                                                 const ptrdiff_t                      ny,
-                                                 const ptrdiff_t                      nz,
-                                                 const geom_t                         xmin,
-                                                 const geom_t                         ymin,
-                                                 const geom_t                         zmin,
-                                                 const geom_t                         xmax,
-                                                 const geom_t                         ymax,
-                                                 const geom_t                         zmax) {
-#ifdef SMESH_ENABLE_MPI
-        if (comm && comm->size() > 1) {
-            int       nxe = 0, sdim = 0;
-            ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
-            idx_t   **elems  = nullptr;
-            geom_t  **points = nullptr;
-            if (hex8_cube_create_distributed<idx_t, geom_t>(comm->get(),
-                                                            nx,
-                                                            ny,
-                                                            nz,
-                                                            xmin,
-                                                            ymin,
-                                                            zmin,
-                                                            xmax,
-                                                            ymax,
-                                                            zmax,
-                                                            &nxe,
-                                                            &n_local_e,
-                                                            &n_global_e,
-                                                            &elems,
-                                                            &sdim,
-                                                            &n_local_n,
-                                                            &n_global_n,
-                                                            &points) != SMESH_SUCCESS) {
-                return nullptr;
-            }
-            auto mesh = Mesh::wrap_create_parallel(comm, HEX8, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
-                                                 n_global_n, points, AXIS_ALIGNED);
-            return mesh;
-        }
-#endif
-        auto            ret       = std::make_shared<Mesh>(comm);
-        const ptrdiff_t nelements = nx * ny * nz;
-        const ptrdiff_t nnodes    = (nx + 1) * (ny + 1) * (nz + 1);
-
-        ret->impl_->points   = create_host_buffer<geom_t>(3, nnodes);
-        auto elements_buffer = create_host_buffer<idx_t>(8, nelements);
-
-        auto points   = ret->impl_->points->data();
-        auto elements = elements_buffer->data();
-
-        mesh_fill_hex8_cube<idx_t, geom_t>(nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax, elements, points);
-
-        // Create default block
-        auto default_block = std::make_shared<Block>();
-        default_block->set_name("default");
-        default_block->set_element_type(HEX8);
-        default_block->set_elements(elements_buffer);
-        default_block->set_geom_map(AXIS_ALIGNED);
-        ret->add_block(default_block);
-
-        return ret;
-    }
-
-    std::shared_ptr<Mesh> Mesh::create_semistructured_hex_cube(const std::shared_ptr<Communicator> &comm,
-                                                               const int                            micro_elements_per_dim,
-                                                               const ptrdiff_t                      nx,
-                                                               const ptrdiff_t                      ny,
-                                                               const ptrdiff_t                      nz,
-                                                               const geom_t                         xmin,
-                                                               const geom_t                         ymin,
-                                                               const geom_t                         zmin,
-                                                               const geom_t                         xmax,
-                                                               const geom_t                         ymax,
-                                                               const geom_t                         zmax) {
-#ifdef SMESH_ENABLE_MPI
-        if (comm && comm->size() > 1) {
-            auto hex = create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-            if (!hex) {
-                return nullptr;
-            }
-            return to_semistructured(micro_elements_per_dim, hex, false, false);
-        }
-#endif
-        auto            ret       = std::make_shared<Mesh>(comm);
-        const ptrdiff_t nelements = (nx) * (ny) * (nz);
-
-        const int       micro_nodes_per_dim = (micro_elements_per_dim + 1);
-        const ptrdiff_t nnodes =
-                (nx * micro_elements_per_dim + 1) * (ny * micro_elements_per_dim + 1) * (nz * micro_elements_per_dim + 1);
-
-        const int nxme     = micro_nodes_per_dim * micro_nodes_per_dim * micro_nodes_per_dim;
-        ret->impl_->points = create_host_buffer<geom_t>(3, nnodes);
-        auto elements      = create_host_buffer<idx_t>(nxme, nelements);
-
-        mesh_fill_proteus_hex_cube<idx_t, geom_t>(micro_elements_per_dim,
-                                                  nx,
-                                                  ny,
-                                                  nz,
-                                                  xmin,
-                                                  ymin,
-                                                  zmin,
-                                                  xmax,
-                                                  ymax,
-                                                  zmax,
-                                                  elements->data(),
-                                                  ret->impl_->points->data());
-
-        // if (hiearchical_ordering) {
-        semistructured_hierarchical_renumbering(smesh::HEX8, micro_elements_per_dim, nnodes, elements, ret->impl_->points, false);
-        // }
-
-        // Create default block
-        auto default_block = std::make_shared<Block>();
-        default_block->set_name("default");
-        default_block->set_element_type(proteus_hex_type(micro_elements_per_dim));
-        default_block->set_elements(elements);
-        default_block->set_geom_map(AXIS_ALIGNED);
-        ret->add_block(default_block);
-
-        return ret;
-    }
-
-    std::shared_ptr<Mesh> Mesh::create_semistructured_quad_square(const std::shared_ptr<Communicator> &comm,
-                                                                  const int                            micro_elements_per_dim,
-                                                                  const ptrdiff_t                      nx,
-                                                                  const ptrdiff_t                      ny,
-                                                                  const geom_t                         xmin,
-                                                                  const geom_t                         ymin,
-                                                                  const geom_t                         xmax,
-                                                                  const geom_t                         ymax) {
-        auto quad = create_quad4_square(comm, nx, ny, xmin, ymin, xmax, ymax);
-        if (!quad) {
-            return nullptr;
-        }
-        return to_semistructured(micro_elements_per_dim, quad, false, false);
-    }
-
-    std::shared_ptr<Mesh> Mesh::create_tri3_square(const std::shared_ptr<Communicator> &comm,
-                                                   const ptrdiff_t                      nx,
-                                                   const ptrdiff_t                      ny,
-                                                   const geom_t                         xmin,
-                                                   const geom_t                         ymin,
-                                                   const geom_t                         xmax,
-                                                   const geom_t                         ymax) {
-#ifdef SMESH_ENABLE_MPI
-        if (comm && comm->size() > 1) {
-            int       nxe = 0, sdim = 0;
-            ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
-            idx_t   **elems  = nullptr;
-            geom_t  **points = nullptr;
-            if (tri3_square_create_distributed<idx_t, geom_t>(comm->get(),
-                                                              nx,
-                                                              ny,
-                                                              xmin,
-                                                              ymin,
-                                                              xmax,
-                                                              ymax,
-                                                              &nxe,
-                                                              &n_local_e,
-                                                              &n_global_e,
-                                                              &elems,
-                                                              &sdim,
-                                                              &n_local_n,
-                                                              &n_global_n,
-                                                              &points) != SMESH_SUCCESS) {
-                return nullptr;
-            }
-            auto mesh = Mesh::wrap_create_parallel(comm, TRI3, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
-                                                 n_global_n, points, AFFINE);
-            return mesh;
-        }
-#endif
-        auto            ret       = std::make_shared<Mesh>(comm);
-        const ptrdiff_t nelements = 2 * nx * ny;
-        const ptrdiff_t nnodes    = (nx + 1) * (ny + 1);
-
-        ret->impl_->points   = create_host_buffer<geom_t>(2, nnodes);
-        auto elements_buffer = create_host_buffer<idx_t>(3, nelements);
-
-        auto points   = ret->impl_->points->data();
-        auto elements = elements_buffer->data();
-
-        mesh_fill_tri3_square<idx_t, geom_t>(nx, ny, xmin, ymin, xmax, ymax, elements, points);
-
-        // Create default block
-        auto default_block = std::make_shared<Block>();
-        default_block->set_name("default");
-        default_block->set_element_type(TRI3);
-        default_block->set_elements(elements_buffer);
-        default_block->set_geom_map(AFFINE);
-        ret->add_block(default_block);
-
-        return ret;
-    }
-
-    std::shared_ptr<Mesh> Mesh::create_quad4_square(const std::shared_ptr<Communicator> &comm,
-                                                    const ptrdiff_t                      nx,
-                                                    const ptrdiff_t                      ny,
-                                                    const geom_t                         xmin,
-                                                    const geom_t                         ymin,
-                                                    const geom_t                         xmax,
-                                                    const geom_t                         ymax) {
-#ifdef SMESH_ENABLE_MPI
-        if (comm && comm->size() > 1) {
-            int       nxe = 0, sdim = 0;
-            ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
-            idx_t   **elems  = nullptr;
-            geom_t  **points = nullptr;
-            if (quad4_square_create_distributed<idx_t, geom_t>(comm->get(),
-                                                               nx,
-                                                               ny,
-                                                               xmin,
-                                                               ymin,
-                                                               xmax,
-                                                               ymax,
-                                                               &nxe,
-                                                               &n_local_e,
-                                                               &n_global_e,
-                                                               &elems,
-                                                               &sdim,
-                                                               &n_local_n,
-                                                               &n_global_n,
-                                                               &points) != SMESH_SUCCESS) {
-                return nullptr;
-            }
-            auto mesh = Mesh::wrap_create_parallel(comm, QUAD4, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
-                                                 n_global_n, points, AXIS_ALIGNED);
-            return mesh;
-        }
-#endif
-        auto            ret       = std::make_shared<Mesh>(comm);
-        const ptrdiff_t nelements = nx * ny;
-        const ptrdiff_t nnodes    = (nx + 1) * (ny + 1);
-
-        ret->impl_->points   = create_host_buffer<geom_t>(2, nnodes);
-        auto elements_buffer = create_host_buffer<idx_t>(4, nelements);
-
-        auto points   = ret->impl_->points->data();
-        auto elements = elements_buffer->data();
-
-        mesh_fill_quad4_square<idx_t, geom_t>(nx, ny, xmin, ymin, xmax, ymax, elements, points);
-
-        // Create default block
-        auto default_block = std::make_shared<Block>();
-        default_block->set_name("default");
-        default_block->set_element_type(QUAD4);
-        default_block->set_elements(elements_buffer);
-        default_block->set_geom_map(AXIS_ALIGNED);
-        ret->impl_->blocks.push_back(default_block);
-
-        return ret;
-    }
-
-    std::shared_ptr<Mesh> Mesh::create_square(const std::shared_ptr<Communicator> &comm,
-                                              const enum ElemType                  element_type,
-                                              const ptrdiff_t                      nx,
-                                              const ptrdiff_t                      ny,
-                                              const geom_t                         xmin,
-                                              const geom_t                         ymin,
-                                              const geom_t                         xmax,
-                                              const geom_t                         ymax) {
-        switch (element_type) {
-            case QUAD4:
-                return create_quad4_square(comm, nx, ny, xmin, ymin, xmax, ymax);
-            case TRI3:
-                return create_tri3_square(comm, nx, ny, xmin, ymin, xmax, ymax);
-            case TRI6: {
-                auto mesh = create_tri3_square(comm, nx, ny, xmin, ymin, xmax, ymax);
-                return promote_to(TRI6, mesh);
-            }
-            case PROTEUS_QUAD4:
-            case PROTEUS_QUAD9:
-            case PROTEUS_QUAD16:
-            case PROTEUS_QUAD25:
-            case PROTEUS_QUAD36:
-            case PROTEUS_QUAD49:
-            case PROTEUS_QUAD64:
-            case PROTEUS_QUAD81:
-            case PROTEUS_QUAD289:
-                return create_semistructured_quad_square(comm,
-                                                         proteus_quad_micro_elements_per_dim(element_type),
-                                                         nx,
-                                                         ny,
-                                                         xmin,
-                                                         ymin,
-                                                         xmax,
-                                                         ymax);
-            default:
-                SMESH_ERROR("Invalid element type: %d\n", element_type);
-                return nullptr;
-        }
-    }
-
-    std::shared_ptr<Mesh> Mesh::create_quad4_ring(const std::shared_ptr<Communicator> &comm,
-                                                  const geom_t                         inner_radius,
-                                                  const geom_t                         outer_radius,
-                                                  const ptrdiff_t                      nlayers,
-                                                  const ptrdiff_t                      nelements) {
-#ifdef SMESH_ENABLE_MPI
-        if (comm && comm->size() > 1) {
-            int       nxe = 0, sdim = 0;
-            ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
-            idx_t   **elems  = nullptr;
-            geom_t  **points = nullptr;
-            if (quad4_ring_create_distributed<idx_t, geom_t>(comm->get(),
-                                                             inner_radius,
-                                                             outer_radius,
-                                                             nlayers,
-                                                             nelements,
-                                                             &nxe,
-                                                             &n_local_e,
-                                                             &n_global_e,
-                                                             &elems,
-                                                             &sdim,
-                                                             &n_local_n,
-                                                             &n_global_n,
-                                                             &points) != SMESH_SUCCESS) {
-                return nullptr;
-            }
-            return Mesh::wrap_create_parallel(comm, QUAD4, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
-                                             n_global_n, points, ISOPARAMETRIC);
-        }
-#endif
-        auto elements = create_host_buffer<idx_t>(4, nlayers * nelements);
-        auto points   = create_host_buffer<geom_t>(3, (nlayers + 1) * nelements);
-        mesh_fill_quad4_ring<idx_t, geom_t>(inner_radius, outer_radius, nlayers, nelements, elements->data(), points->data());
-
-        auto ret = std::make_shared<Mesh>(comm, QUAD4, elements, points);
-        if (ret->n_blocks() > 0) {
-            ret->block(0)->set_geom_map(ISOPARAMETRIC);
-        }
-        return ret;
-    }
-
-    std::shared_ptr<Mesh> Mesh::create_half_sphere(const std::shared_ptr<Communicator> &comm,
-                                                   const enum ElemType                  element_type,
-                                                   const geom_t                         radius,
-                                                   const ptrdiff_t                      nx,
-                                                   const ptrdiff_t                      ny,
-                                                   const ptrdiff_t                      nz) {
-        SMESH_TRACE_SCOPE("Mesh::create_half_sphere");
-        switch (element_type) {
-            case HEX8:
-                return create_hex8_half_sphere(comm, radius, nx, ny, nz);
-            case TET4:
-                return create_tet4_half_sphere(comm, radius, nx, ny, nz);
-            default:
-                SMESH_ERROR("Invalid element type: %d\n", element_type);
-                return nullptr;
-        }
-    }
-
-    std::shared_ptr<Mesh> Mesh::create_tet4_half_sphere(const std::shared_ptr<Communicator> &comm,
-                                                        const geom_t                         radius,
-                                                        const ptrdiff_t                      nx,
-                                                        const ptrdiff_t                      ny,
-                                                        const ptrdiff_t                      nz) {
-#ifdef SMESH_ENABLE_MPI
-        if (comm && comm->size() > 1) {
-            const ptrdiff_t ncells     = nx * ny * nz;
-            const ptrdiff_t nvertices  = (nx + 1) * (ny + 1) * (nz + 1);
-            const ptrdiff_t nfaces_x   = (nx + 1) * ny * nz;
-            const ptrdiff_t nfaces_y   = nx * (ny + 1) * nz;
-            const ptrdiff_t nfaces_z   = nx * ny * (nz + 1);
-            const ptrdiff_t faces_x0   = nvertices;
-            const ptrdiff_t faces_y0   = faces_x0 + nfaces_x;
-            const ptrdiff_t faces_z0   = faces_y0 + nfaces_y;
-            const ptrdiff_t cell0      = faces_z0 + nfaces_z;
-            const ptrdiff_t nnodes     = cell0 + ncells;
-            const ptrdiff_t nelements  = ncells * 24;
-            const int       comm_size  = comm->size();
-            const int       comm_rank  = comm->rank();
-            if (nelements < comm_size || nnodes < comm_size) {
-                SMESH_ERROR("Mesh::create_tet4_half_sphere: mesh too small for communicator\n");
-                return nullptr;
-            }
-
-            const ptrdiff_t e_start = rank_start(nelements, comm_size, comm_rank);
-            const ptrdiff_t n_local_e = rank_split(nelements, comm_size, comm_rank);
-            const ptrdiff_t n_start = rank_start(nnodes, comm_size, comm_rank);
-            const ptrdiff_t n_local_n = rank_split(nnodes, comm_size, comm_rank);
-
-            idx_t **elems = (idx_t **)SMESH_ALLOC(4 * sizeof(idx_t *));
-            for (int d = 0; d < 4; ++d) {
-                elems[d] = (idx_t *)SMESH_ALLOC(static_cast<size_t>(n_local_e) * sizeof(idx_t));
-            }
-            geom_t **points = (geom_t **)SMESH_ALLOC(3 * sizeof(geom_t *));
-            for (int d = 0; d < 3; ++d) {
-                points[d] = (geom_t *)SMESH_ALLOC(static_cast<size_t>(n_local_n) * sizeof(geom_t));
-            }
-
-            const ptrdiff_t vertex_ldz = (ny + 1) * (nx + 1);
-            const ptrdiff_t vertex_ldy = nx + 1;
-            auto vertex = [vertex_ldy, vertex_ldz](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
-                return xi + yi * vertex_ldy + zi * vertex_ldz;
-            };
-            auto face_x = [faces_x0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
-                return faces_x0 + zi * ((nx + 1) * ny) + yi * (nx + 1) + xi;
-            };
-            auto face_y = [faces_y0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
-                return faces_y0 + zi * (nx * (ny + 1)) + yi * nx + xi;
-            };
-            auto face_z = [faces_z0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
-                return faces_z0 + zi * (nx * ny) + yi * nx + xi;
-            };
-            auto cell = [cell0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
-                return cell0 + zi * (nx * ny) + yi * nx + xi;
-            };
-            static const int face_nodes[6][4] = {{0, 1, 2, 3}, {4, 7, 6, 5}, {0, 4, 5, 1},
-                                                 {3, 2, 6, 7}, {0, 3, 7, 4}, {1, 5, 6, 2}};
-
-            const ptrdiff_t exy = nx * ny;
-            for (ptrdiff_t le = 0; le < n_local_e; ++le) {
-                const ptrdiff_t gt = e_start + le;
-                const ptrdiff_t cell_e = gt / 24;
-                const int       t = static_cast<int>(gt - cell_e * 24);
-                const int       face_id = t / 4;
-                const int       edge = t - face_id * 4;
-                const ptrdiff_t zi = cell_e / exy;
-                const ptrdiff_t rem = cell_e - zi * exy;
-                const ptrdiff_t yi = rem / nx;
-                const ptrdiff_t xi = rem - yi * nx;
-                const idx_t cube_nodes[8] = {(idx_t)vertex(xi, yi, zi),         (idx_t)vertex(xi + 1, yi, zi),
-                                             (idx_t)vertex(xi + 1, yi + 1, zi), (idx_t)vertex(xi, yi + 1, zi),
-                                             (idx_t)vertex(xi, yi, zi + 1),     (idx_t)vertex(xi + 1, yi, zi + 1),
-                                             (idx_t)vertex(xi + 1, yi + 1, zi + 1),
-                                             (idx_t)vertex(xi, yi + 1, zi + 1)};
-                const idx_t face_centers[6] = {(idx_t)face_z(xi, yi, zi),     (idx_t)face_z(xi, yi, zi + 1),
-                                               (idx_t)face_y(xi, yi, zi),     (idx_t)face_y(xi, yi + 1, zi),
-                                               (idx_t)face_x(xi, yi, zi),     (idx_t)face_x(xi + 1, yi, zi)};
-                const int  *fn          = face_nodes[face_id];
-                elems[0][le]            = cube_nodes[fn[edge]];
-                elems[1][le]            = cube_nodes[fn[(edge + 1) & 3]];
-                elems[2][le]            = face_centers[face_id];
-                elems[3][le]            = static_cast<idx_t>(cell(xi, yi, zi));
-            }
-
-            const double inv_nx = 1. / nx;
-            const double inv_ny = 1. / ny;
-            const double inv_nz = 1. / nz;
-            const double r      = radius;
-            auto set_point = [points, r](const ptrdiff_t n, const double x, const double y, const double z) {
-                const double abs_x = x < 0. ? -x : x;
-                const double abs_y = y < 0. ? -y : y;
-                const double mxy   = abs_x > abs_y ? abs_x : abs_y;
-                const double m     = mxy > z ? mxy : z;
-                if (m > 0.) {
-                    const double inv_m = 1. / m;
-                    const double qx    = x * inv_m;
-                    const double qy    = y * inv_m;
-                    const double qz    = z * inv_m;
-                    const double qx2   = qx * qx;
-                    const double qy2   = qy * qy;
-                    const double qz2   = qz * qz;
-                    const double sx    = qx * sqrt(1. - (qy2 + qz2) * 0.5 + qy2 * qz2 / 3.);
-                    const double sy    = qy * sqrt(1. - (qx2 + qz2) * 0.5 + qx2 * qz2 / 3.);
-                    const double sz    = qz * sqrt(1. - (qx2 + qy2) * 0.5 + qx2 * qy2 / 3.);
-                    points[0][n]       = static_cast<geom_t>(r * m * sx);
-                    points[1][n]       = static_cast<geom_t>(r * m * sy);
-                    points[2][n]       = static_cast<geom_t>(r * m * sz);
-                } else {
-                    points[0][n] = 0;
-                    points[1][n] = 0;
-                    points[2][n] = 0;
-                }
-            };
-
-            for (ptrdiff_t ln = 0; ln < n_local_n; ++ln) {
-                const ptrdiff_t gn = n_start + ln;
-                if (gn < nvertices) {
-                    const ptrdiff_t zi = gn / vertex_ldz;
-                    const ptrdiff_t rem = gn - zi * vertex_ldz;
-                    const ptrdiff_t yi = rem / vertex_ldy;
-                    const ptrdiff_t xi = rem - yi * vertex_ldy;
-                    set_point(ln, 2. * xi * inv_nx - 1., 2. * yi * inv_ny - 1., zi * inv_nz);
-                } else if (gn < faces_y0) {
-                    const ptrdiff_t off = gn - faces_x0;
-                    const ptrdiff_t zi = off / ((nx + 1) * ny);
-                    const ptrdiff_t rem = off - zi * ((nx + 1) * ny);
-                    const ptrdiff_t yi = rem / (nx + 1);
-                    const ptrdiff_t xi = rem - yi * (nx + 1);
-                    set_point(ln, 2. * xi * inv_nx - 1., 2. * (yi + 0.5) * inv_ny - 1., (zi + 0.5) * inv_nz);
-                } else if (gn < faces_z0) {
-                    const ptrdiff_t off = gn - faces_y0;
-                    const ptrdiff_t zi = off / (nx * (ny + 1));
-                    const ptrdiff_t rem = off - zi * (nx * (ny + 1));
-                    const ptrdiff_t yi = rem / nx;
-                    const ptrdiff_t xi = rem - yi * nx;
-                    set_point(ln, 2. * (xi + 0.5) * inv_nx - 1., 2. * yi * inv_ny - 1., (zi + 0.5) * inv_nz);
-                } else if (gn < cell0) {
-                    const ptrdiff_t off = gn - faces_z0;
-                    const ptrdiff_t zi = off / (nx * ny);
-                    const ptrdiff_t rem = off - zi * (nx * ny);
-                    const ptrdiff_t yi = rem / nx;
-                    const ptrdiff_t xi = rem - yi * nx;
-                    set_point(ln, 2. * (xi + 0.5) * inv_nx - 1., 2. * (yi + 0.5) * inv_ny - 1., zi * inv_nz);
-                } else {
-                    const ptrdiff_t off = gn - cell0;
-                    const ptrdiff_t zi = off / exy;
-                    const ptrdiff_t rem = off - zi * exy;
-                    const ptrdiff_t yi = rem / nx;
-                    const ptrdiff_t xi = rem - yi * nx;
-                    set_point(ln, 2. * (xi + 0.5) * inv_nx - 1., 2. * (yi + 0.5) * inv_ny - 1., (zi + 0.5) * inv_nz);
-                }
-            }
-
-            return Mesh::wrap_create_parallel(comm, TET4, 4, n_local_e, nelements, elems, 3, n_local_n, nnodes, points,
-                                             AFFINE);
-        }
-#endif
-        auto ret = std::make_shared<Mesh>(comm);
-
-        const ptrdiff_t ncells     = nx * ny * nz;
-        const ptrdiff_t nvertices  = (nx + 1) * (ny + 1) * (nz + 1);
-        const ptrdiff_t nfaces_x   = (nx + 1) * ny * nz;
-        const ptrdiff_t nfaces_y   = nx * (ny + 1) * nz;
-        const ptrdiff_t nfaces_z   = nx * ny * (nz + 1);
-        const ptrdiff_t faces_x0   = nvertices;
-        const ptrdiff_t faces_y0   = faces_x0 + nfaces_x;
-        const ptrdiff_t faces_z0   = faces_y0 + nfaces_y;
-        const ptrdiff_t cell0      = faces_z0 + nfaces_z;
-        const ptrdiff_t nnodes     = cell0 + ncells;
-        const ptrdiff_t nelements  = ncells * 24;
-        const ptrdiff_t vertex_ldz = (ny + 1) * (nx + 1);
-        const ptrdiff_t vertex_ldy = nx + 1;
-
-        ret->impl_->points   = create_host_buffer<geom_t>(3, nnodes);
-        auto elements_buffer = create_host_buffer<idx_t>(4, nelements);
-
-        auto points   = ret->impl_->points->data();
-        auto elements = elements_buffer->data();
-
-        const double inv_nx = 1. / nx;
-        const double inv_ny = 1. / ny;
-        const double inv_nz = 1. / nz;
-        const double r      = radius;
-
-        auto set_point = [points, r](const ptrdiff_t n, const double x, const double y, const double z) {
-            const double abs_x = x < 0. ? -x : x;
-            const double abs_y = y < 0. ? -y : y;
-            const double mxy   = abs_x > abs_y ? abs_x : abs_y;
-            const double m     = mxy > z ? mxy : z;
-
-            if (m > 0.) {
-                const double inv_m = 1. / m;
-                const double qx    = x * inv_m;
-                const double qy    = y * inv_m;
-                const double qz    = z * inv_m;
-                const double qx2   = qx * qx;
-                const double qy2   = qy * qy;
-                const double qz2   = qz * qz;
-
-                const double sx = qx * sqrt(1. - (qy2 + qz2) * 0.5 + qy2 * qz2 / 3.);
-                const double sy = qy * sqrt(1. - (qx2 + qz2) * 0.5 + qx2 * qz2 / 3.);
-                const double sz = qz * sqrt(1. - (qx2 + qy2) * 0.5 + qx2 * qy2 / 3.);
-
-                points[0][n] = (geom_t)(r * m * sx);
-                points[1][n] = (geom_t)(r * m * sy);
-                points[2][n] = (geom_t)(r * m * sz);
-            } else {
-                points[0][n] = 0;
-                points[1][n] = 0;
-                points[2][n] = 0;
-            }
-        };
-
-        auto vertex = [vertex_ldy, vertex_ldz](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
-            return xi + yi * vertex_ldy + zi * vertex_ldz;
-        };
-
-        auto face_x = [faces_x0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
-            return faces_x0 + zi * ((nx + 1) * ny) + yi * (nx + 1) + xi;
-        };
-
-        auto face_y = [faces_y0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
-            return faces_y0 + zi * (nx * (ny + 1)) + yi * nx + xi;
-        };
-
-        auto face_z = [faces_z0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
-            return faces_z0 + zi * (nx * ny) + yi * nx + xi;
-        };
-
-        auto cell = [cell0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi, const ptrdiff_t zi) {
-            return cell0 + zi * (nx * ny) + yi * nx + xi;
-        };
-
-        for (ptrdiff_t zi = 0; zi <= nz; zi++) {
-            const double z = zi * inv_nz;
-            for (ptrdiff_t yi = 0; yi <= ny; yi++) {
-                const double y = 2. * yi * inv_ny - 1.;
-                for (ptrdiff_t xi = 0; xi <= nx; xi++) {
-                    const double x = 2. * xi * inv_nx - 1.;
-                    set_point(vertex(xi, yi, zi), x, y, z);
-                }
-            }
-        }
-
-        for (ptrdiff_t zi = 0; zi < nz; zi++) {
-            const double z = (zi + 0.5) * inv_nz;
-            for (ptrdiff_t yi = 0; yi < ny; yi++) {
-                const double y = 2. * (yi + 0.5) * inv_ny - 1.;
-                for (ptrdiff_t xi = 0; xi <= nx; xi++) {
-                    const double x = 2. * xi * inv_nx - 1.;
-                    set_point(face_x(xi, yi, zi), x, y, z);
-                }
-            }
-        }
-
-        for (ptrdiff_t zi = 0; zi < nz; zi++) {
-            const double z = (zi + 0.5) * inv_nz;
-            for (ptrdiff_t yi = 0; yi <= ny; yi++) {
-                const double y = 2. * yi * inv_ny - 1.;
-                for (ptrdiff_t xi = 0; xi < nx; xi++) {
-                    const double x = 2. * (xi + 0.5) * inv_nx - 1.;
-                    set_point(face_y(xi, yi, zi), x, y, z);
-                }
-            }
-        }
-
-        for (ptrdiff_t zi = 0; zi <= nz; zi++) {
-            const double z = zi * inv_nz;
-            for (ptrdiff_t yi = 0; yi < ny; yi++) {
-                const double y = 2. * (yi + 0.5) * inv_ny - 1.;
-                for (ptrdiff_t xi = 0; xi < nx; xi++) {
-                    const double x = 2. * (xi + 0.5) * inv_nx - 1.;
-                    set_point(face_z(xi, yi, zi), x, y, z);
-                }
-            }
-        }
-
-        for (ptrdiff_t zi = 0; zi < nz; zi++) {
-            const double z = (zi + 0.5) * inv_nz;
-            for (ptrdiff_t yi = 0; yi < ny; yi++) {
-                const double y = 2. * (yi + 0.5) * inv_ny - 1.;
-                for (ptrdiff_t xi = 0; xi < nx; xi++) {
-                    const double x = 2. * (xi + 0.5) * inv_nx - 1.;
-                    set_point(cell(xi, yi, zi), x, y, z);
-                }
-            }
-        }
-
-        static const int face_nodes[6][4] = {{0, 1, 2, 3}, {4, 7, 6, 5}, {0, 4, 5, 1}, {3, 2, 6, 7}, {0, 3, 7, 4}, {1, 5, 6, 2}};
-
-        for (ptrdiff_t zi = 0; zi < nz; zi++) {
-            for (ptrdiff_t yi = 0; yi < ny; yi++) {
-                for (ptrdiff_t xi = 0; xi < nx; xi++) {
-                    const idx_t     cube_nodes[8]   = {(idx_t)vertex(xi, yi, zi),
-                                                       (idx_t)vertex(xi + 1, yi, zi),
-                                                       (idx_t)vertex(xi + 1, yi + 1, zi),
-                                                       (idx_t)vertex(xi, yi + 1, zi),
-                                                       (idx_t)vertex(xi, yi, zi + 1),
-                                                       (idx_t)vertex(xi + 1, yi, zi + 1),
-                                                       (idx_t)vertex(xi + 1, yi + 1, zi + 1),
-                                                       (idx_t)vertex(xi, yi + 1, zi + 1)};
-                    const idx_t     face_centers[6] = {(idx_t)face_z(xi, yi, zi),
-                                                       (idx_t)face_z(xi, yi, zi + 1),
-                                                       (idx_t)face_y(xi, yi, zi),
-                                                       (idx_t)face_y(xi, yi + 1, zi),
-                                                       (idx_t)face_x(xi, yi, zi),
-                                                       (idx_t)face_x(xi + 1, yi, zi)};
-                    const idx_t     cell_center     = (idx_t)cell(xi, yi, zi);
-                    const ptrdiff_t base            = (zi * ny * nx + yi * nx + xi) * 24;
-
-                    for (int face = 0; face < 6; face++) {
-                        const int  *fn          = face_nodes[face];
-                        const idx_t face_center = face_centers[face];
-
-                        for (int edge = 0; edge < 4; edge++) {
-                            const ptrdiff_t t = base + face * 4 + edge;
-                            elements[0][t]    = cube_nodes[fn[edge]];
-                            elements[1][t]    = cube_nodes[fn[(edge + 1) & 3]];
-                            elements[2][t]    = face_center;
-                            elements[3][t]    = cell_center;
-                        }
-                    }
-                }
-            }
-        }
-
-        auto default_block = std::make_shared<Block>();
-        default_block->set_name("default");
-        default_block->set_element_type(TET4);
-        default_block->set_elements(elements_buffer);
-        default_block->set_geom_map(AFFINE);
-        ret->add_block(default_block);
-
-        return ret;
-    }
-
-    std::shared_ptr<Mesh> Mesh::create_hex8_half_sphere(const std::shared_ptr<Communicator> &comm,
-                                                        const geom_t                         radius,
-                                                        const ptrdiff_t                      nx,
-                                                        const ptrdiff_t                      ny,
-                                                        const ptrdiff_t                      nz) {
-#ifdef SMESH_ENABLE_MPI
-        if (comm && comm->size() > 1) {
-            auto ret = create_hex8_cube(comm, nx, ny, nz, 0, 0, 0, 1, 1, 1);
-            if (!ret) {
-                return nullptr;
-            }
-            auto points = ret->points()->data();
-            const double r = radius;
-            for (ptrdiff_t n = 0; n < ret->n_nodes(); ++n) {
-                const double x     = 2. * points[0][n] - 1.;
-                const double y     = 2. * points[1][n] - 1.;
-                const double z     = points[2][n];
-                const double abs_x = x < 0. ? -x : x;
-                const double abs_y = y < 0. ? -y : y;
-                const double mxy   = abs_x > abs_y ? abs_x : abs_y;
-                const double m     = mxy > z ? mxy : z;
-                if (m > 0.) {
-                    const double inv_m = 1. / m;
-                    const double qx    = x * inv_m;
-                    const double qy    = y * inv_m;
-                    const double qz    = z * inv_m;
-                    const double qx2   = qx * qx;
-                    const double qy2   = qy * qy;
-                    const double qz2   = qz * qz;
-                    const double sx    = qx * sqrt(1. - (qy2 + qz2) * 0.5 + qy2 * qz2 / 3.);
-                    const double sy    = qy * sqrt(1. - (qx2 + qz2) * 0.5 + qx2 * qz2 / 3.);
-                    const double sz    = qz * sqrt(1. - (qx2 + qy2) * 0.5 + qx2 * qy2 / 3.);
-                    points[0][n]       = static_cast<geom_t>(r * m * sx);
-                    points[1][n]       = static_cast<geom_t>(r * m * sy);
-                    points[2][n]       = static_cast<geom_t>(r * m * sz);
-                } else {
-                    points[0][n] = 0;
-                    points[1][n] = 0;
-                    points[2][n] = 0;
-                }
-            }
-            if (ret->n_blocks() > 0) {
-                ret->block(0)->set_geom_map(ISOPARAMETRIC);
-            }
-            return ret;
-        }
-#endif
-        auto            ret       = std::make_shared<Mesh>(comm);
-        const ptrdiff_t nelements = nx * ny * nz;
-        const ptrdiff_t nnodes    = (nx + 1) * (ny + 1) * (nz + 1);
-
-        ret->impl_->points   = create_host_buffer<geom_t>(3, nnodes);
-        auto elements_buffer = create_host_buffer<idx_t>(8, nelements);
-
-        auto points   = ret->impl_->points->data();
-        auto elements = elements_buffer->data();
-
-        const ptrdiff_t ldz = (ny + 1) * (nx + 1);
-        const ptrdiff_t ldy = nx + 1;
-
-        for (ptrdiff_t zi = 0; zi < nz; zi++) {
-            for (ptrdiff_t yi = 0; yi < ny; yi++) {
-                for (ptrdiff_t xi = 0; xi < nx; xi++) {
-                    const ptrdiff_t e = zi * (ny * nx) + yi * nx + xi;
-
-                    const idx_t i0 = xi + yi * ldy + zi * ldz;
-                    const idx_t i1 = i0 + 1;
-                    const idx_t i3 = i0 + ldy;
-                    const idx_t i2 = i3 + 1;
-                    const idx_t i4 = i0 + ldz;
-                    const idx_t i5 = i1 + ldz;
-                    const idx_t i7 = i3 + ldz;
-                    const idx_t i6 = i2 + ldz;
-
-                    elements[0][e] = i0;
-                    elements[1][e] = i1;
-                    elements[2][e] = i2;
-                    elements[3][e] = i3;
-                    elements[4][e] = i4;
-                    elements[5][e] = i5;
-                    elements[6][e] = i6;
-                    elements[7][e] = i7;
-                }
-            }
-        }
-
-        const double inv_nx = 1. / nx;
-        const double inv_ny = 1. / ny;
-        const double inv_nz = 1. / nz;
-        const double r      = radius;
-
-        for (ptrdiff_t zi = 0; zi <= nz; zi++) {
-            const double z = zi * inv_nz;
-            for (ptrdiff_t yi = 0; yi <= ny; yi++) {
-                const double y     = 2. * yi * inv_ny - 1.;
-                const double abs_y = y < 0. ? -y : y;
-                for (ptrdiff_t xi = 0; xi <= nx; xi++) {
-                    const double    x     = 2. * xi * inv_nx - 1.;
-                    const double    abs_x = x < 0. ? -x : x;
-                    const double    mxy   = abs_x > abs_y ? abs_x : abs_y;
-                    const double    m     = mxy > z ? mxy : z;
-                    const ptrdiff_t n     = xi + yi * ldy + zi * ldz;
-
-                    if (m > 0.) {
-                        const double inv_m = 1. / m;
-                        const double qx    = x * inv_m;
-                        const double qy    = y * inv_m;
-                        const double qz    = z * inv_m;
-                        const double qx2   = qx * qx;
-                        const double qy2   = qy * qy;
-                        const double qz2   = qz * qz;
-
-                        const double sx = qx * sqrt(1. - (qy2 + qz2) * 0.5 + qy2 * qz2 / 3.);
-                        const double sy = qy * sqrt(1. - (qx2 + qz2) * 0.5 + qx2 * qz2 / 3.);
-                        const double sz = qz * sqrt(1. - (qx2 + qy2) * 0.5 + qx2 * qy2 / 3.);
-
-                        points[0][n] = (geom_t)(r * m * sx);
-                        points[1][n] = (geom_t)(r * m * sy);
-                        points[2][n] = (geom_t)(r * m * sz);
-                    } else {
-                        points[0][n] = 0;
-                        points[1][n] = 0;
-                        points[2][n] = 0;
-                    }
-                }
-            }
-        }
-
-        auto default_block = std::make_shared<Block>();
-        default_block->set_name("default");
-        default_block->set_element_type(HEX8);
-        default_block->set_elements(elements_buffer);
-        default_block->set_geom_map(ISOPARAMETRIC);
-        ret->add_block(default_block);
-
-        return ret;
-    }
-
-    std::shared_ptr<Mesh> Mesh::create_hex8_checkerboard_cube(const std::shared_ptr<Communicator> &comm,
-                                                              const ptrdiff_t                      nx,
-                                                              const ptrdiff_t                      ny,
-                                                              const ptrdiff_t                      nz,
-                                                              const geom_t                         xmin,
-                                                              const geom_t                         ymin,
-                                                              const geom_t                         zmin,
-                                                              const geom_t                         xmax,
-                                                              const geom_t                         ymax,
-                                                              const geom_t                         zmax) {
-        if (nx % 2 != 0 || ny % 2 != 0 || nz % 2 != 0) {
-            SMESH_ERROR("nx, ny, and nz must be even");
-        }
-
-#ifdef SMESH_ENABLE_MPI
-        if (comm && comm->size() > 1) {
-            auto hex = create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-            if (!hex) {
-                return nullptr;
-            }
-            return Mesh::split_hex8_checkerboard_distributed(hex, nx, ny);
-        }
+    impl_->comm->barrier();
+
+    return write_topology_then_sidesets(
+        *this, path, err == SMESH_SUCCESS ? SMESH_SUCCESS : SMESH_FAILURE);
+  }
 #endif
 
-        auto            ret       = std::make_shared<Mesh>(comm);
-        const ptrdiff_t nelements = nx * ny * nz;
-        const ptrdiff_t nnodes    = (nx + 1) * (ny + 1) * (nz + 1);
+  return SMESH_FAILURE;
+}
 
-        ret->set_points(create_host_buffer<geom_t>(3, nnodes));
-        auto white_elements_buffer = create_host_buffer<idx_t>(8, nelements / 2);
-        auto black_elements_buffer = create_host_buffer<idx_t>(8, nelements / 2);
+std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::node_to_node_graph() {
+  initialize_node_to_node_graph();
+  return impl_->crs_graph;
+}
 
-        auto points         = ret->points()->data();
-        auto white_elements = white_elements_buffer->data();
-        auto black_elements = black_elements_buffer->data();
+std::shared_ptr<Mesh::NodeToElementGraph> Mesh::node_to_element_graph() {
+  impl_->create_node_to_element_graph();
+  return impl_->node_to_element_graph;
+}
 
-        mesh_fill_hex8_checkerboard_cube<idx_t, geom_t>(
-                nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax, white_elements, black_elements, points);
-        // Create white and black blocks
-        auto white_block = std::make_shared<Block>();
-        white_block->set_name("white");
-        white_block->set_element_type(HEX8);
-        white_block->set_elements(white_elements_buffer);
-        white_block->set_geom_map(AXIS_ALIGNED);
-        ret->add_block(white_block);
+SharedBuffer<block_idx_t> Mesh::node_to_element_block_number() const {
+  const_cast<Mesh *>(this)->impl_->create_node_to_element_graph();
+  return impl_->n2e_block_number;
+}
 
-        auto black_block = std::make_shared<Block>();
-        black_block->set_name("black");
-        black_block->set_element_type(HEX8);
-        black_block->set_elements(black_elements_buffer);
-        black_block->set_geom_map(AXIS_ALIGNED);
-        ret->add_block(black_block);
-        return ret;
+SharedBuffer<element_idx_t> Mesh::half_face_table() {
+  if (n_blocks() > 1) {
+    return half_face_table(0);
+  }
+
+  const block_idx_t block_id = 0;
+  element_idx_t *table{nullptr};
+  create_element_adj_table(n_elements(block_id), n_nodes(),
+                           element_type(block_id), elements(block_id)->data(),
+                           &table);
+
+  int nsxe = elem_num_sides(element_type(block_id));
+  return manage_host_buffer<element_idx_t>(n_elements(block_id) * nsxe, table);
+}
+
+SharedBuffer<element_idx_t> Mesh::half_face_table(block_idx_t block_id) {
+  if (n_blocks() == 1) {
+    return half_face_table();
+  }
+
+  if (static_cast<size_t>(block_id) >= n_blocks()) {
+    SMESH_ERROR("half_face_table: invalid block_id %d\n", block_id);
+    return nullptr;
+  }
+
+  impl_->ensure_half_face_tables();
+  return impl_->half_face_tables[block_id];
+}
+
+SharedBuffer<block_idx_t> Mesh::half_face_neighbor_block(block_idx_t block_id) {
+  if (n_blocks() == 1) {
+    SMESH_ERROR("half_face_neighbor_block requires multiblock mesh\n");
+    return nullptr;
+  }
+
+  if (static_cast<size_t>(block_id) >= n_blocks()) {
+    SMESH_ERROR("half_face_neighbor_block: invalid block_id %d\n", block_id);
+    return nullptr;
+  }
+
+  impl_->ensure_half_face_tables();
+  return impl_->half_face_neighbor_blocks[block_id];
+}
+
+std::shared_ptr<Mesh::NodeToNodeGraph>
+Mesh::create_node_to_node_graph(const enum ElemType element_type) {
+  if (is_semistructured_type(element_type)) {
+    const enum ElemType want = ss_source_family(element_type);
+    if (want != HEX8 && want != TET4 && want != QUAD4) {
+      SMESH_ERROR(
+          "create_node_to_node_graph: SS family %s is not implemented\n",
+          type_to_string(want));
+      return nullptr;
     }
-
-    std::shared_ptr<Mesh> Mesh::create_hex8_tet4_cube(const std::shared_ptr<Communicator> &comm,
-                                                     const ptrdiff_t                      nx,
-                                                     const ptrdiff_t                      ny,
-                                                     const ptrdiff_t                      nz,
-                                                     const geom_t                         xmin,
-                                                     const geom_t                         ymin,
-                                                     const geom_t                         zmin,
-                                                     const geom_t                         xmax,
-                                                     const geom_t                         ymax,
-                                                     const geom_t                         zmax) {
-#ifdef SMESH_ENABLE_MPI
-        if (comm && comm->size() > 1) {
-            auto hex = create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-            if (!hex) {
-                return nullptr;
-            }
-            return Mesh::split_hex8_tet4_distributed(hex, nx * ny * nz);
-        }
-#endif
-        auto            cube       = create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-        const ptrdiff_t n_hex_all  = cube->n_elements();
-        const ptrdiff_t n_hex_keep = n_hex_all / 2;
-        const ptrdiff_t n_hex_conv = n_hex_all - n_hex_keep;
-        auto            hex_src    = cube->elements(0)->data();
-        auto            hex_keep   = create_host_buffer<idx_t>(8, static_cast<size_t>(n_hex_keep));
-        for (int d = 0; d < 8; ++d) {
-            std::memcpy(hex_keep->data()[d], hex_src[d], static_cast<size_t>(n_hex_keep) * sizeof(idx_t));
-        }
-        idx_t *hex_tail[8];
-        for (int d = 0; d < 8; ++d) {
-            hex_tail[d] = hex_src[d] + n_hex_keep;
-        }
-        auto tet_buf = create_host_buffer<idx_t>(4, static_cast<size_t>(n_hex_conv * 6));
-        mesh_hex8_to_6x_tet4<idx_t>(n_hex_conv, hex_tail, tet_buf->data());
-        std::vector<std::shared_ptr<Block>> blocks;
-        blocks.push_back(std::make_shared<Block>("hex", HEX8, hex_keep));
-        blocks.back()->set_geom_map(AXIS_ALIGNED);
-        blocks.push_back(std::make_shared<Block>("tet", TET4, tet_buf));
-        blocks.back()->set_geom_map(AFFINE);
-        return std::make_shared<Mesh>(comm, blocks, cube->points());
-    }
-
-    std::shared_ptr<Mesh> Mesh::create_hex8_bidomain_cube(const std::shared_ptr<Communicator> &comm,
-                                                          const ptrdiff_t                      nx,
-                                                          const ptrdiff_t                      ny,
-                                                          const ptrdiff_t                      nz,
-                                                          const geom_t                         xmin,
-                                                          const geom_t                         ymin,
-                                                          const geom_t                         zmin,
-                                                          const geom_t                         xmax,
-                                                          const geom_t                         ymax,
-                                                          const geom_t                         zmax) {
-#ifdef SMESH_ENABLE_MPI
-        if (comm && comm->size() > 1) {
-            auto hex = create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-            if (!hex) {
-                return nullptr;
-            }
-            return Mesh::split_hex8_bidomain_distributed(hex, nx, ny, nz, nx / 2);
-        }
-#endif
-        auto            ret       = std::make_shared<Mesh>(comm);
-        const ptrdiff_t nelements = nx * ny * nz;
-        const ptrdiff_t nnodes    = (nx + 1) * (ny + 1) * (nz + 1);
-
-        ret->set_points(create_host_buffer<geom_t>(3, nnodes));
-        auto left_elements_buffer  = create_host_buffer<idx_t>(8, nelements / 2);
-        auto right_elements_buffer = create_host_buffer<idx_t>(8, nelements / 2);
-
-        auto points         = ret->points()->data();
-        auto left_elements  = left_elements_buffer->data();
-        auto right_elements = right_elements_buffer->data();
-
-        mesh_fill_hex8_bidomain_cube<idx_t, geom_t>(
-                nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax, 0, nx / 2, left_elements, right_elements, points);
-
-        // Create left and right blocks
-        auto left_block = std::make_shared<Block>();
-        left_block->set_name("left");
-        left_block->set_element_type(HEX8);
-        left_block->set_elements(left_elements_buffer);
-        left_block->set_geom_map(AXIS_ALIGNED);
-        ret->add_block(left_block);
-
-        auto right_block = std::make_shared<Block>();
-        right_block->set_name("right");
-        right_block->set_element_type(HEX8);
-        right_block->set_elements(right_elements_buffer);
-        right_block->set_geom_map(AXIS_ALIGNED);
-        ret->add_block(right_block);
-
-        return ret;
-    }
-
-    std::shared_ptr<Mesh>
-    Mesh::create_hex_dominant_serial(const std::shared_ptr<Communicator> &comm) {
-        constexpr ptrdiff_t n_nodes = 12;
-        auto points_buf = create_host_buffer<geom_t>(3, n_nodes);
-        auto points     = points_buf->data();
-
-        const geom_t coords[12][3] = {
-                {0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
-                {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1},
-                {1.5, 0.5, 0.5},
-                {1.25, 0.25, -0.5},
-                {0.5, -0.5, 0},
-                {0.5, -0.5, 1},
-        };
-        for (ptrdiff_t i = 0; i < n_nodes; ++i) {
-            points[0][i] = coords[i][0];
-            points[1][i] = coords[i][1];
-            points[2][i] = coords[i][2];
-        }
-
-        auto hex_buf = create_host_buffer<idx_t>(8, 1);
-        for (int d = 0; d < 8; ++d) {
-            hex_buf->data()[d][0] = static_cast<idx_t>(d);
-        }
-
-        // HEX face 1 is {1,2,6,5}; pyramid base matches that node set.
-        auto pyr_buf = create_host_buffer<idx_t>(5, 1);
-        const idx_t pyr_nodes[5] = {1, 2, 6, 5, 8};
-        for (int d = 0; d < 5; ++d) {
-            pyr_buf->data()[d][0] = pyr_nodes[d];
-        }
-
-        // Pyramid side 0 is {1,2,8}; tet uses that face plus node 9.
-        auto tet_buf = create_host_buffer<idx_t>(4, 1);
-        const idx_t tet_nodes[4] = {1, 2, 8, 9};
-        for (int d = 0; d < 4; ++d) {
-            tet_buf->data()[d][0] = tet_nodes[d];
-        }
-
-        // HEX face 0 is {0,1,5,4}; wedge quad 0 is {0,1,4,3} → nodes 0,1,5,4.
-        auto wedge_buf = create_host_buffer<idx_t>(6, 1);
-        const idx_t wedge_nodes[6] = {0, 1, 10, 4, 5, 11};
-        for (int d = 0; d < 6; ++d) {
-            wedge_buf->data()[d][0] = wedge_nodes[d];
-        }
-
-        std::vector<std::shared_ptr<Block>> blocks;
-        blocks.push_back(std::make_shared<Block>("hex", HEX8, hex_buf));
-        blocks.back()->set_geom_map(AXIS_ALIGNED);
-        blocks.push_back(std::make_shared<Block>("pyramid", PYRAMID5, pyr_buf));
-        blocks.back()->set_geom_map(ISOPARAMETRIC);
-        blocks.push_back(std::make_shared<Block>("tet", TET4, tet_buf));
-        blocks.back()->set_geom_map(AFFINE);
-        blocks.push_back(std::make_shared<Block>("wedge", WEDGE6, wedge_buf));
-        blocks.back()->set_geom_map(AFFINE);
-        return std::make_shared<Mesh>(comm, blocks, points_buf);
-    }
-
-    int Mesh::spatial_dimension() const { return points()->extent(0); }
-
-    ptrdiff_t Mesh::n_nodes() const { return points()->extent(1); }
-    ptrdiff_t Mesh::n_elements() const { return impl_->total_elements(); }
-
-    int Mesh::n_nodes_per_element(block_idx_t block_id) const {
-        auto blk = this->block(block_id);
-        SMESH_ASSERT(blk);
-        return blk->n_nodes_per_element();
-    }
-
-    ptrdiff_t Mesh::n_elements(block_idx_t block_id) const {
-        auto blk = this->block(block_id);
-        SMESH_ASSERT(blk);
-        return blk->n_elements();
-    }
-
-    enum ElemType Mesh::element_type(block_idx_t block_id) const {
-        auto blk = this->block(block_id);
-        SMESH_ASSERT(blk);
-        return blk->element_type();
-    }
-
-    enum GeomMap Mesh::geom_map(block_idx_t block_id) const {
-        auto blk = this->block(block_id);
-        SMESH_ASSERT(blk);
-        return blk->geom_map();
-    }
-
-    SharedBuffer<geom_t *> Mesh::points() { return impl_->points; }
-    SharedBuffer<geom_t *> Mesh::points() const { return impl_->points; }
-
-    void Mesh::set_points(const SharedBuffer<geom_t *> &points) { impl_->points = points; }
-
-    SharedBuffer<idx_t *> Mesh::elements(block_idx_t block_id) {
-        auto blk = this->block(block_id);
-        SMESH_ASSERT(blk);
-        return blk->elements();
-    }
-
-    SharedBuffer<idx_t *> Mesh::elements(block_idx_t block_id) const {
-        auto blk = this->block(block_id);
-        SMESH_ASSERT(blk);
-        return blk->elements();
-    }
-
-    void Mesh::set_node_mapping(const SharedBuffer<idx_t> &node_mapping) { impl_->node_mapping = node_mapping; }
-
-    void Mesh::set_comm(const std::shared_ptr<Communicator> &comm) { impl_->comm = comm; }
-
-    void Mesh::set_element_type(const block_idx_t block_id, const enum ElemType element_type) {
-        auto blk = this->block(block_id);
-        SMESH_ASSERT(blk);
-        blk->set_element_type(element_type);
-    }
-
-    int Mesh::set_geom_map(const block_idx_t block_id, const enum GeomMap geom_map) {
-        auto blk = this->block(block_id);
-        SMESH_ASSERT(blk);
-        return blk->set_geom_map(geom_map);
-    }
-
-    enum GeomMap Mesh::detect_geom_map(block_idx_t block_id) const {
-        return detect_geom_map(block_id, geom_map_default_rel_tol());
-    }
-
-    enum GeomMap Mesh::detect_geom_map(block_idx_t block_id, geom_t rel_tol) const {
-        auto blk = this->block(block_id);
-        SMESH_ASSERT(blk);
-        const ptrdiff_t ne   = blk->elements() ? blk->n_elements() : 0;
-        const int       has  = ne > 0 ? 1 : 0;
-        int             aff  = 1;
-        int             aa   = 1;
-        if (has) {
-            const idx_t  *const *els = blk->elements()->data();
-            const geom_t *const *pts = points() ? points()->data() : nullptr;
-            const enum GeomMap   local =
-                    ::smesh::detect_geom_map(blk->element_type(), ne, els, spatial_dimension(), pts, rel_tol);
-            aff = local != ISOPARAMETRIC;
-            aa  = local == AXIS_ALIGNED;
-        }
-
-        if (impl_->comm) {
-            const int has_g = impl_->comm->max(has);
-            const int n_aff = impl_->comm->max(aff ? 0 : 1);
-            const int n_aa  = impl_->comm->max(aa ? 0 : 1);
-            if (!has_g) {
-                return ISOPARAMETRIC;
-            }
-            aff = n_aff ? 0 : 1;
-            aa  = n_aa ? 0 : 1;
-        } else if (!has) {
-            return ISOPARAMETRIC;
-        }
-
-        if (aa && geom_map_allows_axis_aligned(blk->element_type())) {
-            return AXIS_ALIGNED;
-        }
-        return aff ? AFFINE : ISOPARAMETRIC;
-    }
-
-    int Mesh::detect_and_set_geom_map(block_idx_t block_id) {
-        return detect_and_set_geom_map(block_id, geom_map_default_rel_tol());
-    }
-
-    int Mesh::detect_and_set_geom_map(block_idx_t block_id, geom_t rel_tol) {
-        return set_geom_map(block_id, detect_geom_map(block_id, rel_tol));
-    }
-
-    int Mesh::detect_and_set_geom_maps() { return detect_and_set_geom_maps(geom_map_default_rel_tol()); }
-
-    int Mesh::detect_and_set_geom_maps(geom_t rel_tol) {
-        int err = SMESH_SUCCESS;
-        for (size_t b = 0; b < n_blocks(); ++b) {
-            err |= detect_and_set_geom_map(static_cast<block_idx_t>(b), rel_tol);
-        }
-        return err;
-    }
-
-    std::vector<std::shared_ptr<Mesh::Block>> Mesh::blocks(const std::vector<std::string> &block_names) const {
-        if (block_names.empty()) {
-            return this->blocks();
-        }
-
-        std::vector<std::shared_ptr<Mesh::Block>> ret;
-        for (auto &block : this->blocks()) {
-            if (std::find(block_names.begin(), block_names.end(), block->name()) != block_names.end()) {
-                ret.push_back(block);
-            }
-        }
-
-        return ret;
-    }
-
-    std::shared_ptr<Mesh> Mesh::create_hex8_reference_cube() {
-        auto ret = std::make_shared<Mesh>(Communicator::null());
-        ret->set_points(create_host_buffer<geom_t>(3, 8));
-        auto elements_buffer = create_host_buffer<idx_t>(8, 1);
-
-        auto points   = ret->points()->data();
-        auto elements = elements_buffer->data();
-
-        mesh_fill_hex8_reference_cube<idx_t, geom_t>(elements, points);
-
-        // Create default block
-        auto default_block = std::make_shared<Block>();
-        default_block->set_name("default");
-        default_block->set_element_type(HEX8);
-        default_block->set_elements(elements_buffer);
-        default_block->set_geom_map(AXIS_ALIGNED);
-        ret->add_block(default_block);
-
-        return ret;
-    }
-
-    std::shared_ptr<Mesh> Mesh::create_tet4_cube(const std::shared_ptr<Communicator> &comm,
-                                                 const ptrdiff_t                      nx,
-                                                 const ptrdiff_t                      ny,
-                                                 const ptrdiff_t                      nz,
-                                                 const geom_t                         xmin,
-                                                 const geom_t                         ymin,
-                                                 const geom_t                         zmin,
-                                                 const geom_t                         xmax,
-                                                 const geom_t                         ymax,
-                                                 const geom_t                         zmax) {
-#ifdef SMESH_ENABLE_MPI
-        if (comm && comm->size() > 1) {
-            int       nxe = 0, sdim = 0;
-            ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
-            idx_t   **elems  = nullptr;
-            geom_t  **points = nullptr;
-            if (tet4_cube_create_distributed<idx_t, geom_t>(comm->get(),
-                                                            nx,
-                                                            ny,
-                                                            nz,
-                                                            xmin,
-                                                            ymin,
-                                                            zmin,
-                                                            xmax,
-                                                            ymax,
-                                                            zmax,
-                                                            &nxe,
-                                                            &n_local_e,
-                                                            &n_global_e,
-                                                            &elems,
-                                                            &sdim,
-                                                            &n_local_n,
-                                                            &n_global_n,
-                                                            &points) != SMESH_SUCCESS) {
-                return nullptr;
-            }
-            auto mesh = Mesh::wrap_create_parallel(comm, TET4, nxe, n_local_e, n_global_e, elems, sdim, n_local_n,
-                                                 n_global_n, points, AFFINE);
-            return mesh;
-        }
-#endif
-        auto            ret             = std::make_shared<Mesh>(comm);
-        const ptrdiff_t nelements       = nx * ny * nz;
-        const ptrdiff_t nnodes_vertices = (nx + 1) * (ny + 1) * (nz + 1);
-        const ptrdiff_t nnodes_total    = nnodes_vertices + nelements;
-
-        ret->set_points(create_host_buffer<geom_t>(3, nnodes_total));
-        auto elements_buffer = create_host_buffer<idx_t>(4, nelements * 12);
-
-        auto points   = ret->points()->data();
-        auto elements = elements_buffer->data();
-
-        mesh_fill_tet4_cube<idx_t, geom_t>(nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax, elements, points);
-
-        auto default_block = std::make_shared<Block>();
-        default_block->set_name("default");
-        default_block->set_element_type(TET4);
-        default_block->set_elements(elements_buffer);
-        default_block->set_geom_map(AFFINE);
-        ret->add_block(default_block);
-
-        return ret;
-    }
-
-    std::shared_ptr<Mesh> Mesh::create_cube(const std::shared_ptr<Communicator> &comm,
-                                            const enum ElemType                  element_type,
-                                            const ptrdiff_t                      nx,
-                                            const ptrdiff_t                      ny,
-                                            const ptrdiff_t                      nz,
-                                            const geom_t                         xmin,
-                                            const geom_t                         ymin,
-                                            const geom_t                         zmin,
-                                            const geom_t                         xmax,
-                                            const geom_t                         ymax,
-                                            const geom_t                         zmax) {
-        SMESH_TRACE_SCOPE("Mesh::create_cube");
-        switch (element_type) {
-            case HEX8:
-                return create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-            case HEX27: {
-                auto mesh = create_semistructured_hex_cube(comm, 2, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-                if (!mesh) {
-                    return nullptr;
-                }
-
-                static constexpr int hex27_to_cartesian[27] = {
-                        0, 2, 8, 6, 18, 20, 26, 24, 1, 5, 7, 3, 19, 23, 25, 21, 9, 11, 17, 15, 10, 14, 16, 12, 4, 22, 13,
-                };
-                auto   elements = mesh->elements(0);
-                auto   streams  = elements->data();
-                idx_t *cartesian[27];
-                for (int node = 0; node < 27; ++node) {
-                    cartesian[node] = streams[node];
-                }
-                for (int node = 0; node < 27; ++node) {
-                    streams[node] = cartesian[hex27_to_cartesian[node]];
-                }
-
-                auto block = mesh->block(0);
-                block->set_element_type(HEX27);
-                return mesh;
-            }
-            case TET4:
-                return create_tet4_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-            case TET10: {
-                auto mesh = create_tet4_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-                return promote_to(TET10, mesh);
-            }
-            case PROTEUS_HEX8:
-                return create_semistructured_hex_cube(comm, 1, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-            case PROTEUS_HEX27:
-                return create_semistructured_hex_cube(comm, 2, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-            case PROTEUS_HEX64:
-                return create_semistructured_hex_cube(comm, 3, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-            case PROTEUS_HEX125:
-                return create_semistructured_hex_cube(comm, 4, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-            case PROTEUS_HEX216:
-                return create_semistructured_hex_cube(comm, 5, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-            case PROTEUS_HEX343:
-                return create_semistructured_hex_cube(comm, 6, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-            case PROTEUS_HEX512:
-                return create_semistructured_hex_cube(comm, 7, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-            case PROTEUS_HEX729:
-                return create_semistructured_hex_cube(comm, 8, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-            case PROTEUS_HEX4913:
-                return create_semistructured_hex_cube(comm, 16, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
-            default:
-                SMESH_ERROR("Invalid element type: %d\n", element_type);
-                return nullptr;
-        }
-    }
-
-    std::shared_ptr<Mesh> Mesh::create_wall_mounted_hump(const std::shared_ptr<Communicator> &comm,
-                                                         const enum ElemType                  element_type,
-                                                         const ptrdiff_t                      nx,
-                                                         const ptrdiff_t                      ny,
-                                                         const ptrdiff_t                      nz,
-                                                         const geom_t                         length,
-                                                         const geom_t                         height,
-                                                         const geom_t                         width,
-                                                         const geom_t                         hump_start,
-                                                         const geom_t                         hump_length,
-                                                         const geom_t                         hump_height) {
-        SMESH_TRACE_SCOPE("Mesh::create_wall_mounted_hump");
-        if (nx <= 0 || ny <= 0 || nz <= 0 || length <= 0 || height <= 0 || width <= 0 || hump_length <= 0 ||
-            hump_height < 0) {
-            SMESH_ERROR("Mesh::create_wall_mounted_hump received invalid dimensions\n");
-            return nullptr;
-        }
-
-        auto mesh = create_cube(comm, element_type, nx, ny, nz, 0, 0, 0, length, height, width);
-        if (!mesh) {
-            return nullptr;
-        }
-
-        auto points = mesh->points()->data();
-        const geom_t inv_height = 1.0 / height;
-        const geom_t pi = static_cast<geom_t>(acos(-1.0));
-        for (ptrdiff_t node = 0; node < mesh->n_nodes(); ++node) {
-            const geom_t x = points[0][node];
-            const geom_t eta = points[1][node] * inv_height;
-            geom_t bottom = 0;
-            if (x >= hump_start && x <= hump_start + hump_length) {
-                const geom_t s = (x - hump_start) / hump_length;
-                const geom_t wave = sin(pi * s);
-                bottom = hump_height * wave * wave;
-            }
-            points[1][node] = bottom + eta * (height - bottom);
-        }
-
-        if (mesh->n_blocks() > 0) {
-            mesh->block(0)->set_name("fluid");
-        }
-        if (hump_height > 0) {
-            for (size_t b = 0; b < mesh->n_blocks(); ++b) {
-                auto              blk = mesh->block(b);
-                const enum ElemType t = blk->element_type();
-                if (t == TET4 || t == TRI3 || t == TRISHELL3) {
-                    blk->set_geom_map(AFFINE);
-                } else {
-                    blk->set_geom_map(ISOPARAMETRIC);
-                }
-            }
-        }
-        return mesh;
-    }
-
-    std::pair<SharedBuffer<geom_t>, SharedBuffer<geom_t>> Mesh::compute_bounding_box() {
-        auto points = impl_->points->data();
-
-        int  dim = spatial_dimension();
-        auto min = create_host_buffer<geom_t>(dim);
-        auto max = create_host_buffer<geom_t>(dim);
-
-        auto d_min = min->data();
-        auto d_max = max->data();
-
-        for (int d = 0; d < dim; d++) {
-            d_min[d] = points[d][0];
-            d_max[d] = points[d][0];
-        }
-
-        ptrdiff_t n_nodes = this->n_nodes();
-
-#pragma omp parallel for
-        for (ptrdiff_t i = 0; i < n_nodes; i++) {
-            for (int d = 0; d < dim; d++) {
-                d_min[d] = std::min(d_min[d], points[d][i]);
-                d_max[d] = std::max(d_max[d], points[d][i]);
-            }
-        }
-
-        return {min, max};
-    }
-
-    std::shared_ptr<Mesh::Block> Mesh::find_block(const std::string &name) const {
-        for (auto &block : impl_->blocks) {
-            if (block->name() == name) {
-                return block;
-            }
-        }
+    for (size_t b = 0; b < n_blocks(); ++b) {
+      const enum ElemType t = this->element_type(static_cast<block_idx_t>(b));
+      if (!is_semistructured_type(t) || ss_source_family(t) != want) {
+        SMESH_ERROR(
+            "create_node_to_node_graph: mixed SS families are not supported\n");
         return nullptr;
+      }
+    }
+    return node_to_node_graph();
+  }
+
+  bool all_same_type = true;
+  for (size_t b = 0; b < n_blocks(); ++b) {
+    if (this->element_type(static_cast<block_idx_t>(b)) != element_type) {
+      all_same_type = false;
+      break;
+    }
+  }
+  if (all_same_type) {
+    return node_to_node_graph();
+  }
+
+  if (n_blocks() == 1) {
+    const ptrdiff_t n_nodes =
+        max_node_id(element_type, n_elements(0), elements(0)->data()) + 1;
+
+    count_t *rowptr{nullptr};
+    idx_t *colidx{nullptr};
+    if (is_semistructured_type(this->element_type(0))) {
+      SMESH_ERROR("Semistructured meshes by create_node_to_node_graph for "
+                  "different element type!\n");
+      return nullptr;
     }
 
-    int Mesh::split_block(const SharedBuffer<element_idx_t> &elements, const std::string &name, block_idx_t block_id) {
-        if (static_cast<size_t>(block_id) >= n_blocks()) {
-            SMESH_ERROR("split_block: invalid block_id %d\n", block_id);
-            return SMESH_FAILURE;
+    create_crs_graph_for_elem_type(element_type, n_elements(0), n_nodes,
+                                   elements(0)->data(), &rowptr, &colidx);
+
+    return std::make_shared<Mesh::NodeToNodeGraph>(
+        Buffer<count_t>::own(n_nodes + 1, rowptr, free, MEMORY_SPACE_HOST),
+        Buffer<idx_t>::own(rowptr[n_nodes], colidx, free, MEMORY_SPACE_HOST));
+  }
+
+  std::vector<enum ElemType> element_types(n_blocks());
+  std::vector<ptrdiff_t> n_elements_per_block(n_blocks());
+  std::vector<idx_t **> block_elements(n_blocks());
+  for (size_t b = 0; b < n_blocks(); ++b) {
+    element_types[b] = element_type;
+    n_elements_per_block[b] = n_elements(static_cast<block_idx_t>(b));
+    block_elements[b] = elements(static_cast<block_idx_t>(b))->data();
+  }
+
+  count_t *rowptr{nullptr};
+  idx_t *colidx{nullptr};
+  create_multiblock_crs_graph(static_cast<block_idx_t>(n_blocks()),
+                              element_types.data(), n_elements_per_block.data(),
+                              block_elements.data(), this->n_nodes(), &rowptr,
+                              &colidx);
+
+  return std::make_shared<Mesh::NodeToNodeGraph>(
+      Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free,
+                           MEMORY_SPACE_HOST),
+      Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free,
+                         MEMORY_SPACE_HOST));
+}
+
+int Mesh::initialize_node_to_node_graph() {
+  if (impl_->crs_graph) {
+    return SMESH_SUCCESS;
+  }
+
+  SMESH_TRACE_SCOPE("Mesh::initialize_node_to_node_graph");
+
+  impl_->crs_graph = std::make_shared<NodeToNodeGraph>();
+
+  count_t *rowptr{nullptr};
+  idx_t *colidx{nullptr};
+
+  if (impl_->blocks.size() == 1) {
+    if (is_semistructured_type(this->element_type(0))) {
+      sshex8_crs_graph<element_idx_t, count_t, idx_t>(
+          proteus_hex_micro_elements_per_dim(this->element_type(0)),
+          this->n_elements(0), this->n_nodes(), this->elements(0)->data(),
+          &rowptr, &colidx);
+
+    } else {
+      create_crs_graph_for_elem_type(this->element_type(0), this->n_elements(0),
+                                     this->n_nodes(), this->elements(0)->data(),
+                                     &rowptr, &colidx);
+    }
+  } else {
+    bool all_ss = true;
+    bool any_ss = false;
+    bool mixed_ss = false;
+    enum ElemType ss_family = INVALID;
+    for (auto &block : impl_->blocks) {
+      const enum ElemType t = block->element_type();
+      if (is_semistructured_type(t)) {
+        any_ss = true;
+        const enum ElemType family = ss_source_family(t);
+        if (ss_family == INVALID) {
+          ss_family = family;
+        } else if (family != ss_family) {
+          mixed_ss = true;
         }
-
-        {
-            const int       nxe        = n_nodes_per_element(block_id);
-            const ptrdiff_t n_elements = this->n_elements(block_id);
-
-            auto bdry_mask = create_host_buffer<mask_t>(mask_count(n_elements));
-
-            auto            d_parent     = elements->data();
-            auto            d_bdry_mask  = bdry_mask->data();
-            const ptrdiff_t size_sideset = elements->size();
-
-            auto source_block = impl_->blocks[block_id];
-
-            auto d_elements = source_block->elements()->data();
-
-            ptrdiff_t n_bdry_elements = 0;
-            for (ptrdiff_t i = 0; i < size_sideset; i++) {
-                if (mask_get(d_parent[i], d_bdry_mask) == 0) {
-                    n_bdry_elements++;
-                    mask_set(d_parent[i], d_bdry_mask);
-                }
-            }
-
-            memset(d_bdry_mask, 0, mask_count(n_elements) * sizeof(mask_t));
-
-            auto      bdry_elements         = create_host_buffer<idx_t>(nxe, n_bdry_elements);
-            ptrdiff_t n_bdry_elements_count = 0;
-
-            auto d_bdry_elements = bdry_elements->data();
-
-            for (int e = 0; e < size_sideset; e++) {
-                if (mask_get(d_parent[e], d_bdry_mask) == 0) {
-                    for (int v = 0; v < nxe; v++) {
-                        d_bdry_elements[v][n_bdry_elements_count] = d_elements[v][d_parent[e]];
-                    }
-                    mask_set(d_parent[e], d_bdry_mask);
-                    n_bdry_elements_count++;
-                }
-            }
-
-            auto      interior_elements         = create_host_buffer<idx_t>(nxe, n_elements - n_bdry_elements);
-            ptrdiff_t n_interior_elements_count = 0;
-            auto      d_interior_elements       = interior_elements->data();
-
-            for (ptrdiff_t i = 0; i < n_elements; i++) {
-                if (mask_get(i, d_bdry_mask) == 0) {
-                    for (int v = 0; v < nxe; v++) {
-                        SMESH_ASSERT(n_interior_elements_count < static_cast<ptrdiff_t>(interior_elements->extent(1)));
-                        d_interior_elements[v][n_interior_elements_count] = d_elements[v][i];
-                    }
-                    n_interior_elements_count++;
-                }
-            }
-
-            // !!!!
-            remove_block(block_id);
-
-            {  // Boundary block
-                auto block = std::make_shared<Block>();
-                block->set_name(name);
-                block->set_element_type(source_block->element_type());
-                block->inherit_geom_map(source_block->geom_map());
-                block->set_elements(bdry_elements);
-                this->add_block(block);
-            }
-
-            {  // Interior block
-                auto block = std::make_shared<Block>();
-                block->set_name(source_block->name());
-                block->set_element_type(source_block->element_type());
-                block->inherit_geom_map(source_block->geom_map());
-                block->set_elements(interior_elements);
-                this->add_block(block);
-            }
-        }
-
-        return SMESH_SUCCESS;
+      } else {
+        all_ss = false;
+      }
     }
 
-    int Mesh::split_boundary_layer() {
-        if (comm()->size() > 1) {
-            SMESH_ERROR("split_boundary_layer is only supported in serial\n");
-            return SMESH_FAILURE;
-        }
+    if (any_ss && !all_ss) {
+      SMESH_ERROR("Mixed semi-structured and unstructured blocks are not "
+                  "supported for node_to_node_graph\n");
+      return SMESH_FAILURE;
+    }
+    if (all_ss && (mixed_ss || (ss_family != HEX8 && ss_family != TET4 &&
+                                ss_family != QUAD4))) {
+      SMESH_ERROR("Semistructured multi-block graph is implemented for "
+                  "homogeneous HEX/TET/QUAD only\n");
+      return SMESH_FAILURE;
+    }
+    // AoS to SoA
+    std::vector<enum ElemType> element_types;
+    std::vector<ptrdiff_t> n_elements;
+    std::vector<idx_t **> elements;
 
-        const block_idx_t target_block = 0;
-        auto              hft          = half_face_table(target_block);
-
-        ptrdiff_t      n_surf_elements = 0;
-        element_idx_t *parent          = nullptr;
-        i16           *side_idx        = nullptr;
-
-        if (extract_sideset_from_adj_table(element_type(target_block),
-                                           n_elements(target_block),
-                                           hft->data(),
-                                           &n_surf_elements,
-                                           &parent,
-                                           &side_idx) != SMESH_SUCCESS) {
-            SMESH_ERROR("Failed to extract skin for split_boundary_layer\n");
-            return SMESH_FAILURE;
-        }
-
-        std::vector<element_idx_t> parent_elements(static_cast<size_t>(n_surf_elements));
-        for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
-            parent_elements[static_cast<size_t>(i)] = parent[i];
-        }
-        SMESH_FREE(parent);
-        SMESH_FREE(side_idx);
-
-        element_idx_t *parent_buf = (element_idx_t *)SMESH_ALLOC(
-            parent_elements.size() * sizeof(element_idx_t));
-        std::memcpy(parent_buf,
-                    parent_elements.data(),
-                    parent_elements.size() * sizeof(element_idx_t));
-
-        return split_block(
-                manage_host_buffer<element_idx_t>(static_cast<ptrdiff_t>(parent_elements.size()), parent_buf),
-                "boundary_layer",
-                target_block);
+    for (auto &block : impl_->blocks) {
+      element_types.push_back(block->element_type());
+      n_elements.push_back(block->elements()->extent(1));
+      elements.push_back(block->elements()->data());
     }
 
-    int Mesh::renumber_nodes() {
-        auto n_nodes      = this->n_nodes();
-        auto new_idx_buff = create_host_buffer<idx_t>(n_nodes);
+    create_multiblock_crs_graph(impl_->blocks.size(), element_types.data(),
+                                n_elements.data(), elements.data(),
+                                this->n_nodes(), &rowptr, &colidx);
+  }
 
-        auto new_idx = new_idx_buff->data();
-        for (ptrdiff_t i = 0; i < n_nodes; i++) {
-            new_idx[i] = -1;
-        }
+  impl_->crs_graph = std::make_shared<Mesh::NodeToNodeGraph>(
+      Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free,
+                           MEMORY_SPACE_HOST),
+      Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free,
+                         MEMORY_SPACE_HOST));
 
-        idx_t next_node_id = 0;
-        for (auto &b : impl_->blocks) {
-            auto elements   = b->elements()->data();
-            auto n_elements = b->n_elements();
-            auto nxe        = b->n_nodes_per_element();
+  return SMESH_SUCCESS;
+}
 
-            for (ptrdiff_t e = 0; e < n_elements; e++) {
-                for (int v = 0; v < nxe; v++) {
-                    auto node = elements[v][e];
-                    if (new_idx[node] == -1) {
-                        new_idx[node] = next_node_id++;
-                    }
-                }
-            }
-        }
+std::shared_ptr<Mesh::NodeToNodeGraph> Mesh::edge_graph() {
+  if (impl_->edge_graph) {
+    return impl_->edge_graph;
+  }
 
-        return renumber_nodes(new_idx_buff);
+  bool all_simplex = true;
+  for (size_t b = 0; b < n_blocks(); ++b) {
+    const enum ElemType et = block(static_cast<block_idx_t>(b))->element_type();
+    if (et != TET4 && et != TRI3 && et != TRISHELL3) {
+      all_simplex = false;
+      break;
+    }
+  }
+
+  if (all_simplex) {
+    impl_->edge_graph = node_to_node_graph_upper_triangular();
+    return impl_->edge_graph;
+  }
+
+  count_t *rowptr{nullptr};
+  idx_t *colidx{nullptr};
+
+  if (n_blocks() == 1) {
+    auto n2e = node_to_element_graph();
+    create_edge_graph_for_element_from_n2e(
+        block(0)->element_type(), block(0)->n_elements(), this->n_nodes(),
+        block(0)->elements()->data(), n2e->rowptr()->data(),
+        n2e->colidx()->data(), &rowptr, &colidx);
+  } else {
+    impl_->create_node_to_element_graph();
+    auto n2e = impl_->node_to_element_graph;
+
+    std::vector<enum ElemType> element_types(n_blocks());
+    std::vector<ptrdiff_t> n_elements_per_block(n_blocks());
+    std::vector<idx_t **> block_elements(n_blocks());
+    for (size_t b = 0; b < n_blocks(); ++b) {
+      element_types[b] = element_type(static_cast<block_idx_t>(b));
+      n_elements_per_block[b] = n_elements(static_cast<block_idx_t>(b));
+      block_elements[b] = elements(static_cast<block_idx_t>(b))->data();
     }
 
-    int Mesh::renumber_nodes(const SharedBuffer<idx_t> &node_mapping) {
-        const int       dim     = spatial_dimension();
-        const ptrdiff_t n_nodes = this->n_nodes();
+    create_multiblock_edge_graph_from_n2e<idx_t, count_t, element_idx_t>(
+        static_cast<block_idx_t>(n_blocks()), element_types.data(),
+        n_elements_per_block.data(), block_elements.data(), this->n_nodes(),
+        n2e->rowptr()->data(), n2e->colidx()->data(),
+        impl_->n2e_block_number->data(), &rowptr, &colidx);
+  }
 
-        auto points          = this->points()->data();
-        auto new_points_buff = create_host_buffer<geom_t>(dim, n_nodes);
-        auto new_points      = new_points_buff->data();
+  impl_->edge_graph = std::make_shared<Mesh::NodeToNodeGraph>(
+      Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free,
+                           MEMORY_SPACE_HOST),
+      Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free,
+                         MEMORY_SPACE_HOST));
 
-        auto d_node_mapping = node_mapping->data();
+  return impl_->edge_graph;
+}
 
-        for (int d = 0; d < dim; d++) {
-            for (ptrdiff_t i = 0; i < n_nodes; i++) {
-                SMESH_ASSERT(d_node_mapping[i] < n_nodes);
-                SMESH_ASSERT(d_node_mapping[i] >= 0);
-                new_points[d][d_node_mapping[i]] = points[d][i];
-            }
-        }
+std::shared_ptr<Mesh::NodeToNodeGraph>
+Mesh::node_to_node_graph_upper_triangular() {
+  if (impl_->crs_graph_upper_triangular)
+    return impl_->crs_graph_upper_triangular;
+  SMESH_TRACE_SCOPE("Mesh::node_to_node_graph_upper_triangular");
 
-        impl_->points = new_points_buff;
+  count_t *rowptr{nullptr};
+  idx_t *colidx{nullptr};
 
-        for (auto &b : impl_->blocks) {
-            auto elements   = b->elements()->data();
-            auto n_elements = b->n_elements();
-            auto nxe        = b->n_nodes_per_element();
+  if (impl_->blocks.size() == 1) {
+    create_crs_graph_upper_triangular_from_element(
+        impl_->total_elements(), this->n_nodes(),
+        elem_num_nodes(this->element_type(0)), this->elements(0)->data(),
+        &rowptr, &colidx);
+  } else {
+    // AoS to SoA
+    std::vector<enum ElemType> element_types;
+    std::vector<ptrdiff_t> n_elements;
+    std::vector<idx_t **> elements;
 
-            for (ptrdiff_t e = 0; e < n_elements; e++) {
-                for (int v = 0; v < nxe; v++) {
-                    elements[v][e] = d_node_mapping[elements[v][e]];
-                }
-            }
-        }
-
-        // The local-to-global map is indexed by local node, so it moves with the nodes.
-        if (impl_->node_mapping) {
-            auto old_map      = impl_->node_mapping;
-            auto new_map_buff = create_host_buffer<idx_t>(n_nodes);
-            auto new_map      = new_map_buff->data();
-            auto old_map_data = old_map->data();
-            for (ptrdiff_t i = 0; i < n_nodes; i++) {
-                new_map[d_node_mapping[i]] = old_map_data[i];
-            }
-            impl_->node_mapping = new_map_buff;
-        }
-
-        // The node-to-element graph, the CRS graphs and the device points are all cached on
-        // first use and all keyed by node number, so every one of them now describes the old
-        // numbering. Leaving them in place is not a missed optimisation: skin_sideset asks
-        // for the node-to-element graph, gets the pre-renumbering one back, and reports a
-        // skin that is not the boundary of this mesh -- on a 40x8x4 L-shape, 1692 nodes
-        // instead of 994. Nothing about that fails loudly; the solve simply constrains the
-        // wrong nodes.
-        impl_->invalidate_node_indexed_caches();
-
-        return remap_registered_nodesets(d_node_mapping, n_nodes);
+    for (auto &block : impl_->blocks) {
+      element_types.push_back(block->element_type());
+      n_elements.push_back(block->elements()->extent(1));
+      elements.push_back(block->elements()->data());
     }
 
-    std::vector<std::pair<block_idx_t, SharedBuffer<element_idx_t>>> Mesh::select_elements(
-            const std::function<bool(const geom_t, const geom_t, const geom_t)> &selector,
-            const std::vector<std::string>                                      &block_names) {
-        SMESH_TRACE_SCOPE("Sideset::create_from_selector");
+    create_multiblock_crs_graph_upper_triangular(
+        impl_->blocks.size(), element_types.data(), n_elements.data(),
+        elements.data(), this->n_nodes(), &rowptr, &colidx);
+  }
 
-        const int dim    = spatial_dimension();
-        auto      points = this->points()->data();
+  impl_->crs_graph_upper_triangular = std::make_shared<Mesh::NodeToNodeGraph>(
+      Buffer<count_t>::own(this->n_nodes() + 1, rowptr, free,
+                           MEMORY_SPACE_HOST),
+      Buffer<idx_t>::own(rowptr[this->n_nodes()], colidx, free,
+                         MEMORY_SPACE_HOST));
 
-        size_t                                                           n_blocks = this->n_blocks();
-        std::vector<std::pair<block_idx_t, SharedBuffer<element_idx_t>>> selected_elements;
+  return impl_->crs_graph_upper_triangular;
+}
 
-        for (size_t b = 0; b < n_blocks; b++) {
-            auto block = this->block(b);
-            if (!block_names.empty() &&  //
-                std::find(block_names.begin(), block_names.end(), block->name()) == block_names.end()) {
-                continue;
-            }
-
-            int             nxe       = block->n_nodes_per_element();
-            const ptrdiff_t nelements = block->n_elements();
-            auto            elements  = block->elements()->data();
-
-            std::list<element_idx_t> selected_element_list;
-            for (ptrdiff_t e = 0; e < nelements; e++) {
-                // Barycenter of element
-                double p[3] = {0, 0, 0};
-
-                for (int v = 0; v < nxe; v++) {
-                    const idx_t node = elements[v][e];
-
-                    for (int d = 0; d < dim; d++) {
-                        p[d] += points[d][node];
-                    }
-                }
-
-                for (int d = 0; d < dim; d++) {
-                    p[d] /= nxe;
-                }
-
-                if (selector(p[0], p[1], p[2])) {
-                    selected_element_list.push_back(e);
-                }
-            }
-
-            const ptrdiff_t nselected_elements = selected_element_list.size();
-            auto            selected_element   = create_host_buffer<element_idx_t>(nselected_elements);
-            element_idx_t  *d_sel              = nselected_elements > 0 ? selected_element->data() : nullptr;
-            ptrdiff_t       idx                = 0;
-            for (auto p : selected_element_list) {
-                d_sel[idx++] = p;
-            }
-
-            selected_elements.push_back(std::make_pair(b, selected_element));
-        }
-
-        return selected_elements;
+int Mesh::convert_to_macro_element_mesh() {
+  for (auto &block : impl_->blocks) {
+    if (!block) {
+      continue;
     }
-
-    void Mesh::reorder_elements_from_tags(const block_idx_t                              block_id,
-                                          const SharedBuffer<idx_t>                     &tags,
-                                          const std::vector<std::shared_ptr<Sideset>>   &sidesets) {
-        const ptrdiff_t nelems = n_elements(block_id);
-        if (nelems == 0 || !tags || tags->size() != static_cast<size_t>(nelems)) {
-            SMESH_ERROR("reorder_elements_from_tags: tags size must match n_elements\n");
-            return;
-        }
-
-        auto    d_tags = tags->data();
-        idx_t   ntags  = 0;
-        for (ptrdiff_t i = 0; i < nelems; i++) {
-            ntags = std::max(ntags, d_tags[i]);
-        }
-        ntags += 1;
-
-        auto counts = create_host_buffer<i64>((size_t)ntags);
-        i64 *d_counts = counts->data();
-        for (ptrdiff_t i = 0; i < nelems; i++) {
-            d_counts[d_tags[i]]++;
-        }
-        auto start   = create_host_buffer<i64>((size_t)ntags);
-        i64 *d_start = start->data();
-        for (idx_t t = 1; t < ntags; ++t) {
-            d_start[t] = d_start[t - 1] + d_counts[t - 1];
-        }
-
-        auto new_to_old = create_host_buffer<element_idx_t>((size_t)nelems);
-        auto old_to_new = create_host_buffer<element_idx_t>((size_t)nelems);
-        element_idx_t *d_nto = new_to_old->data();
-        element_idx_t *d_otn = old_to_new->data();
-        for (ptrdiff_t i = 0; i < nelems; i++) {
-            const ptrdiff_t neu = (ptrdiff_t)d_start[d_tags[i]]++;
-            d_nto[neu] = (element_idx_t)i;
-            d_otn[i]   = (element_idx_t)neu;
-        }
-
-        const int nxe = n_nodes_per_element(block_id);
-        idx_t **elems = elements(block_id)->data();
-        mesh_block_reorder(nxe, nelems, elems, d_nto, elems);
-
-        if (!sidesets.empty()) {
-            remap_sidesets(sidesets, block_id, d_otn, nelems);
-        }
-        remap_registered_sidesets(block_id, d_otn, nelems, sidesets);
-        remap_registered_edgesets(block_id, d_otn, nelems);
+    const enum ElemType t = block->element_type();
+    if (t == TET10 || t == TRI6) {
+      block->set_element_type(macro_type_variant(t));
     }
+  }
+  return SMESH_SUCCESS;
+}
 
-    std::shared_ptr<Mesh> Mesh::clone() const {
-        auto ret = std::make_shared<Mesh>(impl_->comm);
-
-        const int       spatial_dim = spatial_dimension();
-        const ptrdiff_t nnodes      = n_nodes();
-        auto            src_points  = points();
-        auto            dst_points  = create_host_buffer<geom_t>(spatial_dim, nnodes);
-        for (int d = 0; d < spatial_dim; ++d) {
-            std::memcpy(dst_points->data()[d],
-                        src_points->data()[d],
-                        static_cast<size_t>(nnodes) * sizeof(geom_t));
-        }
-        ret->set_points(dst_points);
-
-        for (const auto &block : impl_->blocks) {
-            if (!block || !block->elements()) {
-                continue;
-            }
-
-            const int       nxe       = block->n_nodes_per_element();
-            const ptrdiff_t nelements = block->n_elements();
-            auto            dst_elems = create_host_buffer<idx_t>(nxe, nelements);
-            auto            src_elems = block->elements()->data();
-            for (int d = 0; d < nxe; ++d) {
-                std::memcpy(dst_elems->data()[d],
-                            src_elems[d],
-                            static_cast<size_t>(nelements) * sizeof(idx_t));
-            }
-
-            auto new_block = std::make_shared<Block>();
-            new_block->set_name(block->name());
-            new_block->set_element_type(block->element_type());
-            new_block->inherit_geom_map(block->geom_map());
-            new_block->set_elements(dst_elems);
-            ret->add_block(new_block);
-        }
+// SharedBuffer<count_t> Mesh::node_to_node_rowptr() const {
+//   return this->node_to_node_graph()->rowptr();
+// }
+// SharedBuffer<idx_t> Mesh::node_to_node_colidx() const {
+//   return this->node_to_node_graph()->colidx();
+// }
 
 #ifdef SMESH_ENABLE_MPI
-        if (is_distributed()) {
-            MeshTransformsDistributed::clone_distributed(*this, *ret);
-        }
-#endif
+int Mesh::adopt_parallel_arrays(
+    Mesh *mesh, enum ElemType element_type, const char *block_name,
+    int nnodesxelem, ptrdiff_t n_global_elements, ptrdiff_t n_owned_elements,
+    ptrdiff_t n_shared_elements, ptrdiff_t n_ghost_elements,
+    large_idx_t *element_mapping, large_idx_t *aura_element_mapping,
+    idx_t **elements, int spatial_dim, ptrdiff_t n_global_nodes,
+    ptrdiff_t n_owned_nodes, ptrdiff_t n_shared_nodes, ptrdiff_t n_ghost_nodes,
+    ptrdiff_t n_aura_nodes, large_idx_t *node_mapping, geom_t **points,
+    int *node_owner, ptrdiff_t *node_offsets, idx_t *ghosts) {
+  auto dist = std::make_shared<Distributed>();
+  dist->set_nodes(
+      n_global_nodes, n_owned_nodes, n_shared_nodes, n_ghost_nodes,
+      n_aura_nodes,
+      manage_host_buffer<large_idx_t>(
+          n_owned_nodes + n_ghost_nodes + n_aura_nodes, node_mapping),
+      manage_host_buffer<int>(n_owned_nodes + n_ghost_nodes + n_aura_nodes,
+                              node_owner),
+      manage_host_buffer<ptrdiff_t>(
+          static_cast<size_t>(mesh->comm()->size()) + 1, node_offsets),
+      manage_host_buffer<idx_t>(n_ghost_nodes + n_aura_nodes, ghosts));
+  dist->set_elements(
+      n_global_elements, n_owned_elements, n_shared_elements, n_ghost_elements,
+      manage_host_buffer<large_idx_t>(n_owned_elements, element_mapping),
+      manage_host_buffer<large_idx_t>(n_ghost_elements, aura_element_mapping));
 
-        for (size_t i = 0; i < impl_->sidesets.size(); ++i) {
-            ret->add_sideset(impl_->sidesets[i].first, clone_sideset(*ret, impl_->sidesets[i].second));
-        }
-        for (size_t i = 0; i < impl_->edgesets.size(); ++i) {
-            ret->add_edgeset(impl_->edgesets[i].first, clone_edgeset(*ret, impl_->edgesets[i].second));
-        }
-        for (size_t i = 0; i < impl_->nodesets.size(); ++i) {
-            ret->add_nodeset(impl_->nodesets[i].first, clone_nodeset(*ret, impl_->nodesets[i].second));
-        }
-        for (size_t i = 0; i < impl_->parametrizations.size(); ++i) {
-            ret->add_parametrization(impl_->parametrizations[i].first, impl_->parametrizations[i].second);
-        }
+  auto elements_buffer = manage_host_buffer<idx_t>(
+      nnodesxelem, dist->n_elements_local(), elements);
+  mesh->set_points(
+      manage_host_buffer<geom_t>(spatial_dim, dist->n_nodes_local(), points));
 
-        return ret;
+  auto default_block = std::make_shared<Mesh::Block>();
+  default_block->set_name(block_name);
+  default_block->set_element_type(element_type);
+  default_block->set_elements(elements_buffer);
+  default_block->set_distributed_elements(
+      dist->n_elements_owned(), dist->n_elements_shared(),
+      dist->n_elements_ghosts(), dist->element_mapping(),
+      dist->aura_element_mapping());
+  mesh->add_block(default_block);
+  mesh->set_distributed(dist);
+  return SMESH_SUCCESS;
+}
+
+std::shared_ptr<Mesh> Mesh::wrap_create_parallel(
+    const std::shared_ptr<Communicator> &comm, enum ElemType element_type,
+    int nnodesxelem, ptrdiff_t n_local_elements, ptrdiff_t n_global_elements,
+    idx_t **elems, int spatial_dim, ptrdiff_t n_local_nodes,
+    ptrdiff_t n_global_nodes, geom_t **points, enum GeomMap geom_map) {
+  auto mesh = std::make_shared<Mesh>(comm);
+  int nxe_out = 0, sdim_out = 0;
+  ptrdiff_t nge = 0, noe = 0, nse = 0, ngelem_ghost = 0;
+  large_idx_t *emap = nullptr, *amap = nullptr;
+  idx_t **elements = nullptr;
+  ptrdiff_t ngn = 0, non = 0, nsn = 0, nghostn = 0, nan = 0;
+  large_idx_t *nmap = nullptr;
+  geom_t **pts = nullptr;
+  int *owner = nullptr;
+  ptrdiff_t *offsets = nullptr;
+  idx_t *ghosts = nullptr;
+
+  if (mesh_create_parallel<idx_t, geom_t, large_idx_t>(
+          comm->get(), comm->size(), comm->rank(), nnodesxelem, elems,
+          n_local_elements, n_global_elements, spatial_dim, points,
+          n_local_nodes, n_global_nodes, nullptr, &nxe_out, &nge, &noe, &nse,
+          &ngelem_ghost, &emap, &amap, &elements, &sdim_out, &ngn, &non, &nsn,
+          &nghostn, &nan, &nmap, &pts, &owner, &offsets,
+          &ghosts) != SMESH_SUCCESS) {
+    return nullptr;
+  }
+
+  if (Mesh::adopt_parallel_arrays(
+          mesh.get(), element_type, "default", nxe_out, nge, noe, nse,
+          ngelem_ghost, emap, amap, elements, sdim_out, ngn, non, nsn, nghostn,
+          nan, nmap, pts, owner, offsets, ghosts) != SMESH_SUCCESS) {
+    return nullptr;
+  }
+  if (mesh->n_blocks() > 0) {
+    mesh->block(0)->set_geom_map(geom_map);
+  }
+  return mesh;
+}
+
+static int hex8_gid_color(const large_idx_t gid, const ptrdiff_t nx,
+                          const ptrdiff_t ny) {
+  const ptrdiff_t exy = nx * ny;
+  const ptrdiff_t zi = static_cast<ptrdiff_t>(gid) / exy;
+  const ptrdiff_t rem = static_cast<ptrdiff_t>(gid) - zi * exy;
+  const ptrdiff_t yi = rem / nx;
+  const ptrdiff_t xi = rem - yi * nx;
+  return static_cast<int>((xi + yi + zi) & 1);
+}
+
+static void copy_hex8_element(idx_t **dst, const ptrdiff_t di, idx_t **src,
+                              const ptrdiff_t si) {
+  for (int v = 0; v < 8; ++v) {
+    dst[v][di] = src[v][si];
+  }
+}
+
+std::shared_ptr<Mesh> Mesh::with_nodal_distributed(
+    const std::shared_ptr<Mesh> &src,
+    const std::vector<std::shared_ptr<Mesh::Block>> &blocks,
+    ptrdiff_t n_elements_global, ptrdiff_t n_owned, ptrdiff_t n_shared,
+    ptrdiff_t n_ghosts, SharedBuffer<large_idx_t> element_mapping,
+    SharedBuffer<large_idx_t> aura_element_mapping) {
+  auto out = std::make_shared<Mesh>(src->comm(), blocks, src->points());
+  auto dist = std::make_shared<Distributed>();
+  auto sd = src->distributed();
+  dist->set_nodes(sd->n_nodes_global(), sd->n_nodes_owned(),
+                  sd->n_nodes_shared(), sd->n_nodes_ghosts(),
+                  sd->n_nodes_aura(), sd->node_mapping(), sd->node_owner(),
+                  sd->node_offsets(), sd->ghosts_and_aura());
+  dist->set_elements(n_elements_global, n_owned, n_shared, n_ghosts,
+                     std::move(element_mapping),
+                     std::move(aura_element_mapping));
+  out->set_distributed(dist);
+  return out;
+}
+
+static std::shared_ptr<Mesh::Block>
+make_hex8_color_block(const char *name, idx_t **src,
+                      const large_idx_t *owned_map, const large_idx_t *aura_map,
+                      const ptrdiff_t n_ons, const ptrdiff_t n_owned,
+                      const ptrdiff_t n_ghosts, const int color,
+                      const ptrdiff_t nx, const ptrdiff_t ny) {
+  ptrdiff_t n_ons_c = 0, n_shared_c = 0, n_ghosts_c = 0;
+  const ptrdiff_t n_shared = n_owned - n_ons;
+  for (ptrdiff_t i = 0; i < n_ons; ++i) {
+    n_ons_c += (hex8_gid_color(owned_map[i], nx, ny) == color);
+  }
+  for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
+    n_shared_c += (hex8_gid_color(owned_map[i], nx, ny) == color);
+  }
+  for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
+    n_ghosts_c += (hex8_gid_color(aura_map[i], nx, ny) == color);
+  }
+  SMESH_UNUSED(n_shared);
+
+  const ptrdiff_t n_owned_c = n_ons_c + n_shared_c;
+  const ptrdiff_t n_local_c = n_owned_c + n_ghosts_c;
+  auto elems = create_host_buffer<idx_t>(8, static_cast<size_t>(n_local_c));
+  auto emap = create_host_buffer<large_idx_t>(static_cast<size_t>(n_owned_c));
+  auto amap = create_host_buffer<large_idx_t>(static_cast<size_t>(n_ghosts_c));
+  idx_t **ed = elems->data();
+  large_idx_t *emd = n_owned_c ? emap->data() : nullptr;
+  large_idx_t *amd = n_ghosts_c ? amap->data() : nullptr;
+
+  ptrdiff_t w = 0;
+  for (ptrdiff_t i = 0; i < n_ons; ++i) {
+    if (hex8_gid_color(owned_map[i], nx, ny) != color) {
+      continue;
     }
+    copy_hex8_element(ed, w, src, i);
+    emd[w] = owned_map[i];
+    ++w;
+  }
+  for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
+    if (hex8_gid_color(owned_map[i], nx, ny) != color) {
+      continue;
+    }
+    copy_hex8_element(ed, w, src, i);
+    emd[w] = owned_map[i];
+    ++w;
+  }
+  ptrdiff_t wa = 0;
+  for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
+    if (hex8_gid_color(aura_map[i], nx, ny) != color) {
+      continue;
+    }
+    copy_hex8_element(ed, n_owned_c + wa, src, n_owned + i);
+    amd[wa] = aura_map[i];
+    ++wa;
+  }
 
-    std::shared_ptr<Mesh> convert_to(const enum ElemType element_type, const std::shared_ptr<Mesh> &mesh) {
-        std::map<std::pair<enum ElemType, enum ElemType>, std::function<void(const Mesh::Block &, Mesh::Block &)>> cmap;
+  auto block = std::make_shared<Mesh::Block>();
+  block->set_name(name);
+  block->set_element_type(HEX8);
+  block->set_geom_map(AXIS_ALIGNED);
+  block->set_elements(elems);
+  block->set_distributed_elements(n_owned_c, n_shared_c, n_ghosts_c, emap,
+                                  amap);
+  return block;
+}
 
-        cmap[std::make_pair(HEX8, TET4)] = [](const Mesh::Block &block, Mesh::Block &new_block) {
-            new_block.set_element_type(TET4);
-            new_block.set_elements(create_host_buffer<idx_t>(4, block.n_elements() * 6));
-            mesh_hex8_to_6x_tet4(block.n_elements(), block.elements()->data(), new_block.elements()->data());
-        };
+std::shared_ptr<Mesh>
+Mesh::split_hex8_checkerboard_distributed(const std::shared_ptr<Mesh> &hex_mesh,
+                                          const ptrdiff_t nx,
+                                          const ptrdiff_t ny) {
+  auto hex_block = hex_mesh->block(0);
+  idx_t **src = hex_block->elements()->data();
+  const ptrdiff_t n_owned = hex_block->n_elements_owned();
+  const ptrdiff_t n_shared = hex_block->n_elements_shared();
+  const ptrdiff_t n_ghosts = hex_block->n_elements_ghosts();
+  const ptrdiff_t n_ons = n_owned - n_shared;
+  const large_idx_t *owned_map = hex_block->element_mapping()->data();
+  const large_idx_t *aura_map =
+      (n_ghosts > 0 && hex_block->aura_element_mapping())
+          ? hex_block->aura_element_mapping()->data()
+          : nullptr;
 
-        cmap[std::make_pair(TET15, HEX8)] = [](const Mesh::Block &block, Mesh::Block &new_block) {
-            new_block.set_element_type(HEX8);
-            new_block.set_elements(create_host_buffer<idx_t>(8, block.n_elements() * 4));
-            mesh_tet15_to_4x_hex8(block.n_elements(), block.elements()->data(), new_block.elements()->data());
-        };
+  auto white = make_hex8_color_block("white", src, owned_map, aura_map, n_ons,
+                                     n_owned, n_ghosts, 0, nx, ny);
+  auto black = make_hex8_color_block("black", src, owned_map, aura_map, n_ons,
+                                     n_owned, n_ghosts, 1, nx, ny);
 
-        cmap[std::make_pair(WEDGE6, TET4)] = [](const Mesh::Block &block, Mesh::Block &new_block) {
-            new_block.set_element_type(TET4);
-            new_block.set_elements(create_host_buffer<idx_t>(4, block.n_elements() * 3));
-            mesh_wedge6_to_3x_tet4(block.n_elements(), block.elements()->data(), new_block.elements()->data());
-        };
+  std::vector<std::shared_ptr<Mesh::Block>> blocks;
+  blocks.push_back(white);
+  blocks.push_back(black);
 
-        cmap[std::make_pair(PYRAMID5, TET4)] = [](const Mesh::Block &block, Mesh::Block &new_block) {
-            new_block.set_element_type(TET4);
-            new_block.set_elements(create_host_buffer<idx_t>(4, block.n_elements() * 2));
-            mesh_pyramid5_to_2x_tet4(block.n_elements(), block.elements()->data(), new_block.elements()->data());
-        };
+  auto sd = hex_mesh->distributed();
+  return Mesh::with_nodal_distributed(
+      hex_mesh, blocks, sd->n_elements_global(), sd->n_elements_owned(),
+      sd->n_elements_shared(), sd->n_elements_ghosts(), sd->element_mapping(),
+      sd->aura_element_mapping());
+}
 
-        cmap[std::make_pair(QUAD4, TRI3)] = [](const Mesh::Block &block, Mesh::Block &new_block) {
-            new_block.set_element_type(TRI3);
-            new_block.set_elements(create_host_buffer<idx_t>(3, block.n_elements() * 2));
-            mesh_quad4_to_2x_tri3(block.n_elements(), block.elements()->data(), new_block.elements()->data());
-        };
+static int hex8_gid_bidomain_side(const large_idx_t gid, const ptrdiff_t nx,
+                                  const ptrdiff_t ny, const ptrdiff_t split) {
+  const ptrdiff_t exy = nx * ny;
+  const ptrdiff_t zi = static_cast<ptrdiff_t>(gid) / exy;
+  const ptrdiff_t rem = static_cast<ptrdiff_t>(gid) - zi * exy;
+  const ptrdiff_t yi = rem / nx;
+  const ptrdiff_t xi = rem - yi * nx;
+  SMESH_UNUSED(zi);
+  SMESH_UNUSED(yi);
+  return xi < split ? 0 : 1;
+}
 
-        cmap[std::make_pair(HEX8, PROTEUS_HEX8)] = [](const Mesh::Block &block, Mesh::Block &new_block) {
-            new_block.set_element_type(PROTEUS_HEX8);
-            auto elements = block.elements();
+static large_idx_t hex8_gid_bidomain_local(const large_idx_t gid,
+                                           const ptrdiff_t nx,
+                                           const ptrdiff_t ny,
+                                           const ptrdiff_t split) {
+  const ptrdiff_t exy = nx * ny;
+  const ptrdiff_t zi = static_cast<ptrdiff_t>(gid) / exy;
+  const ptrdiff_t rem = static_cast<ptrdiff_t>(gid) - zi * exy;
+  const ptrdiff_t yi = rem / nx;
+  const ptrdiff_t xi = rem - yi * nx;
+  if (xi < split) {
+    return static_cast<large_idx_t>(zi * ny * split + yi * split + xi);
+  }
+  const ptrdiff_t nx_right = nx - split;
+  return static_cast<large_idx_t>(zi * ny * nx_right + yi * nx_right +
+                                  (xi - split));
+}
 
-            auto view = std::make_shared<Buffer<idx_t *>>(
-                    8,
-                    block.n_elements(),
-                    (idx_t **)SMESH_ALLOC(8 * sizeof(idx_t *)),
-                    [keep_alive = elements](int, void **v) {
-                        (void)keep_alive;
-                        SMESH_FREE(v);
-                    },
-                    elements->mem_space());
+static std::shared_ptr<Mesh::Block> make_hex8_bidomain_block(
+    const char *name, idx_t **src, const large_idx_t *owned_map,
+    const large_idx_t *aura_map, const ptrdiff_t n_ons, const ptrdiff_t n_owned,
+    const ptrdiff_t n_ghosts, const int side, const ptrdiff_t nx,
+    const ptrdiff_t ny, const ptrdiff_t split) {
+  ptrdiff_t n_ons_c = 0, n_shared_c = 0, n_ghosts_c = 0;
+  for (ptrdiff_t i = 0; i < n_ons; ++i) {
+    n_ons_c += (hex8_gid_bidomain_side(owned_map[i], nx, ny, split) == side);
+  }
+  for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
+    n_shared_c += (hex8_gid_bidomain_side(owned_map[i], nx, ny, split) == side);
+  }
+  for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
+    n_ghosts_c += (hex8_gid_bidomain_side(aura_map[i], nx, ny, split) == side);
+  }
 
-            const int pts[8] = {// Bottom
-                                sshex8_lidx(1, 0, 0, 0),
-                                sshex8_lidx(1, 1, 0, 0),
-                                sshex8_lidx(1, 1, 1, 0),
-                                sshex8_lidx(1, 0, 1, 0),
+  const ptrdiff_t n_owned_c = n_ons_c + n_shared_c;
+  const ptrdiff_t n_local_c = n_owned_c + n_ghosts_c;
+  auto elems = create_host_buffer<idx_t>(8, static_cast<size_t>(n_local_c));
+  auto emap = create_host_buffer<large_idx_t>(static_cast<size_t>(n_owned_c));
+  auto amap = create_host_buffer<large_idx_t>(static_cast<size_t>(n_ghosts_c));
+  idx_t **ed = elems->data();
+  large_idx_t *emd = n_owned_c ? emap->data() : nullptr;
+  large_idx_t *amd = n_ghosts_c ? amap->data() : nullptr;
 
-                                // Top
-                                sshex8_lidx(1, 0, 0, 1),
-                                sshex8_lidx(1, 1, 0, 1),
-                                sshex8_lidx(1, 1, 1, 1),
-                                sshex8_lidx(1, 0, 1, 1)};
+  ptrdiff_t w = 0;
+  for (ptrdiff_t i = 0; i < n_ons; ++i) {
+    if (hex8_gid_bidomain_side(owned_map[i], nx, ny, split) != side) {
+      continue;
+    }
+    copy_hex8_element(ed, w, src, i);
+    emd[w] = hex8_gid_bidomain_local(owned_map[i], nx, ny, split);
+    ++w;
+  }
+  for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
+    if (hex8_gid_bidomain_side(owned_map[i], nx, ny, split) != side) {
+      continue;
+    }
+    copy_hex8_element(ed, w, src, i);
+    emd[w] = hex8_gid_bidomain_local(owned_map[i], nx, ny, split);
+    ++w;
+  }
+  ptrdiff_t wa = 0;
+  for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
+    if (hex8_gid_bidomain_side(aura_map[i], nx, ny, split) != side) {
+      continue;
+    }
+    copy_hex8_element(ed, n_owned_c + wa, src, n_owned + i);
+    amd[wa] = hex8_gid_bidomain_local(aura_map[i], nx, ny, split);
+    ++wa;
+  }
 
-            view->data()[0] = elements->data()[pts[0]];
-            view->data()[1] = elements->data()[pts[1]];
-            view->data()[2] = elements->data()[pts[2]];
-            view->data()[3] = elements->data()[pts[3]];
-            view->data()[4] = elements->data()[pts[4]];
-            view->data()[5] = elements->data()[pts[5]];
-            view->data()[6] = elements->data()[pts[6]];
-            view->data()[7] = elements->data()[pts[7]];
+  auto block = std::make_shared<Mesh::Block>();
+  block->set_name(name);
+  block->set_element_type(HEX8);
+  block->set_geom_map(AXIS_ALIGNED);
+  block->set_elements(elems);
+  block->set_distributed_elements(n_owned_c, n_shared_c, n_ghosts_c, emap,
+                                  amap);
+  return block;
+}
 
-            new_block.set_elements(view);
-        };
+std::shared_ptr<Mesh> Mesh::split_hex8_bidomain_distributed(
+    const std::shared_ptr<Mesh> &hex_mesh, const ptrdiff_t nx,
+    const ptrdiff_t ny, const ptrdiff_t nz, const ptrdiff_t split) {
+  auto hex_block = hex_mesh->block(0);
+  idx_t **src = hex_block->elements()->data();
+  const ptrdiff_t n_owned = hex_block->n_elements_owned();
+  const ptrdiff_t n_shared = hex_block->n_elements_shared();
+  const ptrdiff_t n_ghosts = hex_block->n_elements_ghosts();
+  const ptrdiff_t n_ons = n_owned - n_shared;
+  const large_idx_t *owned_map = hex_block->element_mapping()->data();
+  const large_idx_t *aura_map =
+      (n_ghosts > 0 && hex_block->aura_element_mapping())
+          ? hex_block->aura_element_mapping()->data()
+          : nullptr;
 
-        cmap[std::make_pair(PROTEUS_HEX8, HEX8)]   = sshex_block_to_hex8_block;
-        cmap[std::make_pair(PROTEUS_HEX27, HEX8)]  = sshex_block_to_hex8_block;
-        cmap[std::make_pair(PROTEUS_HEX64, HEX8)]  = sshex_block_to_hex8_block;
-        cmap[std::make_pair(PROTEUS_HEX125, HEX8)] = sshex_block_to_hex8_block;
-        cmap[std::make_pair(PROTEUS_HEX216, HEX8)] = sshex_block_to_hex8_block;
-        cmap[std::make_pair(PROTEUS_HEX343, HEX8)] = sshex_block_to_hex8_block;
-        cmap[std::make_pair(PROTEUS_HEX512, HEX8)] = sshex_block_to_hex8_block;
-        cmap[std::make_pair(PROTEUS_HEX729, HEX8)] = sshex_block_to_hex8_block;
+  auto left = make_hex8_bidomain_block("left", src, owned_map, aura_map, n_ons,
+                                       n_owned, n_ghosts, 0, nx, ny, split);
+  auto right =
+      make_hex8_bidomain_block("right", src, owned_map, aura_map, n_ons,
+                               n_owned, n_ghosts, 1, nx, ny, split);
 
-        cmap[std::make_pair(PROTEUS_TET4, TET4)]   = sstet_block_to_tet4_block;
-        cmap[std::make_pair(PROTEUS_TET10, TET4)]  = sstet_block_to_tet4_block;
-        cmap[std::make_pair(PROTEUS_TET20, TET4)]  = sstet_block_to_tet4_block;
-        cmap[std::make_pair(PROTEUS_TET35, TET4)]  = sstet_block_to_tet4_block;
-        cmap[std::make_pair(PROTEUS_TET56, TET4)]  = sstet_block_to_tet4_block;
-        cmap[std::make_pair(PROTEUS_TET84, TET4)]  = sstet_block_to_tet4_block;
-        cmap[std::make_pair(PROTEUS_TET120, TET4)] = sstet_block_to_tet4_block;
-        cmap[std::make_pair(PROTEUS_TET165, TET4)] = sstet_block_to_tet4_block;
-        cmap[std::make_pair(PROTEUS_TET969, TET4)] = sstet_block_to_tet4_block;
+  std::vector<std::shared_ptr<Mesh::Block>> blocks;
+  blocks.push_back(left);
+  blocks.push_back(right);
 
-        cmap[std::make_pair(PROTEUS_QUAD4, QUAD4)]            = ssquad_block_to_quad4_block;
-        cmap[std::make_pair(PROTEUS_QUAD9, QUAD4)]            = ssquad_block_to_quad4_block;
-        cmap[std::make_pair(PROTEUS_QUAD16, QUAD4)]           = ssquad_block_to_quad4_block;
-        cmap[std::make_pair(PROTEUS_QUAD25, QUAD4)]           = ssquad_block_to_quad4_block;
-        cmap[std::make_pair(PROTEUS_QUAD36, QUAD4)]           = ssquad_block_to_quad4_block;
-        cmap[std::make_pair(PROTEUS_QUAD49, QUAD4)]           = ssquad_block_to_quad4_block;
-        cmap[std::make_pair(PROTEUS_QUAD64, QUAD4)]           = ssquad_block_to_quad4_block;
-        cmap[std::make_pair(PROTEUS_QUAD81, QUAD4)]           = ssquad_block_to_quad4_block;
-        cmap[std::make_pair(PROTEUS_QUADSHELL4, QUADSHELL4)]  = ssquad_block_to_quad4_block;
-        cmap[std::make_pair(PROTEUS_QUADSHELL9, QUADSHELL4)]  = ssquad_block_to_quad4_block;
-        cmap[std::make_pair(PROTEUS_QUADSHELL16, QUADSHELL4)] = ssquad_block_to_quad4_block;
-        cmap[std::make_pair(PROTEUS_QUADSHELL25, QUADSHELL4)] = ssquad_block_to_quad4_block;
-        cmap[std::make_pair(PROTEUS_QUADSHELL36, QUADSHELL4)] = ssquad_block_to_quad4_block;
-        cmap[std::make_pair(PROTEUS_QUADSHELL49, QUADSHELL4)] = ssquad_block_to_quad4_block;
-        cmap[std::make_pair(PROTEUS_QUADSHELL64, QUADSHELL4)] = ssquad_block_to_quad4_block;
-        cmap[std::make_pair(PROTEUS_QUADSHELL81, QUADSHELL4)] = ssquad_block_to_quad4_block;
+  const ptrdiff_t n_left_global = split * ny * nz;
+  auto concat_owned =
+      create_host_buffer<large_idx_t>(static_cast<size_t>(n_owned));
+  auto concat_aura =
+      create_host_buffer<large_idx_t>(static_cast<size_t>(n_ghosts));
+  const ptrdiff_t n_left_owned = left->n_elements_owned();
+  const ptrdiff_t n_right_owned = right->n_elements_owned();
+  const ptrdiff_t n_left_ghosts = left->n_elements_ghosts();
+  const ptrdiff_t n_right_ghosts = right->n_elements_ghosts();
+  if (n_left_owned) {
+    std::memcpy(concat_owned->data(), left->element_mapping()->data(),
+                static_cast<size_t>(n_left_owned) * sizeof(large_idx_t));
+  }
+  if (n_right_owned) {
+    for (ptrdiff_t i = 0; i < n_right_owned; ++i) {
+      concat_owned->data()[n_left_owned + i] =
+          n_left_global + right->element_mapping()->data()[i];
+    }
+  }
+  if (n_left_ghosts) {
+    std::memcpy(concat_aura->data(), left->aura_element_mapping()->data(),
+                static_cast<size_t>(n_left_ghosts) * sizeof(large_idx_t));
+  }
+  if (n_right_ghosts) {
+    for (ptrdiff_t i = 0; i < n_right_ghosts; ++i) {
+      concat_aura->data()[n_left_ghosts + i] =
+          n_left_global + right->aura_element_mapping()->data()[i];
+    }
+  }
+  SMESH_ASSERT(n_left_owned + n_right_owned == n_owned);
+  SMESH_ASSERT(n_left_ghosts + n_right_ghosts == n_ghosts);
 
-        cmap[std::make_pair(PROTEUS_WEDGE6, WEDGE6)]    = sswedge_block_to_wedge6_block;
-        cmap[std::make_pair(PROTEUS_WEDGE18, WEDGE6)]   = sswedge_block_to_wedge6_block;
-        cmap[std::make_pair(PROTEUS_WEDGE40, WEDGE6)]   = sswedge_block_to_wedge6_block;
-        cmap[std::make_pair(PROTEUS_WEDGE75, WEDGE6)]   = sswedge_block_to_wedge6_block;
-        cmap[std::make_pair(PROTEUS_WEDGE126, WEDGE6)]  = sswedge_block_to_wedge6_block;
-        cmap[std::make_pair(PROTEUS_WEDGE196, WEDGE6)]  = sswedge_block_to_wedge6_block;
-        cmap[std::make_pair(PROTEUS_WEDGE288, WEDGE6)]  = sswedge_block_to_wedge6_block;
-        cmap[std::make_pair(PROTEUS_WEDGE405, WEDGE6)]  = sswedge_block_to_wedge6_block;
-        cmap[std::make_pair(PROTEUS_WEDGE2601, WEDGE6)] = sswedge_block_to_wedge6_block;
+  return Mesh::with_nodal_distributed(hex_mesh, blocks, nx * ny * nz, n_owned,
+                                      n_shared, n_ghosts, concat_owned,
+                                      concat_aura);
+}
 
-        std::vector<std::shared_ptr<Mesh::Block>> blocks;
-        for (auto &block : mesh->blocks()) {
-            auto new_block = std::make_shared<Mesh::Block>();
-            new_block->set_name(block->name());
-            new_block->set_element_type(element_type);
+static void hex8_to_six_tets(idx_t **hex_src, const ptrdiff_t si,
+                             idx_t **tet_dst, const ptrdiff_t di0) {
+  idx_t hex_one[8];
+  idx_t *hex_ptr[8];
+  idx_t tet_one[4][6];
+  idx_t *tet_ptr[4];
+  for (int v = 0; v < 8; ++v) {
+    hex_one[v] = hex_src[v][si];
+    hex_ptr[v] = &hex_one[v];
+  }
+  for (int v = 0; v < 4; ++v) {
+    tet_ptr[v] = tet_one[v];
+  }
+  mesh_hex8_to_6x_tet4<idx_t>(1, hex_ptr, tet_ptr);
+  for (int k = 0; k < 6; ++k) {
+    for (int v = 0; v < 4; ++v) {
+      tet_dst[v][di0 + k] = tet_ptr[v][k];
+    }
+  }
+}
 
-            if (block->element_type() == element_type) {
-                new_block->set_elements(block->elements());
-            } else {
-                auto it = cmap.find(std::make_pair(block->element_type(), element_type));
-                if (it != cmap.end()) {
-                    it->second(*block, *new_block);
-                } else {
-                    SMESH_ERROR("Conversion from %s to %s is not supported\n",
-                                smesh::type_to_string(block->element_type()),
-                                smesh::type_to_string(element_type));
-                    return nullptr;
-                }
-            }
+std::shared_ptr<Mesh>
+Mesh::split_hex8_tet4_distributed(const std::shared_ptr<Mesh> &hex_mesh,
+                                  const ptrdiff_t n_hex_all) {
+  auto hex_block = hex_mesh->block(0);
+  idx_t **src = hex_block->elements()->data();
+  const ptrdiff_t n_owned = hex_block->n_elements_owned();
+  const ptrdiff_t n_shared = hex_block->n_elements_shared();
+  const ptrdiff_t n_ghosts = hex_block->n_elements_ghosts();
+  const ptrdiff_t n_ons = n_owned - n_shared;
+  const large_idx_t n_hex_keep = static_cast<large_idx_t>(n_hex_all / 2);
+  const large_idx_t *owned_map = hex_block->element_mapping()->data();
+  const large_idx_t *aura_map =
+      (n_ghosts > 0 && hex_block->aura_element_mapping())
+          ? hex_block->aura_element_mapping()->data()
+          : nullptr;
 
-            new_block->inherit_geom_map(block->geom_map());
-            blocks.push_back(new_block);
-        }
+  ptrdiff_t hex_ons = 0, hex_shared = 0, hex_ghosts = 0;
+  ptrdiff_t tet_ons_hex = 0, tet_shared_hex = 0, tet_ghosts_hex = 0;
+  for (ptrdiff_t i = 0; i < n_ons; ++i) {
+    if (owned_map[i] < n_hex_keep) {
+      ++hex_ons;
+    } else {
+      ++tet_ons_hex;
+    }
+  }
+  for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
+    if (owned_map[i] < n_hex_keep) {
+      ++hex_shared;
+    } else {
+      ++tet_shared_hex;
+    }
+  }
+  for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
+    if (aura_map[i] < n_hex_keep) {
+      ++hex_ghosts;
+    } else {
+      ++tet_ghosts_hex;
+    }
+  }
 
-        auto out = std::make_shared<Mesh>(mesh->comm(), blocks, mesh->points());
+  const ptrdiff_t hex_owned_c = hex_ons + hex_shared;
+  const ptrdiff_t tet_ons = tet_ons_hex * 6;
+  const ptrdiff_t tet_shared = tet_shared_hex * 6;
+  const ptrdiff_t tet_ghosts = tet_ghosts_hex * 6;
+  const ptrdiff_t tet_owned_c = tet_ons + tet_shared;
+
+  auto hex_elems = create_host_buffer<idx_t>(
+      8, static_cast<size_t>(hex_owned_c + hex_ghosts));
+  auto hex_emap =
+      create_host_buffer<large_idx_t>(static_cast<size_t>(hex_owned_c));
+  auto hex_amap =
+      create_host_buffer<large_idx_t>(static_cast<size_t>(hex_ghosts));
+  auto tet_elems = create_host_buffer<idx_t>(
+      4, static_cast<size_t>(tet_owned_c + tet_ghosts));
+  auto tet_emap =
+      create_host_buffer<large_idx_t>(static_cast<size_t>(tet_owned_c));
+  auto tet_amap =
+      create_host_buffer<large_idx_t>(static_cast<size_t>(tet_ghosts));
+
+  idx_t **he = hex_elems->data();
+  idx_t **te = tet_elems->data();
+  large_idx_t *hem = hex_owned_c ? hex_emap->data() : nullptr;
+  large_idx_t *ham = hex_ghosts ? hex_amap->data() : nullptr;
+  large_idx_t *tem = tet_owned_c ? tet_emap->data() : nullptr;
+  large_idx_t *tam = tet_ghosts ? tet_amap->data() : nullptr;
+
+  auto tet_gid = [n_hex_keep](const large_idx_t hex_gid,
+                              const int k) -> large_idx_t {
+    return (hex_gid - n_hex_keep) * 6 + k;
+  };
+
+  ptrdiff_t hw = 0, tw = 0;
+  for (ptrdiff_t i = 0; i < n_ons; ++i) {
+    if (owned_map[i] < n_hex_keep) {
+      copy_hex8_element(he, hw, src, i);
+      hem[hw] = owned_map[i];
+      ++hw;
+    } else {
+      hex8_to_six_tets(src, i, te, tw);
+      for (int k = 0; k < 6; ++k) {
+        tem[tw + k] = tet_gid(owned_map[i], k);
+      }
+      tw += 6;
+    }
+  }
+  for (ptrdiff_t i = n_ons; i < n_owned; ++i) {
+    if (owned_map[i] < n_hex_keep) {
+      copy_hex8_element(he, hw, src, i);
+      hem[hw] = owned_map[i];
+      ++hw;
+    } else {
+      hex8_to_six_tets(src, i, te, tw);
+      for (int k = 0; k < 6; ++k) {
+        tem[tw + k] = tet_gid(owned_map[i], k);
+      }
+      tw += 6;
+    }
+  }
+  ptrdiff_t hwa = 0, twa = 0;
+  for (ptrdiff_t i = 0; i < n_ghosts; ++i) {
+    if (aura_map[i] < n_hex_keep) {
+      copy_hex8_element(he, hex_owned_c + hwa, src, n_owned + i);
+      ham[hwa] = aura_map[i];
+      ++hwa;
+    } else {
+      hex8_to_six_tets(src, n_owned + i, te, tet_owned_c + twa);
+      for (int k = 0; k < 6; ++k) {
+        tam[twa + k] = tet_gid(aura_map[i], k);
+      }
+      twa += 6;
+    }
+  }
+
+  auto hex_out = std::make_shared<Mesh::Block>();
+  hex_out->set_name("hex");
+  hex_out->set_element_type(HEX8);
+  hex_out->set_geom_map(AXIS_ALIGNED);
+  hex_out->set_elements(hex_elems);
+  hex_out->set_distributed_elements(hex_owned_c, hex_shared, hex_ghosts,
+                                    hex_emap, hex_amap);
+
+  auto tet_out = std::make_shared<Mesh::Block>();
+  tet_out->set_name("tet");
+  tet_out->set_element_type(TET4);
+  tet_out->set_geom_map(AFFINE);
+  tet_out->set_elements(tet_elems);
+  tet_out->set_distributed_elements(tet_owned_c, tet_shared, tet_ghosts,
+                                    tet_emap, tet_amap);
+
+  std::vector<std::shared_ptr<Mesh::Block>> blocks;
+  blocks.push_back(hex_out);
+  blocks.push_back(tet_out);
+
+  const ptrdiff_t n_hex_keep_g = n_hex_all / 2;
+  const ptrdiff_t n_tet_g = (n_hex_all - n_hex_keep_g) * 6;
+  auto concat_owned = create_host_buffer<large_idx_t>(
+      static_cast<size_t>(hex_owned_c + tet_owned_c));
+  auto concat_aura = create_host_buffer<large_idx_t>(
+      static_cast<size_t>(hex_ghosts + tet_ghosts));
+  if (hex_owned_c && hem) {
+    std::memcpy(concat_owned->data(), hem,
+                static_cast<size_t>(hex_owned_c) * sizeof(large_idx_t));
+  }
+  if (tet_owned_c && tem) {
+    std::memcpy(concat_owned->data() + hex_owned_c, tem,
+                static_cast<size_t>(tet_owned_c) * sizeof(large_idx_t));
+  }
+  if (hex_ghosts && ham) {
+    std::memcpy(concat_aura->data(), ham,
+                static_cast<size_t>(hex_ghosts) * sizeof(large_idx_t));
+  }
+  if (tet_ghosts && tam) {
+    std::memcpy(concat_aura->data() + hex_ghosts, tam,
+                static_cast<size_t>(tet_ghosts) * sizeof(large_idx_t));
+  }
+
+  return Mesh::with_nodal_distributed(
+      hex_mesh, blocks, n_hex_keep_g + n_tet_g, hex_owned_c + tet_owned_c,
+      hex_shared + tet_shared, hex_ghosts + tet_ghosts, concat_owned,
+      concat_aura);
+}
+#endif // SMESH_ENABLE_MPI
+
+std::shared_ptr<Mesh>
+Mesh::create_hex8_cube(const std::shared_ptr<Communicator> &comm,
+                       const ptrdiff_t nx, const ptrdiff_t ny,
+                       const ptrdiff_t nz, const geom_t xmin, const geom_t ymin,
+                       const geom_t zmin, const geom_t xmax, const geom_t ymax,
+                       const geom_t zmax) {
 #ifdef SMESH_ENABLE_MPI
-        if (mesh->is_distributed()) {
-            if (MeshTransformsDistributed::attach_convert_distributed(*mesh, *out) != SMESH_SUCCESS) {
-                return nullptr;
-            }
-        }
+  if (comm && comm->size() > 1) {
+    int nxe = 0, sdim = 0;
+    ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
+    idx_t **elems = nullptr;
+    geom_t **points = nullptr;
+    if (hex8_cube_create_distributed<idx_t, geom_t>(
+            comm->get(), nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax, &nxe,
+            &n_local_e, &n_global_e, &elems, &sdim, &n_local_n, &n_global_n,
+            &points) != SMESH_SUCCESS) {
+      return nullptr;
+    }
+    auto mesh = Mesh::wrap_create_parallel(comm, HEX8, nxe, n_local_e,
+                                           n_global_e, elems, sdim, n_local_n,
+                                           n_global_n, points, AXIS_ALIGNED);
+    return mesh;
+  }
 #endif
-        return out;
-    }
+  auto ret = std::make_shared<Mesh>(comm);
+  const ptrdiff_t nelements = nx * ny * nz;
+  const ptrdiff_t nnodes = (nx + 1) * (ny + 1) * (nz + 1);
 
-    static SharedBuffer<idx_t *> hex27_soa_from_proteus27(const SharedBuffer<idx_t *> &proteus,
-                                                          const ptrdiff_t              n_elements) {
-        auto view = std::make_shared<Buffer<idx_t *>>(
-                27,
-                n_elements,
-                (idx_t **)SMESH_ALLOC(27 * sizeof(idx_t *)),
-                [keep_alive = proteus](int, void **v) {
-                    (void)keep_alive;
-                    SMESH_FREE(v);
-                },
-                proteus->mem_space());
-        idx_t **p = proteus->data();
-        idx_t **h = view->data();
-        for (int z = 0; z <= 2; ++z) {
-            for (int y = 0; y <= 2; ++y) {
-                for (int x = 0; x <= 2; ++x) {
-                    h[hex27_slot(x, y, z)] = p[sshex8_lidx(2, x, y, z)];
-                }
-            }
-        }
-        return view;
-    }
+  ret->impl_->points = create_host_buffer<geom_t>(3, nnodes);
+  auto elements_buffer = create_host_buffer<idx_t>(8, nelements);
 
-    static std::shared_ptr<Mesh> proteus_hex27_as_hex27(const std::shared_ptr<Mesh> &ss) {
-        if (!ss) {
-            return nullptr;
-        }
-        std::vector<std::shared_ptr<Mesh::Block>> blocks;
-        blocks.reserve(ss->n_blocks());
-        for (size_t b = 0; b < ss->n_blocks(); ++b) {
-            auto src = ss->block(b);
-            if (!src || src->n_nodes_per_element() != 27) {
-                SMESH_ERROR("HEX8→HEX27: expected PROTEUS_HEX27 (27-node) SS blocks\n");
-                return nullptr;
-            }
-            auto nb = std::make_shared<Mesh::Block>();
-            nb->set_name(src->name());
-            nb->set_element_type(HEX27);
-            nb->inherit_geom_map(src->geom_map());
-            nb->set_elements(hex27_soa_from_proteus27(src->elements(), src->n_elements()));
-            blocks.push_back(nb);
-        }
-        auto out = std::make_shared<Mesh>(ss->comm(), blocks, ss->points());
+  auto points = ret->impl_->points->data();
+  auto elements = elements_buffer->data();
+
+  mesh_fill_hex8_cube<idx_t, geom_t>(nx, ny, nz, xmin, ymin, zmin, xmax, ymax,
+                                     zmax, elements, points);
+
+  // Create default block
+  auto default_block = std::make_shared<Block>();
+  default_block->set_name("default");
+  default_block->set_element_type(HEX8);
+  default_block->set_elements(elements_buffer);
+  default_block->set_geom_map(AXIS_ALIGNED);
+  ret->add_block(default_block);
+
+  return ret;
+}
+
+std::shared_ptr<Mesh> Mesh::create_semistructured_hex_cube(
+    const std::shared_ptr<Communicator> &comm, const int micro_elements_per_dim,
+    const ptrdiff_t nx, const ptrdiff_t ny, const ptrdiff_t nz,
+    const geom_t xmin, const geom_t ymin, const geom_t zmin, const geom_t xmax,
+    const geom_t ymax, const geom_t zmax) {
 #ifdef SMESH_ENABLE_MPI
-        if (ss->is_distributed()) {
-            MeshTransformsDistributed::clone_distributed(*ss, *out);
-        }
-#endif
-        return out;
+  if (comm && comm->size() > 1) {
+    auto hex =
+        create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
+    if (!hex) {
+      return nullptr;
     }
+    return to_semistructured(micro_elements_per_dim, hex, false, false);
+  }
+#endif
+  auto ret = std::make_shared<Mesh>(comm);
+  const ptrdiff_t nelements = (nx) * (ny) * (nz);
 
-    static int copy_sets_through_promote(const std::shared_ptr<Mesh> &coarse, const std::shared_ptr<Mesh> &fine);
+  const int micro_nodes_per_dim = (micro_elements_per_dim + 1);
+  const ptrdiff_t nnodes = (nx * micro_elements_per_dim + 1) *
+                           (ny * micro_elements_per_dim + 1) *
+                           (nz * micro_elements_per_dim + 1);
 
-    std::shared_ptr<Mesh> promote_to(const enum ElemType element_type, const std::shared_ptr<Mesh> &mesh) {
-        std::map<std::pair<enum ElemType, enum ElemType>, std::function<std::shared_ptr<Mesh>(Mesh &)>> cmap;
+  const int nxme =
+      micro_nodes_per_dim * micro_nodes_per_dim * micro_nodes_per_dim;
+  ret->impl_->points = create_host_buffer<geom_t>(3, nnodes);
+  auto elements = create_host_buffer<idx_t>(nxme, nelements);
 
-        cmap[std::make_pair(TET4, TET15)] = [](Mesh &mesh) -> std::shared_ptr<Mesh> {
-            auto elements                 = create_host_buffer<idx_t>(15, mesh.n_elements(0));
-            auto n2n_upper_triangular     = mesh.node_to_node_graph_upper_triangular();
-            auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
-            auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+  mesh_fill_proteus_hex_cube<idx_t, geom_t>(
+      micro_elements_per_dim, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax,
+      elements->data(), ret->impl_->points->data());
 
-            auto hft       = mesh.half_face_table();
-            auto e2e_table = hft->data();
+  // if (hiearchical_ordering) {
+  semistructured_hierarchical_renumbering(smesh::HEX8, micro_elements_per_dim,
+                                          nnodes, elements, ret->impl_->points,
+                                          false);
+  // }
 
-            ptrdiff_t n_new_nodes = 0;
-            mesh_tet4_to_tet15(mesh.n_elements(0),
-                               mesh.n_nodes(),
-                               mesh.elements(0)->data(),
-                               n2n_upper_triangular_ptr,
-                               n2n_upper_triangular_idx,
-                               e2e_table,
-                               elements->data(),
-                               &n_new_nodes);
+  // Create default block
+  auto default_block = std::make_shared<Block>();
+  default_block->set_name("default");
+  default_block->set_element_type(proteus_hex_type(micro_elements_per_dim));
+  default_block->set_elements(elements);
+  default_block->set_geom_map(AXIS_ALIGNED);
+  ret->add_block(default_block);
 
-            auto points = create_host_buffer<geom_t>(3, n_new_nodes);
-            mesh_tet4_to_tet15_points(mesh.n_elements(0),
-                                      mesh.n_nodes(),
-                                      mesh.points()->data(),
-                                      n2n_upper_triangular_ptr,
-                                      n2n_upper_triangular_idx,
-                                      elements->data(),
+  return ret;
+}
+
+std::shared_ptr<Mesh> Mesh::create_semistructured_quad_square(
+    const std::shared_ptr<Communicator> &comm, const int micro_elements_per_dim,
+    const ptrdiff_t nx, const ptrdiff_t ny, const geom_t xmin,
+    const geom_t ymin, const geom_t xmax, const geom_t ymax) {
+  auto quad = create_quad4_square(comm, nx, ny, xmin, ymin, xmax, ymax);
+  if (!quad) {
+    return nullptr;
+  }
+  return to_semistructured(micro_elements_per_dim, quad, false, false);
+}
+
+std::shared_ptr<Mesh>
+Mesh::create_tri3_square(const std::shared_ptr<Communicator> &comm,
+                         const ptrdiff_t nx, const ptrdiff_t ny,
+                         const geom_t xmin, const geom_t ymin,
+                         const geom_t xmax, const geom_t ymax) {
+#ifdef SMESH_ENABLE_MPI
+  if (comm && comm->size() > 1) {
+    int nxe = 0, sdim = 0;
+    ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
+    idx_t **elems = nullptr;
+    geom_t **points = nullptr;
+    if (tri3_square_create_distributed<idx_t, geom_t>(
+            comm->get(), nx, ny, xmin, ymin, xmax, ymax, &nxe, &n_local_e,
+            &n_global_e, &elems, &sdim, &n_local_n, &n_global_n,
+            &points) != SMESH_SUCCESS) {
+      return nullptr;
+    }
+    auto mesh = Mesh::wrap_create_parallel(comm, TRI3, nxe, n_local_e,
+                                           n_global_e, elems, sdim, n_local_n,
+                                           n_global_n, points, AFFINE);
+    return mesh;
+  }
+#endif
+  auto ret = std::make_shared<Mesh>(comm);
+  const ptrdiff_t nelements = 2 * nx * ny;
+  const ptrdiff_t nnodes = (nx + 1) * (ny + 1);
+
+  ret->impl_->points = create_host_buffer<geom_t>(2, nnodes);
+  auto elements_buffer = create_host_buffer<idx_t>(3, nelements);
+
+  auto points = ret->impl_->points->data();
+  auto elements = elements_buffer->data();
+
+  mesh_fill_tri3_square<idx_t, geom_t>(nx, ny, xmin, ymin, xmax, ymax, elements,
+                                       points);
+
+  // Create default block
+  auto default_block = std::make_shared<Block>();
+  default_block->set_name("default");
+  default_block->set_element_type(TRI3);
+  default_block->set_elements(elements_buffer);
+  default_block->set_geom_map(AFFINE);
+  ret->add_block(default_block);
+
+  return ret;
+}
+
+std::shared_ptr<Mesh>
+Mesh::create_quad4_square(const std::shared_ptr<Communicator> &comm,
+                          const ptrdiff_t nx, const ptrdiff_t ny,
+                          const geom_t xmin, const geom_t ymin,
+                          const geom_t xmax, const geom_t ymax) {
+#ifdef SMESH_ENABLE_MPI
+  if (comm && comm->size() > 1) {
+    int nxe = 0, sdim = 0;
+    ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
+    idx_t **elems = nullptr;
+    geom_t **points = nullptr;
+    if (quad4_square_create_distributed<idx_t, geom_t>(
+            comm->get(), nx, ny, xmin, ymin, xmax, ymax, &nxe, &n_local_e,
+            &n_global_e, &elems, &sdim, &n_local_n, &n_global_n,
+            &points) != SMESH_SUCCESS) {
+      return nullptr;
+    }
+    auto mesh = Mesh::wrap_create_parallel(comm, QUAD4, nxe, n_local_e,
+                                           n_global_e, elems, sdim, n_local_n,
+                                           n_global_n, points, AXIS_ALIGNED);
+    return mesh;
+  }
+#endif
+  auto ret = std::make_shared<Mesh>(comm);
+  const ptrdiff_t nelements = nx * ny;
+  const ptrdiff_t nnodes = (nx + 1) * (ny + 1);
+
+  ret->impl_->points = create_host_buffer<geom_t>(2, nnodes);
+  auto elements_buffer = create_host_buffer<idx_t>(4, nelements);
+
+  auto points = ret->impl_->points->data();
+  auto elements = elements_buffer->data();
+
+  mesh_fill_quad4_square<idx_t, geom_t>(nx, ny, xmin, ymin, xmax, ymax,
+                                        elements, points);
+
+  // Create default block
+  auto default_block = std::make_shared<Block>();
+  default_block->set_name("default");
+  default_block->set_element_type(QUAD4);
+  default_block->set_elements(elements_buffer);
+  default_block->set_geom_map(AXIS_ALIGNED);
+  ret->impl_->blocks.push_back(default_block);
+
+  return ret;
+}
+
+std::shared_ptr<Mesh>
+Mesh::create_square(const std::shared_ptr<Communicator> &comm,
+                    const enum ElemType element_type, const ptrdiff_t nx,
+                    const ptrdiff_t ny, const geom_t xmin, const geom_t ymin,
+                    const geom_t xmax, const geom_t ymax) {
+  switch (element_type) {
+  case QUAD4:
+    return create_quad4_square(comm, nx, ny, xmin, ymin, xmax, ymax);
+  case TRI3:
+    return create_tri3_square(comm, nx, ny, xmin, ymin, xmax, ymax);
+  case TRI6: {
+    auto mesh = create_tri3_square(comm, nx, ny, xmin, ymin, xmax, ymax);
+    return promote_to(TRI6, mesh);
+  }
+  case PROTEUS_QUAD4:
+  case PROTEUS_QUAD9:
+  case PROTEUS_QUAD16:
+  case PROTEUS_QUAD25:
+  case PROTEUS_QUAD36:
+  case PROTEUS_QUAD49:
+  case PROTEUS_QUAD64:
+  case PROTEUS_QUAD81:
+  case PROTEUS_QUAD289:
+    return create_semistructured_quad_square(
+        comm, proteus_quad_micro_elements_per_dim(element_type), nx, ny, xmin,
+        ymin, xmax, ymax);
+  default:
+    SMESH_ERROR("Invalid element type: %d\n", element_type);
+    return nullptr;
+  }
+}
+
+std::shared_ptr<Mesh>
+Mesh::create_quad4_ring(const std::shared_ptr<Communicator> &comm,
+                        const geom_t inner_radius, const geom_t outer_radius,
+                        const ptrdiff_t nlayers, const ptrdiff_t nelements) {
+#ifdef SMESH_ENABLE_MPI
+  if (comm && comm->size() > 1) {
+    int nxe = 0, sdim = 0;
+    ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
+    idx_t **elems = nullptr;
+    geom_t **points = nullptr;
+    if (quad4_ring_create_distributed<idx_t, geom_t>(
+            comm->get(), inner_radius, outer_radius, nlayers, nelements, &nxe,
+            &n_local_e, &n_global_e, &elems, &sdim, &n_local_n, &n_global_n,
+            &points) != SMESH_SUCCESS) {
+      return nullptr;
+    }
+    return Mesh::wrap_create_parallel(comm, QUAD4, nxe, n_local_e, n_global_e,
+                                      elems, sdim, n_local_n, n_global_n,
+                                      points, ISOPARAMETRIC);
+  }
+#endif
+  auto elements = create_host_buffer<idx_t>(4, nlayers * nelements);
+  auto points = create_host_buffer<geom_t>(3, (nlayers + 1) * nelements);
+  mesh_fill_quad4_ring<idx_t, geom_t>(inner_radius, outer_radius, nlayers,
+                                      nelements, elements->data(),
                                       points->data());
 
-            auto out = std::make_shared<Mesh>(mesh.comm(), TET15, elements, points);
-            if (out->n_blocks() > 0) {
-                out->block(0)->set_name(mesh.block(0)->name());
-                out->block(0)->inherit_geom_map(mesh.block(0)->geom_map());
-            }
-            return out;
-        };
+  auto ret = std::make_shared<Mesh>(comm, QUAD4, elements, points);
+  if (ret->n_blocks() > 0) {
+    ret->block(0)->set_geom_map(ISOPARAMETRIC);
+  }
+  return ret;
+}
 
-        auto promote_p1 = [](const enum ElemType dst, Mesh &mesh) -> std::shared_ptr<Mesh> {
-            auto n2n     = mesh.node_to_node_graph_upper_triangular();
-            auto n2n_ptr = n2n->rowptr()->data();
-            auto n2n_idx = n2n->colidx()->data();
+std::shared_ptr<Mesh>
+Mesh::create_half_sphere(const std::shared_ptr<Communicator> &comm,
+                         const enum ElemType element_type, const geom_t radius,
+                         const ptrdiff_t nx, const ptrdiff_t ny,
+                         const ptrdiff_t nz) {
+  SMESH_TRACE_SCOPE("Mesh::create_half_sphere");
+  switch (element_type) {
+  case HEX8:
+    return create_hex8_half_sphere(comm, radius, nx, ny, nz);
+  case TET4:
+    return create_tet4_half_sphere(comm, radius, nx, ny, nz);
+  default:
+    SMESH_ERROR("Invalid element type: %d\n", element_type);
+    return nullptr;
+  }
+}
 
-            const enum ElemType src     = mesh.element_type(0);
-            const int           dst_nxe = elem_num_nodes(dst);
-            const bool          face_center = (dst == QUAD9 || dst == QUADSHELL9);
-
-            ptrdiff_t n_elem_total = 0;
-            for (size_t b = 0; b < mesh.n_blocks(); ++b) {
-                n_elem_total += mesh.n_elements(static_cast<block_idx_t>(b));
-            }
-            const ptrdiff_t extra  = face_center ? n_elem_total : 0;
-            auto            points = create_host_buffer<geom_t>(
-                    mesh.spatial_dimension(), n2n->colidx()->size() + mesh.n_nodes() + extra);
-
-            if (mesh.n_blocks() == 1) {
-                auto elements = create_host_buffer<idx_t>(dst_nxe, mesh.n_elements(0));
-                if (p1_to_p2(src,
-                             mesh.n_elements(0),
-                             mesh.elements(0)->data(),
-                             mesh.spatial_dimension(),
-                             mesh.n_nodes(),
-                             mesh.points()->data(),
-                             n2n_ptr,
-                             n2n_idx,
-                             elements->data(),
-                             points->data(),
-                             0) != SMESH_SUCCESS) {
-                    return nullptr;
-                }
-                auto out = std::make_shared<Mesh>(mesh.comm(), dst, elements, points);
-                if (out->n_blocks() > 0) {
-                    out->block(0)->set_name(mesh.block(0)->name());
-                    out->block(0)->inherit_geom_map(mesh.block(0)->geom_map());
-                }
-                return out;
-            }
-
-            std::vector<std::shared_ptr<Mesh::Block>> blocks;
-            blocks.reserve(mesh.n_blocks());
-            ptrdiff_t offset = 0;
-            for (size_t b = 0; b < mesh.n_blocks(); ++b) {
-                auto block    = mesh.block(b);
-                auto elements = create_host_buffer<idx_t>(dst_nxe, block->n_elements());
-                if (p1_to_p2(src,
-                             block->n_elements(),
-                             block->elements()->data(),
-                             mesh.spatial_dimension(),
-                             mesh.n_nodes(),
-                             mesh.points()->data(),
-                             n2n_ptr,
-                             n2n_idx,
-                             elements->data(),
-                             points->data(),
-                             offset) != SMESH_SUCCESS) {
-                    return nullptr;
-                }
-                offset += block->n_elements();
-                auto new_block = std::make_shared<Mesh::Block>();
-                new_block->set_name(block->name());
-                new_block->set_element_type(dst);
-                new_block->inherit_geom_map(block->geom_map());
-                new_block->set_elements(elements);
-                blocks.push_back(new_block);
-            }
-            return std::make_shared<Mesh>(mesh.comm(), blocks, points);
-        };
-
-        cmap[std::make_pair(TET4, TET10)] = [promote_p1](Mesh &mesh) { return promote_p1(TET10, mesh); };
-        cmap[std::make_pair(TRI3, TRI6)] = [promote_p1](Mesh &mesh) { return promote_p1(TRI6, mesh); };
-        cmap[std::make_pair(TRISHELL3, TRISHELL6)] = [promote_p1](Mesh &mesh) {
-            return promote_p1(TRISHELL6, mesh);
-        };
-        cmap[std::make_pair(QUAD4, QUAD9)] = [promote_p1](Mesh &mesh) { return promote_p1(QUAD9, mesh); };
-        cmap[std::make_pair(QUADSHELL4, QUADSHELL9)] = [promote_p1](Mesh &mesh) {
-            return promote_p1(QUADSHELL9, mesh);
-        };
-
-        auto attach_sets = [&](const std::shared_ptr<Mesh> &out) -> std::shared_ptr<Mesh> {
-            if (!out) {
-                return nullptr;
-            }
-            if (copy_sets_through_promote(mesh, out) != SMESH_SUCCESS) {
-                return nullptr;
-            }
-            return out;
-        };
-
-        for (size_t b = 1; b < mesh->n_blocks(); ++b) {
-            if (mesh->element_type(static_cast<block_idx_t>(b)) != mesh->element_type(0)) {
-                SMESH_ERROR("Promotion requires all blocks to share the same element type\n");
-                return nullptr;
-            }
-        }
-
-        if (element_type == HEX27) {
-            if (mesh->element_type(0) != HEX8) {
-                SMESH_ERROR("Promotion from %s to HEX27 is not supported\n",
-                            type_to_string(mesh->element_type(0)));
-                return nullptr;
-            }
-            auto ss = to_semistructured(2, mesh);
-            return attach_sets(proteus_hex27_as_hex27(ss));
-        }
-
-        auto it = cmap.find(std::make_pair(mesh->element_type(0), element_type));
-        if (it == cmap.end()) {
-            SMESH_ERROR("Promotion from %s to %s is not supported\n",
-                        type_to_string(mesh->element_type(0)),
-                        type_to_string(element_type));
-            return nullptr;
-        }
-
+std::shared_ptr<Mesh>
+Mesh::create_tet4_half_sphere(const std::shared_ptr<Communicator> &comm,
+                              const geom_t radius, const ptrdiff_t nx,
+                              const ptrdiff_t ny, const ptrdiff_t nz) {
 #ifdef SMESH_ENABLE_MPI
-        if (mesh->is_distributed()) {
-            return attach_sets(MeshTransformsDistributed::promote(mesh, element_type));
-        }
+  if (comm && comm->size() > 1) {
+    const ptrdiff_t ncells = nx * ny * nz;
+    const ptrdiff_t nvertices = (nx + 1) * (ny + 1) * (nz + 1);
+    const ptrdiff_t nfaces_x = (nx + 1) * ny * nz;
+    const ptrdiff_t nfaces_y = nx * (ny + 1) * nz;
+    const ptrdiff_t nfaces_z = nx * ny * (nz + 1);
+    const ptrdiff_t faces_x0 = nvertices;
+    const ptrdiff_t faces_y0 = faces_x0 + nfaces_x;
+    const ptrdiff_t faces_z0 = faces_y0 + nfaces_y;
+    const ptrdiff_t cell0 = faces_z0 + nfaces_z;
+    const ptrdiff_t nnodes = cell0 + ncells;
+    const ptrdiff_t nelements = ncells * 24;
+    const int comm_size = comm->size();
+    const int comm_rank = comm->rank();
+    if (nelements < comm_size || nnodes < comm_size) {
+      SMESH_ERROR(
+          "Mesh::create_tet4_half_sphere: mesh too small for communicator\n");
+      return nullptr;
+    }
+
+    const ptrdiff_t e_start = rank_start(nelements, comm_size, comm_rank);
+    const ptrdiff_t n_local_e = rank_split(nelements, comm_size, comm_rank);
+    const ptrdiff_t n_start = rank_start(nnodes, comm_size, comm_rank);
+    const ptrdiff_t n_local_n = rank_split(nnodes, comm_size, comm_rank);
+
+    idx_t **elems = (idx_t **)SMESH_ALLOC(4 * sizeof(idx_t *));
+    for (int d = 0; d < 4; ++d) {
+      elems[d] =
+          (idx_t *)SMESH_ALLOC(static_cast<size_t>(n_local_e) * sizeof(idx_t));
+    }
+    geom_t **points = (geom_t **)SMESH_ALLOC(3 * sizeof(geom_t *));
+    for (int d = 0; d < 3; ++d) {
+      points[d] = (geom_t *)SMESH_ALLOC(static_cast<size_t>(n_local_n) *
+                                        sizeof(geom_t));
+    }
+
+    const ptrdiff_t vertex_ldz = (ny + 1) * (nx + 1);
+    const ptrdiff_t vertex_ldy = nx + 1;
+    auto vertex = [vertex_ldy, vertex_ldz](const ptrdiff_t xi,
+                                           const ptrdiff_t yi,
+                                           const ptrdiff_t zi) {
+      return xi + yi * vertex_ldy + zi * vertex_ldz;
+    };
+    auto face_x = [faces_x0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi,
+                                     const ptrdiff_t zi) {
+      return faces_x0 + zi * ((nx + 1) * ny) + yi * (nx + 1) + xi;
+    };
+    auto face_y = [faces_y0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi,
+                                     const ptrdiff_t zi) {
+      return faces_y0 + zi * (nx * (ny + 1)) + yi * nx + xi;
+    };
+    auto face_z = [faces_z0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi,
+                                     const ptrdiff_t zi) {
+      return faces_z0 + zi * (nx * ny) + yi * nx + xi;
+    };
+    auto cell = [cell0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi,
+                                const ptrdiff_t zi) {
+      return cell0 + zi * (nx * ny) + yi * nx + xi;
+    };
+    static const int face_nodes[6][4] = {{0, 1, 2, 3}, {4, 7, 6, 5},
+                                         {0, 4, 5, 1}, {3, 2, 6, 7},
+                                         {0, 3, 7, 4}, {1, 5, 6, 2}};
+
+    const ptrdiff_t exy = nx * ny;
+    for (ptrdiff_t le = 0; le < n_local_e; ++le) {
+      const ptrdiff_t gt = e_start + le;
+      const ptrdiff_t cell_e = gt / 24;
+      const int t = static_cast<int>(gt - cell_e * 24);
+      const int face_id = t / 4;
+      const int edge = t - face_id * 4;
+      const ptrdiff_t zi = cell_e / exy;
+      const ptrdiff_t rem = cell_e - zi * exy;
+      const ptrdiff_t yi = rem / nx;
+      const ptrdiff_t xi = rem - yi * nx;
+      const idx_t cube_nodes[8] = {(idx_t)vertex(xi, yi, zi),
+                                   (idx_t)vertex(xi + 1, yi, zi),
+                                   (idx_t)vertex(xi + 1, yi + 1, zi),
+                                   (idx_t)vertex(xi, yi + 1, zi),
+                                   (idx_t)vertex(xi, yi, zi + 1),
+                                   (idx_t)vertex(xi + 1, yi, zi + 1),
+                                   (idx_t)vertex(xi + 1, yi + 1, zi + 1),
+                                   (idx_t)vertex(xi, yi + 1, zi + 1)};
+      const idx_t face_centers[6] = {
+          (idx_t)face_z(xi, yi, zi), (idx_t)face_z(xi, yi, zi + 1),
+          (idx_t)face_y(xi, yi, zi), (idx_t)face_y(xi, yi + 1, zi),
+          (idx_t)face_x(xi, yi, zi), (idx_t)face_x(xi + 1, yi, zi)};
+      const int *fn = face_nodes[face_id];
+      elems[0][le] = cube_nodes[fn[edge]];
+      elems[1][le] = cube_nodes[fn[(edge + 1) & 3]];
+      elems[2][le] = face_centers[face_id];
+      elems[3][le] = static_cast<idx_t>(cell(xi, yi, zi));
+    }
+
+    const double inv_nx = 1. / nx;
+    const double inv_ny = 1. / ny;
+    const double inv_nz = 1. / nz;
+    const double r = radius;
+    auto set_point = [points, r](const ptrdiff_t n, const double x,
+                                 const double y, const double z) {
+      const double abs_x = x < 0. ? -x : x;
+      const double abs_y = y < 0. ? -y : y;
+      const double mxy = abs_x > abs_y ? abs_x : abs_y;
+      const double m = mxy > z ? mxy : z;
+      if (m > 0.) {
+        const double inv_m = 1. / m;
+        const double qx = x * inv_m;
+        const double qy = y * inv_m;
+        const double qz = z * inv_m;
+        const double qx2 = qx * qx;
+        const double qy2 = qy * qy;
+        const double qz2 = qz * qz;
+        const double sx = qx * sqrt(1. - (qy2 + qz2) * 0.5 + qy2 * qz2 / 3.);
+        const double sy = qy * sqrt(1. - (qx2 + qz2) * 0.5 + qx2 * qz2 / 3.);
+        const double sz = qz * sqrt(1. - (qx2 + qy2) * 0.5 + qx2 * qy2 / 3.);
+        points[0][n] = static_cast<geom_t>(r * m * sx);
+        points[1][n] = static_cast<geom_t>(r * m * sy);
+        points[2][n] = static_cast<geom_t>(r * m * sz);
+      } else {
+        points[0][n] = 0;
+        points[1][n] = 0;
+        points[2][n] = 0;
+      }
+    };
+
+    for (ptrdiff_t ln = 0; ln < n_local_n; ++ln) {
+      const ptrdiff_t gn = n_start + ln;
+      if (gn < nvertices) {
+        const ptrdiff_t zi = gn / vertex_ldz;
+        const ptrdiff_t rem = gn - zi * vertex_ldz;
+        const ptrdiff_t yi = rem / vertex_ldy;
+        const ptrdiff_t xi = rem - yi * vertex_ldy;
+        set_point(ln, 2. * xi * inv_nx - 1., 2. * yi * inv_ny - 1.,
+                  zi * inv_nz);
+      } else if (gn < faces_y0) {
+        const ptrdiff_t off = gn - faces_x0;
+        const ptrdiff_t zi = off / ((nx + 1) * ny);
+        const ptrdiff_t rem = off - zi * ((nx + 1) * ny);
+        const ptrdiff_t yi = rem / (nx + 1);
+        const ptrdiff_t xi = rem - yi * (nx + 1);
+        set_point(ln, 2. * xi * inv_nx - 1., 2. * (yi + 0.5) * inv_ny - 1.,
+                  (zi + 0.5) * inv_nz);
+      } else if (gn < faces_z0) {
+        const ptrdiff_t off = gn - faces_y0;
+        const ptrdiff_t zi = off / (nx * (ny + 1));
+        const ptrdiff_t rem = off - zi * (nx * (ny + 1));
+        const ptrdiff_t yi = rem / nx;
+        const ptrdiff_t xi = rem - yi * nx;
+        set_point(ln, 2. * (xi + 0.5) * inv_nx - 1., 2. * yi * inv_ny - 1.,
+                  (zi + 0.5) * inv_nz);
+      } else if (gn < cell0) {
+        const ptrdiff_t off = gn - faces_z0;
+        const ptrdiff_t zi = off / (nx * ny);
+        const ptrdiff_t rem = off - zi * (nx * ny);
+        const ptrdiff_t yi = rem / nx;
+        const ptrdiff_t xi = rem - yi * nx;
+        set_point(ln, 2. * (xi + 0.5) * inv_nx - 1.,
+                  2. * (yi + 0.5) * inv_ny - 1., zi * inv_nz);
+      } else {
+        const ptrdiff_t off = gn - cell0;
+        const ptrdiff_t zi = off / exy;
+        const ptrdiff_t rem = off - zi * exy;
+        const ptrdiff_t yi = rem / nx;
+        const ptrdiff_t xi = rem - yi * nx;
+        set_point(ln, 2. * (xi + 0.5) * inv_nx - 1.,
+                  2. * (yi + 0.5) * inv_ny - 1., (zi + 0.5) * inv_nz);
+      }
+    }
+
+    return Mesh::wrap_create_parallel(comm, TET4, 4, n_local_e, nelements,
+                                      elems, 3, n_local_n, nnodes, points,
+                                      AFFINE);
+  }
 #endif
-        if (mesh->comm()->size() > 1) {
-            SMESH_ERROR("Promotion to %s is not supported for distributed meshes\n", type_to_string(element_type));
-            return nullptr;
-        }
+  auto ret = std::make_shared<Mesh>(comm);
 
-        if (mesh->n_blocks() == 1) {
-            return attach_sets(it->second(*mesh));
-        }
+  const ptrdiff_t ncells = nx * ny * nz;
+  const ptrdiff_t nvertices = (nx + 1) * (ny + 1) * (nz + 1);
+  const ptrdiff_t nfaces_x = (nx + 1) * ny * nz;
+  const ptrdiff_t nfaces_y = nx * (ny + 1) * nz;
+  const ptrdiff_t nfaces_z = nx * ny * (nz + 1);
+  const ptrdiff_t faces_x0 = nvertices;
+  const ptrdiff_t faces_y0 = faces_x0 + nfaces_x;
+  const ptrdiff_t faces_z0 = faces_y0 + nfaces_y;
+  const ptrdiff_t cell0 = faces_z0 + nfaces_z;
+  const ptrdiff_t nnodes = cell0 + ncells;
+  const ptrdiff_t nelements = ncells * 24;
+  const ptrdiff_t vertex_ldz = (ny + 1) * (nx + 1);
+  const ptrdiff_t vertex_ldy = nx + 1;
 
-        if (element_type == TET15) {
-            auto n2n_upper_triangular     = mesh->node_to_node_graph_upper_triangular();
-            auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
-            auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+  ret->impl_->points = create_host_buffer<geom_t>(3, nnodes);
+  auto elements_buffer = create_host_buffer<idx_t>(4, nelements);
 
-            std::vector<std::shared_ptr<Mesh::Block>> blocks;
-            blocks.reserve(mesh->n_blocks());
-            SharedBuffer<geom_t *> points;
-            ptrdiff_t              n_new_nodes = 0;
+  auto points = ret->impl_->points->data();
+  auto elements = elements_buffer->data();
 
-            for (size_t b = 0; b < mesh->n_blocks(); ++b) {
-                auto block = mesh->block(static_cast<block_idx_t>(b));
-                auto hft   = mesh->half_face_table(static_cast<block_idx_t>(b));
-                auto elements = create_host_buffer<idx_t>(15, block->n_elements());
+  const double inv_nx = 1. / nx;
+  const double inv_ny = 1. / ny;
+  const double inv_nz = 1. / nz;
+  const double r = radius;
 
-                mesh_tet4_to_tet15(block->n_elements(),
-                                   mesh->n_nodes(),
-                                   block->elements()->data(),
-                                   n2n_upper_triangular_ptr,
-                                   n2n_upper_triangular_idx,
-                                   hft->data(),
-                                   elements->data(),
-                                   b == 0 ? &n_new_nodes : nullptr);
+  auto set_point = [points, r](const ptrdiff_t n, const double x,
+                               const double y, const double z) {
+    const double abs_x = x < 0. ? -x : x;
+    const double abs_y = y < 0. ? -y : y;
+    const double mxy = abs_x > abs_y ? abs_x : abs_y;
+    const double m = mxy > z ? mxy : z;
 
-                if (b == 0) {
-                    points = create_host_buffer<geom_t>(3, n_new_nodes);
-                    mesh_tet4_to_tet15_points(block->n_elements(),
-                                              mesh->n_nodes(),
-                                              mesh->points()->data(),
-                                              n2n_upper_triangular_ptr,
-                                              n2n_upper_triangular_idx,
-                                              elements->data(),
-                                              points->data());
-                }
+    if (m > 0.) {
+      const double inv_m = 1. / m;
+      const double qx = x * inv_m;
+      const double qy = y * inv_m;
+      const double qz = z * inv_m;
+      const double qx2 = qx * qx;
+      const double qy2 = qy * qy;
+      const double qz2 = qz * qz;
 
-                auto new_block = std::make_shared<Mesh::Block>();
-                new_block->set_name(block->name());
-                new_block->set_element_type(TET15);
-                new_block->inherit_geom_map(block->geom_map());
-                new_block->set_elements(elements);
-                blocks.push_back(new_block);
-            }
+      const double sx = qx * sqrt(1. - (qy2 + qz2) * 0.5 + qy2 * qz2 / 3.);
+      const double sy = qy * sqrt(1. - (qx2 + qz2) * 0.5 + qx2 * qz2 / 3.);
+      const double sz = qz * sqrt(1. - (qx2 + qy2) * 0.5 + qx2 * qy2 / 3.);
 
-            return attach_sets(std::make_shared<Mesh>(mesh->comm(), blocks, points));
-        }
-
-        return attach_sets(it->second(*mesh));
+      points[0][n] = (geom_t)(r * m * sx);
+      points[1][n] = (geom_t)(r * m * sy);
+      points[2][n] = (geom_t)(r * m * sz);
+    } else {
+      points[0][n] = 0;
+      points[1][n] = 0;
+      points[2][n] = 0;
     }
+  };
 
-    static int copy_sets_through_promote(const std::shared_ptr<Mesh> &coarse, const std::shared_ptr<Mesh> &fine) {
-        if (!coarse || !fine || coarse.get() == fine.get()) {
-            return SMESH_SUCCESS;
-        }
-        const auto &ss = coarse->sidesets();
-        const auto &es = coarse->edgesets();
-        const auto &ns = coarse->nodesets();
-        const auto &ps = coarse->parametrizations();
-        if (ss.empty() && es.empty() && ns.empty() && ps.empty()) {
-            return SMESH_SUCCESS;
-        }
-        for (size_t i = 0; i < ss.size(); ++i) {
-            auto cloned = clone_sideset(*fine, ss[i].second);
-            if (!cloned) {
-                fprintf(stderr, "promote: failed to clone sideset \"%s\"\n", ss[i].first.c_str());
-                return SMESH_FAILURE;
-            }
-            fine->add_sideset(ss[i].first, cloned);
-        }
-        for (size_t i = 0; i < es.size(); ++i) {
-            auto cloned = clone_edgeset(*fine, es[i].second);
-            if (!cloned) {
-                fprintf(stderr, "promote: failed to clone edgeset \"%s\"\n", es[i].first.c_str());
-                return SMESH_FAILURE;
-            }
-            fine->add_edgeset(es[i].first, cloned);
-        }
-        for (size_t i = 0; i < ns.size(); ++i) {
-            auto mapped = map_nodeset_through_refine(coarse, ns[i].second, fine);
-            if (!mapped) {
-                fprintf(stderr, "promote: failed to remap nodeset \"%s\"\n", ns[i].first.c_str());
-                return SMESH_FAILURE;
-            }
-            fine->add_nodeset(ns[i].first, mapped);
-        }
-        for (size_t i = 0; i < ps.size(); ++i) {
-            fine->add_parametrization(ps[i].first, ps[i].second);
-        }
-        return SMESH_SUCCESS;
+  auto vertex = [vertex_ldy, vertex_ldz](const ptrdiff_t xi, const ptrdiff_t yi,
+                                         const ptrdiff_t zi) {
+    return xi + yi * vertex_ldy + zi * vertex_ldz;
+  };
+
+  auto face_x = [faces_x0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi,
+                                   const ptrdiff_t zi) {
+    return faces_x0 + zi * ((nx + 1) * ny) + yi * (nx + 1) + xi;
+  };
+
+  auto face_y = [faces_y0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi,
+                                   const ptrdiff_t zi) {
+    return faces_y0 + zi * (nx * (ny + 1)) + yi * nx + xi;
+  };
+
+  auto face_z = [faces_z0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi,
+                                   const ptrdiff_t zi) {
+    return faces_z0 + zi * (nx * ny) + yi * nx + xi;
+  };
+
+  auto cell = [cell0, nx, ny](const ptrdiff_t xi, const ptrdiff_t yi,
+                              const ptrdiff_t zi) {
+    return cell0 + zi * (nx * ny) + yi * nx + xi;
+  };
+
+  for (ptrdiff_t zi = 0; zi <= nz; zi++) {
+    const double z = zi * inv_nz;
+    for (ptrdiff_t yi = 0; yi <= ny; yi++) {
+      const double y = 2. * yi * inv_ny - 1.;
+      for (ptrdiff_t xi = 0; xi <= nx; xi++) {
+        const double x = 2. * xi * inv_nx - 1.;
+        set_point(vertex(xi, yi, zi), x, y, z);
+      }
     }
+  }
 
-    static int copy_sidesets_edgesets_through_refine(const std::shared_ptr<Mesh> &coarse,
-                                                     const std::shared_ptr<Mesh> &fine) {
-        if (!coarse || !fine || coarse.get() == fine.get()) {
-            return SMESH_SUCCESS;
-        }
-        const auto &ss = coarse->sidesets();
-        const auto &es = coarse->edgesets();
-        for (size_t i = 0; i < ss.size(); ++i) {
-            auto mapped = map_sideset_through_refine(coarse, ss[i].second, fine);
-            if (!mapped) {
-                fprintf(stderr, "refine: failed to remap sideset \"%s\"\n", ss[i].first.c_str());
-                return SMESH_FAILURE;
-            }
-            fine->add_sideset(ss[i].first, mapped);
-        }
-        for (size_t i = 0; i < es.size(); ++i) {
-            auto mapped = map_edgeset_through_refine(coarse, es[i].second, fine);
-            if (!mapped) {
-                fprintf(stderr, "refine: failed to remap edgeset \"%s\"\n", es[i].first.c_str());
-                return SMESH_FAILURE;
-            }
-            fine->add_edgeset(es[i].first, mapped);
-        }
-        return SMESH_SUCCESS;
+  for (ptrdiff_t zi = 0; zi < nz; zi++) {
+    const double z = (zi + 0.5) * inv_nz;
+    for (ptrdiff_t yi = 0; yi < ny; yi++) {
+      const double y = 2. * (yi + 0.5) * inv_ny - 1.;
+      for (ptrdiff_t xi = 0; xi <= nx; xi++) {
+        const double x = 2. * xi * inv_nx - 1.;
+        set_point(face_x(xi, yi, zi), x, y, z);
+      }
     }
+  }
 
-    static int copy_nodesets_through_refine(const std::shared_ptr<Mesh> &coarse, const std::shared_ptr<Mesh> &fine) {
-        if (!coarse || !fine || coarse.get() == fine.get()) {
-            return SMESH_SUCCESS;
-        }
-        const auto &ns = coarse->nodesets();
-        for (size_t i = 0; i < ns.size(); ++i) {
-            auto mapped = map_nodeset_through_refine(coarse, ns[i].second, fine);
-            if (!mapped) {
-                fprintf(stderr, "refine: failed to remap nodeset \"%s\"\n", ns[i].first.c_str());
-                return SMESH_FAILURE;
-            }
-            fine->add_nodeset(ns[i].first, mapped);
-        }
-        return SMESH_SUCCESS;
+  for (ptrdiff_t zi = 0; zi < nz; zi++) {
+    const double z = (zi + 0.5) * inv_nz;
+    for (ptrdiff_t yi = 0; yi <= ny; yi++) {
+      const double y = 2. * yi * inv_ny - 1.;
+      for (ptrdiff_t xi = 0; xi < nx; xi++) {
+        const double x = 2. * (xi + 0.5) * inv_nx - 1.;
+        set_point(face_y(xi, yi, zi), x, y, z);
+      }
     }
+  }
 
-    static bool refine_is_crs_family(const enum ElemType et) {
-        return et == TET4 || refine_is_tri_family(et) || refine_is_edge_family(et);
+  for (ptrdiff_t zi = 0; zi <= nz; zi++) {
+    const double z = zi * inv_nz;
+    for (ptrdiff_t yi = 0; yi < ny; yi++) {
+      const double y = 2. * (yi + 0.5) * inv_ny - 1.;
+      for (ptrdiff_t xi = 0; xi < nx; xi++) {
+        const double x = 2. * (xi + 0.5) * inv_nx - 1.;
+        set_point(face_z(xi, yi, zi), x, y, z);
+      }
     }
+  }
 
-    std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh, const int levels) {
-        auto finish = [&](const std::shared_ptr<Mesh> &out, const bool nodesets_done) -> std::shared_ptr<Mesh> {
-            if (!out) {
-                return nullptr;
-            }
-            if (copy_sidesets_edgesets_through_refine(mesh, out) != SMESH_SUCCESS) {
-                return nullptr;
-            }
-            if (!nodesets_done && copy_nodesets_through_refine(mesh, out) != SMESH_SUCCESS) {
-                return nullptr;
-            }
-            return out;
-        };
+  for (ptrdiff_t zi = 0; zi < nz; zi++) {
+    const double z = (zi + 0.5) * inv_nz;
+    for (ptrdiff_t yi = 0; yi < ny; yi++) {
+      const double y = 2. * (yi + 0.5) * inv_ny - 1.;
+      for (ptrdiff_t xi = 0; xi < nx; xi++) {
+        const double x = 2. * (xi + 0.5) * inv_nx - 1.;
+        set_point(cell(xi, yi, zi), x, y, z);
+      }
+    }
+  }
 
+  static const int face_nodes[6][4] = {{0, 1, 2, 3}, {4, 7, 6, 5},
+                                       {0, 4, 5, 1}, {3, 2, 6, 7},
+                                       {0, 3, 7, 4}, {1, 5, 6, 2}};
+
+  for (ptrdiff_t zi = 0; zi < nz; zi++) {
+    for (ptrdiff_t yi = 0; yi < ny; yi++) {
+      for (ptrdiff_t xi = 0; xi < nx; xi++) {
+        const idx_t cube_nodes[8] = {(idx_t)vertex(xi, yi, zi),
+                                     (idx_t)vertex(xi + 1, yi, zi),
+                                     (idx_t)vertex(xi + 1, yi + 1, zi),
+                                     (idx_t)vertex(xi, yi + 1, zi),
+                                     (idx_t)vertex(xi, yi, zi + 1),
+                                     (idx_t)vertex(xi + 1, yi, zi + 1),
+                                     (idx_t)vertex(xi + 1, yi + 1, zi + 1),
+                                     (idx_t)vertex(xi, yi + 1, zi + 1)};
+        const idx_t face_centers[6] = {
+            (idx_t)face_z(xi, yi, zi), (idx_t)face_z(xi, yi, zi + 1),
+            (idx_t)face_y(xi, yi, zi), (idx_t)face_y(xi, yi + 1, zi),
+            (idx_t)face_x(xi, yi, zi), (idx_t)face_x(xi + 1, yi, zi)};
+        const idx_t cell_center = (idx_t)cell(xi, yi, zi);
+        const ptrdiff_t base = (zi * ny * nx + yi * nx + xi) * 24;
+
+        for (int face = 0; face < 6; face++) {
+          const int *fn = face_nodes[face];
+          const idx_t face_center = face_centers[face];
+
+          for (int edge = 0; edge < 4; edge++) {
+            const ptrdiff_t t = base + face * 4 + edge;
+            elements[0][t] = cube_nodes[fn[edge]];
+            elements[1][t] = cube_nodes[fn[(edge + 1) & 3]];
+            elements[2][t] = face_center;
+            elements[3][t] = cell_center;
+          }
+        }
+      }
+    }
+  }
+
+  auto default_block = std::make_shared<Block>();
+  default_block->set_name("default");
+  default_block->set_element_type(TET4);
+  default_block->set_elements(elements_buffer);
+  default_block->set_geom_map(AFFINE);
+  ret->add_block(default_block);
+
+  return ret;
+}
+
+std::shared_ptr<Mesh>
+Mesh::create_hex8_half_sphere(const std::shared_ptr<Communicator> &comm,
+                              const geom_t radius, const ptrdiff_t nx,
+                              const ptrdiff_t ny, const ptrdiff_t nz) {
 #ifdef SMESH_ENABLE_MPI
-        if (mesh->is_distributed()) {
-            const RefineTypeSet dtype = refine_scan_mesh(*mesh);
-            if (dtype.all_same && refine_is_crs_family(dtype.et0)) {
-                auto out = mesh;
-                for (int i = 0; i < levels; ++i) {
-                    auto next = MeshTransformsDistributed::refine(out, 1);
-                    if (!next) {
-                        return nullptr;
-                    }
-                    if (copy_nodesets_through_refine(out, next) != SMESH_SUCCESS) {
-                        return nullptr;
-                    }
-                    out = next;
-                }
-                return finish(out, true);
-            }
-            return finish(MeshTransformsDistributed::refine(mesh, levels), false);
-        }
-#else
-        if (mesh->comm()->size() > 1) {
-            SMESH_ERROR("Refinement is not supported for distributed meshes\n");
-            return nullptr;
-        }
+  if (comm && comm->size() > 1) {
+    auto ret = create_hex8_cube(comm, nx, ny, nz, 0, 0, 0, 1, 1, 1);
+    if (!ret) {
+      return nullptr;
+    }
+    auto points = ret->points()->data();
+    const double r = radius;
+    for (ptrdiff_t n = 0; n < ret->n_nodes(); ++n) {
+      const double x = 2. * points[0][n] - 1.;
+      const double y = 2. * points[1][n] - 1.;
+      const double z = points[2][n];
+      const double abs_x = x < 0. ? -x : x;
+      const double abs_y = y < 0. ? -y : y;
+      const double mxy = abs_x > abs_y ? abs_x : abs_y;
+      const double m = mxy > z ? mxy : z;
+      if (m > 0.) {
+        const double inv_m = 1. / m;
+        const double qx = x * inv_m;
+        const double qy = y * inv_m;
+        const double qz = z * inv_m;
+        const double qx2 = qx * qx;
+        const double qy2 = qy * qy;
+        const double qz2 = qz * qz;
+        const double sx = qx * sqrt(1. - (qy2 + qz2) * 0.5 + qy2 * qz2 / 3.);
+        const double sy = qy * sqrt(1. - (qx2 + qz2) * 0.5 + qx2 * qz2 / 3.);
+        const double sz = qz * sqrt(1. - (qx2 + qy2) * 0.5 + qx2 * qy2 / 3.);
+        points[0][n] = static_cast<geom_t>(r * m * sx);
+        points[1][n] = static_cast<geom_t>(r * m * sy);
+        points[2][n] = static_cast<geom_t>(r * m * sz);
+      } else {
+        points[0][n] = 0;
+        points[1][n] = 0;
+        points[2][n] = 0;
+      }
+    }
+    if (ret->n_blocks() > 0) {
+      ret->block(0)->set_geom_map(ISOPARAMETRIC);
+    }
+    return ret;
+  }
 #endif
+  auto ret = std::make_shared<Mesh>(comm);
+  const ptrdiff_t nelements = nx * ny * nz;
+  const ptrdiff_t nnodes = (nx + 1) * (ny + 1) * (nz + 1);
 
-        const RefineTypeSet types = refine_scan_mesh(*mesh);
-        if (!types.all_same) {
-            if (refine_hex_wedge_only(types)) {
-                auto ss = to_semistructured(1 << levels, mesh);
-                if (!ss) {
-                    return nullptr;
-                }
-                return finish(ss_to_linear(ss), false);
-            }
-            if (refine_quad_family_only(types)) {
-                auto ss = to_semistructured(1 << levels, mesh);
-                if (!ss) {
-                    return nullptr;
-                }
-                return finish(ssquad_to_quad4(ss), false);
-            }
-            if (refine_mixed_volume_ss(types)) {
-                // Mixed HEX/TET/WEDGE/PYRAMID or PYRAMID-only: one SS lattice then explode.
-                // PYRAMID SS blocks emit a PYRAMID5 block + a new TET4 block.
-                auto ss = to_semistructured(1 << levels, mesh);
-                if (!ss) {
-                    return nullptr;
-                }
-                return finish(ss_to_linear(ss), false);
-            }
-            if (types.quad && (types.hex || types.wedge)) {
-                refine_print_mixed_hex_quad();
-                return nullptr;
-            }
-            if (!types.all_supported) {
-                refine_print_unsupported(types.first_unsupported);
-                return nullptr;
-            }
-            refine_print_mixed_types(types.et0, types.mixed_block, types.mixed_type);
-            return nullptr;
-        }
-        const enum ElemType et0 = types.et0;
-        if (!refine_type_supported(et0)) {
-            refine_print_unsupported(et0);
-            return nullptr;
-        }
+  ret->impl_->points = create_host_buffer<geom_t>(3, nnodes);
+  auto elements_buffer = create_host_buffer<idx_t>(8, nelements);
 
-        const int refine_factor = refine_edge_midpoint_factor(et0);
+  auto points = ret->impl_->points->data();
+  auto elements = elements_buffer->data();
 
-        if (mesh->n_blocks() > 1 &&
-            (et0 == TET4 || refine_is_tri_family(et0) || refine_is_edge_family(et0))) {
-            auto out = mesh;
-            for (int i = 0; i < levels; ++i) {
-                auto n2n_upper_triangular     = out->node_to_node_graph_upper_triangular();
-                auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
-                auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+  const ptrdiff_t ldz = (ny + 1) * (nx + 1);
+  const ptrdiff_t ldy = nx + 1;
 
-                auto refined_points = create_host_buffer<geom_t>(
-                    out->spatial_dimension(),
-                    n2n_upper_triangular->colidx()->size() + out->n_nodes());
+  for (ptrdiff_t zi = 0; zi < nz; zi++) {
+    for (ptrdiff_t yi = 0; yi < ny; yi++) {
+      for (ptrdiff_t xi = 0; xi < nx; xi++) {
+        const ptrdiff_t e = zi * (ny * nx) + yi * nx + xi;
 
-                std::vector<std::shared_ptr<Mesh::Block>> blocks;
-                blocks.reserve(out->n_blocks());
+        const idx_t i0 = xi + yi * ldy + zi * ldz;
+        const idx_t i1 = i0 + 1;
+        const idx_t i3 = i0 + ldy;
+        const idx_t i2 = i3 + 1;
+        const idx_t i4 = i0 + ldz;
+        const idx_t i5 = i1 + ldz;
+        const idx_t i7 = i3 + ldz;
+        const idx_t i6 = i2 + ldz;
 
-                for (size_t b = 0; b < out->n_blocks(); ++b) {
-                    auto block = out->block(static_cast<block_idx_t>(b));
-                    auto refined_elements = create_host_buffer<idx_t>(
-                        block->n_nodes_per_element(), block->n_elements() * refine_factor);
+        elements[0][e] = i0;
+        elements[1][e] = i1;
+        elements[2][e] = i2;
+        elements[3][e] = i3;
+        elements[4][e] = i4;
+        elements[5][e] = i5;
+        elements[6][e] = i6;
+        elements[7][e] = i7;
+      }
+    }
+  }
 
-                    int err = mesh_refine(block->element_type(),
-                                          block->n_elements(),
-                                          block->elements()->data(),
-                                          out->spatial_dimension(),
-                                          out->n_nodes(),
-                                          out->points()->data(),
-                                          n2n_upper_triangular_ptr,
-                                          n2n_upper_triangular_idx,
-                                          refined_elements->data(),
-                                          refined_points->data());
+  const double inv_nx = 1. / nx;
+  const double inv_ny = 1. / ny;
+  const double inv_nz = 1. / nz;
+  const double r = radius;
 
-                    if (err != SMESH_SUCCESS) {
-                        SMESH_ERROR("Multiblock refinement failed\n");
-                        return nullptr;
-                    }
+  for (ptrdiff_t zi = 0; zi <= nz; zi++) {
+    const double z = zi * inv_nz;
+    for (ptrdiff_t yi = 0; yi <= ny; yi++) {
+      const double y = 2. * yi * inv_ny - 1.;
+      const double abs_y = y < 0. ? -y : y;
+      for (ptrdiff_t xi = 0; xi <= nx; xi++) {
+        const double x = 2. * xi * inv_nx - 1.;
+        const double abs_x = x < 0. ? -x : x;
+        const double mxy = abs_x > abs_y ? abs_x : abs_y;
+        const double m = mxy > z ? mxy : z;
+        const ptrdiff_t n = xi + yi * ldy + zi * ldz;
 
-                    auto new_block = std::make_shared<Mesh::Block>();
-                    new_block->set_name(block->name());
-                    new_block->set_element_type(block->element_type());
-                    new_block->inherit_geom_map(block->geom_map());
-                    new_block->set_elements(refined_elements);
-                    blocks.push_back(new_block);
-                }
+        if (m > 0.) {
+          const double inv_m = 1. / m;
+          const double qx = x * inv_m;
+          const double qy = y * inv_m;
+          const double qz = z * inv_m;
+          const double qx2 = qx * qx;
+          const double qy2 = qy * qy;
+          const double qz2 = qz * qz;
 
-                auto next = std::make_shared<Mesh>(out->comm(), blocks, refined_points);
-                if (copy_nodesets_through_refine(out, next) != SMESH_SUCCESS) {
-                    return nullptr;
-                }
-                out = next;
-            }
-            return finish(out, true);
-        }
+          const double sx = qx * sqrt(1. - (qy2 + qz2) * 0.5 + qy2 * qz2 / 3.);
+          const double sy = qy * sqrt(1. - (qx2 + qz2) * 0.5 + qx2 * qz2 / 3.);
+          const double sz = qz * sqrt(1. - (qx2 + qy2) * 0.5 + qx2 * qy2 / 3.);
 
-        if (mesh->n_blocks() > 1 && mesh->element_type(0) == HEX8) {
-            auto ss = to_semistructured(1 << levels, mesh);
-            if (!ss) {
-                return nullptr;
-            }
-            return finish(sshex_to_hex8(ss), false);
-        }
-
-        if (et0 == QUAD4 || et0 == QUADSHELL4) {
-            auto ss = to_semistructured(1 << levels, mesh);
-            if (!ss) {
-                return nullptr;
-            }
-            return finish(ssquad_to_quad4(ss), false);
-        }
-
-        if (et0 == WEDGE6) {
-            auto ss = to_semistructured(1 << levels, mesh);
-            if (!ss) {
-                return nullptr;
-            }
-            return finish(sswedge_to_wedge6(ss), false);
-        }
-
-        if (et0 == PYRAMID5) {
-            // Same-type PYRAMID: use SS lattice + explode.
-            // Output: PYRAMID5 block + TET4 block (if L >= 2).
-            auto ss = to_semistructured(1 << levels, mesh);
-            if (!ss) {
-                return nullptr;
-            }
-            return finish(ss_to_linear(ss), false);
-        }
-
-        auto out = mesh;
-        if (mesh->element_type(0) == HEX8) {
-            const ptrdiff_t n_elements = mesh->n_elements(0);
-
-            const int ss_levels = pow(2, levels);
-            const int nxe       = sshex8_nxe(ss_levels);
-            const int txe       = sshex8_txe(ss_levels);
-
-            auto sshex8_elements   = create_host_buffer<idx_t>(nxe, mesh->n_elements(0));
-            auto d_sshex8_elements = sshex8_elements->data();
-
-            ptrdiff_t n_unique_nodes = 0;
-            ptrdiff_t interior_start = 0;
-
-            sshex8_generate_elements(ss_levels,
-                                     n_elements,
-                                     mesh->n_nodes(),
-                                     mesh->elements(0)->data(),
-                                     d_sshex8_elements,
-                                     &n_unique_nodes,
-                                     &interior_start);
-
-            ptrdiff_t n_micro_elements = n_elements * txe;
-            auto      hex8_elements    = create_host_buffer<idx_t>(8, n_micro_elements);
-            auto      d_hex8_elements  = hex8_elements->data();
-
-            sshex8_to_standard_hex8_mesh(ss_levels, n_elements, d_sshex8_elements, d_hex8_elements);
-
-            auto hex8_points   = create_host_buffer<geom_t>(3, n_unique_nodes);
-            auto d_hex8_points = hex8_points->data();
-
-            sshex8_fill_points(ss_levels, n_elements, d_sshex8_elements, mesh->points()->data(), d_hex8_points);
-            out = std::make_shared<Mesh>(mesh->comm(), HEX8, hex8_elements, hex8_points);
-
+          points[0][n] = (geom_t)(r * m * sx);
+          points[1][n] = (geom_t)(r * m * sy);
+          points[2][n] = (geom_t)(r * m * sz);
         } else {
-            for (int i = 0; i < levels; i++) {
-                auto n2n_upper_triangular     = out->node_to_node_graph_upper_triangular();
-                auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
-                auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
-
-                auto refined_elements =
-                        create_host_buffer<idx_t>(out->n_nodes_per_element(0), out->n_elements(0) * refine_factor);
-
-                auto refined_points = create_host_buffer<geom_t>(out->spatial_dimension(),
-                                                                 n2n_upper_triangular->colidx()->size() + out->n_nodes());
-
-                int err = mesh_refine(out->element_type(0),
-                                      out->n_elements(0),
-                                      out->elements(0)->data(),
-                                      out->spatial_dimension(),
-                                      out->n_nodes(),
-                                      out->points()->data(),
-                                      n2n_upper_triangular_ptr,
-                                      n2n_upper_triangular_idx,
-                                      refined_elements->data(),
-                                      refined_points->data());
-
-                if (err != SMESH_SUCCESS) {
-                    SMESH_ERROR("Refinement failed\n");
-                    return nullptr;
-                }
-
-                auto next = std::make_shared<Mesh>(out->comm(), out->element_type(0), refined_elements, refined_points);
-                if (copy_nodesets_through_refine(out, next) != SMESH_SUCCESS) {
-                    return nullptr;
-                }
-                out = next;
-            }
+          points[0][n] = 0;
+          points[1][n] = 0;
+          points[2][n] = 0;
         }
-
-        const bool crs_nodesets = mesh->element_type(0) != HEX8;
-        return finish(out, crs_nodesets);
+      }
     }
+  }
+
+  auto default_block = std::make_shared<Block>();
+  default_block->set_name("default");
+  default_block->set_element_type(HEX8);
+  default_block->set_elements(elements_buffer);
+  default_block->set_geom_map(ISOPARAMETRIC);
+  ret->add_block(default_block);
+
+  return ret;
+}
+
+std::shared_ptr<Mesh> Mesh::create_hex8_checkerboard_cube(
+    const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx,
+    const ptrdiff_t ny, const ptrdiff_t nz, const geom_t xmin,
+    const geom_t ymin, const geom_t zmin, const geom_t xmax, const geom_t ymax,
+    const geom_t zmax) {
+  if (nx % 2 != 0 || ny % 2 != 0 || nz % 2 != 0) {
+    SMESH_ERROR("nx, ny, and nz must be even");
+  }
 
 #ifdef SMESH_ENABLE_MPI
-    static int filter_distributed_skin_sides(const std::shared_ptr<Communicator> &comm,
-                                             const ptrdiff_t                      n_owned_elements,
-                                             const ptrdiff_t                      n_shared_elements,
-                                             const ptrdiff_t                      n_owned_not_shared,
-                                             const ptrdiff_t                      n_aura_elements,
-                                             const large_idx_t                   *element_mapping,
-                                             const large_idx_t                   *aura_element_mapping,
-                                             ptrdiff_t                           *n_surf_elements,
-                                             element_idx_t                       *parent_element,
-                                             i16                                 *side_idx) {
-        large_idx_t n_global = 0;
-        if (element_mapping) {
-            for (ptrdiff_t i = 0; i < n_owned_elements; ++i) {
-                n_global = std::max(n_global, element_mapping[i] + 1);
-            }
-        }
-        if (aura_element_mapping) {
-            for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
-                n_global = std::max(n_global, aura_element_mapping[i] + 1);
-            }
-        }
-        n_global = comm->max(n_global);
-
-        const int comm_size = comm->size();
-        const int rank      = comm->rank();
-
-        std::vector<element_idx_t> owned_global_to_local(static_cast<size_t>(n_global),
-                                                         invalid_idx<element_idx_t>());
-        std::vector<int>           owner(static_cast<size_t>(n_global), -1);
-        for (ptrdiff_t i = 0; i < n_owned_elements; ++i) {
-            const large_idx_t gid = element_mapping[i];
-            owned_global_to_local[static_cast<size_t>(gid)] = static_cast<element_idx_t>(i);
-            owner[static_cast<size_t>(gid)]                 = rank;
-        }
-        if (n_global > 0) {
-            SMESH_MPI_CATCH(MPI_Allreduce(MPI_IN_PLACE,
-                                          owner.data(),
-                                          static_cast<int>(n_global),
-                                          MPI_INT,
-                                          MPI_MAX,
-                                          comm->get()));
-        }
-
-        u8 *shared_face_mask = nullptr;
-        if (n_shared_elements > 0) {
-            shared_face_mask = (u8 *)SMESH_CALLOC((size_t)n_shared_elements, sizeof(u8));
-        }
-
-        u8 *aura_face_mask = nullptr;
-        if (n_aura_elements > 0) {
-            aura_face_mask = (u8 *)SMESH_CALLOC((size_t)n_aura_elements, sizeof(u8));
-        }
-
-        for (ptrdiff_t i = 0; i < *n_surf_elements; ++i) {
-            const element_idx_t parent    = parent_element[i];
-            const u8            side_mask = static_cast<u8>(1u << side_idx[i]);
-            if (parent < n_owned_elements) {
-                if (parent >= n_owned_not_shared) {
-                    shared_face_mask[parent - n_owned_not_shared] |= side_mask;
-                }
-            } else {
-                aura_face_mask[parent - n_owned_elements] |= side_mask;
-            }
-        }
-
-        {
-            i64 *send_count  = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
-            i64 *send_displs = (i64 *)SMESH_CALLOC((size_t)comm_size + 1, sizeof(i64));
-
-            for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
-                const int dest = owner[static_cast<size_t>(aura_element_mapping[i])];
-                if (dest >= 0 && dest < comm_size) {
-                    send_displs[dest + 1]++;
-                }
-            }
-            for (int r = 0; r < comm_size; ++r) {
-                send_displs[r + 1] += send_displs[r];
-            }
-
-            auto send_global_ids =
-                    (large_idx_t *)SMESH_ALLOC((size_t)send_displs[comm_size] * sizeof(large_idx_t));
-            auto send_face_mask = (u8 *)SMESH_ALLOC((size_t)send_displs[comm_size] * sizeof(u8));
-
-            memset(send_count, 0, (size_t)comm_size * sizeof(i64));
-            for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
-                const large_idx_t global_id = aura_element_mapping[i];
-                const int         dest      = owner[static_cast<size_t>(global_id)];
-                if (dest < 0 || dest >= comm_size) {
-                    continue;
-                }
-                const i64 pos        = send_displs[dest] + send_count[dest]++;
-                send_global_ids[pos] = global_id;
-                send_face_mask[pos]  = aura_face_mask[i];
-            }
-
-            i64 *recv_count  = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
-            i64 *recv_displs = (i64 *)SMESH_ALLOC(((size_t)comm_size + 1) * sizeof(i64));
-            SMESH_MPI_CATCH(
-                    MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1, mpi_type<i64>(), comm->get()));
-
-            recv_displs[0] = 0;
-            for (int r = 0; r < comm_size; ++r) {
-                recv_displs[r + 1] = recv_displs[r] + recv_count[r];
-            }
-
-            auto      recv_global_ids = (large_idx_t *)SMESH_ALLOC((size_t)recv_displs[comm_size] * sizeof(large_idx_t));
-            auto      recv_face_mask  = (u8 *)SMESH_ALLOC((size_t)recv_displs[comm_size] * sizeof(u8));
-            const i64 max_chunk_size  = (i64)std::numeric_limits<i32>::max() / comm_size;
-
-            SMESH_MPI_CATCH(all_to_allv_64(send_global_ids,
-                                           send_count,
-                                           send_displs,
-                                           recv_global_ids,
-                                           recv_count,
-                                           recv_displs,
-                                           comm->get(),
-                                           max_chunk_size));
-            SMESH_MPI_CATCH(all_to_allv_64(send_face_mask,
-                                           send_count,
-                                           send_displs,
-                                           recv_face_mask,
-                                           recv_count,
-                                           recv_displs,
-                                           comm->get(),
-                                           max_chunk_size));
-
-            for (i64 i = 0; i < recv_displs[comm_size]; ++i) {
-                const large_idx_t gid = recv_global_ids[i];
-                if (gid < 0 || gid >= n_global) {
-                    continue;
-                }
-                const element_idx_t local_element = owned_global_to_local[static_cast<size_t>(gid)];
-                if (local_element == invalid_idx<element_idx_t>() || local_element < n_owned_not_shared ||
-                    local_element >= n_owned_elements) {
-                    continue;
-                }
-                shared_face_mask[local_element - n_owned_not_shared] &= recv_face_mask[i];
-            }
-
-            SMESH_FREE(send_count);
-            SMESH_FREE(send_displs);
-            SMESH_FREE(send_global_ids);
-            SMESH_FREE(send_face_mask);
-            SMESH_FREE(recv_count);
-            SMESH_FREE(recv_displs);
-            SMESH_FREE(recv_global_ids);
-            SMESH_FREE(recv_face_mask);
-        }
-
-        ptrdiff_t write_pos = 0;
-        for (ptrdiff_t i = 0; i < *n_surf_elements; ++i) {
-            const element_idx_t parent = parent_element[i];
-            if (parent >= n_owned_elements) {
-                continue;
-            }
-            if (parent >= n_owned_not_shared) {
-                const u8 side_mask = static_cast<u8>(1u << side_idx[i]);
-                if ((shared_face_mask[parent - n_owned_not_shared] & side_mask) == 0) {
-                    continue;
-                }
-            }
-            parent_element[write_pos] = parent;
-            side_idx[write_pos]       = side_idx[i];
-            ++write_pos;
-        }
-        *n_surf_elements = write_pos;
-
-        SMESH_FREE(shared_face_mask);
-        SMESH_FREE(aura_face_mask);
-        return SMESH_SUCCESS;
+  if (comm && comm->size() > 1) {
+    auto hex =
+        create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
+    if (!hex) {
+      return nullptr;
     }
+    return Mesh::split_hex8_checkerboard_distributed(hex, nx, ny);
+  }
 #endif
 
-    static std::shared_ptr<Sideset> skin_sideset_for_block(const std::shared_ptr<Mesh> &mesh, const block_idx_t block_id);
+  auto ret = std::make_shared<Mesh>(comm);
+  const ptrdiff_t nelements = nx * ny * nz;
+  const ptrdiff_t nnodes = (nx + 1) * (ny + 1) * (nz + 1);
 
-    std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
-        SMESH_TRACE_SCOPE("skin_sideset");
-        if (mesh->n_blocks() != 1) {
-            auto skins = skin_sidesets(mesh);
-            std::shared_ptr<Sideset> kept;
-            int                      n_nonempty = 0;
-            for (const auto &ss : skins) {
-                if (ss && ss->size() > 0) {
-                    ++n_nonempty;
-                    kept = ss;
-                }
-            }
-            if (n_nonempty <= 1) {
-                if (kept) {
-                    return kept;
-                }
-                return skin_sideset_for_block(mesh, 0);
-            }
-            SMESH_ERROR("skin_sideset: %d non-empty per-block skins on a %zu-block mesh; use skin_sidesets()\n",
-                        n_nonempty,
-                        mesh->n_blocks());
-            return nullptr;
+  ret->set_points(create_host_buffer<geom_t>(3, nnodes));
+  auto white_elements_buffer = create_host_buffer<idx_t>(8, nelements / 2);
+  auto black_elements_buffer = create_host_buffer<idx_t>(8, nelements / 2);
+
+  auto points = ret->points()->data();
+  auto white_elements = white_elements_buffer->data();
+  auto black_elements = black_elements_buffer->data();
+
+  mesh_fill_hex8_checkerboard_cube<idx_t, geom_t>(
+      nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax, white_elements,
+      black_elements, points);
+  // Create white and black blocks
+  auto white_block = std::make_shared<Block>();
+  white_block->set_name("white");
+  white_block->set_element_type(HEX8);
+  white_block->set_elements(white_elements_buffer);
+  white_block->set_geom_map(AXIS_ALIGNED);
+  ret->add_block(white_block);
+
+  auto black_block = std::make_shared<Block>();
+  black_block->set_name("black");
+  black_block->set_element_type(HEX8);
+  black_block->set_elements(black_elements_buffer);
+  black_block->set_geom_map(AXIS_ALIGNED);
+  ret->add_block(black_block);
+  return ret;
+}
+
+std::shared_ptr<Mesh> Mesh::create_hex8_tet4_cube(
+    const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx,
+    const ptrdiff_t ny, const ptrdiff_t nz, const geom_t xmin,
+    const geom_t ymin, const geom_t zmin, const geom_t xmax, const geom_t ymax,
+    const geom_t zmax) {
+#ifdef SMESH_ENABLE_MPI
+  if (comm && comm->size() > 1) {
+    auto hex =
+        create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
+    if (!hex) {
+      return nullptr;
+    }
+    return Mesh::split_hex8_tet4_distributed(hex, nx * ny * nz);
+  }
+#endif
+  auto cube =
+      create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
+  const ptrdiff_t n_hex_all = cube->n_elements();
+  const ptrdiff_t n_hex_keep = n_hex_all / 2;
+  const ptrdiff_t n_hex_conv = n_hex_all - n_hex_keep;
+  auto hex_src = cube->elements(0)->data();
+  auto hex_keep = create_host_buffer<idx_t>(8, static_cast<size_t>(n_hex_keep));
+  for (int d = 0; d < 8; ++d) {
+    std::memcpy(hex_keep->data()[d], hex_src[d],
+                static_cast<size_t>(n_hex_keep) * sizeof(idx_t));
+  }
+  idx_t *hex_tail[8];
+  for (int d = 0; d < 8; ++d) {
+    hex_tail[d] = hex_src[d] + n_hex_keep;
+  }
+  auto tet_buf =
+      create_host_buffer<idx_t>(4, static_cast<size_t>(n_hex_conv * 6));
+  mesh_hex8_to_6x_tet4<idx_t>(n_hex_conv, hex_tail, tet_buf->data());
+  std::vector<std::shared_ptr<Block>> blocks;
+  blocks.push_back(std::make_shared<Block>("hex", HEX8, hex_keep));
+  blocks.back()->set_geom_map(AXIS_ALIGNED);
+  blocks.push_back(std::make_shared<Block>("tet", TET4, tet_buf));
+  blocks.back()->set_geom_map(AFFINE);
+  return std::make_shared<Mesh>(comm, blocks, cube->points());
+}
+
+std::shared_ptr<Mesh> Mesh::create_hex8_bidomain_cube(
+    const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx,
+    const ptrdiff_t ny, const ptrdiff_t nz, const geom_t xmin,
+    const geom_t ymin, const geom_t zmin, const geom_t xmax, const geom_t ymax,
+    const geom_t zmax) {
+#ifdef SMESH_ENABLE_MPI
+  if (comm && comm->size() > 1) {
+    auto hex =
+        create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
+    if (!hex) {
+      return nullptr;
+    }
+    return Mesh::split_hex8_bidomain_distributed(hex, nx, ny, nz, nx / 2);
+  }
+#endif
+  auto ret = std::make_shared<Mesh>(comm);
+  const ptrdiff_t nelements = nx * ny * nz;
+  const ptrdiff_t nnodes = (nx + 1) * (ny + 1) * (nz + 1);
+
+  ret->set_points(create_host_buffer<geom_t>(3, nnodes));
+  auto left_elements_buffer = create_host_buffer<idx_t>(8, nelements / 2);
+  auto right_elements_buffer = create_host_buffer<idx_t>(8, nelements / 2);
+
+  auto points = ret->points()->data();
+  auto left_elements = left_elements_buffer->data();
+  auto right_elements = right_elements_buffer->data();
+
+  mesh_fill_hex8_bidomain_cube<idx_t, geom_t>(
+      nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax, 0, nx / 2, left_elements,
+      right_elements, points);
+
+  // Create left and right blocks
+  auto left_block = std::make_shared<Block>();
+  left_block->set_name("left");
+  left_block->set_element_type(HEX8);
+  left_block->set_elements(left_elements_buffer);
+  left_block->set_geom_map(AXIS_ALIGNED);
+  ret->add_block(left_block);
+
+  auto right_block = std::make_shared<Block>();
+  right_block->set_name("right");
+  right_block->set_element_type(HEX8);
+  right_block->set_elements(right_elements_buffer);
+  right_block->set_geom_map(AXIS_ALIGNED);
+  ret->add_block(right_block);
+
+  return ret;
+}
+
+std::shared_ptr<Mesh>
+Mesh::create_hex_dominant_serial(const std::shared_ptr<Communicator> &comm) {
+  constexpr ptrdiff_t n_nodes = 12;
+  auto points_buf = create_host_buffer<geom_t>(3, n_nodes);
+  auto points = points_buf->data();
+
+  const geom_t coords[12][3] = {
+      {0, 0, 0},       {1, 0, 0},          {1, 1, 0},      {0, 1, 0},
+      {0, 0, 1},       {1, 0, 1},          {1, 1, 1},      {0, 1, 1},
+      {1.5, 0.5, 0.5}, {1.25, 0.25, -0.5}, {0.5, -0.5, 0}, {0.5, -0.5, 1},
+  };
+  for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+    points[0][i] = coords[i][0];
+    points[1][i] = coords[i][1];
+    points[2][i] = coords[i][2];
+  }
+
+  auto hex_buf = create_host_buffer<idx_t>(8, 1);
+  for (int d = 0; d < 8; ++d) {
+    hex_buf->data()[d][0] = static_cast<idx_t>(d);
+  }
+
+  // HEX face 1 is {1,2,6,5}; pyramid base matches that node set.
+  auto pyr_buf = create_host_buffer<idx_t>(5, 1);
+  const idx_t pyr_nodes[5] = {1, 2, 6, 5, 8};
+  for (int d = 0; d < 5; ++d) {
+    pyr_buf->data()[d][0] = pyr_nodes[d];
+  }
+
+  // Pyramid side 0 is {1,2,8}; tet uses that face plus node 9.
+  auto tet_buf = create_host_buffer<idx_t>(4, 1);
+  const idx_t tet_nodes[4] = {1, 2, 8, 9};
+  for (int d = 0; d < 4; ++d) {
+    tet_buf->data()[d][0] = tet_nodes[d];
+  }
+
+  // HEX face 0 is {0,1,5,4}; wedge quad 0 is {0,1,4,3} → nodes 0,1,5,4.
+  auto wedge_buf = create_host_buffer<idx_t>(6, 1);
+  const idx_t wedge_nodes[6] = {0, 1, 10, 4, 5, 11};
+  for (int d = 0; d < 6; ++d) {
+    wedge_buf->data()[d][0] = wedge_nodes[d];
+  }
+
+  std::vector<std::shared_ptr<Block>> blocks;
+  blocks.push_back(std::make_shared<Block>("hex", HEX8, hex_buf));
+  blocks.back()->set_geom_map(AXIS_ALIGNED);
+  blocks.push_back(std::make_shared<Block>("pyramid", PYRAMID5, pyr_buf));
+  blocks.back()->set_geom_map(ISOPARAMETRIC);
+  blocks.push_back(std::make_shared<Block>("tet", TET4, tet_buf));
+  blocks.back()->set_geom_map(AFFINE);
+  blocks.push_back(std::make_shared<Block>("wedge", WEDGE6, wedge_buf));
+  blocks.back()->set_geom_map(AFFINE);
+  return std::make_shared<Mesh>(comm, blocks, points_buf);
+}
+
+int Mesh::spatial_dimension() const { return points()->extent(0); }
+
+ptrdiff_t Mesh::n_nodes() const { return points()->extent(1); }
+ptrdiff_t Mesh::n_elements() const { return impl_->total_elements(); }
+
+int Mesh::n_nodes_per_element(block_idx_t block_id) const {
+  auto blk = this->block(block_id);
+  SMESH_ASSERT(blk);
+  return blk->n_nodes_per_element();
+}
+
+ptrdiff_t Mesh::n_elements(block_idx_t block_id) const {
+  auto blk = this->block(block_id);
+  SMESH_ASSERT(blk);
+  return blk->n_elements();
+}
+
+enum ElemType Mesh::element_type(block_idx_t block_id) const {
+  auto blk = this->block(block_id);
+  SMESH_ASSERT(blk);
+  return blk->element_type();
+}
+
+enum GeomMap Mesh::geom_map(block_idx_t block_id) const {
+  auto blk = this->block(block_id);
+  SMESH_ASSERT(blk);
+  return blk->geom_map();
+}
+
+SharedBuffer<geom_t *> Mesh::points() { return impl_->points; }
+SharedBuffer<geom_t *> Mesh::points() const { return impl_->points; }
+
+void Mesh::set_points(const SharedBuffer<geom_t *> &points) {
+  impl_->points = points;
+}
+
+SharedBuffer<idx_t *> Mesh::elements(block_idx_t block_id) {
+  auto blk = this->block(block_id);
+  SMESH_ASSERT(blk);
+  return blk->elements();
+}
+
+SharedBuffer<idx_t *> Mesh::elements(block_idx_t block_id) const {
+  auto blk = this->block(block_id);
+  SMESH_ASSERT(blk);
+  return blk->elements();
+}
+
+void Mesh::set_node_mapping(const SharedBuffer<idx_t> &node_mapping) {
+  impl_->node_mapping = node_mapping;
+}
+
+void Mesh::set_comm(const std::shared_ptr<Communicator> &comm) {
+  impl_->comm = comm;
+}
+
+void Mesh::set_element_type(const block_idx_t block_id,
+                            const enum ElemType element_type) {
+  auto blk = this->block(block_id);
+  SMESH_ASSERT(blk);
+  blk->set_element_type(element_type);
+}
+
+int Mesh::set_geom_map(const block_idx_t block_id,
+                       const enum GeomMap geom_map) {
+  auto blk = this->block(block_id);
+  SMESH_ASSERT(blk);
+  return blk->set_geom_map(geom_map);
+}
+
+enum GeomMap Mesh::detect_geom_map(block_idx_t block_id) const {
+  return detect_geom_map(block_id, geom_map_default_rel_tol());
+}
+
+enum GeomMap Mesh::detect_geom_map(block_idx_t block_id, geom_t rel_tol) const {
+  auto blk = this->block(block_id);
+  SMESH_ASSERT(blk);
+  const ptrdiff_t ne = blk->elements() ? blk->n_elements() : 0;
+  const int has = ne > 0 ? 1 : 0;
+  int aff = 1;
+  int aa = 1;
+  if (has) {
+    const idx_t *const *els = blk->elements()->data();
+    const geom_t *const *pts = points() ? points()->data() : nullptr;
+    const enum GeomMap local = ::smesh::detect_geom_map(
+        blk->element_type(), ne, els, spatial_dimension(), pts, rel_tol);
+    aff = local != ISOPARAMETRIC;
+    aa = local == AXIS_ALIGNED;
+  }
+
+  if (impl_->comm) {
+    const int has_g = impl_->comm->max(has);
+    const int n_aff = impl_->comm->max(aff ? 0 : 1);
+    const int n_aa = impl_->comm->max(aa ? 0 : 1);
+    if (!has_g) {
+      return ISOPARAMETRIC;
+    }
+    aff = n_aff ? 0 : 1;
+    aa = n_aa ? 0 : 1;
+  } else if (!has) {
+    return ISOPARAMETRIC;
+  }
+
+  if (aa && geom_map_allows_axis_aligned(blk->element_type())) {
+    return AXIS_ALIGNED;
+  }
+  return aff ? AFFINE : ISOPARAMETRIC;
+}
+
+int Mesh::detect_and_set_geom_map(block_idx_t block_id) {
+  return detect_and_set_geom_map(block_id, geom_map_default_rel_tol());
+}
+
+int Mesh::detect_and_set_geom_map(block_idx_t block_id, geom_t rel_tol) {
+  return set_geom_map(block_id, detect_geom_map(block_id, rel_tol));
+}
+
+int Mesh::detect_and_set_geom_maps() {
+  return detect_and_set_geom_maps(geom_map_default_rel_tol());
+}
+
+int Mesh::detect_and_set_geom_maps(geom_t rel_tol) {
+  int err = SMESH_SUCCESS;
+  for (size_t b = 0; b < n_blocks(); ++b) {
+    err |= detect_and_set_geom_map(static_cast<block_idx_t>(b), rel_tol);
+  }
+  return err;
+}
+
+std::vector<std::shared_ptr<Mesh::Block>>
+Mesh::blocks(const std::vector<std::string> &block_names) const {
+  if (block_names.empty()) {
+    return this->blocks();
+  }
+
+  std::vector<std::shared_ptr<Mesh::Block>> ret;
+  for (auto &block : this->blocks()) {
+    if (std::find(block_names.begin(), block_names.end(), block->name()) !=
+        block_names.end()) {
+      ret.push_back(block);
+    }
+  }
+
+  return ret;
+}
+
+std::shared_ptr<Mesh> Mesh::create_hex8_reference_cube() {
+  auto ret = std::make_shared<Mesh>(Communicator::null());
+  ret->set_points(create_host_buffer<geom_t>(3, 8));
+  auto elements_buffer = create_host_buffer<idx_t>(8, 1);
+
+  auto points = ret->points()->data();
+  auto elements = elements_buffer->data();
+
+  mesh_fill_hex8_reference_cube<idx_t, geom_t>(elements, points);
+
+  // Create default block
+  auto default_block = std::make_shared<Block>();
+  default_block->set_name("default");
+  default_block->set_element_type(HEX8);
+  default_block->set_elements(elements_buffer);
+  default_block->set_geom_map(AXIS_ALIGNED);
+  ret->add_block(default_block);
+
+  return ret;
+}
+
+std::shared_ptr<Mesh>
+Mesh::create_tet4_cube(const std::shared_ptr<Communicator> &comm,
+                       const ptrdiff_t nx, const ptrdiff_t ny,
+                       const ptrdiff_t nz, const geom_t xmin, const geom_t ymin,
+                       const geom_t zmin, const geom_t xmax, const geom_t ymax,
+                       const geom_t zmax) {
+#ifdef SMESH_ENABLE_MPI
+  if (comm && comm->size() > 1) {
+    int nxe = 0, sdim = 0;
+    ptrdiff_t n_local_e = 0, n_global_e = 0, n_local_n = 0, n_global_n = 0;
+    idx_t **elems = nullptr;
+    geom_t **points = nullptr;
+    if (tet4_cube_create_distributed<idx_t, geom_t>(
+            comm->get(), nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax, &nxe,
+            &n_local_e, &n_global_e, &elems, &sdim, &n_local_n, &n_global_n,
+            &points) != SMESH_SUCCESS) {
+      return nullptr;
+    }
+    auto mesh = Mesh::wrap_create_parallel(comm, TET4, nxe, n_local_e,
+                                           n_global_e, elems, sdim, n_local_n,
+                                           n_global_n, points, AFFINE);
+    return mesh;
+  }
+#endif
+  auto ret = std::make_shared<Mesh>(comm);
+  const ptrdiff_t nelements = nx * ny * nz;
+  const ptrdiff_t nnodes_vertices = (nx + 1) * (ny + 1) * (nz + 1);
+  const ptrdiff_t nnodes_total = nnodes_vertices + nelements;
+
+  ret->set_points(create_host_buffer<geom_t>(3, nnodes_total));
+  auto elements_buffer = create_host_buffer<idx_t>(4, nelements * 12);
+
+  auto points = ret->points()->data();
+  auto elements = elements_buffer->data();
+
+  mesh_fill_tet4_cube<idx_t, geom_t>(nx, ny, nz, xmin, ymin, zmin, xmax, ymax,
+                                     zmax, elements, points);
+
+  auto default_block = std::make_shared<Block>();
+  default_block->set_name("default");
+  default_block->set_element_type(TET4);
+  default_block->set_elements(elements_buffer);
+  default_block->set_geom_map(AFFINE);
+  ret->add_block(default_block);
+
+  return ret;
+}
+
+std::shared_ptr<Mesh>
+Mesh::create_cube(const std::shared_ptr<Communicator> &comm,
+                  const enum ElemType element_type, const ptrdiff_t nx,
+                  const ptrdiff_t ny, const ptrdiff_t nz, const geom_t xmin,
+                  const geom_t ymin, const geom_t zmin, const geom_t xmax,
+                  const geom_t ymax, const geom_t zmax) {
+  SMESH_TRACE_SCOPE("Mesh::create_cube");
+  switch (element_type) {
+  case HEX8:
+    return create_hex8_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax,
+                            zmax);
+  case HEX27: {
+    auto mesh = create_semistructured_hex_cube(comm, 2, nx, ny, nz, xmin, ymin,
+                                               zmin, xmax, ymax, zmax);
+    if (!mesh) {
+      return nullptr;
+    }
+
+    static constexpr int hex27_to_cartesian[27] = {
+        0,  2,  8, 6,  18, 20, 26, 24, 1,  5,  7, 3,  19, 23,
+        25, 21, 9, 11, 17, 15, 10, 14, 16, 12, 4, 22, 13,
+    };
+    auto elements = mesh->elements(0);
+    auto streams = elements->data();
+    idx_t *cartesian[27];
+    for (int node = 0; node < 27; ++node) {
+      cartesian[node] = streams[node];
+    }
+    for (int node = 0; node < 27; ++node) {
+      streams[node] = cartesian[hex27_to_cartesian[node]];
+    }
+
+    auto block = mesh->block(0);
+    block->set_element_type(HEX27);
+    return mesh;
+  }
+  case TET4:
+    return create_tet4_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax,
+                            zmax);
+  case TET10: {
+    auto mesh =
+        create_tet4_cube(comm, nx, ny, nz, xmin, ymin, zmin, xmax, ymax, zmax);
+    return promote_to(TET10, mesh);
+  }
+  case PROTEUS_HEX8:
+    return create_semistructured_hex_cube(comm, 1, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
+  case PROTEUS_HEX27:
+    return create_semistructured_hex_cube(comm, 2, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
+  case PROTEUS_HEX64:
+    return create_semistructured_hex_cube(comm, 3, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
+  case PROTEUS_HEX125:
+    return create_semistructured_hex_cube(comm, 4, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
+  case PROTEUS_HEX216:
+    return create_semistructured_hex_cube(comm, 5, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
+  case PROTEUS_HEX343:
+    return create_semistructured_hex_cube(comm, 6, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
+  case PROTEUS_HEX512:
+    return create_semistructured_hex_cube(comm, 7, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
+  case PROTEUS_HEX729:
+    return create_semistructured_hex_cube(comm, 8, nx, ny, nz, xmin, ymin, zmin,
+                                          xmax, ymax, zmax);
+  case PROTEUS_HEX4913:
+    return create_semistructured_hex_cube(comm, 16, nx, ny, nz, xmin, ymin,
+                                          zmin, xmax, ymax, zmax);
+  default:
+    SMESH_ERROR("Invalid element type: %d\n", element_type);
+    return nullptr;
+  }
+}
+
+std::shared_ptr<Mesh> Mesh::create_wall_mounted_hump(
+    const std::shared_ptr<Communicator> &comm, const enum ElemType element_type,
+    const ptrdiff_t nx, const ptrdiff_t ny, const ptrdiff_t nz,
+    const geom_t length, const geom_t height, const geom_t width,
+    const geom_t hump_start, const geom_t hump_length,
+    const geom_t hump_height) {
+  SMESH_TRACE_SCOPE("Mesh::create_wall_mounted_hump");
+  if (nx <= 0 || ny <= 0 || nz <= 0 || length <= 0 || height <= 0 ||
+      width <= 0 || hump_length <= 0 || hump_height < 0) {
+    SMESH_ERROR("Mesh::create_wall_mounted_hump received invalid dimensions\n");
+    return nullptr;
+  }
+
+  auto mesh = create_cube(comm, element_type, nx, ny, nz, 0, 0, 0, length,
+                          height, width);
+  if (!mesh) {
+    return nullptr;
+  }
+
+  auto points = mesh->points()->data();
+  const geom_t inv_height = 1.0 / height;
+  const geom_t pi = static_cast<geom_t>(acos(-1.0));
+  for (ptrdiff_t node = 0; node < mesh->n_nodes(); ++node) {
+    const geom_t x = points[0][node];
+    const geom_t eta = points[1][node] * inv_height;
+    geom_t bottom = 0;
+    if (x >= hump_start && x <= hump_start + hump_length) {
+      const geom_t s = (x - hump_start) / hump_length;
+      const geom_t wave = sin(pi * s);
+      bottom = hump_height * wave * wave;
+    }
+    points[1][node] = bottom + eta * (height - bottom);
+  }
+
+  if (mesh->n_blocks() > 0) {
+    mesh->block(0)->set_name("fluid");
+  }
+  if (hump_height > 0) {
+    for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+      auto blk = mesh->block(b);
+      const enum ElemType t = blk->element_type();
+      if (t == TET4 || t == TRI3 || t == TRISHELL3) {
+        blk->set_geom_map(AFFINE);
+      } else {
+        blk->set_geom_map(ISOPARAMETRIC);
+      }
+    }
+  }
+  return mesh;
+}
+
+std::pair<SharedBuffer<geom_t>, SharedBuffer<geom_t>>
+Mesh::compute_bounding_box() {
+  auto points = impl_->points->data();
+
+  int dim = spatial_dimension();
+  auto min = create_host_buffer<geom_t>(dim);
+  auto max = create_host_buffer<geom_t>(dim);
+
+  auto d_min = min->data();
+  auto d_max = max->data();
+
+  for (int d = 0; d < dim; d++) {
+    d_min[d] = points[d][0];
+    d_max[d] = points[d][0];
+  }
+
+  ptrdiff_t n_nodes = this->n_nodes();
+
+#pragma omp parallel for
+  for (ptrdiff_t i = 0; i < n_nodes; i++) {
+    for (int d = 0; d < dim; d++) {
+      d_min[d] = std::min(d_min[d], points[d][i]);
+      d_max[d] = std::max(d_max[d], points[d][i]);
+    }
+  }
+
+  return {min, max};
+}
+
+std::shared_ptr<Mesh::Block> Mesh::find_block(const std::string &name) const {
+  for (auto &block : impl_->blocks) {
+    if (block->name() == name) {
+      return block;
+    }
+  }
+  return nullptr;
+}
+
+int Mesh::split_block(const SharedBuffer<element_idx_t> &elements,
+                      const std::string &name, block_idx_t block_id) {
+  if (static_cast<size_t>(block_id) >= n_blocks()) {
+    SMESH_ERROR("split_block: invalid block_id %d\n", block_id);
+    return SMESH_FAILURE;
+  }
+
+  {
+    const int nxe = n_nodes_per_element(block_id);
+    const ptrdiff_t n_elements = this->n_elements(block_id);
+
+    auto bdry_mask = create_host_buffer<mask_t>(mask_count(n_elements));
+
+    auto d_parent = elements->data();
+    auto d_bdry_mask = bdry_mask->data();
+    const ptrdiff_t size_sideset = elements->size();
+
+    auto source_block = impl_->blocks[block_id];
+
+    auto d_elements = source_block->elements()->data();
+
+    ptrdiff_t n_bdry_elements = 0;
+    for (ptrdiff_t i = 0; i < size_sideset; i++) {
+      if (mask_get(d_parent[i], d_bdry_mask) == 0) {
+        n_bdry_elements++;
+        mask_set(d_parent[i], d_bdry_mask);
+      }
+    }
+
+    memset(d_bdry_mask, 0, mask_count(n_elements) * sizeof(mask_t));
+
+    auto bdry_elements = create_host_buffer<idx_t>(nxe, n_bdry_elements);
+    ptrdiff_t n_bdry_elements_count = 0;
+
+    auto d_bdry_elements = bdry_elements->data();
+
+    for (int e = 0; e < size_sideset; e++) {
+      if (mask_get(d_parent[e], d_bdry_mask) == 0) {
+        for (int v = 0; v < nxe; v++) {
+          d_bdry_elements[v][n_bdry_elements_count] =
+              d_elements[v][d_parent[e]];
         }
+        mask_set(d_parent[e], d_bdry_mask);
+        n_bdry_elements_count++;
+      }
+    }
 
-        if (is_semistructured_type(mesh->element_type(0))) {
-            return skin_sideset_for_block(mesh, 0);
+    auto interior_elements =
+        create_host_buffer<idx_t>(nxe, n_elements - n_bdry_elements);
+    ptrdiff_t n_interior_elements_count = 0;
+    auto d_interior_elements = interior_elements->data();
+
+    for (ptrdiff_t i = 0; i < n_elements; i++) {
+      if (mask_get(i, d_bdry_mask) == 0) {
+        for (int v = 0; v < nxe; v++) {
+          SMESH_ASSERT(n_interior_elements_count <
+                       static_cast<ptrdiff_t>(interior_elements->extent(1)));
+          d_interior_elements[v][n_interior_elements_count] = d_elements[v][i];
         }
+        n_interior_elements_count++;
+      }
+    }
 
-        if (!LocalSideTable::supported(mesh->element_type(0))) {
-            LocalSideTable::report_unsupported("skin_sideset", mesh->element_type(0));
-            return nullptr;
+    // !!!!
+    remove_block(block_id);
+
+    { // Boundary block
+      auto block = std::make_shared<Block>();
+      block->set_name(name);
+      block->set_element_type(source_block->element_type());
+      block->inherit_geom_map(source_block->geom_map());
+      block->set_elements(bdry_elements);
+      this->add_block(block);
+    }
+
+    { // Interior block
+      auto block = std::make_shared<Block>();
+      block->set_name(source_block->name());
+      block->set_element_type(source_block->element_type());
+      block->inherit_geom_map(source_block->geom_map());
+      block->set_elements(interior_elements);
+      this->add_block(block);
+    }
+  }
+
+  return SMESH_SUCCESS;
+}
+
+int Mesh::split_boundary_layer() {
+  if (comm()->size() > 1) {
+    SMESH_ERROR("split_boundary_layer is only supported in serial\n");
+    return SMESH_FAILURE;
+  }
+
+  const block_idx_t target_block = 0;
+  auto hft = half_face_table(target_block);
+
+  ptrdiff_t n_surf_elements = 0;
+  element_idx_t *parent = nullptr;
+  i16 *side_idx = nullptr;
+
+  if (extract_sideset_from_adj_table(
+          element_type(target_block), n_elements(target_block), hft->data(),
+          &n_surf_elements, &parent, &side_idx) != SMESH_SUCCESS) {
+    SMESH_ERROR("Failed to extract skin for split_boundary_layer\n");
+    return SMESH_FAILURE;
+  }
+
+  std::vector<element_idx_t> parent_elements(
+      static_cast<size_t>(n_surf_elements));
+  for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+    parent_elements[static_cast<size_t>(i)] = parent[i];
+  }
+  SMESH_FREE(parent);
+  SMESH_FREE(side_idx);
+
+  element_idx_t *parent_buf = (element_idx_t *)SMESH_ALLOC(
+      parent_elements.size() * sizeof(element_idx_t));
+  std::memcpy(parent_buf, parent_elements.data(),
+              parent_elements.size() * sizeof(element_idx_t));
+
+  return split_block(
+      manage_host_buffer<element_idx_t>(
+          static_cast<ptrdiff_t>(parent_elements.size()), parent_buf),
+      "boundary_layer", target_block);
+}
+
+int Mesh::renumber_nodes() {
+  auto n_nodes = this->n_nodes();
+  auto new_idx_buff = create_host_buffer<idx_t>(n_nodes);
+
+  auto new_idx = new_idx_buff->data();
+  for (ptrdiff_t i = 0; i < n_nodes; i++) {
+    new_idx[i] = -1;
+  }
+
+  idx_t next_node_id = 0;
+  for (auto &b : impl_->blocks) {
+    auto elements = b->elements()->data();
+    auto n_elements = b->n_elements();
+    auto nxe = b->n_nodes_per_element();
+
+    for (ptrdiff_t e = 0; e < n_elements; e++) {
+      for (int v = 0; v < nxe; v++) {
+        auto node = elements[v][e];
+        if (new_idx[node] == -1) {
+          new_idx[node] = next_node_id++;
         }
+      }
+    }
+  }
 
-        auto n2e_graph     = mesh->node_to_element_graph();
-        auto n2e_graph_ptr = n2e_graph->rowptr()->data();
-        auto n2e_graph_idx = n2e_graph->colidx()->data();
+  return renumber_nodes(new_idx_buff);
+}
 
-        ptrdiff_t      n_surf_elements = 0;
-        element_idx_t *parent_element  = 0;
-        i16           *side_idx        = 0;
+int Mesh::renumber_nodes(const SharedBuffer<idx_t> &node_mapping) {
+  const int dim = spatial_dimension();
+  const ptrdiff_t n_nodes = this->n_nodes();
 
-        int err = extract_skin_sideset_from_n2e(mesh->n_elements(0),
-                                                mesh->n_nodes(),
-                                                mesh->element_type(0),
-                                                mesh->elements(0)->data(),
-                                                n2e_graph_ptr,
-                                                n2e_graph_idx,
-                                                &n_surf_elements,
-                                                &parent_element,
-                                                &side_idx);
+  auto points = this->points()->data();
+  auto new_points_buff = create_host_buffer<geom_t>(dim, n_nodes);
+  auto new_points = new_points_buff->data();
+
+  auto d_node_mapping = node_mapping->data();
+
+  for (int d = 0; d < dim; d++) {
+    for (ptrdiff_t i = 0; i < n_nodes; i++) {
+      SMESH_ASSERT(d_node_mapping[i] < n_nodes);
+      SMESH_ASSERT(d_node_mapping[i] >= 0);
+      new_points[d][d_node_mapping[i]] = points[d][i];
+    }
+  }
+
+  impl_->points = new_points_buff;
+
+  for (auto &b : impl_->blocks) {
+    auto elements = b->elements()->data();
+    auto n_elements = b->n_elements();
+    auto nxe = b->n_nodes_per_element();
+
+    for (ptrdiff_t e = 0; e < n_elements; e++) {
+      for (int v = 0; v < nxe; v++) {
+        elements[v][e] = d_node_mapping[elements[v][e]];
+      }
+    }
+  }
+
+  // The local-to-global map is indexed by local node, so it moves with the
+  // nodes.
+  if (impl_->node_mapping) {
+    auto old_map = impl_->node_mapping;
+    auto new_map_buff = create_host_buffer<idx_t>(n_nodes);
+    auto new_map = new_map_buff->data();
+    auto old_map_data = old_map->data();
+    for (ptrdiff_t i = 0; i < n_nodes; i++) {
+      new_map[d_node_mapping[i]] = old_map_data[i];
+    }
+    impl_->node_mapping = new_map_buff;
+  }
+
+  // The node-to-element graph, the CRS graphs and the device points are all
+  // cached on first use and all keyed by node number, so every one of them now
+  // describes the old numbering. Leaving them in place is not a missed
+  // optimisation: skin_sideset asks for the node-to-element graph, gets the
+  // pre-renumbering one back, and reports a skin that is not the boundary of
+  // this mesh -- on a 40x8x4 L-shape, 1692 nodes instead of 994. Nothing about
+  // that fails loudly; the solve simply constrains the wrong nodes.
+  impl_->invalidate_node_indexed_caches();
+
+  return remap_registered_nodesets(d_node_mapping, n_nodes);
+}
+
+std::vector<std::pair<block_idx_t, SharedBuffer<element_idx_t>>>
+Mesh::select_elements(const std::function<bool(const geom_t, const geom_t,
+                                               const geom_t)> &selector,
+                      const std::vector<std::string> &block_names) {
+  SMESH_TRACE_SCOPE("Sideset::create_from_selector");
+
+  const int dim = spatial_dimension();
+  auto points = this->points()->data();
+
+  size_t n_blocks = this->n_blocks();
+  std::vector<std::pair<block_idx_t, SharedBuffer<element_idx_t>>>
+      selected_elements;
+
+  for (size_t b = 0; b < n_blocks; b++) {
+    auto block = this->block(b);
+    if (!block_names.empty() && //
+        std::find(block_names.begin(), block_names.end(), block->name()) ==
+            block_names.end()) {
+      continue;
+    }
+
+    int nxe = block->n_nodes_per_element();
+    const ptrdiff_t nelements = block->n_elements();
+    auto elements = block->elements()->data();
+
+    std::list<element_idx_t> selected_element_list;
+    for (ptrdiff_t e = 0; e < nelements; e++) {
+      // Barycenter of element
+      double p[3] = {0, 0, 0};
+
+      for (int v = 0; v < nxe; v++) {
+        const idx_t node = elements[v][e];
+
+        for (int d = 0; d < dim; d++) {
+          p[d] += points[d][node];
+        }
+      }
+
+      for (int d = 0; d < dim; d++) {
+        p[d] /= nxe;
+      }
+
+      if (selector(p[0], p[1], p[2])) {
+        selected_element_list.push_back(e);
+      }
+    }
+
+    const ptrdiff_t nselected_elements = selected_element_list.size();
+    auto selected_element =
+        create_host_buffer<element_idx_t>(nselected_elements);
+    element_idx_t *d_sel =
+        nselected_elements > 0 ? selected_element->data() : nullptr;
+    ptrdiff_t idx = 0;
+    for (auto p : selected_element_list) {
+      d_sel[idx++] = p;
+    }
+
+    selected_elements.push_back(std::make_pair(b, selected_element));
+  }
+
+  return selected_elements;
+}
+
+void Mesh::reorder_elements_from_tags(
+    const block_idx_t block_id, const SharedBuffer<idx_t> &tags,
+    const std::vector<std::shared_ptr<Sideset>> &sidesets) {
+  const ptrdiff_t nelems = n_elements(block_id);
+  if (nelems == 0 || !tags || tags->size() != static_cast<size_t>(nelems)) {
+    SMESH_ERROR(
+        "reorder_elements_from_tags: tags size must match n_elements\n");
+    return;
+  }
+
+  auto d_tags = tags->data();
+  idx_t ntags = 0;
+  for (ptrdiff_t i = 0; i < nelems; i++) {
+    ntags = std::max(ntags, d_tags[i]);
+  }
+  ntags += 1;
+
+  auto counts = create_host_buffer<i64>((size_t)ntags);
+  i64 *d_counts = counts->data();
+  for (ptrdiff_t i = 0; i < nelems; i++) {
+    d_counts[d_tags[i]]++;
+  }
+  auto start = create_host_buffer<i64>((size_t)ntags);
+  i64 *d_start = start->data();
+  for (idx_t t = 1; t < ntags; ++t) {
+    d_start[t] = d_start[t - 1] + d_counts[t - 1];
+  }
+
+  auto new_to_old = create_host_buffer<element_idx_t>((size_t)nelems);
+  auto old_to_new = create_host_buffer<element_idx_t>((size_t)nelems);
+  element_idx_t *d_nto = new_to_old->data();
+  element_idx_t *d_otn = old_to_new->data();
+  for (ptrdiff_t i = 0; i < nelems; i++) {
+    const ptrdiff_t neu = (ptrdiff_t)d_start[d_tags[i]]++;
+    d_nto[neu] = (element_idx_t)i;
+    d_otn[i] = (element_idx_t)neu;
+  }
+
+  const int nxe = n_nodes_per_element(block_id);
+  idx_t **elems = elements(block_id)->data();
+  mesh_block_reorder(nxe, nelems, elems, d_nto, elems);
+
+  if (!sidesets.empty()) {
+    remap_sidesets(sidesets, block_id, d_otn, nelems);
+  }
+  remap_registered_sidesets(block_id, d_otn, nelems, sidesets);
+  remap_registered_edgesets(block_id, d_otn, nelems);
+}
+
+std::shared_ptr<Mesh> Mesh::clone() const {
+  auto ret = std::make_shared<Mesh>(impl_->comm);
+
+  const int spatial_dim = spatial_dimension();
+  const ptrdiff_t nnodes = n_nodes();
+  auto src_points = points();
+  auto dst_points = create_host_buffer<geom_t>(spatial_dim, nnodes);
+  for (int d = 0; d < spatial_dim; ++d) {
+    std::memcpy(dst_points->data()[d], src_points->data()[d],
+                static_cast<size_t>(nnodes) * sizeof(geom_t));
+  }
+  ret->set_points(dst_points);
+
+  for (const auto &block : impl_->blocks) {
+    if (!block || !block->elements()) {
+      continue;
+    }
+
+    const int nxe = block->n_nodes_per_element();
+    const ptrdiff_t nelements = block->n_elements();
+    auto dst_elems = create_host_buffer<idx_t>(nxe, nelements);
+    auto src_elems = block->elements()->data();
+    for (int d = 0; d < nxe; ++d) {
+      std::memcpy(dst_elems->data()[d], src_elems[d],
+                  static_cast<size_t>(nelements) * sizeof(idx_t));
+    }
+
+    auto new_block = std::make_shared<Block>();
+    new_block->set_name(block->name());
+    new_block->set_element_type(block->element_type());
+    new_block->inherit_geom_map(block->geom_map());
+    new_block->set_elements(dst_elems);
+    ret->add_block(new_block);
+  }
+
+#ifdef SMESH_ENABLE_MPI
+  if (is_distributed()) {
+    MeshTransformsDistributed::clone_distributed(*this, *ret);
+  }
+#endif
+
+  for (size_t i = 0; i < impl_->sidesets.size(); ++i) {
+    ret->add_sideset(impl_->sidesets[i].first,
+                     clone_sideset(*ret, impl_->sidesets[i].second));
+  }
+  for (size_t i = 0; i < impl_->edgesets.size(); ++i) {
+    ret->add_edgeset(impl_->edgesets[i].first,
+                     clone_edgeset(*ret, impl_->edgesets[i].second));
+  }
+  for (size_t i = 0; i < impl_->nodesets.size(); ++i) {
+    ret->add_nodeset(impl_->nodesets[i].first,
+                     clone_nodeset(*ret, impl_->nodesets[i].second));
+  }
+  for (size_t i = 0; i < impl_->parametrizations.size(); ++i) {
+    ret->add_parametrization(impl_->parametrizations[i].first,
+                             impl_->parametrizations[i].second);
+  }
+
+  return ret;
+}
+
+std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
+                                 const std::shared_ptr<Mesh> &mesh) {
+  std::map<std::pair<enum ElemType, enum ElemType>,
+           std::function<void(const Mesh::Block &, Mesh::Block &)>>
+      cmap;
+
+  cmap[std::make_pair(HEX8, TET4)] = [](const Mesh::Block &block,
+                                        Mesh::Block &new_block) {
+    new_block.set_element_type(TET4);
+    new_block.set_elements(
+        create_host_buffer<idx_t>(4, block.n_elements() * 6));
+    mesh_hex8_to_6x_tet4(block.n_elements(), block.elements()->data(),
+                         new_block.elements()->data());
+  };
+
+  cmap[std::make_pair(TET15, HEX8)] = [](const Mesh::Block &block,
+                                         Mesh::Block &new_block) {
+    new_block.set_element_type(HEX8);
+    new_block.set_elements(
+        create_host_buffer<idx_t>(8, block.n_elements() * 4));
+    mesh_tet15_to_4x_hex8(block.n_elements(), block.elements()->data(),
+                          new_block.elements()->data());
+  };
+
+  cmap[std::make_pair(WEDGE6, TET4)] = [](const Mesh::Block &block,
+                                          Mesh::Block &new_block) {
+    new_block.set_element_type(TET4);
+    new_block.set_elements(
+        create_host_buffer<idx_t>(4, block.n_elements() * 3));
+    mesh_wedge6_to_3x_tet4(block.n_elements(), block.elements()->data(),
+                           new_block.elements()->data());
+  };
+
+  cmap[std::make_pair(PYRAMID5, TET4)] = [](const Mesh::Block &block,
+                                            Mesh::Block &new_block) {
+    new_block.set_element_type(TET4);
+    new_block.set_elements(
+        create_host_buffer<idx_t>(4, block.n_elements() * 2));
+    mesh_pyramid5_to_2x_tet4(block.n_elements(), block.elements()->data(),
+                             new_block.elements()->data());
+  };
+
+  cmap[std::make_pair(QUAD4, TRI3)] = [](const Mesh::Block &block,
+                                         Mesh::Block &new_block) {
+    new_block.set_element_type(TRI3);
+    new_block.set_elements(
+        create_host_buffer<idx_t>(3, block.n_elements() * 2));
+    mesh_quad4_to_2x_tri3(block.n_elements(), block.elements()->data(),
+                          new_block.elements()->data());
+  };
+
+  cmap[std::make_pair(HEX8, PROTEUS_HEX8)] = [](const Mesh::Block &block,
+                                                Mesh::Block &new_block) {
+    new_block.set_element_type(PROTEUS_HEX8);
+    auto elements = block.elements();
+
+    auto view = std::make_shared<Buffer<idx_t *>>(
+        8, block.n_elements(), (idx_t **)SMESH_ALLOC(8 * sizeof(idx_t *)),
+        [keep_alive = elements](int, void **v) {
+          (void)keep_alive;
+          SMESH_FREE(v);
+        },
+        elements->mem_space());
+
+    const int pts[8] = {// Bottom
+                        sshex8_lidx(1, 0, 0, 0), sshex8_lidx(1, 1, 0, 0),
+                        sshex8_lidx(1, 1, 1, 0), sshex8_lidx(1, 0, 1, 0),
+
+                        // Top
+                        sshex8_lidx(1, 0, 0, 1), sshex8_lidx(1, 1, 0, 1),
+                        sshex8_lidx(1, 1, 1, 1), sshex8_lidx(1, 0, 1, 1)};
+
+    view->data()[0] = elements->data()[pts[0]];
+    view->data()[1] = elements->data()[pts[1]];
+    view->data()[2] = elements->data()[pts[2]];
+    view->data()[3] = elements->data()[pts[3]];
+    view->data()[4] = elements->data()[pts[4]];
+    view->data()[5] = elements->data()[pts[5]];
+    view->data()[6] = elements->data()[pts[6]];
+    view->data()[7] = elements->data()[pts[7]];
+
+    new_block.set_elements(view);
+  };
+
+  cmap[std::make_pair(PROTEUS_HEX8, HEX8)] = sshex_block_to_hex8_block;
+  cmap[std::make_pair(PROTEUS_HEX27, HEX8)] = sshex_block_to_hex8_block;
+  cmap[std::make_pair(PROTEUS_HEX64, HEX8)] = sshex_block_to_hex8_block;
+  cmap[std::make_pair(PROTEUS_HEX125, HEX8)] = sshex_block_to_hex8_block;
+  cmap[std::make_pair(PROTEUS_HEX216, HEX8)] = sshex_block_to_hex8_block;
+  cmap[std::make_pair(PROTEUS_HEX343, HEX8)] = sshex_block_to_hex8_block;
+  cmap[std::make_pair(PROTEUS_HEX512, HEX8)] = sshex_block_to_hex8_block;
+  cmap[std::make_pair(PROTEUS_HEX729, HEX8)] = sshex_block_to_hex8_block;
+
+  cmap[std::make_pair(PROTEUS_TET4, TET4)] = sstet_block_to_tet4_block;
+  cmap[std::make_pair(PROTEUS_TET10, TET4)] = sstet_block_to_tet4_block;
+  cmap[std::make_pair(PROTEUS_TET20, TET4)] = sstet_block_to_tet4_block;
+  cmap[std::make_pair(PROTEUS_TET35, TET4)] = sstet_block_to_tet4_block;
+  cmap[std::make_pair(PROTEUS_TET56, TET4)] = sstet_block_to_tet4_block;
+  cmap[std::make_pair(PROTEUS_TET84, TET4)] = sstet_block_to_tet4_block;
+  cmap[std::make_pair(PROTEUS_TET120, TET4)] = sstet_block_to_tet4_block;
+  cmap[std::make_pair(PROTEUS_TET165, TET4)] = sstet_block_to_tet4_block;
+  cmap[std::make_pair(PROTEUS_TET969, TET4)] = sstet_block_to_tet4_block;
+
+  cmap[std::make_pair(PROTEUS_QUAD4, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUAD9, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUAD16, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUAD25, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUAD36, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUAD49, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUAD64, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUAD81, QUAD4)] = ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL4, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL9, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL16, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL25, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL36, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL49, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL64, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
+  cmap[std::make_pair(PROTEUS_QUADSHELL81, QUADSHELL4)] =
+      ssquad_block_to_quad4_block;
+
+  cmap[std::make_pair(PROTEUS_WEDGE6, WEDGE6)] = sswedge_block_to_wedge6_block;
+  cmap[std::make_pair(PROTEUS_WEDGE18, WEDGE6)] = sswedge_block_to_wedge6_block;
+  cmap[std::make_pair(PROTEUS_WEDGE40, WEDGE6)] = sswedge_block_to_wedge6_block;
+  cmap[std::make_pair(PROTEUS_WEDGE75, WEDGE6)] = sswedge_block_to_wedge6_block;
+  cmap[std::make_pair(PROTEUS_WEDGE126, WEDGE6)] =
+      sswedge_block_to_wedge6_block;
+  cmap[std::make_pair(PROTEUS_WEDGE196, WEDGE6)] =
+      sswedge_block_to_wedge6_block;
+  cmap[std::make_pair(PROTEUS_WEDGE288, WEDGE6)] =
+      sswedge_block_to_wedge6_block;
+  cmap[std::make_pair(PROTEUS_WEDGE405, WEDGE6)] =
+      sswedge_block_to_wedge6_block;
+  cmap[std::make_pair(PROTEUS_WEDGE2601, WEDGE6)] =
+      sswedge_block_to_wedge6_block;
+
+  std::vector<std::shared_ptr<Mesh::Block>> blocks;
+  for (auto &block : mesh->blocks()) {
+    auto new_block = std::make_shared<Mesh::Block>();
+    new_block->set_name(block->name());
+    new_block->set_element_type(element_type);
+
+    if (block->element_type() == element_type) {
+      new_block->set_elements(block->elements());
+    } else {
+      auto it = cmap.find(std::make_pair(block->element_type(), element_type));
+      if (it != cmap.end()) {
+        it->second(*block, *new_block);
+      } else {
+        SMESH_ERROR("Conversion from %s to %s is not supported\n",
+                    smesh::type_to_string(block->element_type()),
+                    smesh::type_to_string(element_type));
+        return nullptr;
+      }
+    }
+
+    new_block->inherit_geom_map(block->geom_map());
+    blocks.push_back(new_block);
+  }
+
+  auto out = std::make_shared<Mesh>(mesh->comm(), blocks, mesh->points());
+#ifdef SMESH_ENABLE_MPI
+  if (mesh->is_distributed()) {
+    if (MeshTransformsDistributed::attach_convert_distributed(*mesh, *out) !=
+        SMESH_SUCCESS) {
+      return nullptr;
+    }
+  }
+#endif
+  return out;
+}
+
+static SharedBuffer<idx_t *>
+hex27_soa_from_proteus27(const SharedBuffer<idx_t *> &proteus,
+                         const ptrdiff_t n_elements) {
+  auto view = std::make_shared<Buffer<idx_t *>>(
+      27, n_elements, (idx_t **)SMESH_ALLOC(27 * sizeof(idx_t *)),
+      [keep_alive = proteus](int, void **v) {
+        (void)keep_alive;
+        SMESH_FREE(v);
+      },
+      proteus->mem_space());
+  idx_t **p = proteus->data();
+  idx_t **h = view->data();
+  for (int z = 0; z <= 2; ++z) {
+    for (int y = 0; y <= 2; ++y) {
+      for (int x = 0; x <= 2; ++x) {
+        h[hex27_slot(x, y, z)] = p[sshex8_lidx(2, x, y, z)];
+      }
+    }
+  }
+  return view;
+}
+
+static std::shared_ptr<Mesh>
+proteus_hex27_as_hex27(const std::shared_ptr<Mesh> &ss) {
+  if (!ss) {
+    return nullptr;
+  }
+  std::vector<std::shared_ptr<Mesh::Block>> blocks;
+  blocks.reserve(ss->n_blocks());
+  for (size_t b = 0; b < ss->n_blocks(); ++b) {
+    auto src = ss->block(b);
+    if (!src || src->n_nodes_per_element() != 27) {
+      SMESH_ERROR("HEX8→HEX27: expected PROTEUS_HEX27 (27-node) SS blocks\n");
+      return nullptr;
+    }
+    auto nb = std::make_shared<Mesh::Block>();
+    nb->set_name(src->name());
+    nb->set_element_type(HEX27);
+    nb->inherit_geom_map(src->geom_map());
+    nb->set_elements(
+        hex27_soa_from_proteus27(src->elements(), src->n_elements()));
+    blocks.push_back(nb);
+  }
+  auto out = std::make_shared<Mesh>(ss->comm(), blocks, ss->points());
+#ifdef SMESH_ENABLE_MPI
+  if (ss->is_distributed()) {
+    MeshTransformsDistributed::clone_distributed(*ss, *out);
+  }
+#endif
+  return out;
+}
+
+static int copy_sets_through_promote(const std::shared_ptr<Mesh> &coarse,
+                                     const std::shared_ptr<Mesh> &fine);
+
+std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
+                                 const std::shared_ptr<Mesh> &mesh) {
+  std::map<std::pair<enum ElemType, enum ElemType>,
+           std::function<std::shared_ptr<Mesh>(Mesh &)>>
+      cmap;
+
+  cmap[std::make_pair(TET4, TET15)] = [](Mesh &mesh) -> std::shared_ptr<Mesh> {
+    auto elements = create_host_buffer<idx_t>(15, mesh.n_elements(0));
+    auto n2n_upper_triangular = mesh.node_to_node_graph_upper_triangular();
+    auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
+    auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+
+    auto hft = mesh.half_face_table();
+    auto e2e_table = hft->data();
+
+    ptrdiff_t n_new_nodes = 0;
+    mesh_tet4_to_tet15(mesh.n_elements(0), mesh.n_nodes(),
+                       mesh.elements(0)->data(), n2n_upper_triangular_ptr,
+                       n2n_upper_triangular_idx, e2e_table, elements->data(),
+                       &n_new_nodes);
+
+    auto points = create_host_buffer<geom_t>(3, n_new_nodes);
+    mesh_tet4_to_tet15_points(mesh.n_elements(0), mesh.n_nodes(),
+                              mesh.points()->data(), n2n_upper_triangular_ptr,
+                              n2n_upper_triangular_idx, elements->data(),
+                              points->data());
+
+    auto out = std::make_shared<Mesh>(mesh.comm(), TET15, elements, points);
+    if (out->n_blocks() > 0) {
+      out->block(0)->set_name(mesh.block(0)->name());
+      out->block(0)->inherit_geom_map(mesh.block(0)->geom_map());
+    }
+    return out;
+  };
+
+  auto promote_p1 = [](const enum ElemType dst,
+                       Mesh &mesh) -> std::shared_ptr<Mesh> {
+    auto n2n = mesh.node_to_node_graph_upper_triangular();
+    auto n2n_ptr = n2n->rowptr()->data();
+    auto n2n_idx = n2n->colidx()->data();
+
+    const enum ElemType src = mesh.element_type(0);
+    const int dst_nxe = elem_num_nodes(dst);
+    const bool face_center = (dst == QUAD9 || dst == QUADSHELL9);
+
+    ptrdiff_t n_elem_total = 0;
+    for (size_t b = 0; b < mesh.n_blocks(); ++b) {
+      n_elem_total += mesh.n_elements(static_cast<block_idx_t>(b));
+    }
+    const ptrdiff_t extra = face_center ? n_elem_total : 0;
+    auto points = create_host_buffer<geom_t>(mesh.spatial_dimension(),
+                                             n2n->colidx()->size() +
+                                                 mesh.n_nodes() + extra);
+
+    if (mesh.n_blocks() == 1) {
+      auto elements = create_host_buffer<idx_t>(dst_nxe, mesh.n_elements(0));
+      if (p1_to_p2(src, mesh.n_elements(0), mesh.elements(0)->data(),
+                   mesh.spatial_dimension(), mesh.n_nodes(),
+                   mesh.points()->data(), n2n_ptr, n2n_idx, elements->data(),
+                   points->data(), 0) != SMESH_SUCCESS) {
+        return nullptr;
+      }
+      auto out = std::make_shared<Mesh>(mesh.comm(), dst, elements, points);
+      if (out->n_blocks() > 0) {
+        out->block(0)->set_name(mesh.block(0)->name());
+        out->block(0)->inherit_geom_map(mesh.block(0)->geom_map());
+      }
+      return out;
+    }
+
+    std::vector<std::shared_ptr<Mesh::Block>> blocks;
+    blocks.reserve(mesh.n_blocks());
+    ptrdiff_t offset = 0;
+    for (size_t b = 0; b < mesh.n_blocks(); ++b) {
+      auto block = mesh.block(b);
+      auto elements = create_host_buffer<idx_t>(dst_nxe, block->n_elements());
+      if (p1_to_p2(src, block->n_elements(), block->elements()->data(),
+                   mesh.spatial_dimension(), mesh.n_nodes(),
+                   mesh.points()->data(), n2n_ptr, n2n_idx, elements->data(),
+                   points->data(), offset) != SMESH_SUCCESS) {
+        return nullptr;
+      }
+      offset += block->n_elements();
+      auto new_block = std::make_shared<Mesh::Block>();
+      new_block->set_name(block->name());
+      new_block->set_element_type(dst);
+      new_block->inherit_geom_map(block->geom_map());
+      new_block->set_elements(elements);
+      blocks.push_back(new_block);
+    }
+    return std::make_shared<Mesh>(mesh.comm(), blocks, points);
+  };
+
+  cmap[std::make_pair(TET4, TET10)] = [promote_p1](Mesh &mesh) {
+    return promote_p1(TET10, mesh);
+  };
+  cmap[std::make_pair(TRI3, TRI6)] = [promote_p1](Mesh &mesh) {
+    return promote_p1(TRI6, mesh);
+  };
+  cmap[std::make_pair(TRISHELL3, TRISHELL6)] = [promote_p1](Mesh &mesh) {
+    return promote_p1(TRISHELL6, mesh);
+  };
+  cmap[std::make_pair(QUAD4, QUAD9)] = [promote_p1](Mesh &mesh) {
+    return promote_p1(QUAD9, mesh);
+  };
+  cmap[std::make_pair(QUADSHELL4, QUADSHELL9)] = [promote_p1](Mesh &mesh) {
+    return promote_p1(QUADSHELL9, mesh);
+  };
+
+  auto attach_sets =
+      [&](const std::shared_ptr<Mesh> &out) -> std::shared_ptr<Mesh> {
+    if (!out) {
+      return nullptr;
+    }
+    if (copy_sets_through_promote(mesh, out) != SMESH_SUCCESS) {
+      return nullptr;
+    }
+    return out;
+  };
+
+  for (size_t b = 1; b < mesh->n_blocks(); ++b) {
+    if (mesh->element_type(static_cast<block_idx_t>(b)) !=
+        mesh->element_type(0)) {
+      SMESH_ERROR(
+          "Promotion requires all blocks to share the same element type\n");
+      return nullptr;
+    }
+  }
+
+  if (element_type == HEX27) {
+    if (mesh->element_type(0) != HEX8) {
+      SMESH_ERROR("Promotion from %s to HEX27 is not supported\n",
+                  type_to_string(mesh->element_type(0)));
+      return nullptr;
+    }
+    auto ss = to_semistructured(2, mesh);
+    return attach_sets(proteus_hex27_as_hex27(ss));
+  }
+
+  auto it = cmap.find(std::make_pair(mesh->element_type(0), element_type));
+  if (it == cmap.end()) {
+    SMESH_ERROR("Promotion from %s to %s is not supported\n",
+                type_to_string(mesh->element_type(0)),
+                type_to_string(element_type));
+    return nullptr;
+  }
+
+#ifdef SMESH_ENABLE_MPI
+  if (mesh->is_distributed()) {
+    return attach_sets(MeshTransformsDistributed::promote(mesh, element_type));
+  }
+#endif
+  if (mesh->comm()->size() > 1) {
+    SMESH_ERROR("Promotion to %s is not supported for distributed meshes\n",
+                type_to_string(element_type));
+    return nullptr;
+  }
+
+  if (mesh->n_blocks() == 1) {
+    return attach_sets(it->second(*mesh));
+  }
+
+  if (element_type == TET15) {
+    auto n2n_upper_triangular = mesh->node_to_node_graph_upper_triangular();
+    auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
+    auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+
+    std::vector<std::shared_ptr<Mesh::Block>> blocks;
+    blocks.reserve(mesh->n_blocks());
+    SharedBuffer<geom_t *> points;
+    ptrdiff_t n_new_nodes = 0;
+
+    for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+      auto block = mesh->block(static_cast<block_idx_t>(b));
+      auto hft = mesh->half_face_table(static_cast<block_idx_t>(b));
+      auto elements = create_host_buffer<idx_t>(15, block->n_elements());
+
+      mesh_tet4_to_tet15(block->n_elements(), mesh->n_nodes(),
+                         block->elements()->data(), n2n_upper_triangular_ptr,
+                         n2n_upper_triangular_idx, hft->data(),
+                         elements->data(), b == 0 ? &n_new_nodes : nullptr);
+
+      if (b == 0) {
+        points = create_host_buffer<geom_t>(3, n_new_nodes);
+        mesh_tet4_to_tet15_points(
+            block->n_elements(), mesh->n_nodes(), mesh->points()->data(),
+            n2n_upper_triangular_ptr, n2n_upper_triangular_idx,
+            elements->data(), points->data());
+      }
+
+      auto new_block = std::make_shared<Mesh::Block>();
+      new_block->set_name(block->name());
+      new_block->set_element_type(TET15);
+      new_block->inherit_geom_map(block->geom_map());
+      new_block->set_elements(elements);
+      blocks.push_back(new_block);
+    }
+
+    return attach_sets(std::make_shared<Mesh>(mesh->comm(), blocks, points));
+  }
+
+  return attach_sets(it->second(*mesh));
+}
+
+static int copy_sets_through_promote(const std::shared_ptr<Mesh> &coarse,
+                                     const std::shared_ptr<Mesh> &fine) {
+  if (!coarse || !fine || coarse.get() == fine.get()) {
+    return SMESH_SUCCESS;
+  }
+  const auto &ss = coarse->sidesets();
+  const auto &es = coarse->edgesets();
+  const auto &ns = coarse->nodesets();
+  const auto &ps = coarse->parametrizations();
+  if (ss.empty() && es.empty() && ns.empty() && ps.empty()) {
+    return SMESH_SUCCESS;
+  }
+  for (size_t i = 0; i < ss.size(); ++i) {
+    auto cloned = clone_sideset(*fine, ss[i].second);
+    if (!cloned) {
+      fprintf(stderr, "promote: failed to clone sideset \"%s\"\n",
+              ss[i].first.c_str());
+      return SMESH_FAILURE;
+    }
+    fine->add_sideset(ss[i].first, cloned);
+  }
+  for (size_t i = 0; i < es.size(); ++i) {
+    auto cloned = clone_edgeset(*fine, es[i].second);
+    if (!cloned) {
+      fprintf(stderr, "promote: failed to clone edgeset \"%s\"\n",
+              es[i].first.c_str());
+      return SMESH_FAILURE;
+    }
+    fine->add_edgeset(es[i].first, cloned);
+  }
+  for (size_t i = 0; i < ns.size(); ++i) {
+    auto mapped = map_nodeset_through_refine(coarse, ns[i].second, fine);
+    if (!mapped) {
+      fprintf(stderr, "promote: failed to remap nodeset \"%s\"\n",
+              ns[i].first.c_str());
+      return SMESH_FAILURE;
+    }
+    fine->add_nodeset(ns[i].first, mapped);
+  }
+  for (size_t i = 0; i < ps.size(); ++i) {
+    fine->add_parametrization(ps[i].first, ps[i].second);
+  }
+  return SMESH_SUCCESS;
+}
+
+static int
+copy_sidesets_edgesets_through_refine(const std::shared_ptr<Mesh> &coarse,
+                                      const std::shared_ptr<Mesh> &fine) {
+  if (!coarse || !fine || coarse.get() == fine.get()) {
+    return SMESH_SUCCESS;
+  }
+  const auto &ss = coarse->sidesets();
+  const auto &es = coarse->edgesets();
+  for (size_t i = 0; i < ss.size(); ++i) {
+    auto mapped = map_sideset_through_refine(coarse, ss[i].second, fine);
+    if (!mapped) {
+      fprintf(stderr, "refine: failed to remap sideset \"%s\"\n",
+              ss[i].first.c_str());
+      return SMESH_FAILURE;
+    }
+    fine->add_sideset(ss[i].first, mapped);
+  }
+  for (size_t i = 0; i < es.size(); ++i) {
+    auto mapped = map_edgeset_through_refine(coarse, es[i].second, fine);
+    if (!mapped) {
+      fprintf(stderr, "refine: failed to remap edgeset \"%s\"\n",
+              es[i].first.c_str());
+      return SMESH_FAILURE;
+    }
+    fine->add_edgeset(es[i].first, mapped);
+  }
+  return SMESH_SUCCESS;
+}
+
+static int copy_nodesets_through_refine(const std::shared_ptr<Mesh> &coarse,
+                                        const std::shared_ptr<Mesh> &fine) {
+  if (!coarse || !fine || coarse.get() == fine.get()) {
+    return SMESH_SUCCESS;
+  }
+  const auto &ns = coarse->nodesets();
+  for (size_t i = 0; i < ns.size(); ++i) {
+    auto mapped = map_nodeset_through_refine(coarse, ns[i].second, fine);
+    if (!mapped) {
+      fprintf(stderr, "refine: failed to remap nodeset \"%s\"\n",
+              ns[i].first.c_str());
+      return SMESH_FAILURE;
+    }
+    fine->add_nodeset(ns[i].first, mapped);
+  }
+  return SMESH_SUCCESS;
+}
+
+#ifdef SMESH_ENABLE_MPI
+static bool refine_is_crs_family(const enum ElemType et) {
+  return et == TET4 || refine_is_tri_family(et) || refine_is_edge_family(et);
+}
+#endif
+
+std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
+                             const int levels) {
+  SMESH_TRACE_SCOPE("refine");
+  auto finish = [&](const std::shared_ptr<Mesh> &out,
+                    const bool nodesets_done) -> std::shared_ptr<Mesh> {
+    SMESH_TRACE_SCOPE("refine.finish");
+    if (!out) {
+      return nullptr;
+    }
+    if (copy_sidesets_edgesets_through_refine(mesh, out) != SMESH_SUCCESS) {
+      return nullptr;
+    }
+    if (!nodesets_done &&
+        copy_nodesets_through_refine(mesh, out) != SMESH_SUCCESS) {
+      return nullptr;
+    }
+    return out;
+  };
+
+#ifdef SMESH_ENABLE_MPI
+  if (mesh->is_distributed()) {
+    const RefineTypeSet dtype = refine_scan_mesh(*mesh);
+    if (dtype.all_same && refine_is_crs_family(dtype.et0)) {
+      auto out = mesh;
+      for (int i = 0; i < levels; ++i) {
+        auto next = MeshTransformsDistributed::refine(out, 1);
+        if (!next) {
+          return nullptr;
+        }
+        if (copy_nodesets_through_refine(out, next) != SMESH_SUCCESS) {
+          return nullptr;
+        }
+        out = next;
+      }
+      return finish(out, true);
+    }
+    return finish(MeshTransformsDistributed::refine(mesh, levels), false);
+  }
+#else
+  if (mesh->comm()->size() > 1) {
+    SMESH_ERROR("Refinement is not supported for distributed meshes\n");
+    return nullptr;
+  }
+#endif
+
+  const RefineTypeSet types = refine_scan_mesh(*mesh);
+  if (!types.all_same) {
+    if (refine_hex_wedge_only(types)) {
+      auto ss = to_semistructured(1 << levels, mesh);
+      if (!ss) {
+        return nullptr;
+      }
+      return finish(ss_to_linear(ss), false);
+    }
+    if (refine_quad_family_only(types)) {
+      auto ss = to_semistructured(1 << levels, mesh);
+      if (!ss) {
+        return nullptr;
+      }
+      return finish(ssquad_to_quad4(ss), false);
+    }
+    if (refine_mixed_volume_ss(types)) {
+      // Mixed HEX/TET/WEDGE/PYRAMID or PYRAMID-only: one SS lattice then
+      // explode. PYRAMID SS blocks emit a PYRAMID5 block + a new TET4 block.
+      auto ss = to_semistructured(1 << levels, mesh);
+      if (!ss) {
+        return nullptr;
+      }
+      return finish(ss_to_linear(ss), false);
+    }
+    if (types.quad && (types.hex || types.wedge)) {
+      refine_print_mixed_hex_quad();
+      return nullptr;
+    }
+    if (!types.all_supported) {
+      refine_print_unsupported(types.first_unsupported);
+      return nullptr;
+    }
+    refine_print_mixed_types(types.et0, types.mixed_block, types.mixed_type);
+    return nullptr;
+  }
+  const enum ElemType et0 = types.et0;
+  if (!refine_type_supported(et0)) {
+    refine_print_unsupported(et0);
+    return nullptr;
+  }
+
+  const int refine_factor = refine_edge_midpoint_factor(et0);
+
+  if (mesh->n_blocks() > 1 && (et0 == TET4 || refine_is_tri_family(et0) ||
+                               refine_is_edge_family(et0))) {
+    auto out = mesh;
+    for (int i = 0; i < levels; ++i) {
+      auto n2n_upper_triangular = out->node_to_node_graph_upper_triangular();
+      auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
+      auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+
+      auto refined_points = create_host_buffer<geom_t>(
+          out->spatial_dimension(),
+          n2n_upper_triangular->colidx()->size() + out->n_nodes());
+
+      std::vector<std::shared_ptr<Mesh::Block>> blocks;
+      blocks.reserve(out->n_blocks());
+
+      for (size_t b = 0; b < out->n_blocks(); ++b) {
+        auto block = out->block(static_cast<block_idx_t>(b));
+        auto refined_elements = create_host_buffer<idx_t>(
+            block->n_nodes_per_element(), block->n_elements() * refine_factor);
+
+        int err =
+            mesh_refine(block->element_type(), block->n_elements(),
+                        block->elements()->data(), out->spatial_dimension(),
+                        out->n_nodes(), out->points()->data(),
+                        n2n_upper_triangular_ptr, n2n_upper_triangular_idx,
+                        refined_elements->data(), refined_points->data());
 
         if (err != SMESH_SUCCESS) {
-            SMESH_ERROR("Unable to extract skin sideset!\n");
-            return nullptr;
+          SMESH_ERROR("Multiblock refinement failed\n");
+          return nullptr;
         }
 
-#ifdef SMESH_ENABLE_MPI
-        if (mesh->comm()->size() > 1) {
-            const auto dist = mesh->distributed();
-            SMESH_ASSERT(elem_num_sides(mesh->element_type(0)) <= 8);
-            auto owned_map = dist->element_mapping();
-            auto aura_map  = dist->aura_element_mapping();
-            filter_distributed_skin_sides(mesh->comm(),
-                                          dist->n_elements_owned(),
-                                          dist->n_elements_shared(),
-                                          dist->n_elements_owned_not_shared(),
-                                          dist->n_elements_ghosts(),
-                                          (owned_map && owned_map->size() > 0) ? owned_map->data() : nullptr,
-                                          (aura_map && aura_map->size() > 0) ? aura_map->data() : nullptr,
-                                          &n_surf_elements,
-                                          parent_element,
-                                          side_idx);
-        }
-#endif
-
-        return std::make_shared<Sideset>(mesh->comm(),
-                                         manage_host_buffer<element_idx_t>(n_surf_elements, parent_element),
-                                         manage_host_buffer<i16>(n_surf_elements, side_idx),
-                                         0,
-                                         mesh->comm()->size() > 1 ? mesh->distributed()->element_mapping() : nullptr);
-    }
-
-    static std::shared_ptr<Sideset> skin_sideset_for_block(const std::shared_ptr<Mesh> &mesh,
-                                                           const block_idx_t            block_id) {
-        auto block = mesh->block(block_id);
-        if (!block) {
-            return nullptr;
-        }
-
-        const enum ElemType et = block->element_type();
-        if (block->n_elements() == 0) {
-            auto empty_parent = create_host_buffer<element_idx_t>(0);
-            auto empty_lfi    = create_host_buffer<i16>(0);
-            return std::make_shared<Sideset>(mesh->comm(),
-                                             empty_parent,
-                                             empty_lfi,
-                                             block_id,
-                                             mesh->comm()->size() > 1 ? block->element_mapping() : nullptr);
-        }
-        if (!is_semistructured_type(et) && !LocalSideTable::supported(et)) {
-            LocalSideTable::report_unsupported("skin_sideset", et);
-            return nullptr;
-        }
-
-        ptrdiff_t      n_surf_elements = 0;
-        element_idx_t *parent_element  = nullptr;
-        i16           *side_idx        = nullptr;
-
-        if (is_semistructured_type(et)) {
-            const enum ElemType family = ss_source_family(et);
-            const int           L      = semistructured_level(et);
-            int                 corners[8];
-            int                 n_corners = 0;
-            if (!ss_source_family_corners(family, L, corners, &n_corners)) {
-                SMESH_ERROR("skin_sidesets: SS family %s is not supported\n", type_to_string(family));
-                return nullptr;
-            }
-            idx_t *corner_soa[8];
-            auto   els = block->elements()->data();
-            for (int d = 0; d < n_corners; ++d) {
-                corner_soa[d] = els[corners[d]];
-            }
-            element_idx_t *adj_table = nullptr;
-            create_element_adj_table<idx_t, count_t, element_idx_t>(block->n_elements(),
-                                                                   mesh->n_nodes(),
-                                                                   family,
-                                                                   corner_soa,
-                                                                   &adj_table);
-            if (extract_sideset_from_adj_table(family,
-                                               block->n_elements(),
-                                               adj_table,
-                                               &n_surf_elements,
-                                               &parent_element,
-                                               &side_idx) != SMESH_SUCCESS) {
-                SMESH_FREE(adj_table);
-                SMESH_ERROR("Unable to extract skin sideset for SS block %d\n", block_id);
-                return nullptr;
-            }
-            SMESH_FREE(adj_table);
-        } else {
-            auto hft = mesh->half_face_table(block_id);
-            if (extract_sideset_from_adj_table(et,
-                                               block->n_elements(),
-                                               hft->data(),
-                                               &n_surf_elements,
-                                               &parent_element,
-                                               &side_idx) != SMESH_SUCCESS) {
-                SMESH_ERROR("Unable to extract skin sideset for block %d\n", block_id);
-                return nullptr;
-            }
-        }
-
-#ifdef SMESH_ENABLE_MPI
-        if (mesh->comm()->size() > 1) {
-            SMESH_ASSERT(elem_num_sides(et) <= 8);
-            auto owned_map = block->element_mapping();
-            auto aura_map  = block->aura_element_mapping();
-            filter_distributed_skin_sides(mesh->comm(),
-                                          block->n_elements_owned(),
-                                          block->n_elements_shared(),
-                                          block->n_elements_owned_not_shared(),
-                                          block->n_elements_ghosts(),
-                                          (owned_map && owned_map->size() > 0) ? owned_map->data() : nullptr,
-                                          (aura_map && aura_map->size() > 0) ? aura_map->data() : nullptr,
-                                          &n_surf_elements,
-                                          parent_element,
-                                          side_idx);
-        }
-#endif
-
-        return std::make_shared<Sideset>(mesh->comm(),
-                                         manage_host_buffer<element_idx_t>(n_surf_elements, parent_element),
-                                         manage_host_buffer<i16>(n_surf_elements, side_idx),
-                                         block_id,
-                                         mesh->comm()->size() > 1 ? block->element_mapping() : nullptr);
-    }
-
-    std::vector<std::shared_ptr<Sideset>> skin_sidesets(const std::shared_ptr<Mesh> &mesh) {
-        SMESH_TRACE_SCOPE("skin_sidesets");
-        std::vector<std::shared_ptr<Sideset>> result;
-        result.reserve(mesh->n_blocks());
-        for (size_t b = 0; b < mesh->n_blocks(); ++b) {
-            const block_idx_t bid = static_cast<block_idx_t>(b);
-            auto ss = skin_sideset_for_block(mesh, bid);
-            if (!ss) {
-                return {};
-            }
-            auto parts = split_mixed_arity_sideset(mesh, ss);
-            result.insert(result.end(), parts.begin(), parts.end());
-        }
-        return result;
-    }
-
-#ifdef SMESH_ENABLE_MPI
-
-    // FIXME: This is AI Slop code, it should be simplified and optimized
-    std::shared_ptr<Mesh> mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh, const std::shared_ptr<Sideset> &sideset) {
-        auto [surface_type, surface_elements] = create_surface_from_sideset(mesh, sideset);
-
-        const ptrdiff_t n_nodes    = mesh->n_nodes();
-        auto            vol2surf   = create_host_buffer<idx_t>(n_nodes);
-        auto            b_vol2surf = vol2surf->data();
-        for (ptrdiff_t i = 0; i < n_nodes; ++i) {
-            b_vol2surf[i] = invalid_idx<idx_t>();
-        }
-
-        const int nnxs               = surface_elements->extent(0);
-        ptrdiff_t n_surf_elements    = surface_elements->extent(1);
-        auto      b_surface_elements = surface_elements->data();
-
-        const auto      parent_dist     = mesh->distributed();
-        const ptrdiff_t n_parent_owned  = parent_dist->n_nodes_owned();
-        const ptrdiff_t n_parent_ghosts = parent_dist->n_nodes_ghosts();
-
-        for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
-            for (int d = 0; d < nnxs; ++d) {
-                idx_t idx = b_surface_elements[d][i];
-                if (b_vol2surf[idx] == invalid_idx<idx_t>()) {
-                    b_vol2surf[idx] = 0;
-                }
-            }
-        }
-
-        ptrdiff_t n_surf_nodes = 0;
-        for (ptrdiff_t i = 0; i < n_nodes; ++i) {
-            if (b_vol2surf[i] == invalid_idx<idx_t>()) {
-                continue;
-            }
-
-            b_vol2surf[i] = n_surf_nodes++;
-        }
-
-        auto local_parent          = create_host_buffer<idx_t>(n_surf_nodes);
-        auto local_parent_global   = create_host_buffer<large_idx_t>(n_surf_nodes);
-        auto b_local_parent        = local_parent->data();
-        auto b_local_parent_global = local_parent_global->data();
-        auto b_parent_node_mapping = parent_dist->node_mapping()->data();
-
-        // Compact the sparse volume-to-surface map into dense surface-node arrays
-        // while keeping both the parent local index and its globally unique
-        // parent id.
-        for (ptrdiff_t i = 0; i < n_nodes; ++i) {
-            const idx_t local_idx = b_vol2surf[i];
-            if (local_idx == invalid_idx<idx_t>()) {
-                continue;
-            }
-
-            b_local_parent[local_idx]        = i;
-            b_local_parent_global[local_idx] = b_parent_node_mapping[i];
-        }
-
-        std::vector<ptrdiff_t> local_counts(mesh->comm()->size());
-        SMESH_MPI_CATCH(MPI_Allgather(
-                &n_surf_nodes, 1, mpi_type<ptrdiff_t>(), local_counts.data(), 1, mpi_type<ptrdiff_t>(), mesh->comm()->get()));
-
-        std::vector<int> local_counts_i(mesh->comm()->size());
-        std::vector<int> local_displs_i(mesh->comm()->size());
-        ptrdiff_t        total_surface_nodes = 0;
-        // Build displacements for the allgatherv so every rank can index the
-        // flattened list of parent global ids contributed by all other ranks.
-        for (int r = 0; r < mesh->comm()->size(); ++r) {
-            local_counts_i[r] = static_cast<int>(local_counts[r]);
-            local_displs_i[r] = static_cast<int>(total_surface_nodes);
-            total_surface_nodes += local_counts[r];
-        }
-
-        std::vector<large_idx_t> global_parent_ids((size_t)total_surface_nodes);
-        SMESH_MPI_CATCH(MPI_Allgatherv(b_local_parent_global,
-                                       static_cast<int>(n_surf_nodes),
-                                       mpi_type<large_idx_t>(),
-                                       global_parent_ids.data(),
-                                       local_counts_i.data(),
-                                       local_displs_i.data(),
-                                       mpi_type<large_idx_t>(),
-                                       mesh->comm()->get()));
-
-        std::unordered_map<large_idx_t, int>  surface_owner;
-        std::unordered_map<large_idx_t, bool> surface_shared;
-        surface_owner.reserve(global_parent_ids.size());
-        surface_shared.reserve(global_parent_ids.size());
-        // The first rank that reports a parent global id becomes its owner;
-        // seeing the same id on another rank marks that surface node as shared.
-        for (int r = 0; r < mesh->comm()->size(); ++r) {
-            const ptrdiff_t begin = local_displs_i[r];
-            const ptrdiff_t end   = begin + local_counts[r];
-            for (ptrdiff_t i = begin; i < end; ++i) {
-                const large_idx_t gid      = global_parent_ids[(size_t)i];
-                const auto        inserted = surface_owner.emplace(gid, r);
-                if (!inserted.second && inserted.first->second != r) {
-                    surface_shared[gid] = true;
-                }
-            }
-        }
-
-        std::vector<idx_t> owned_nodes;
-        std::vector<idx_t> ghost_nodes;
-        std::vector<idx_t> aura_nodes;
-        owned_nodes.reserve((size_t)n_surf_nodes);
-        ghost_nodes.reserve((size_t)n_surf_nodes);
-        aura_nodes.reserve((size_t)n_surf_nodes);
-
-        ptrdiff_t n_surf_shared = 0;
-        const int rank          = mesh->comm()->rank();
-        // Classify each local surface node from the current rank's perspective:
-        // owned if this rank won ownership, ghost if the parent node is already a
-        // ghost in the volume mesh, otherwise aura.
-        for (idx_t i = 0; i < n_surf_nodes; ++i) {
-            const large_idx_t gid   = b_local_parent_global[i];
-            const int         owner = surface_owner[gid];
-            if (owner == rank) {
-                owned_nodes.push_back(i);
-                if (surface_shared[gid]) {
-                    ++n_surf_shared;
-                }
-            } else if (b_local_parent[i] < n_parent_owned + n_parent_ghosts) {
-                ghost_nodes.push_back(i);
-            } else {
-                aura_nodes.push_back(i);
-            }
-        }
-
-        auto sort_by_owner = [&](std::vector<idx_t> &nodes) {
-            std::stable_sort(nodes.begin(), nodes.end(), [&](const idx_t a, const idx_t b) {
-                return surface_owner[b_local_parent_global[a]] < surface_owner[b_local_parent_global[b]];
-            });
-        };
-        sort_by_owner(ghost_nodes);
-        sort_by_owner(aura_nodes);
-
-        ptrdiff_t n_surf_owned  = owned_nodes.size();
-        ptrdiff_t n_surf_ghosts = ghost_nodes.size();
-        ptrdiff_t n_surf_aura   = aura_nodes.size();
-
-        auto surf_points     = create_host_buffer<geom_t>(mesh->spatial_dimension(), n_surf_nodes);
-        auto mapping         = create_host_buffer<idx_t>(n_surf_nodes);
-        auto old_to_new      = create_host_buffer<idx_t>(n_surf_nodes);
-        auto surf_node_owner = create_host_buffer<int>(n_surf_nodes);
-
-        auto b_points          = mesh->points()->data();
-        auto b_surf_points     = surf_points->data();
-        auto b_mapping         = mapping->data();
-        auto b_old_to_new      = old_to_new->data();
-        auto b_surf_node_owner = surf_node_owner->data();
-
-        // Reorder nodes into owned/ghost/aura blocks and carry over geometry,
-        // parent mapping, and owning rank in one pass.
-        auto assign_nodes = [&](const std::vector<idx_t> &nodes, ptrdiff_t offset) {
-            const int spatial_dim = mesh->spatial_dimension();
-            for (ptrdiff_t k = 0; k < (ptrdiff_t)nodes.size(); ++k) {
-                const idx_t     old_idx          = nodes[(size_t)k];
-                const ptrdiff_t new_idx          = offset + k;
-                const ptrdiff_t parent_local_idx = b_local_parent[old_idx];
-                b_old_to_new[old_idx]            = static_cast<idx_t>(new_idx);
-                b_mapping[new_idx]               = parent_local_idx;
-                b_surf_node_owner[new_idx]       = surface_owner[b_local_parent_global[old_idx]];
-                for (int d = 0; d < spatial_dim; ++d) {
-                    b_surf_points[d][new_idx] = b_points[d][parent_local_idx];
-                }
-            }
-        };
-
-        assign_nodes(owned_nodes, 0);
-        assign_nodes(ghost_nodes, n_surf_owned);
-        assign_nodes(aura_nodes, n_surf_owned + n_surf_ghosts);
-
-        for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
-            for (int d = 0; d < nnxs; ++d) {
-                const idx_t old_idx      = b_vol2surf[b_surface_elements[d][i]];
-                b_surface_elements[d][i] = b_old_to_new[old_idx];
-            }
-        }
-
-        auto ret = std::make_shared<Mesh>(mesh->comm(), surface_type, surface_elements, surf_points);
-
-        ret->set_node_mapping(mapping);
-
-        auto surf_dist            = std::make_shared<Distributed>();
-        auto surf_node_mapping    = create_host_buffer<large_idx_t>(n_surf_nodes);
-        auto surf_node_offsets    = create_host_buffer<ptrdiff_t>(mesh->comm()->size() + 1);
-        auto surf_ghosts_and_aura = create_host_buffer<idx_t>(n_surf_ghosts + n_surf_aura);
-
-        auto b_surf_node_mapping    = surf_node_mapping->data();
-        auto b_surf_node_offsets    = surf_node_offsets->data();
-        auto b_surf_ghosts_and_aura = surf_ghosts_and_aura->data();
-
-        std::vector<ptrdiff_t> owned_counts(mesh->comm()->size());
-        SMESH_MPI_CATCH(MPI_Allgather(
-                &n_surf_owned, 1, mpi_type<ptrdiff_t>(), owned_counts.data(), 1, mpi_type<ptrdiff_t>(), mesh->comm()->get()));
-
-        b_surf_node_offsets[0] = 0;
-        for (int r = 0; r < mesh->comm()->size(); ++r) {
-            b_surf_node_offsets[r + 1] = b_surf_node_offsets[r] + owned_counts[r];
-        }
-
-        std::vector<int> owned_counts_i(mesh->comm()->size());
-        std::vector<int> owned_displs_i(mesh->comm()->size());
-        for (int r = 0; r < mesh->comm()->size(); ++r) {
-            owned_counts_i[r] = static_cast<int>(owned_counts[r]);
-            owned_displs_i[r] = static_cast<int>(b_surf_node_offsets[r]);
-        }
-
-        std::vector<large_idx_t> owned_parent_global_ids(n_surf_owned);
-        for (ptrdiff_t i = 0; i < n_surf_owned; ++i) {
-            owned_parent_global_ids[i] = b_parent_node_mapping[b_mapping[i]];
-            b_surf_node_mapping[i]     = b_surf_node_offsets[mesh->comm()->rank()] + i;
-        }
-
-        std::vector<large_idx_t> global_owned_parent_ids((size_t)b_surf_node_offsets[mesh->comm()->size()]);
-        SMESH_MPI_CATCH(MPI_Allgatherv(owned_parent_global_ids.data(),
-                                       static_cast<int>(n_surf_owned),
-                                       mpi_type<large_idx_t>(),
-                                       global_owned_parent_ids.data(),
-                                       owned_counts_i.data(),
-                                       owned_displs_i.data(),
-                                       mpi_type<large_idx_t>(),
-                                       mesh->comm()->get()));
-
-        std::unordered_map<large_idx_t, large_idx_t> global_surface_node_ids;
-        global_surface_node_ids.reserve(global_owned_parent_ids.size());
-        for (ptrdiff_t i = 0; i < b_surf_node_offsets[mesh->comm()->size()]; ++i) {
-            global_surface_node_ids.emplace(global_owned_parent_ids[(size_t)i], i);
-        }
-
-        ptrdiff_t import_idx = 0;
-        for (ptrdiff_t i = n_surf_owned; i < n_surf_nodes; ++i) {
-            const auto it = global_surface_node_ids.find(b_parent_node_mapping[b_mapping[i]]);
-            SMESH_ASSERT(it != global_surface_node_ids.end());
-            b_surf_node_mapping[i]               = it->second;
-            b_surf_ghosts_and_aura[import_idx++] = static_cast<idx_t>(b_surf_node_mapping[i]);
-        }
-
-        const ptrdiff_t n_parent_owned_elements   = parent_dist->n_elements_owned();
-        const auto      b_parent_surface_elements = sideset->parent()->data();
-        ptrdiff_t       n_surf_owned_elements     = 0;
-        ptrdiff_t       n_surf_shared_elements    = 0;
-        for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
-            if (b_parent_surface_elements[i] >= n_parent_owned_elements) {
-                continue;
-            }
-
-            ++n_surf_owned_elements;
-            for (int d = 0; d < nnxs; ++d) {
-                if (b_surface_elements[d][i] >= n_surf_owned) {
-                    ++n_surf_shared_elements;
-                    break;
-                }
-            }
-        }
-
-        ptrdiff_t element_offset         = 0;
-        ptrdiff_t n_surf_global_elements = 0;
-        SMESH_MPI_CATCH(
-                MPI_Exscan(&n_surf_owned_elements, &element_offset, 1, mpi_type<ptrdiff_t>(), MPI_SUM, mesh->comm()->get()));
-        if (mesh->comm()->rank() == 0) {
-            element_offset = 0;
-        }
-        SMESH_MPI_CATCH(MPI_Allreduce(
-                &n_surf_owned_elements, &n_surf_global_elements, 1, mpi_type<ptrdiff_t>(), MPI_SUM, mesh->comm()->get()));
-
-        auto surf_element_mapping   = create_host_buffer<large_idx_t>(n_surf_owned_elements);
-        auto b_surf_element_mapping = surf_element_mapping->data();
-        for (ptrdiff_t i = 0; i < n_surf_owned_elements; ++i) {
-            b_surf_element_mapping[i] = element_offset + i;
-        }
-
-        surf_dist->impl_->n_nodes_global    = b_surf_node_offsets[mesh->comm()->size()];
-        surf_dist->impl_->n_nodes_owned     = n_surf_owned;
-        surf_dist->impl_->n_nodes_shared    = n_surf_shared;
-        surf_dist->impl_->n_nodes_ghosts    = n_surf_ghosts;
-        surf_dist->impl_->n_nodes_aura      = n_surf_aura;
-        surf_dist->impl_->n_elements_global = n_surf_global_elements;
-        surf_dist->impl_->n_elements_owned  = n_surf_owned_elements;
-        surf_dist->impl_->n_elements_shared = n_surf_shared_elements;
-        surf_dist->impl_->n_elements_ghosts = n_surf_elements - n_surf_owned_elements;
-        surf_dist->impl_->node_mapping      = surf_node_mapping;
-        surf_dist->impl_->element_mapping   = surf_element_mapping;
-        surf_dist->impl_->node_owner        = surf_node_owner;
-        surf_dist->impl_->node_offsets      = surf_node_offsets;
-        surf_dist->impl_->ghosts_and_aura   = surf_ghosts_and_aura;
-
-        ret->impl_->distributed = surf_dist;
-        return ret;
-    }
-#endif
-
-    std::shared_ptr<Mesh> mesh_from_sideset(const std::shared_ptr<Mesh> &mesh, const std::shared_ptr<Sideset> &sideset) {
-        SMESH_TRACE_SCOPE("mesh_from_sideset");
-#ifdef SMESH_ENABLE_MPI
-        if (mesh->comm()->size() > 1) {
-            return mesh_from_sideset_parallel(mesh, sideset);
-        }
-#endif
-
-        auto [surface_type, surface_elements] = create_surface_from_sideset(mesh, sideset);
-
-        const ptrdiff_t n_nodes    = mesh->n_nodes();
-        auto            vol2surf   = create_host_buffer<idx_t>(n_nodes);
-        auto            b_vol2surf = vol2surf->data();
-        for (ptrdiff_t i = 0; i < n_nodes; ++i) {
-            b_vol2surf[i] = invalid_idx<idx_t>();
-        }
-
-        const int nnxs               = surface_elements->extent(0);
-        ptrdiff_t n_surf_elements    = surface_elements->extent(1);
-        auto      b_surface_elements = surface_elements->data();
-
-        ptrdiff_t n_surf_nodes = 0;
-        for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
-            for (int d = 0; d < nnxs; ++d) {
-                idx_t idx = b_surface_elements[d][i];
-                if (b_vol2surf[idx] == invalid_idx<idx_t>()) {
-                    b_vol2surf[idx] = n_surf_nodes++;
-                }
-            }
-        }
-
-        auto b_points    = mesh->points()->data();
-        auto surf_points = create_host_buffer<geom_t>(mesh->spatial_dimension(), n_surf_nodes);
-
-        auto mapping       = create_host_buffer<idx_t>(n_surf_nodes);
-        auto b_surf_points = surf_points->data();
-        auto b_mapping     = mapping->data();
-
-        int spatial_dim = mesh->spatial_dimension();
-        for (ptrdiff_t i = 0; i < n_nodes; ++i) {
-            if (b_vol2surf[i] == invalid_idx<idx_t>()) continue;
-
-            b_mapping[b_vol2surf[i]] = i;
-            for (int d = 0; d < spatial_dim; ++d) {
-                b_surf_points[d][b_vol2surf[i]] = b_points[d][i];
-            }
-        }
-
-        auto ret = std::make_shared<Mesh>(mesh->comm(), surface_type, surface_elements, surf_points);
-
-        for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
-            for (int d = 0; d < nnxs; ++d) {
-                b_surface_elements[d][i] = b_vol2surf[b_surface_elements[d][i]];
-            }
-        }
-
-        ret->set_node_mapping(mapping);
-        return ret;
-    }
-
-    std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh) {
-        auto sideset = skin_sideset(mesh);
-        return mesh_from_sideset(mesh, sideset);
-    }
-
-    std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh, const geom_t height, const ptrdiff_t nlayers) {
-#ifdef SMESH_ENABLE_MPI
-        if (mesh->is_distributed()) {
-            return MeshTransformsDistributed::extrude(mesh, height, nlayers);
-        }
-#else
-        if (mesh->comm()->size() > 1) {
-            SMESH_ERROR("Extrusion is not supported for distributed meshes\n");
-            return nullptr;
-        }
-#endif
-
-        enum ElemType extrude_type = INVALID;
-        for (size_t b = 0; b < mesh->n_blocks(); ++b) {
-            const enum ElemType et = mesh->element_type(static_cast<block_idx_t>(b));
-            if (extrude_type == INVALID) {
-                extrude_type = et;
-            } else if (extrude_type != et) {
-                SMESH_ERROR("Extrusion requires all blocks to share the same element type\n");
-                return nullptr;
-            }
-        }
-
-        if (extrude_type == QUAD4 || extrude_type == QUADSHELL4) {
-            auto hex8_points = create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
-            auto source_points = mesh->points();
-
-            if (mesh->spatial_dimension() < 3) {
-                auto p3 = create_host_buffer<geom_t>(3, mesh->n_nodes());
-                for (int d = 0; d < 3; ++d) {
-                    for (ptrdiff_t i = 0; i < mesh->n_nodes(); ++i) {
-                        p3->data()[d][i] = d < mesh->spatial_dimension() ? source_points->data()[d][i] : geom_t(0);
-                    }
-                }
-                source_points = p3;
-            }
-            std::vector<std::shared_ptr<Mesh::Block>> blocks;
-            blocks.reserve(mesh->n_blocks());
-
-            for (size_t b = 0; b < mesh->n_blocks(); ++b) {
-                auto block = mesh->block(static_cast<block_idx_t>(b));
-                auto hex8_elements =
-                        create_host_buffer<idx_t>(8, block->n_elements() * nlayers);
-
-                if (b == 0) {
-                    quad4_to_hex8_extrude(block->n_elements(),
-                                          mesh->n_nodes(),
-                                          block->elements()->data(),
-                                          source_points->data(),
-                                          nlayers,
-                                          height,
-                                          hex8_elements->data(),
-                                          hex8_points->data());
-                } else {
-                    quad4_to_hex8_extrude(block->n_elements(),
-                                          mesh->n_nodes(),
-                                          block->elements()->data(),
-                                          source_points->data(),
-                                          nlayers,
-                                          height,
-                                          hex8_elements->data(),
-                                          hex8_points->data());
-                }
-
-                auto new_block = std::make_shared<Mesh::Block>();
-                new_block->set_name(block->name());
-                new_block->set_element_type(HEX8);
-                new_block->inherit_geom_map(block->geom_map());
-                new_block->set_elements(hex8_elements);
-                blocks.push_back(new_block);
-            }
-
-            return std::make_shared<Mesh>(mesh->comm(), blocks, hex8_points);
-        }
-
-        if (extrude_type == TRI3 || extrude_type == TRISHELL3) {
-            auto wedge6_points = create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
-            auto source_points = mesh->points();
-
-            if (mesh->spatial_dimension() < 3) {
-                auto p3 = create_host_buffer<geom_t>(3, mesh->n_nodes());
-                for (int d = 0; d < 3; ++d) {
-                    for (ptrdiff_t i = 0; i < mesh->n_nodes(); ++i) {
-                        p3->data()[d][i] = d < mesh->spatial_dimension() ? source_points->data()[d][i] : geom_t(0);
-                    }
-                }
-                source_points = p3;
-            }
-            std::vector<std::shared_ptr<Mesh::Block>> blocks;
-            blocks.reserve(mesh->n_blocks());
-
-            for (size_t b = 0; b < mesh->n_blocks(); ++b) {
-                auto block = mesh->block(static_cast<block_idx_t>(b));
-                auto wedge6_elements =
-                        create_host_buffer<idx_t>(6, block->n_elements() * nlayers);
-
-                tri3_to_wedge6_extrude(block->n_elements(),
-                                       mesh->n_nodes(),
-                                       block->elements()->data(),
-                                       source_points->data(),
-                                       nlayers,
-                                       height,
-                                       wedge6_elements->data(),
-                                       wedge6_points->data());
-
-                auto new_block = std::make_shared<Mesh::Block>();
-                new_block->set_name(block->name());
-                new_block->set_element_type(WEDGE6);
-                new_block->inherit_geom_map(block->geom_map());
-                new_block->set_elements(wedge6_elements);
-                blocks.push_back(new_block);
-            }
-
-            return std::make_shared<Mesh>(mesh->comm(), blocks, wedge6_points);
-        }
-
-        SMESH_ERROR("Extrusion not supported for element type %s\n", type_to_string(extrude_type));
+        auto new_block = std::make_shared<Mesh::Block>();
+        new_block->set_name(block->name());
+        new_block->set_element_type(block->element_type());
+        new_block->inherit_geom_map(block->geom_map());
+        new_block->set_elements(refined_elements);
+        blocks.push_back(new_block);
+      }
+
+      auto next = std::make_shared<Mesh>(out->comm(), blocks, refined_points);
+      if (copy_nodesets_through_refine(out, next) != SMESH_SUCCESS) {
         return nullptr;
+      }
+      out = next;
+    }
+    return finish(out, true);
+  }
+
+  if (mesh->n_blocks() > 1 && mesh->element_type(0) == HEX8) {
+    auto ss = to_semistructured(1 << levels, mesh);
+    if (!ss) {
+      return nullptr;
+    }
+    return finish(sshex_to_hex8(ss), false);
+  }
+
+  if (et0 == QUAD4 || et0 == QUADSHELL4) {
+    auto ss = to_semistructured(1 << levels, mesh);
+    if (!ss) {
+      return nullptr;
+    }
+    return finish(ssquad_to_quad4(ss), false);
+  }
+
+  if (et0 == WEDGE6) {
+    auto ss = to_semistructured(1 << levels, mesh);
+    if (!ss) {
+      return nullptr;
+    }
+    return finish(sswedge_to_wedge6(ss), false);
+  }
+
+  if (et0 == PYRAMID5) {
+    // Same-type PYRAMID: use SS lattice + explode.
+    // Output: PYRAMID5 block + TET4 block (if L >= 2).
+    auto ss = to_semistructured(1 << levels, mesh);
+    if (!ss) {
+      return nullptr;
+    }
+    return finish(ss_to_linear(ss), false);
+  }
+
+  auto out = mesh;
+  if (mesh->element_type(0) == HEX8) {
+    const ptrdiff_t n_elements = mesh->n_elements(0);
+
+    const int ss_levels = pow(2, levels);
+    const int nxe = sshex8_nxe(ss_levels);
+    const int txe = sshex8_txe(ss_levels);
+
+    auto sshex8_elements = create_host_buffer<idx_t>(nxe, mesh->n_elements(0));
+    auto d_sshex8_elements = sshex8_elements->data();
+
+    ptrdiff_t n_unique_nodes = 0;
+    ptrdiff_t interior_start = 0;
+
+    sshex8_generate_elements(ss_levels, n_elements, mesh->n_nodes(),
+                             mesh->elements(0)->data(), d_sshex8_elements,
+                             &n_unique_nodes, &interior_start);
+
+    ptrdiff_t n_micro_elements = n_elements * txe;
+    auto hex8_elements = create_host_buffer<idx_t>(8, n_micro_elements);
+    auto d_hex8_elements = hex8_elements->data();
+
+    sshex8_to_standard_hex8_mesh(ss_levels, n_elements, d_sshex8_elements,
+                                 d_hex8_elements);
+
+    auto hex8_points = create_host_buffer<geom_t>(3, n_unique_nodes);
+    auto d_hex8_points = hex8_points->data();
+
+    sshex8_fill_points(ss_levels, n_elements, d_sshex8_elements,
+                       mesh->points()->data(), d_hex8_points);
+    out =
+        std::make_shared<Mesh>(mesh->comm(), HEX8, hex8_elements, hex8_points);
+
+  } else {
+    for (int i = 0; i < levels; i++) {
+      auto n2n_upper_triangular = out->node_to_node_graph_upper_triangular();
+      auto n2n_upper_triangular_ptr = n2n_upper_triangular->rowptr()->data();
+      auto n2n_upper_triangular_idx = n2n_upper_triangular->colidx()->data();
+
+      auto refined_elements = create_host_buffer<idx_t>(
+          out->n_nodes_per_element(0), out->n_elements(0) * refine_factor);
+
+      auto refined_points = create_host_buffer<geom_t>(
+          out->spatial_dimension(),
+          n2n_upper_triangular->colidx()->size() + out->n_nodes());
+
+      int err = mesh_refine(out->element_type(0), out->n_elements(0),
+                            out->elements(0)->data(), out->spatial_dimension(),
+                            out->n_nodes(), out->points()->data(),
+                            n2n_upper_triangular_ptr, n2n_upper_triangular_idx,
+                            refined_elements->data(), refined_points->data());
+
+      if (err != SMESH_SUCCESS) {
+        SMESH_ERROR("Refinement failed\n");
+        return nullptr;
+      }
+
+      auto next = std::make_shared<Mesh>(out->comm(), out->element_type(0),
+                                         refined_elements, refined_points);
+      if (copy_nodesets_through_refine(out, next) != SMESH_SUCCESS) {
+        return nullptr;
+      }
+      out = next;
+    }
+  }
+
+  const bool crs_nodesets = mesh->element_type(0) != HEX8;
+  return finish(out, crs_nodesets);
+}
+
+#ifdef SMESH_ENABLE_MPI
+static int filter_distributed_skin_sides(
+    const std::shared_ptr<Communicator> &comm, const ptrdiff_t n_owned_elements,
+    const ptrdiff_t n_shared_elements, const ptrdiff_t n_owned_not_shared,
+    const ptrdiff_t n_aura_elements, const large_idx_t *element_mapping,
+    const large_idx_t *aura_element_mapping, ptrdiff_t *n_surf_elements,
+    element_idx_t *parent_element, i16 *side_idx) {
+  large_idx_t n_global = 0;
+  if (element_mapping) {
+    for (ptrdiff_t i = 0; i < n_owned_elements; ++i) {
+      n_global = std::max(n_global, element_mapping[i] + 1);
+    }
+  }
+  if (aura_element_mapping) {
+    for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
+      n_global = std::max(n_global, aura_element_mapping[i] + 1);
+    }
+  }
+  n_global = comm->max(n_global);
+
+  const int comm_size = comm->size();
+  const int rank = comm->rank();
+
+  std::vector<element_idx_t> owned_global_to_local(
+      static_cast<size_t>(n_global), invalid_idx<element_idx_t>());
+  std::vector<int> owner(static_cast<size_t>(n_global), -1);
+  for (ptrdiff_t i = 0; i < n_owned_elements; ++i) {
+    const large_idx_t gid = element_mapping[i];
+    owned_global_to_local[static_cast<size_t>(gid)] =
+        static_cast<element_idx_t>(i);
+    owner[static_cast<size_t>(gid)] = rank;
+  }
+  if (n_global > 0) {
+    SMESH_MPI_CATCH(MPI_Allreduce(MPI_IN_PLACE, owner.data(),
+                                  static_cast<int>(n_global), MPI_INT, MPI_MAX,
+                                  comm->get()));
+  }
+
+  u8 *shared_face_mask = nullptr;
+  if (n_shared_elements > 0) {
+    shared_face_mask =
+        (u8 *)SMESH_CALLOC((size_t)n_shared_elements, sizeof(u8));
+  }
+
+  u8 *aura_face_mask = nullptr;
+  if (n_aura_elements > 0) {
+    aura_face_mask = (u8 *)SMESH_CALLOC((size_t)n_aura_elements, sizeof(u8));
+  }
+
+  for (ptrdiff_t i = 0; i < *n_surf_elements; ++i) {
+    const element_idx_t parent = parent_element[i];
+    const u8 side_mask = static_cast<u8>(1u << side_idx[i]);
+    if (parent < n_owned_elements) {
+      if (parent >= n_owned_not_shared) {
+        shared_face_mask[parent - n_owned_not_shared] |= side_mask;
+      }
+    } else {
+      aura_face_mask[parent - n_owned_elements] |= side_mask;
+    }
+  }
+
+  {
+    i64 *send_count = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
+    i64 *send_displs = (i64 *)SMESH_CALLOC((size_t)comm_size + 1, sizeof(i64));
+
+    for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
+      const int dest = owner[static_cast<size_t>(aura_element_mapping[i])];
+      if (dest >= 0 && dest < comm_size) {
+        send_displs[dest + 1]++;
+      }
+    }
+    for (int r = 0; r < comm_size; ++r) {
+      send_displs[r + 1] += send_displs[r];
     }
 
-    std::shared_ptr<Mesh> concatenate(const std::shared_ptr<Mesh> &mesh1, const std::shared_ptr<Mesh> &mesh2) {
-        auto new_points = create_host_buffer<geom_t>(mesh1->spatial_dimension(), mesh1->n_nodes() + mesh2->n_nodes());
+    auto send_global_ids = (large_idx_t *)SMESH_ALLOC(
+        (size_t)send_displs[comm_size] * sizeof(large_idx_t));
+    auto send_face_mask =
+        (u8 *)SMESH_ALLOC((size_t)send_displs[comm_size] * sizeof(u8));
 
-        auto p1    = mesh1->points()->data();
-        auto p2    = mesh2->points()->data();
-        auto p_new = new_points->data();
-
-        const int       spatial_dim = mesh1->spatial_dimension();
-        const ptrdiff_t n_nodes1    = mesh1->n_nodes();
-        const ptrdiff_t n_nodes2    = mesh2->n_nodes();
-
-        for (int d = 0; d < spatial_dim; d++) {
-            for (ptrdiff_t i = 0; i < n_nodes1; i++) {
-                p_new[d][i] = p1[d][i];
-            }
-
-            for (ptrdiff_t i = 0; i < n_nodes2; i++) {
-                p_new[d][n_nodes1 + i] = p2[d][i];
-            }
-        }
-
-        std::vector<std::shared_ptr<Mesh::Block>> new_blocks;
-
-        if (mesh1->n_blocks() == 1 && mesh2->n_blocks() == 1) {
-            auto new_elements =
-                    create_host_buffer<idx_t>(mesh1->n_nodes_per_element(0), mesh1->n_elements(0) + mesh2->n_elements(0));
-
-            const int nxe = mesh1->n_nodes_per_element(0);
-
-            auto e1    = mesh1->elements(0)->data();
-            auto e2    = mesh2->elements(0)->data();
-            auto e_new = new_elements->data();
-
-            for (int v = 0; v < nxe; v++) {
-                const ptrdiff_t ne1 = mesh1->n_elements(0);
-                const ptrdiff_t ne2 = mesh2->n_elements(0);
-                for (int i = 0; i < ne1; ++i) {
-                    e_new[v][i] = e1[v][i];
-                }
-                for (int i = 0; i < ne2; ++i) {
-                    e_new[v][ne1 + i] = n_nodes1 + e2[v][i];
-                }
-            }
-
-            auto new_block = std::make_shared<Mesh::Block>();
-            new_block->set_name("concatenated");
-            new_block->set_element_type(mesh1->element_type(0));
-            if (mesh1->geom_map(0) == mesh2->geom_map(0)) {
-                new_block->inherit_geom_map(mesh1->geom_map(0));
-            }
-            new_block->set_elements(new_elements);
-            new_blocks.push_back(new_block);
-        } else {
-            SMESH_ERROR("Concatenation is not supported for multiblock meshes\n");
-            return nullptr;
-        }
-
-        return std::make_shared<Mesh>(mesh1->comm(), new_blocks, new_points);
+    memset(send_count, 0, (size_t)comm_size * sizeof(i64));
+    for (ptrdiff_t i = 0; i < n_aura_elements; ++i) {
+      const large_idx_t global_id = aura_element_mapping[i];
+      const int dest = owner[static_cast<size_t>(global_id)];
+      if (dest < 0 || dest >= comm_size) {
+        continue;
+      }
+      const i64 pos = send_displs[dest] + send_count[dest]++;
+      send_global_ids[pos] = global_id;
+      send_face_mask[pos] = aura_face_mask[i];
     }
 
-    SharedBuffer<idx_t> Mesh::node_mapping() const { return impl_->node_mapping; }
+    i64 *recv_count = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
+    i64 *recv_displs =
+        (i64 *)SMESH_ALLOC(((size_t)comm_size + 1) * sizeof(i64));
+    SMESH_MPI_CATCH(MPI_Alltoall(send_count, 1, mpi_type<i64>(), recv_count, 1,
+                                 mpi_type<i64>(), comm->get()));
 
-    SharedBuffer<geom_t *> Mesh::device_points_SoA() {
-        if (!impl_->device_points->has_SoA()) {
-            impl_->device_points->init_SoA(points(), MEMORY_SPACE_DEVICE);
-        }
-
-        return impl_->device_points->points_SoA();
+    recv_displs[0] = 0;
+    for (int r = 0; r < comm_size; ++r) {
+      recv_displs[r + 1] = recv_displs[r] + recv_count[r];
     }
 
-    SharedBuffer<geom_t> Mesh::device_points_AoS() {
-        if (!impl_->device_points->has_AoS()) {
-            impl_->device_points->init_AoS(points(), MEMORY_SPACE_DEVICE);
-        }
+    auto recv_global_ids = (large_idx_t *)SMESH_ALLOC(
+        (size_t)recv_displs[comm_size] * sizeof(large_idx_t));
+    auto recv_face_mask =
+        (u8 *)SMESH_ALLOC((size_t)recv_displs[comm_size] * sizeof(u8));
+    const i64 max_chunk_size = (i64)std::numeric_limits<i32>::max() / comm_size;
 
-        return impl_->device_points->points_AoS();
+    SMESH_MPI_CATCH(all_to_allv_64(send_global_ids, send_count, send_displs,
+                                   recv_global_ids, recv_count, recv_displs,
+                                   comm->get(), max_chunk_size));
+    SMESH_MPI_CATCH(all_to_allv_64(send_face_mask, send_count, send_displs,
+                                   recv_face_mask, recv_count, recv_displs,
+                                   comm->get(), max_chunk_size));
+
+    for (i64 i = 0; i < recv_displs[comm_size]; ++i) {
+      const large_idx_t gid = recv_global_ids[i];
+      if (gid < 0 || gid >= n_global) {
+        continue;
+      }
+      const element_idx_t local_element =
+          owned_global_to_local[static_cast<size_t>(gid)];
+      if (local_element == invalid_idx<element_idx_t>() ||
+          local_element < n_owned_not_shared ||
+          local_element >= n_owned_elements) {
+        continue;
+      }
+      shared_face_mask[local_element - n_owned_not_shared] &= recv_face_mask[i];
     }
 
-    void Mesh::print(std::ostream &os) const {
-        os << "n_blocks: " << n_blocks() << "\n";
+    SMESH_FREE(send_count);
+    SMESH_FREE(send_displs);
+    SMESH_FREE(send_global_ids);
+    SMESH_FREE(send_face_mask);
+    SMESH_FREE(recv_count);
+    SMESH_FREE(recv_displs);
+    SMESH_FREE(recv_global_ids);
+    SMESH_FREE(recv_face_mask);
+  }
 
-        for (size_t i = 0; i < n_blocks(); i++) {
-            os << i << ") " << block(i)->name() << " " << type_to_string(block(i)->element_type())
-               << " " << geom_map_to_string(block(i)->geom_map()) << "\n";
-            block(i)->elements()->print(os);
-        }
-
-        os << "n_nodes: " << n_nodes() << "\n";
-        points()->print(os);
+  ptrdiff_t write_pos = 0;
+  for (ptrdiff_t i = 0; i < *n_surf_elements; ++i) {
+    const element_idx_t parent = parent_element[i];
+    if (parent >= n_owned_elements) {
+      continue;
     }
+    if (parent >= n_owned_not_shared) {
+      const u8 side_mask = static_cast<u8>(1u << side_idx[i]);
+      if ((shared_face_mask[parent - n_owned_not_shared] & side_mask) == 0) {
+        continue;
+      }
+    }
+    parent_element[write_pos] = parent;
+    side_idx[write_pos] = side_idx[i];
+    ++write_pos;
+  }
+  *n_surf_elements = write_pos;
+
+  SMESH_FREE(shared_face_mask);
+  SMESH_FREE(aura_face_mask);
+  return SMESH_SUCCESS;
+}
+#endif
+
+static std::shared_ptr<Sideset>
+skin_sideset_for_block(const std::shared_ptr<Mesh> &mesh,
+                       const block_idx_t block_id);
+
+std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh) {
+  SMESH_TRACE_SCOPE("skin_sideset");
+  if (mesh->n_blocks() != 1) {
+    auto skins = skin_sidesets(mesh);
+    std::shared_ptr<Sideset> kept;
+    int n_nonempty = 0;
+    for (const auto &ss : skins) {
+      if (ss && ss->size() > 0) {
+        ++n_nonempty;
+        kept = ss;
+      }
+    }
+    if (n_nonempty <= 1) {
+      if (kept) {
+        return kept;
+      }
+      return skin_sideset_for_block(mesh, 0);
+    }
+    SMESH_ERROR("skin_sideset: %d non-empty per-block skins on a %zu-block "
+                "mesh; use skin_sidesets()\n",
+                n_nonempty, mesh->n_blocks());
+    return nullptr;
+  }
+
+  if (is_semistructured_type(mesh->element_type(0))) {
+    return skin_sideset_for_block(mesh, 0);
+  }
+
+  if (!LocalSideTable::supported(mesh->element_type(0))) {
+    LocalSideTable::report_unsupported("skin_sideset", mesh->element_type(0));
+    return nullptr;
+  }
+
+  auto n2e_graph = mesh->node_to_element_graph();
+  auto n2e_graph_ptr = n2e_graph->rowptr()->data();
+  auto n2e_graph_idx = n2e_graph->colidx()->data();
+
+  ptrdiff_t n_surf_elements = 0;
+  element_idx_t *parent_element = 0;
+  i16 *side_idx = 0;
+
+  int err = extract_skin_sideset_from_n2e(
+      mesh->n_elements(0), mesh->n_nodes(), mesh->element_type(0),
+      mesh->elements(0)->data(), n2e_graph_ptr, n2e_graph_idx, &n_surf_elements,
+      &parent_element, &side_idx);
+
+  if (err != SMESH_SUCCESS) {
+    SMESH_ERROR("Unable to extract skin sideset!\n");
+    return nullptr;
+  }
+
+#ifdef SMESH_ENABLE_MPI
+  if (mesh->comm()->size() > 1) {
+    const auto dist = mesh->distributed();
+    SMESH_ASSERT(elem_num_sides(mesh->element_type(0)) <= 8);
+    auto owned_map = dist->element_mapping();
+    auto aura_map = dist->aura_element_mapping();
+    filter_distributed_skin_sides(
+        mesh->comm(), dist->n_elements_owned(), dist->n_elements_shared(),
+        dist->n_elements_owned_not_shared(), dist->n_elements_ghosts(),
+        (owned_map && owned_map->size() > 0) ? owned_map->data() : nullptr,
+        (aura_map && aura_map->size() > 0) ? aura_map->data() : nullptr,
+        &n_surf_elements, parent_element, side_idx);
+  }
+#endif
+
+  return std::make_shared<Sideset>(
+      mesh->comm(),
+      manage_host_buffer<element_idx_t>(n_surf_elements, parent_element),
+      manage_host_buffer<i16>(n_surf_elements, side_idx), 0,
+      mesh->comm()->size() > 1 ? mesh->distributed()->element_mapping()
+                               : nullptr);
+}
+
+static std::shared_ptr<Sideset>
+skin_sideset_for_block(const std::shared_ptr<Mesh> &mesh,
+                       const block_idx_t block_id) {
+  auto block = mesh->block(block_id);
+  if (!block) {
+    return nullptr;
+  }
+
+  const enum ElemType et = block->element_type();
+  if (block->n_elements() == 0) {
+    auto empty_parent = create_host_buffer<element_idx_t>(0);
+    auto empty_lfi = create_host_buffer<i16>(0);
+    return std::make_shared<Sideset>(
+        mesh->comm(), empty_parent, empty_lfi, block_id,
+        mesh->comm()->size() > 1 ? block->element_mapping() : nullptr);
+  }
+  if (!is_semistructured_type(et) && !LocalSideTable::supported(et)) {
+    LocalSideTable::report_unsupported("skin_sideset", et);
+    return nullptr;
+  }
+
+  ptrdiff_t n_surf_elements = 0;
+  element_idx_t *parent_element = nullptr;
+  i16 *side_idx = nullptr;
+
+  if (is_semistructured_type(et)) {
+    const enum ElemType family = ss_source_family(et);
+    const int L = semistructured_level(et);
+    int corners[8];
+    int n_corners = 0;
+    if (!ss_source_family_corners(family, L, corners, &n_corners)) {
+      SMESH_ERROR("skin_sidesets: SS family %s is not supported\n",
+                  type_to_string(family));
+      return nullptr;
+    }
+    idx_t *corner_soa[8];
+    auto els = block->elements()->data();
+    for (int d = 0; d < n_corners; ++d) {
+      corner_soa[d] = els[corners[d]];
+    }
+    element_idx_t *adj_table = nullptr;
+    create_element_adj_table<idx_t, count_t, element_idx_t>(
+        block->n_elements(), mesh->n_nodes(), family, corner_soa, &adj_table);
+    if (extract_sideset_from_adj_table(family, block->n_elements(), adj_table,
+                                       &n_surf_elements, &parent_element,
+                                       &side_idx) != SMESH_SUCCESS) {
+      SMESH_FREE(adj_table);
+      SMESH_ERROR("Unable to extract skin sideset for SS block %d\n", block_id);
+      return nullptr;
+    }
+    SMESH_FREE(adj_table);
+  } else {
+    auto hft = mesh->half_face_table(block_id);
+    if (extract_sideset_from_adj_table(et, block->n_elements(), hft->data(),
+                                       &n_surf_elements, &parent_element,
+                                       &side_idx) != SMESH_SUCCESS) {
+      SMESH_ERROR("Unable to extract skin sideset for block %d\n", block_id);
+      return nullptr;
+    }
+  }
+
+#ifdef SMESH_ENABLE_MPI
+  if (mesh->comm()->size() > 1) {
+    SMESH_ASSERT(elem_num_sides(et) <= 8);
+    auto owned_map = block->element_mapping();
+    auto aura_map = block->aura_element_mapping();
+    filter_distributed_skin_sides(
+        mesh->comm(), block->n_elements_owned(), block->n_elements_shared(),
+        block->n_elements_owned_not_shared(), block->n_elements_ghosts(),
+        (owned_map && owned_map->size() > 0) ? owned_map->data() : nullptr,
+        (aura_map && aura_map->size() > 0) ? aura_map->data() : nullptr,
+        &n_surf_elements, parent_element, side_idx);
+  }
+#endif
+
+  return std::make_shared<Sideset>(
+      mesh->comm(),
+      manage_host_buffer<element_idx_t>(n_surf_elements, parent_element),
+      manage_host_buffer<i16>(n_surf_elements, side_idx), block_id,
+      mesh->comm()->size() > 1 ? block->element_mapping() : nullptr);
+}
+
+std::vector<std::shared_ptr<Sideset>>
+skin_sidesets(const std::shared_ptr<Mesh> &mesh) {
+  SMESH_TRACE_SCOPE("skin_sidesets");
+  std::vector<std::shared_ptr<Sideset>> result;
+  result.reserve(mesh->n_blocks());
+  for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+    const block_idx_t bid = static_cast<block_idx_t>(b);
+    auto ss = skin_sideset_for_block(mesh, bid);
+    if (!ss) {
+      return {};
+    }
+    auto parts = split_mixed_arity_sideset(mesh, ss);
+    result.insert(result.end(), parts.begin(), parts.end());
+  }
+  return result;
+}
+
+#ifdef SMESH_ENABLE_MPI
+
+// FIXME: This is AI Slop code, it should be simplified and optimized
+std::shared_ptr<Mesh>
+mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
+                           const std::shared_ptr<Sideset> &sideset) {
+  auto [surface_type, surface_elements] =
+      create_surface_from_sideset(mesh, sideset);
+
+  const ptrdiff_t n_nodes = mesh->n_nodes();
+  auto vol2surf = create_host_buffer<idx_t>(n_nodes);
+  auto b_vol2surf = vol2surf->data();
+  for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+    b_vol2surf[i] = invalid_idx<idx_t>();
+  }
+
+  const int nnxs = surface_elements->extent(0);
+  ptrdiff_t n_surf_elements = surface_elements->extent(1);
+  auto b_surface_elements = surface_elements->data();
+
+  const auto parent_dist = mesh->distributed();
+  const ptrdiff_t n_parent_owned = parent_dist->n_nodes_owned();
+  const ptrdiff_t n_parent_ghosts = parent_dist->n_nodes_ghosts();
+
+  for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+    for (int d = 0; d < nnxs; ++d) {
+      idx_t idx = b_surface_elements[d][i];
+      if (b_vol2surf[idx] == invalid_idx<idx_t>()) {
+        b_vol2surf[idx] = 0;
+      }
+    }
+  }
+
+  ptrdiff_t n_surf_nodes = 0;
+  for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+    if (b_vol2surf[i] == invalid_idx<idx_t>()) {
+      continue;
+    }
+
+    b_vol2surf[i] = n_surf_nodes++;
+  }
+
+  auto local_parent = create_host_buffer<idx_t>(n_surf_nodes);
+  auto local_parent_global = create_host_buffer<large_idx_t>(n_surf_nodes);
+  auto b_local_parent = local_parent->data();
+  auto b_local_parent_global = local_parent_global->data();
+  auto b_parent_node_mapping = parent_dist->node_mapping()->data();
+
+  // Compact the sparse volume-to-surface map into dense surface-node arrays
+  // while keeping both the parent local index and its globally unique
+  // parent id.
+  for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+    const idx_t local_idx = b_vol2surf[i];
+    if (local_idx == invalid_idx<idx_t>()) {
+      continue;
+    }
+
+    b_local_parent[local_idx] = i;
+    b_local_parent_global[local_idx] = b_parent_node_mapping[i];
+  }
+
+  std::vector<ptrdiff_t> local_counts(mesh->comm()->size());
+  SMESH_MPI_CATCH(MPI_Allgather(&n_surf_nodes, 1, mpi_type<ptrdiff_t>(),
+                                local_counts.data(), 1, mpi_type<ptrdiff_t>(),
+                                mesh->comm()->get()));
+
+  std::vector<int> local_counts_i(mesh->comm()->size());
+  std::vector<int> local_displs_i(mesh->comm()->size());
+  ptrdiff_t total_surface_nodes = 0;
+  // Build displacements for the allgatherv so every rank can index the
+  // flattened list of parent global ids contributed by all other ranks.
+  for (int r = 0; r < mesh->comm()->size(); ++r) {
+    local_counts_i[r] = static_cast<int>(local_counts[r]);
+    local_displs_i[r] = static_cast<int>(total_surface_nodes);
+    total_surface_nodes += local_counts[r];
+  }
+
+  std::vector<large_idx_t> global_parent_ids((size_t)total_surface_nodes);
+  SMESH_MPI_CATCH(MPI_Allgatherv(
+      b_local_parent_global, static_cast<int>(n_surf_nodes),
+      mpi_type<large_idx_t>(), global_parent_ids.data(), local_counts_i.data(),
+      local_displs_i.data(), mpi_type<large_idx_t>(), mesh->comm()->get()));
+
+  std::unordered_map<large_idx_t, int> surface_owner;
+  std::unordered_map<large_idx_t, bool> surface_shared;
+  surface_owner.reserve(global_parent_ids.size());
+  surface_shared.reserve(global_parent_ids.size());
+  // The first rank that reports a parent global id becomes its owner;
+  // seeing the same id on another rank marks that surface node as shared.
+  for (int r = 0; r < mesh->comm()->size(); ++r) {
+    const ptrdiff_t begin = local_displs_i[r];
+    const ptrdiff_t end = begin + local_counts[r];
+    for (ptrdiff_t i = begin; i < end; ++i) {
+      const large_idx_t gid = global_parent_ids[(size_t)i];
+      const auto inserted = surface_owner.emplace(gid, r);
+      if (!inserted.second && inserted.first->second != r) {
+        surface_shared[gid] = true;
+      }
+    }
+  }
+
+  std::vector<idx_t> owned_nodes;
+  std::vector<idx_t> ghost_nodes;
+  std::vector<idx_t> aura_nodes;
+  owned_nodes.reserve((size_t)n_surf_nodes);
+  ghost_nodes.reserve((size_t)n_surf_nodes);
+  aura_nodes.reserve((size_t)n_surf_nodes);
+
+  ptrdiff_t n_surf_shared = 0;
+  const int rank = mesh->comm()->rank();
+  // Classify each local surface node from the current rank's perspective:
+  // owned if this rank won ownership, ghost if the parent node is already a
+  // ghost in the volume mesh, otherwise aura.
+  for (idx_t i = 0; i < n_surf_nodes; ++i) {
+    const large_idx_t gid = b_local_parent_global[i];
+    const int owner = surface_owner[gid];
+    if (owner == rank) {
+      owned_nodes.push_back(i);
+      if (surface_shared[gid]) {
+        ++n_surf_shared;
+      }
+    } else if (b_local_parent[i] < n_parent_owned + n_parent_ghosts) {
+      ghost_nodes.push_back(i);
+    } else {
+      aura_nodes.push_back(i);
+    }
+  }
+
+  auto sort_by_owner = [&](std::vector<idx_t> &nodes) {
+    std::stable_sort(nodes.begin(), nodes.end(),
+                     [&](const idx_t a, const idx_t b) {
+                       return surface_owner[b_local_parent_global[a]] <
+                              surface_owner[b_local_parent_global[b]];
+                     });
+  };
+  sort_by_owner(ghost_nodes);
+  sort_by_owner(aura_nodes);
+
+  ptrdiff_t n_surf_owned = owned_nodes.size();
+  ptrdiff_t n_surf_ghosts = ghost_nodes.size();
+  ptrdiff_t n_surf_aura = aura_nodes.size();
+
+  auto surf_points =
+      create_host_buffer<geom_t>(mesh->spatial_dimension(), n_surf_nodes);
+  auto mapping = create_host_buffer<idx_t>(n_surf_nodes);
+  auto old_to_new = create_host_buffer<idx_t>(n_surf_nodes);
+  auto surf_node_owner = create_host_buffer<int>(n_surf_nodes);
+
+  auto b_points = mesh->points()->data();
+  auto b_surf_points = surf_points->data();
+  auto b_mapping = mapping->data();
+  auto b_old_to_new = old_to_new->data();
+  auto b_surf_node_owner = surf_node_owner->data();
+
+  // Reorder nodes into owned/ghost/aura blocks and carry over geometry,
+  // parent mapping, and owning rank in one pass.
+  auto assign_nodes = [&](const std::vector<idx_t> &nodes, ptrdiff_t offset) {
+    const int spatial_dim = mesh->spatial_dimension();
+    for (ptrdiff_t k = 0; k < (ptrdiff_t)nodes.size(); ++k) {
+      const idx_t old_idx = nodes[(size_t)k];
+      const ptrdiff_t new_idx = offset + k;
+      const ptrdiff_t parent_local_idx = b_local_parent[old_idx];
+      b_old_to_new[old_idx] = static_cast<idx_t>(new_idx);
+      b_mapping[new_idx] = parent_local_idx;
+      b_surf_node_owner[new_idx] =
+          surface_owner[b_local_parent_global[old_idx]];
+      for (int d = 0; d < spatial_dim; ++d) {
+        b_surf_points[d][new_idx] = b_points[d][parent_local_idx];
+      }
+    }
+  };
+
+  assign_nodes(owned_nodes, 0);
+  assign_nodes(ghost_nodes, n_surf_owned);
+  assign_nodes(aura_nodes, n_surf_owned + n_surf_ghosts);
+
+  for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+    for (int d = 0; d < nnxs; ++d) {
+      const idx_t old_idx = b_vol2surf[b_surface_elements[d][i]];
+      b_surface_elements[d][i] = b_old_to_new[old_idx];
+    }
+  }
+
+  auto ret = std::make_shared<Mesh>(mesh->comm(), surface_type,
+                                    surface_elements, surf_points);
+
+  ret->set_node_mapping(mapping);
+
+  auto surf_dist = std::make_shared<Distributed>();
+  auto surf_node_mapping = create_host_buffer<large_idx_t>(n_surf_nodes);
+  auto surf_node_offsets =
+      create_host_buffer<ptrdiff_t>(mesh->comm()->size() + 1);
+  auto surf_ghosts_and_aura =
+      create_host_buffer<idx_t>(n_surf_ghosts + n_surf_aura);
+
+  auto b_surf_node_mapping = surf_node_mapping->data();
+  auto b_surf_node_offsets = surf_node_offsets->data();
+  auto b_surf_ghosts_and_aura = surf_ghosts_and_aura->data();
+
+  std::vector<ptrdiff_t> owned_counts(mesh->comm()->size());
+  SMESH_MPI_CATCH(MPI_Allgather(&n_surf_owned, 1, mpi_type<ptrdiff_t>(),
+                                owned_counts.data(), 1, mpi_type<ptrdiff_t>(),
+                                mesh->comm()->get()));
+
+  b_surf_node_offsets[0] = 0;
+  for (int r = 0; r < mesh->comm()->size(); ++r) {
+    b_surf_node_offsets[r + 1] = b_surf_node_offsets[r] + owned_counts[r];
+  }
+
+  std::vector<int> owned_counts_i(mesh->comm()->size());
+  std::vector<int> owned_displs_i(mesh->comm()->size());
+  for (int r = 0; r < mesh->comm()->size(); ++r) {
+    owned_counts_i[r] = static_cast<int>(owned_counts[r]);
+    owned_displs_i[r] = static_cast<int>(b_surf_node_offsets[r]);
+  }
+
+  std::vector<large_idx_t> owned_parent_global_ids(n_surf_owned);
+  for (ptrdiff_t i = 0; i < n_surf_owned; ++i) {
+    owned_parent_global_ids[i] = b_parent_node_mapping[b_mapping[i]];
+    b_surf_node_mapping[i] = b_surf_node_offsets[mesh->comm()->rank()] + i;
+  }
+
+  std::vector<large_idx_t> global_owned_parent_ids(
+      (size_t)b_surf_node_offsets[mesh->comm()->size()]);
+  SMESH_MPI_CATCH(MPI_Allgatherv(
+      owned_parent_global_ids.data(), static_cast<int>(n_surf_owned),
+      mpi_type<large_idx_t>(), global_owned_parent_ids.data(),
+      owned_counts_i.data(), owned_displs_i.data(), mpi_type<large_idx_t>(),
+      mesh->comm()->get()));
+
+  std::unordered_map<large_idx_t, large_idx_t> global_surface_node_ids;
+  global_surface_node_ids.reserve(global_owned_parent_ids.size());
+  for (ptrdiff_t i = 0; i < b_surf_node_offsets[mesh->comm()->size()]; ++i) {
+    global_surface_node_ids.emplace(global_owned_parent_ids[(size_t)i], i);
+  }
+
+  ptrdiff_t import_idx = 0;
+  for (ptrdiff_t i = n_surf_owned; i < n_surf_nodes; ++i) {
+    const auto it =
+        global_surface_node_ids.find(b_parent_node_mapping[b_mapping[i]]);
+    SMESH_ASSERT(it != global_surface_node_ids.end());
+    b_surf_node_mapping[i] = it->second;
+    b_surf_ghosts_and_aura[import_idx++] =
+        static_cast<idx_t>(b_surf_node_mapping[i]);
+  }
+
+  const ptrdiff_t n_parent_owned_elements = parent_dist->n_elements_owned();
+  const auto b_parent_surface_elements = sideset->parent()->data();
+  ptrdiff_t n_surf_owned_elements = 0;
+  ptrdiff_t n_surf_shared_elements = 0;
+  for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+    if (b_parent_surface_elements[i] >= n_parent_owned_elements) {
+      continue;
+    }
+
+    ++n_surf_owned_elements;
+    for (int d = 0; d < nnxs; ++d) {
+      if (b_surface_elements[d][i] >= n_surf_owned) {
+        ++n_surf_shared_elements;
+        break;
+      }
+    }
+  }
+
+  ptrdiff_t element_offset = 0;
+  ptrdiff_t n_surf_global_elements = 0;
+  SMESH_MPI_CATCH(MPI_Exscan(&n_surf_owned_elements, &element_offset, 1,
+                             mpi_type<ptrdiff_t>(), MPI_SUM,
+                             mesh->comm()->get()));
+  if (mesh->comm()->rank() == 0) {
+    element_offset = 0;
+  }
+  SMESH_MPI_CATCH(MPI_Allreduce(&n_surf_owned_elements, &n_surf_global_elements,
+                                1, mpi_type<ptrdiff_t>(), MPI_SUM,
+                                mesh->comm()->get()));
+
+  auto surf_element_mapping =
+      create_host_buffer<large_idx_t>(n_surf_owned_elements);
+  auto b_surf_element_mapping = surf_element_mapping->data();
+  for (ptrdiff_t i = 0; i < n_surf_owned_elements; ++i) {
+    b_surf_element_mapping[i] = element_offset + i;
+  }
+
+  surf_dist->impl_->n_nodes_global = b_surf_node_offsets[mesh->comm()->size()];
+  surf_dist->impl_->n_nodes_owned = n_surf_owned;
+  surf_dist->impl_->n_nodes_shared = n_surf_shared;
+  surf_dist->impl_->n_nodes_ghosts = n_surf_ghosts;
+  surf_dist->impl_->n_nodes_aura = n_surf_aura;
+  surf_dist->impl_->n_elements_global = n_surf_global_elements;
+  surf_dist->impl_->n_elements_owned = n_surf_owned_elements;
+  surf_dist->impl_->n_elements_shared = n_surf_shared_elements;
+  surf_dist->impl_->n_elements_ghosts = n_surf_elements - n_surf_owned_elements;
+  surf_dist->impl_->node_mapping = surf_node_mapping;
+  surf_dist->impl_->element_mapping = surf_element_mapping;
+  surf_dist->impl_->node_owner = surf_node_owner;
+  surf_dist->impl_->node_offsets = surf_node_offsets;
+  surf_dist->impl_->ghosts_and_aura = surf_ghosts_and_aura;
+
+  ret->impl_->distributed = surf_dist;
+  return ret;
+}
+#endif
+
+std::shared_ptr<Mesh>
+mesh_from_sideset(const std::shared_ptr<Mesh> &mesh,
+                  const std::shared_ptr<Sideset> &sideset) {
+  SMESH_TRACE_SCOPE("mesh_from_sideset");
+#ifdef SMESH_ENABLE_MPI
+  if (mesh->comm()->size() > 1) {
+    return mesh_from_sideset_parallel(mesh, sideset);
+  }
+#endif
+
+  auto [surface_type, surface_elements] =
+      create_surface_from_sideset(mesh, sideset);
+
+  const ptrdiff_t n_nodes = mesh->n_nodes();
+  auto vol2surf = create_host_buffer<idx_t>(n_nodes);
+  auto b_vol2surf = vol2surf->data();
+  for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+    b_vol2surf[i] = invalid_idx<idx_t>();
+  }
+
+  const int nnxs = surface_elements->extent(0);
+  ptrdiff_t n_surf_elements = surface_elements->extent(1);
+  auto b_surface_elements = surface_elements->data();
+
+  ptrdiff_t n_surf_nodes = 0;
+  for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+    for (int d = 0; d < nnxs; ++d) {
+      idx_t idx = b_surface_elements[d][i];
+      if (b_vol2surf[idx] == invalid_idx<idx_t>()) {
+        b_vol2surf[idx] = n_surf_nodes++;
+      }
+    }
+  }
+
+  auto b_points = mesh->points()->data();
+  auto surf_points =
+      create_host_buffer<geom_t>(mesh->spatial_dimension(), n_surf_nodes);
+
+  auto mapping = create_host_buffer<idx_t>(n_surf_nodes);
+  auto b_surf_points = surf_points->data();
+  auto b_mapping = mapping->data();
+
+  int spatial_dim = mesh->spatial_dimension();
+  for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+    if (b_vol2surf[i] == invalid_idx<idx_t>())
+      continue;
+
+    b_mapping[b_vol2surf[i]] = i;
+    for (int d = 0; d < spatial_dim; ++d) {
+      b_surf_points[d][b_vol2surf[i]] = b_points[d][i];
+    }
+  }
+
+  auto ret = std::make_shared<Mesh>(mesh->comm(), surface_type,
+                                    surface_elements, surf_points);
+
+  for (ptrdiff_t i = 0; i < n_surf_elements; ++i) {
+    for (int d = 0; d < nnxs; ++d) {
+      b_surface_elements[d][i] = b_vol2surf[b_surface_elements[d][i]];
+    }
+  }
+
+  ret->set_node_mapping(mapping);
+  return ret;
+}
+
+std::shared_ptr<Mesh> skin(const std::shared_ptr<Mesh> &mesh) {
+  auto sideset = skin_sideset(mesh);
+  return mesh_from_sideset(mesh, sideset);
+}
+
+std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
+                              const geom_t height, const ptrdiff_t nlayers) {
+#ifdef SMESH_ENABLE_MPI
+  if (mesh->is_distributed()) {
+    return MeshTransformsDistributed::extrude(mesh, height, nlayers);
+  }
+#else
+  if (mesh->comm()->size() > 1) {
+    SMESH_ERROR("Extrusion is not supported for distributed meshes\n");
+    return nullptr;
+  }
+#endif
+
+  enum ElemType extrude_type = INVALID;
+  for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+    const enum ElemType et = mesh->element_type(static_cast<block_idx_t>(b));
+    if (extrude_type == INVALID) {
+      extrude_type = et;
+    } else if (extrude_type != et) {
+      SMESH_ERROR(
+          "Extrusion requires all blocks to share the same element type\n");
+      return nullptr;
+    }
+  }
+
+  if (extrude_type == QUAD4 || extrude_type == QUADSHELL4) {
+    auto hex8_points =
+        create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
+    auto source_points = mesh->points();
+
+    if (mesh->spatial_dimension() < 3) {
+      auto p3 = create_host_buffer<geom_t>(3, mesh->n_nodes());
+      for (int d = 0; d < 3; ++d) {
+        for (ptrdiff_t i = 0; i < mesh->n_nodes(); ++i) {
+          p3->data()[d][i] = d < mesh->spatial_dimension()
+                                 ? source_points->data()[d][i]
+                                 : geom_t(0);
+        }
+      }
+      source_points = p3;
+    }
+    std::vector<std::shared_ptr<Mesh::Block>> blocks;
+    blocks.reserve(mesh->n_blocks());
+
+    for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+      auto block = mesh->block(static_cast<block_idx_t>(b));
+      auto hex8_elements =
+          create_host_buffer<idx_t>(8, block->n_elements() * nlayers);
+
+      if (b == 0) {
+        quad4_to_hex8_extrude(block->n_elements(), mesh->n_nodes(),
+                              block->elements()->data(), source_points->data(),
+                              nlayers, height, hex8_elements->data(),
+                              hex8_points->data());
+      } else {
+        quad4_to_hex8_extrude(block->n_elements(), mesh->n_nodes(),
+                              block->elements()->data(), source_points->data(),
+                              nlayers, height, hex8_elements->data(),
+                              hex8_points->data());
+      }
+
+      auto new_block = std::make_shared<Mesh::Block>();
+      new_block->set_name(block->name());
+      new_block->set_element_type(HEX8);
+      new_block->inherit_geom_map(block->geom_map());
+      new_block->set_elements(hex8_elements);
+      blocks.push_back(new_block);
+    }
+
+    return std::make_shared<Mesh>(mesh->comm(), blocks, hex8_points);
+  }
+
+  if (extrude_type == TRI3 || extrude_type == TRISHELL3) {
+    auto wedge6_points =
+        create_host_buffer<geom_t>(3, mesh->n_nodes() * (nlayers + 1));
+    auto source_points = mesh->points();
+
+    if (mesh->spatial_dimension() < 3) {
+      auto p3 = create_host_buffer<geom_t>(3, mesh->n_nodes());
+      for (int d = 0; d < 3; ++d) {
+        for (ptrdiff_t i = 0; i < mesh->n_nodes(); ++i) {
+          p3->data()[d][i] = d < mesh->spatial_dimension()
+                                 ? source_points->data()[d][i]
+                                 : geom_t(0);
+        }
+      }
+      source_points = p3;
+    }
+    std::vector<std::shared_ptr<Mesh::Block>> blocks;
+    blocks.reserve(mesh->n_blocks());
+
+    for (size_t b = 0; b < mesh->n_blocks(); ++b) {
+      auto block = mesh->block(static_cast<block_idx_t>(b));
+      auto wedge6_elements =
+          create_host_buffer<idx_t>(6, block->n_elements() * nlayers);
+
+      tri3_to_wedge6_extrude(block->n_elements(), mesh->n_nodes(),
+                             block->elements()->data(), source_points->data(),
+                             nlayers, height, wedge6_elements->data(),
+                             wedge6_points->data());
+
+      auto new_block = std::make_shared<Mesh::Block>();
+      new_block->set_name(block->name());
+      new_block->set_element_type(WEDGE6);
+      new_block->inherit_geom_map(block->geom_map());
+      new_block->set_elements(wedge6_elements);
+      blocks.push_back(new_block);
+    }
+
+    return std::make_shared<Mesh>(mesh->comm(), blocks, wedge6_points);
+  }
+
+  SMESH_ERROR("Extrusion not supported for element type %s\n",
+              type_to_string(extrude_type));
+  return nullptr;
+}
+
+std::shared_ptr<Mesh> concatenate(const std::shared_ptr<Mesh> &mesh1,
+                                  const std::shared_ptr<Mesh> &mesh2) {
+  auto new_points = create_host_buffer<geom_t>(
+      mesh1->spatial_dimension(), mesh1->n_nodes() + mesh2->n_nodes());
+
+  auto p1 = mesh1->points()->data();
+  auto p2 = mesh2->points()->data();
+  auto p_new = new_points->data();
+
+  const int spatial_dim = mesh1->spatial_dimension();
+  const ptrdiff_t n_nodes1 = mesh1->n_nodes();
+  const ptrdiff_t n_nodes2 = mesh2->n_nodes();
+
+  for (int d = 0; d < spatial_dim; d++) {
+    for (ptrdiff_t i = 0; i < n_nodes1; i++) {
+      p_new[d][i] = p1[d][i];
+    }
+
+    for (ptrdiff_t i = 0; i < n_nodes2; i++) {
+      p_new[d][n_nodes1 + i] = p2[d][i];
+    }
+  }
+
+  std::vector<std::shared_ptr<Mesh::Block>> new_blocks;
+
+  if (mesh1->n_blocks() == 1 && mesh2->n_blocks() == 1) {
+    auto new_elements =
+        create_host_buffer<idx_t>(mesh1->n_nodes_per_element(0),
+                                  mesh1->n_elements(0) + mesh2->n_elements(0));
+
+    const int nxe = mesh1->n_nodes_per_element(0);
+
+    auto e1 = mesh1->elements(0)->data();
+    auto e2 = mesh2->elements(0)->data();
+    auto e_new = new_elements->data();
+
+    for (int v = 0; v < nxe; v++) {
+      const ptrdiff_t ne1 = mesh1->n_elements(0);
+      const ptrdiff_t ne2 = mesh2->n_elements(0);
+      for (int i = 0; i < ne1; ++i) {
+        e_new[v][i] = e1[v][i];
+      }
+      for (int i = 0; i < ne2; ++i) {
+        e_new[v][ne1 + i] = n_nodes1 + e2[v][i];
+      }
+    }
+
+    auto new_block = std::make_shared<Mesh::Block>();
+    new_block->set_name("concatenated");
+    new_block->set_element_type(mesh1->element_type(0));
+    if (mesh1->geom_map(0) == mesh2->geom_map(0)) {
+      new_block->inherit_geom_map(mesh1->geom_map(0));
+    }
+    new_block->set_elements(new_elements);
+    new_blocks.push_back(new_block);
+  } else {
+    SMESH_ERROR("Concatenation is not supported for multiblock meshes\n");
+    return nullptr;
+  }
+
+  return std::make_shared<Mesh>(mesh1->comm(), new_blocks, new_points);
+}
+
+SharedBuffer<idx_t> Mesh::node_mapping() const { return impl_->node_mapping; }
+
+SharedBuffer<geom_t *> Mesh::device_points_SoA() {
+  if (!impl_->device_points->has_SoA()) {
+    impl_->device_points->init_SoA(points(), MEMORY_SPACE_DEVICE);
+  }
+
+  return impl_->device_points->points_SoA();
+}
+
+SharedBuffer<geom_t> Mesh::device_points_AoS() {
+  if (!impl_->device_points->has_AoS()) {
+    impl_->device_points->init_AoS(points(), MEMORY_SPACE_DEVICE);
+  }
+
+  return impl_->device_points->points_AoS();
+}
+
+void Mesh::print(std::ostream &os) const {
+  os << "n_blocks: " << n_blocks() << "\n";
+
+  for (size_t i = 0; i < n_blocks(); i++) {
+    os << i << ") " << block(i)->name() << " "
+       << type_to_string(block(i)->element_type()) << " "
+       << geom_map_to_string(block(i)->geom_map()) << "\n";
+    block(i)->elements()->print(os);
+  }
+
+  os << "n_nodes: " << n_nodes() << "\n";
+  points()->print(os);
+}
 
 #ifdef SMESH_ENABLE_RYAML
-    std::shared_ptr<Mesh> Mesh::create_from_yaml(const std::shared_ptr<Communicator> &comm, const ryml::NodeRef &node) {
-        return mesh_from_yaml(comm, node);
-    }
+std::shared_ptr<Mesh>
+Mesh::create_from_yaml(const std::shared_ptr<Communicator> &comm,
+                       const ryml::NodeRef &node) {
+  return mesh_from_yaml(comm, node);
+}
 #endif
 
-    bool surface_is_closed(const std::shared_ptr<Mesh> &mesh) {
-        auto n2n = mesh->node_to_node_graph();
-        return surface_is_closed(mesh->element_type(0),
-                                 mesh->n_elements(0),
-                                 mesh->elements(0)->data(),
-                                 mesh->n_nodes(),
-                                 n2n->rowptr()->data(),
-                                 n2n->colidx()->data());
-    }
+bool surface_is_closed(const std::shared_ptr<Mesh> &mesh) {
+  auto n2n = mesh->node_to_node_graph();
+  return surface_is_closed(mesh->element_type(0), mesh->n_elements(0),
+                           mesh->elements(0)->data(), mesh->n_nodes(),
+                           n2n->rowptr()->data(), n2n->colidx()->data());
+}
 
-}  // namespace smesh
-
+} // namespace smesh
