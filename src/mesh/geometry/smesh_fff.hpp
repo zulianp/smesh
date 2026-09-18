@@ -1,6 +1,8 @@
 #ifndef SMESH_FFF_HPP
 #define SMESH_FFF_HPP
 
+#include <cstddef>
+
 #include "smesh_elem_type.hpp"
 #include "smesh_types.hpp"
 
