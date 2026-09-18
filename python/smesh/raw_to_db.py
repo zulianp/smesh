@@ -11,6 +11,11 @@ from common.hex27_ordering import (
     exodus_hex27_to_vtk_hex27,
     proteus_hex27_to_exodus_hex27 as proteus_hex27_to_hexahedron27,
 )
+from common.raw_io import (
+    is_exodus_path,
+    load_points,
+    load_raw_mesh,
+)
 
 import inspect
 
@@ -39,11 +44,8 @@ except NameError:
 
 max_nodes_x_element = 27
 
-EXODUS_OUTPUT_EXTENSIONS = (".e", ".exo", ".ex2")
-
-
 def is_exodus_output(path):
-    return os.path.splitext(path)[1].lower() in EXODUS_OUTPUT_EXTENSIONS
+    return is_exodus_path(path)
 
 
 def read_simple_meta(path):
@@ -483,6 +485,7 @@ def raw_to_db(argv):
     cell_type = None
     verbose = False
     ssref = 0
+    merge_cells = False
 
     try:
         opts, args = getopt.getopt(
@@ -501,6 +504,7 @@ def raw_to_db(argv):
                 "help",
                 "verbose",
                 "ssref",
+                "merge-cells",
             ],
         )
 
@@ -537,14 +541,22 @@ def raw_to_db(argv):
                 print(f"Using coords={arg}")
         elif opt in ("--ssref"):
             ssref = int(arg)
+        elif opt == "--merge-cells":
+            merge_cells = True
 
-    mesh_meta_path = os.path.join(raw_mesh_folder, "meta.yaml")
-    meta_type, mesh_meta, mesh_meta_path = element_type_from_meta(raw_mesh_folder)
-    if cell_type is None:
-        if meta_type is not None:
-            cell_type = meta_type
-            if verbose:
-                print(f"Using element_type={cell_type} from {mesh_meta_path}")
+    if is_exodus_output(output_path):
+        from raw_to_exodusII import raw_to_exodusII
+
+        if verbose:
+            print(f"Writing Exodus via raw_to_exodusII -> {output_path}")
+        raw_to_exodusII(raw_mesh_folder, output_path)
+        return
+
+    mesh_data = load_raw_mesh(raw_mesh_folder)
+    if cell_type is not None and len(mesh_data.blocks) == 1:
+        mesh_data.blocks[0].element_type = cell_type
+        if verbose:
+            print(f"Using element_type={cell_type} from --cell_type")
 
     if transient:
         if len(time_whole) == 0:
@@ -555,98 +567,36 @@ def raw_to_db(argv):
 
         print(f"Found {n_time_steps} time steps!")
 
-    points = []
-    for pfn in ["x", "y", "z"]:
-        path = detect_files(
-            f"{raw_xyz_folder}/{pfn}.*", ["float16", "float32", "float64"]
-        )
+    if raw_xyz_folder != raw_mesh_folder:
+        xyz, _geom_dtype = load_points(raw_xyz_folder)
+        mesh_data.points = xyz
+        if verbose:
+            print(f"Using coords={raw_xyz_folder}")
 
-        if len(path) == 0:
-            break
-
-        path = path[0]
-        if os.path.exists(path):
-            if verbose:
-                print(f"Reading {path}")
-            x = np.fromfile(path, dtype=geom_t)
-            points.append(x)
-
-    # Attempt format x0, x1, x2
-    if len(points) == 0:
-        for d in range(0, 3):
-            path = detect_files(
-                f"{raw_xyz_folder}/x{d}.*", ["float16", "float32", "float64"]
-            )
-            if len(path) == 0:
-                break
-
-            path = path[0]
-            dtype = extension_to_dtype(extension(path))
-            if os.path.exists(path):
-                if verbose:
-                    print(f"Reading {path}")
-                x = np.fromfile(path, dtype=dtype)
-                points.append(x)
-
-    n_spatial_dim = len(points)
-    block_specs = parse_smesh_block_list(mesh_meta_path)
-    spec_by_name = {spec["name"]: spec for spec in block_specs if "name" in spec}
-    block_names = discover_block_dirs(raw_mesh_folder)
-
+    points = np.asarray(mesh_data.points).T
+    n_spatial_dim = mesh_data.spatial_dimension
     cells = []
     block_sizes = []
-    if block_names:
-        cli_cell_type = cell_type
-        for name in block_names:
-            folder = os.path.join(raw_mesh_folder, "blocks", name)
-            idx = load_idx_from_folder(folder, verbose)
-            if not idx:
-                print(f"Error: no connectivity in {folder}")
-                sys.exit(1)
-            spec = spec_by_name.get(name, {})
-            et = spec.get("element_type") or spec.get("cell_type") or spec.get(
-                "elem_type"
-            )
-            if len(block_names) == 1 and cli_cell_type is not None:
-                et = cli_cell_type
-            if "elem_num_nodes" in spec and int(spec["elem_num_nodes"]) != len(idx):
-                raise RuntimeError(
-                    f"block '{name}' elem_num_nodes={spec['elem_num_nodes']} "
-                    f"but found {len(idx)} connectivity streams"
-                )
-            mio, cell_indices = connectivity_to_cell_block(
-                idx, et, n_spatial_dim, verbose
-            )
-            print(f"block '{name}': numnodes = {len(idx)} -> {mio}")
-            cells.append((mio, cell_indices))
-            block_sizes.append(cell_indices.shape[0])
-    else:
-        idx = load_idx_from_folder(raw_mesh_folder, verbose)
-        if mesh_meta and "elem_num_nodes" in mesh_meta and len(idx) > 0:
-            expected_nnodes = int(mesh_meta["elem_num_nodes"])
-            if len(idx) != expected_nnodes:
-                raise RuntimeError(
-                    f"meta.yaml elem_num_nodes={expected_nnodes} "
-                    f"but found {len(idx)} connectivity streams"
-                )
-        if not idx:
-            print(f"Error: no connectivity in {raw_mesh_folder}")
-            sys.exit(1)
+    block_names = []
+    for block in mesh_data.blocks:
+        et = block.element_type
+        if len(mesh_data.blocks) == 1 and cell_type is not None:
+            et = cell_type
+        idx = [block.connectivity[:, d] for d in range(block.connectivity.shape[1])]
         mio, cell_indices = connectivity_to_cell_block(
-            idx, cell_type, n_spatial_dim, verbose
+            idx, et, n_spatial_dim, verbose
         )
-        print(f"numnodes = {len(idx)} -> {mio}")
+        print(f"block '{block.name}': numnodes = {len(idx)} -> {mio}")
         cells.append((mio, cell_indices))
         block_sizes.append(cell_indices.shape[0])
+        block_names.append(block.name)
 
-    n_points = len(points[0])
+    n_points = points.shape[0]
     n_cells = int(sum(block_sizes))
 
     if n_points == 0 or n_cells == 0:
         print(f"Warning empty database at {raw_mesh_folder}")
         return
-
-    points = np.array(points).transpose()
 
     if transient:
         print("Transient mode!")
@@ -661,41 +611,54 @@ def raw_to_db(argv):
             time_whole,
             time_step_format,
         )
-    else:
-        mesh = meshio.Mesh(points, cells)
+        return
 
-        add_fields(point_data, mesh.point_data, n_points)
-        if len(block_sizes) == 1:
-            add_fields(cell_data, mesh.cell_data, n_cells)
-        elif cell_data:
-            raw_cell = {}
-            add_fields(cell_data, raw_cell, n_cells)
-            for name, data in raw_cell.items():
-                split = []
-                offset = 0
-                for sz in block_sizes:
-                    split.append(data[offset : offset + sz])
-                    offset += sz
-                mesh.cell_data[name] = split
-        if len(block_sizes) > 1:
-            mesh.cell_data["block"] = [
-                np.full(sz, i, dtype=np.int32) for i, sz in enumerate(block_sizes)
-            ]
+    cell_sets = {}
+    for i, name in enumerate(block_names):
+        pieces = [np.array([], dtype=np.int32) for _ in block_names]
+        pieces[i] = np.arange(block_sizes[i], dtype=np.int32)
+        cell_sets[name] = pieces
 
-        if is_exodus_output(output_path) and verbose:
-            print(
-                "Writing Exodus via meshio (same VTK HEX27 layout as .vtu); "
-                "use raw_to_exodusII for FEM/IOSS PATRAN ordering"
-            )
+    point_sets = {}
+    for ns in mesh_data.nodesets:
+        point_sets[ns.name] = np.asarray(ns.nodes, dtype=np.int64)
 
+    mesh = meshio.Mesh(
+        points,
+        cells,
+        cell_sets=cell_sets,
+        point_sets=point_sets,
+    )
+
+    add_fields(point_data, mesh.point_data, n_points)
+    if len(block_sizes) == 1:
+        add_fields(cell_data, mesh.cell_data, n_cells)
+    elif cell_data:
+        raw_cell = {}
+        add_fields(cell_data, raw_cell, n_cells)
+        for name, data in raw_cell.items():
+            split = []
+            offset = 0
+            for sz in block_sizes:
+                split.append(data[offset : offset + sz])
+                offset += sz
+            mesh.cell_data[name] = split
+    if len(block_sizes) > 1:
+        mesh.cell_data["block"] = [
+            np.full(sz, i, dtype=np.int32) for i, sz in enumerate(block_sizes)
+        ]
+
+    if merge_cells:
         cells, cell_data_out = merge_cells_by_type(mesh.cells, mesh.cell_data)
         mesh = meshio.Mesh(
             mesh.points,
             cells,
             point_data=mesh.point_data,
             cell_data=cell_data_out,
+            point_sets=mesh.point_sets,
+            cell_sets=mesh.cell_sets,
         )
-        write_paraview_mesh(mesh, output_path)
+    write_paraview_mesh(mesh, output_path)
 
 
 # Example usage
