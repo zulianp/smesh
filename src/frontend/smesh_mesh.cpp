@@ -2230,7 +2230,11 @@ namespace smesh {
                 return SMESH_FAILURE;
             }
 
-            if (impl_->blocks.size() == 1) {
+            const std::string &b0_name = impl_->blocks[0]->name();
+            const bool legacy_single =
+                    impl_->blocks.size() == 1 &&
+                    (b0_name.empty() || b0_name == "default");
+            if (legacy_single) {
                 return write_topology_then_sidesets(
                         *this,
                         path,
@@ -5260,6 +5264,59 @@ namespace smesh {
         return out;
     }
 
+    static SharedBuffer<idx_t *> hex27_soa_from_proteus27(const SharedBuffer<idx_t *> &proteus,
+                                                          const ptrdiff_t              n_elements) {
+        auto view = std::make_shared<Buffer<idx_t *>>(
+                27,
+                n_elements,
+                (idx_t **)SMESH_ALLOC(27 * sizeof(idx_t *)),
+                [keep_alive = proteus](int, void **v) {
+                    (void)keep_alive;
+                    SMESH_FREE(v);
+                },
+                proteus->mem_space());
+        idx_t **p = proteus->data();
+        idx_t **h = view->data();
+        for (int z = 0; z <= 2; ++z) {
+            for (int y = 0; y <= 2; ++y) {
+                for (int x = 0; x <= 2; ++x) {
+                    h[hex27_slot(x, y, z)] = p[sshex8_lidx(2, x, y, z)];
+                }
+            }
+        }
+        return view;
+    }
+
+    static std::shared_ptr<Mesh> proteus_hex27_as_hex27(const std::shared_ptr<Mesh> &ss) {
+        if (!ss) {
+            return nullptr;
+        }
+        std::vector<std::shared_ptr<Mesh::Block>> blocks;
+        blocks.reserve(ss->n_blocks());
+        for (size_t b = 0; b < ss->n_blocks(); ++b) {
+            auto src = ss->block(b);
+            if (!src || src->n_nodes_per_element() != 27) {
+                SMESH_ERROR("HEX8→HEX27: expected PROTEUS_HEX27 (27-node) SS blocks\n");
+                return nullptr;
+            }
+            auto nb = std::make_shared<Mesh::Block>();
+            nb->set_name(src->name());
+            nb->set_element_type(HEX27);
+            nb->inherit_geom_map(src->geom_map());
+            nb->set_elements(hex27_soa_from_proteus27(src->elements(), src->n_elements()));
+            blocks.push_back(nb);
+        }
+        auto out = std::make_shared<Mesh>(ss->comm(), blocks, ss->points());
+#ifdef SMESH_ENABLE_MPI
+        if (ss->is_distributed()) {
+            MeshTransformsDistributed::clone_distributed(*ss, *out);
+        }
+#endif
+        return out;
+    }
+
+    static int copy_sets_through_promote(const std::shared_ptr<Mesh> &coarse, const std::shared_ptr<Mesh> &fine);
+
     std::shared_ptr<Mesh> promote_to(const enum ElemType element_type, const std::shared_ptr<Mesh> &mesh) {
         std::map<std::pair<enum ElemType, enum ElemType>, std::function<std::shared_ptr<Mesh>(Mesh &)>> cmap;
 
@@ -5379,13 +5436,15 @@ namespace smesh {
             return promote_p1(QUADSHELL9, mesh);
         };
 
-        auto it = cmap.find(std::make_pair(mesh->element_type(0), element_type));
-        if (it == cmap.end()) {
-            SMESH_ERROR("Promotion from %s to %s is not supported\n",
-                        type_to_string(mesh->element_type(0)),
-                        type_to_string(element_type));
-            return nullptr;
-        }
+        auto attach_sets = [&](const std::shared_ptr<Mesh> &out) -> std::shared_ptr<Mesh> {
+            if (!out) {
+                return nullptr;
+            }
+            if (copy_sets_through_promote(mesh, out) != SMESH_SUCCESS) {
+                return nullptr;
+            }
+            return out;
+        };
 
         for (size_t b = 1; b < mesh->n_blocks(); ++b) {
             if (mesh->element_type(static_cast<block_idx_t>(b)) != mesh->element_type(0)) {
@@ -5394,9 +5453,27 @@ namespace smesh {
             }
         }
 
+        if (element_type == HEX27) {
+            if (mesh->element_type(0) != HEX8) {
+                SMESH_ERROR("Promotion from %s to HEX27 is not supported\n",
+                            type_to_string(mesh->element_type(0)));
+                return nullptr;
+            }
+            auto ss = to_semistructured(2, mesh);
+            return attach_sets(proteus_hex27_as_hex27(ss));
+        }
+
+        auto it = cmap.find(std::make_pair(mesh->element_type(0), element_type));
+        if (it == cmap.end()) {
+            SMESH_ERROR("Promotion from %s to %s is not supported\n",
+                        type_to_string(mesh->element_type(0)),
+                        type_to_string(element_type));
+            return nullptr;
+        }
+
 #ifdef SMESH_ENABLE_MPI
         if (mesh->is_distributed()) {
-            return MeshTransformsDistributed::promote(mesh, element_type);
+            return attach_sets(MeshTransformsDistributed::promote(mesh, element_type));
         }
 #endif
         if (mesh->comm()->size() > 1) {
@@ -5405,7 +5482,7 @@ namespace smesh {
         }
 
         if (mesh->n_blocks() == 1) {
-            return it->second(*mesh);
+            return attach_sets(it->second(*mesh));
         }
 
         if (element_type == TET15) {
@@ -5451,22 +5528,60 @@ namespace smesh {
                 blocks.push_back(new_block);
             }
 
-            return std::make_shared<Mesh>(mesh->comm(), blocks, points);
+            return attach_sets(std::make_shared<Mesh>(mesh->comm(), blocks, points));
         }
 
-        return it->second(*mesh);
+        return attach_sets(it->second(*mesh));
     }
 
-    static int copy_sets_through_refine(const std::shared_ptr<Mesh> &coarse, const std::shared_ptr<Mesh> &fine) {
+    static int copy_sets_through_promote(const std::shared_ptr<Mesh> &coarse, const std::shared_ptr<Mesh> &fine) {
         if (!coarse || !fine || coarse.get() == fine.get()) {
             return SMESH_SUCCESS;
         }
         const auto &ss = coarse->sidesets();
         const auto &es = coarse->edgesets();
         const auto &ns = coarse->nodesets();
-        if (ss.empty() && es.empty() && ns.empty()) {
+        const auto &ps = coarse->parametrizations();
+        if (ss.empty() && es.empty() && ns.empty() && ps.empty()) {
             return SMESH_SUCCESS;
         }
+        for (size_t i = 0; i < ss.size(); ++i) {
+            auto cloned = clone_sideset(*fine, ss[i].second);
+            if (!cloned) {
+                fprintf(stderr, "promote: failed to clone sideset \"%s\"\n", ss[i].first.c_str());
+                return SMESH_FAILURE;
+            }
+            fine->add_sideset(ss[i].first, cloned);
+        }
+        for (size_t i = 0; i < es.size(); ++i) {
+            auto cloned = clone_edgeset(*fine, es[i].second);
+            if (!cloned) {
+                fprintf(stderr, "promote: failed to clone edgeset \"%s\"\n", es[i].first.c_str());
+                return SMESH_FAILURE;
+            }
+            fine->add_edgeset(es[i].first, cloned);
+        }
+        for (size_t i = 0; i < ns.size(); ++i) {
+            auto mapped = map_nodeset_through_refine(coarse, ns[i].second, fine);
+            if (!mapped) {
+                fprintf(stderr, "promote: failed to remap nodeset \"%s\"\n", ns[i].first.c_str());
+                return SMESH_FAILURE;
+            }
+            fine->add_nodeset(ns[i].first, mapped);
+        }
+        for (size_t i = 0; i < ps.size(); ++i) {
+            fine->add_parametrization(ps[i].first, ps[i].second);
+        }
+        return SMESH_SUCCESS;
+    }
+
+    static int copy_sidesets_edgesets_through_refine(const std::shared_ptr<Mesh> &coarse,
+                                                     const std::shared_ptr<Mesh> &fine) {
+        if (!coarse || !fine || coarse.get() == fine.get()) {
+            return SMESH_SUCCESS;
+        }
+        const auto &ss = coarse->sidesets();
+        const auto &es = coarse->edgesets();
         for (size_t i = 0; i < ss.size(); ++i) {
             auto mapped = map_sideset_through_refine(coarse, ss[i].second, fine);
             if (!mapped) {
@@ -5483,6 +5598,14 @@ namespace smesh {
             }
             fine->add_edgeset(es[i].first, mapped);
         }
+        return SMESH_SUCCESS;
+    }
+
+    static int copy_nodesets_through_refine(const std::shared_ptr<Mesh> &coarse, const std::shared_ptr<Mesh> &fine) {
+        if (!coarse || !fine || coarse.get() == fine.get()) {
+            return SMESH_SUCCESS;
+        }
+        const auto &ns = coarse->nodesets();
         for (size_t i = 0; i < ns.size(); ++i) {
             auto mapped = map_nodeset_through_refine(coarse, ns[i].second, fine);
             if (!mapped) {
@@ -5494,12 +5617,19 @@ namespace smesh {
         return SMESH_SUCCESS;
     }
 
+    static bool refine_is_crs_family(const enum ElemType et) {
+        return et == TET4 || refine_is_tri_family(et) || refine_is_edge_family(et);
+    }
+
     std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh, const int levels) {
-        auto finish = [&](const std::shared_ptr<Mesh> &out) -> std::shared_ptr<Mesh> {
+        auto finish = [&](const std::shared_ptr<Mesh> &out, const bool nodesets_done) -> std::shared_ptr<Mesh> {
             if (!out) {
                 return nullptr;
             }
-            if (copy_sets_through_refine(mesh, out) != SMESH_SUCCESS) {
+            if (copy_sidesets_edgesets_through_refine(mesh, out) != SMESH_SUCCESS) {
+                return nullptr;
+            }
+            if (!nodesets_done && copy_nodesets_through_refine(mesh, out) != SMESH_SUCCESS) {
                 return nullptr;
             }
             return out;
@@ -5507,7 +5637,22 @@ namespace smesh {
 
 #ifdef SMESH_ENABLE_MPI
         if (mesh->is_distributed()) {
-            return finish(MeshTransformsDistributed::refine(mesh, levels));
+            const RefineTypeSet dtype = refine_scan_mesh(*mesh);
+            if (dtype.all_same && refine_is_crs_family(dtype.et0)) {
+                auto out = mesh;
+                for (int i = 0; i < levels; ++i) {
+                    auto next = MeshTransformsDistributed::refine(out, 1);
+                    if (!next) {
+                        return nullptr;
+                    }
+                    if (copy_nodesets_through_refine(out, next) != SMESH_SUCCESS) {
+                        return nullptr;
+                    }
+                    out = next;
+                }
+                return finish(out, true);
+            }
+            return finish(MeshTransformsDistributed::refine(mesh, levels), false);
         }
 #else
         if (mesh->comm()->size() > 1) {
@@ -5523,14 +5668,14 @@ namespace smesh {
                 if (!ss) {
                     return nullptr;
                 }
-                return finish(ss_to_linear(ss));
+                return finish(ss_to_linear(ss), false);
             }
             if (refine_quad_family_only(types)) {
                 auto ss = to_semistructured(1 << levels, mesh);
                 if (!ss) {
                     return nullptr;
                 }
-                return finish(ssquad_to_quad4(ss));
+                return finish(ssquad_to_quad4(ss), false);
             }
             if (refine_mixed_volume_ss(types)) {
                 // Mixed HEX/TET/WEDGE/PYRAMID or PYRAMID-only: one SS lattice then explode.
@@ -5539,7 +5684,7 @@ namespace smesh {
                 if (!ss) {
                     return nullptr;
                 }
-                return finish(ss_to_linear(ss));
+                return finish(ss_to_linear(ss), false);
             }
             if (types.quad && (types.hex || types.wedge)) {
                 refine_print_mixed_hex_quad();
@@ -5604,9 +5749,13 @@ namespace smesh {
                     blocks.push_back(new_block);
                 }
 
-                out = std::make_shared<Mesh>(out->comm(), blocks, refined_points);
+                auto next = std::make_shared<Mesh>(out->comm(), blocks, refined_points);
+                if (copy_nodesets_through_refine(out, next) != SMESH_SUCCESS) {
+                    return nullptr;
+                }
+                out = next;
             }
-            return finish(out);
+            return finish(out, true);
         }
 
         if (mesh->n_blocks() > 1 && mesh->element_type(0) == HEX8) {
@@ -5614,7 +5763,7 @@ namespace smesh {
             if (!ss) {
                 return nullptr;
             }
-            return finish(sshex_to_hex8(ss));
+            return finish(sshex_to_hex8(ss), false);
         }
 
         if (et0 == QUAD4 || et0 == QUADSHELL4) {
@@ -5622,7 +5771,7 @@ namespace smesh {
             if (!ss) {
                 return nullptr;
             }
-            return finish(ssquad_to_quad4(ss));
+            return finish(ssquad_to_quad4(ss), false);
         }
 
         if (et0 == WEDGE6) {
@@ -5630,7 +5779,7 @@ namespace smesh {
             if (!ss) {
                 return nullptr;
             }
-            return finish(sswedge_to_wedge6(ss));
+            return finish(sswedge_to_wedge6(ss), false);
         }
 
         if (et0 == PYRAMID5) {
@@ -5640,7 +5789,7 @@ namespace smesh {
             if (!ss) {
                 return nullptr;
             }
-            return finish(ss_to_linear(ss));
+            return finish(ss_to_linear(ss), false);
         }
 
         auto out = mesh;
@@ -5705,11 +5854,16 @@ namespace smesh {
                     return nullptr;
                 }
 
-                out = std::make_shared<Mesh>(out->comm(), out->element_type(0), refined_elements, refined_points);
+                auto next = std::make_shared<Mesh>(out->comm(), out->element_type(0), refined_elements, refined_points);
+                if (copy_nodesets_through_refine(out, next) != SMESH_SUCCESS) {
+                    return nullptr;
+                }
+                out = next;
             }
         }
 
-        return finish(out);
+        const bool crs_nodesets = mesh->element_type(0) != HEX8;
+        return finish(out, crs_nodesets);
     }
 
 #ifdef SMESH_ENABLE_MPI

@@ -81,14 +81,6 @@ static SMESH_INLINE int hex8_vtk_slot(const int x, const int y, const int z) {
     return vtk[x + 2 * y + 4 * z];
 }
 
-/// Inverse of create_cube HEX27 cartesian permutation: slot s holds lattice index
-/// hex27_to_cartesian[s] = x + 3 y + 9 z.
-static SMESH_INLINE int hex27_slot(const int x, const int y, const int z) {
-    static const int cartesian_to_hex27[27] = {0,  8,  1,  11, 24, 9,  3,  10, 2,  16, 20, 17, 23, 26,
-                                               21, 19, 22, 18, 4,  12, 5,  15, 25, 13, 7,  14, 6};
-    return cartesian_to_hex27[x + 3 * y + 9 * z];
-}
-
 static SMESH_INLINE int hex_slot(const enum ElemType type, const int L, const int x, const int y, const int z) {
     if (is_semistructured_type(type)) {
         return sshex8_lidx(L, x, y, z);

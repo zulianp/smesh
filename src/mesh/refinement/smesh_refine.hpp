@@ -129,6 +129,14 @@ inline constexpr int tet4_refine_pattern[8][4] = {
 inline constexpr int tet4_refine_edges[6][2] = {{0, 1}, {1, 2}, {0, 2}, {0, 3}, {1, 3}, {2, 3}};
 /// Child tets on coarse face `lfi` (order is the sideset contract).
 inline constexpr int tet4_face_child[4][4] = {{0, 1, 3, 5}, {1, 2, 3, 6}, {0, 2, 3, 7}, {0, 1, 2, 4}};
+/// Local face of child `tet4_face_child[s][c]` that lies on coarse face `s`.
+/// Corner children keep `s`. The octahedron child on face 2 uses lfi 3
+/// (child 7 is `{7,6,9,8}`; LocalSideTable face 3 `{0,2,1}` → `{7,9,6}`).
+inline constexpr int tet4_face_child_lfi[4][4] = {
+        {0, 0, 0, 0},
+        {1, 1, 1, 1},
+        {2, 2, 2, 3},
+        {3, 3, 3, 3}};
 /// Child tets on coarse edge `lei` (order is the edgeset contract).
 inline constexpr int tet4_edge_child[6][2] = {{0, 1}, {1, 2}, {2, 0}, {0, 3}, {1, 3}, {2, 3}};
 

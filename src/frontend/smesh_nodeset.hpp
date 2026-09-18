@@ -10,9 +10,9 @@
 namespace smesh {
 
     /// Mesh-global node ids. Optional `node_mapping` is used for MPI write /
-    /// redistribute (serial GIDs on disk). Unstructured `refine()` copies coarse
-    /// ids (new mid-edge nodes are not inserted). `Mesh::renumber_nodes` and SFC
-    /// reorder remap nodesets.
+    /// redistribute (serial GIDs on disk). `refine()` / `promote_to` insert
+    /// new nodes that lie on a coarse edge whose both endpoints are already
+    /// in the set. `Mesh::renumber_nodes` and SFC reorder remap nodesets.
     class Nodeset final {
     public:
         int read(const std::shared_ptr<Communicator> &comm, const Path &path);
@@ -52,9 +52,9 @@ namespace smesh {
     std::shared_ptr<Nodeset> create_nodeset_from_edgeset(const std::shared_ptr<Mesh>    &mesh,
                                                          const std::shared_ptr<Edgeset> &edgeset);
 
-    /// Copy a nodeset through unstructured `refine()`. Coarse node ids stay valid
-    /// on serial meshes (refine only appends nodes). MPI remaps local ids by GID
-    /// so owned coarse nodes stay in the set; new mid-edge nodes are not added.
+    /// Copy a nodeset through `refine()` or `promote_to()`. Coarse members are
+    /// remapped by GID on MPI meshes. New nodes that lie on a coarse edge whose
+    /// both endpoints are in the set are inserted (edge interiors only).
     std::shared_ptr<Nodeset> map_nodeset_through_refine(const std::shared_ptr<Mesh>    &coarse_mesh,
                                                         const std::shared_ptr<Nodeset> &coarse_ns,
                                                         const std::shared_ptr<Mesh>    &fine_mesh);

@@ -1456,7 +1456,7 @@ namespace smesh {
                         }
                         for (int c = 0; c < 4; ++c) {
                             d_nxt_p[n_nxt] = (element_idx_t)((ptrdiff_t)d_cur_p[k] * 8 + tet4_face_child[s][c]);
-                            d_nxt_l[n_nxt] = s;
+                            d_nxt_l[n_nxt] = (i16)tet4_face_child_lfi[s][c];
                             ++n_nxt;
                         }
                     }

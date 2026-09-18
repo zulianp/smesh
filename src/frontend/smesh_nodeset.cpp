@@ -1,10 +1,15 @@
 #include "smesh_nodeset.hpp"
+#include "smesh_adjacency.hpp"
 #include "smesh_alloc.hpp"
 #include "smesh_edgesets.hpp"
+#include "smesh_elem_type.hpp"
 #include "smesh_file_extensions.hpp"
 #include "smesh_glob.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_read.hpp"
+#include "smesh_sshex8.hpp"
+#include "smesh_ssquad4.hpp"
+#include "smesh_sswedge.hpp"
 #include "smesh_tracer.hpp"
 #include "smesh_write.hpp"
 
@@ -15,6 +20,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -353,6 +359,340 @@ namespace smesh {
         return Nodeset::create(mesh->comm(), manage_host_buffer<idx_t>(n_nodes, nodes), mapping);
     }
 
+    static int exact_int_root(const ptrdiff_t num, const int p) {
+        if (num <= 0 || p <= 0) {
+            return 0;
+        }
+        int L = 1;
+        for (;;) {
+            ptrdiff_t v = 1;
+            for (int i = 0; i < p; ++i) {
+                if (L > 1 && v > num / L) {
+                    return 0;
+                }
+                v *= L;
+            }
+            if (v == num) {
+                return L;
+            }
+            if (v > num) {
+                return 0;
+            }
+            ++L;
+            if (L > 1024) {
+                return 0;
+            }
+        }
+    }
+
+    static void mark_if_local(uint8_t *mask, const ptrdiff_t n_fine, const idx_t id) {
+        if (id >= 0 && (ptrdiff_t)id < n_fine && !mask[id]) {
+            mask[id] = 1;
+        }
+    }
+
+    static idx_t hex_exploded_lattice_node(const int         L,
+                                           idx_t *const     *els,
+                                           const ptrdiff_t   e,
+                                           const int         x,
+                                           const int         y,
+                                           const int         z) {
+        const int      xi  = x < L ? x : L - 1;
+        const int      yi  = y < L ? y : L - 1;
+        const int      zi  = z < L ? z : L - 1;
+        const int      le  = zi * L * L + yi * L + xi;
+        const int      dx  = x - xi;
+        const int      dy  = y - yi;
+        const int      dz  = z - zi;
+        static const int vtk[8] = {0, 1, 3, 2, 4, 5, 7, 6};
+        return els[vtk[dx + 2 * dy + 4 * dz]][e * (ptrdiff_t)(L * L * L) + (ptrdiff_t)le];
+    }
+
+    static idx_t quad_exploded_lattice_node(const int         L,
+                                            idx_t *const     *els,
+                                            const ptrdiff_t   e,
+                                            const int         x,
+                                            const int         y) {
+        const int      xi = x < L ? x : L - 1;
+        const int      yi = y < L ? y : L - 1;
+        const int      le = yi * L + xi;
+        const int      dx = x - xi;
+        const int      dy = y - yi;
+        static const int vtk[4] = {0, 1, 3, 2};
+        return els[vtk[dx + 2 * dy]][e * (ptrdiff_t)(L * L) + (ptrdiff_t)le];
+    }
+
+    static void insert_p_edge_mids(const std::shared_ptr<Mesh> &fine, uint8_t *mask, const ptrdiff_t n_fine) {
+        for (size_t b = 0; b < fine->n_blocks(); ++b) {
+            auto            block = fine->block(b);
+            enum ElemType   et    = block->element_type();
+            LocalEdgeTable  let;
+            if (let.fill(et) != SMESH_SUCCESS) {
+                continue;
+            }
+            const int n_edges = elem_num_edges(et);
+            if (n_edges <= 0 || let.nnxe < 3) {
+                continue;
+            }
+            auto            soa = block->elements()->data();
+            const ptrdiff_t n_e = block->n_elements();
+            for (ptrdiff_t e = 0; e < n_e; ++e) {
+                for (int ed = 0; ed < n_edges; ++ed) {
+                    if (let.nnxe_edge[ed] < 3) {
+                        continue;
+                    }
+                    const idx_t a = soa[let(ed, 0)][e];
+                    const idx_t b = soa[let(ed, 1)][e];
+                    if (a < 0 || b < 0 || (ptrdiff_t)a >= n_fine || (ptrdiff_t)b >= n_fine) {
+                        continue;
+                    }
+                    if (mask[a] && mask[b]) {
+                        mark_if_local(mask, n_fine, soa[let(ed, 2)][e]);
+                    }
+                }
+            }
+        }
+    }
+
+    static void insert_ss_hex_quad_wedge_mids(const std::shared_ptr<Mesh> &coarse,
+                                              const std::shared_ptr<Mesh> &fine,
+                                              const idx_t                 *c2f,
+                                              uint8_t                     *mask,
+                                              const ptrdiff_t              n_fine) {
+        const size_t n_blocks = std::min(coarse->n_blocks(), fine->n_blocks());
+        for (size_t b = 0; b < n_blocks; ++b) {
+            auto                  cb = coarse->block(b);
+            auto                  fb = fine->block(b);
+            const enum ElemType   ct = cb->element_type();
+            const enum ElemType   ft = fb->element_type();
+            const ptrdiff_t       n_c = cb->n_elements();
+            const ptrdiff_t       n_f = fb->n_elements();
+            if (n_c <= 0 || n_f <= n_c) {
+                continue;
+            }
+            auto csoa = cb->elements()->data();
+            auto fsoa = fb->elements()->data();
+
+            if ((ct == HEX8 && ft == HEX8) || (ct == WEDGE6 && ft == WEDGE6) ||
+                ((ct == QUAD4 || ct == QUADSHELL4) && (ft == QUAD4 || ft == QUADSHELL4))) {
+            } else {
+                continue;
+            }
+
+            if (ct == HEX8) {
+                const int L = exact_int_root(n_f / n_c, 3);
+                if (L < 2 || n_f != n_c * (ptrdiff_t)sshex8_txe(L)) {
+                    continue;
+                }
+                static const int hex_edge[12][6] = {
+                        {0, 0, 0, 1, 0, 0}, {1, 0, 0, 1, 1, 0}, {1, 1, 0, 0, 1, 0}, {0, 1, 0, 0, 0, 0},
+                        {0, 0, 1, 1, 0, 1}, {1, 0, 1, 1, 1, 1}, {1, 1, 1, 0, 1, 1}, {0, 1, 1, 0, 0, 1},
+                        {0, 0, 0, 0, 0, 1}, {1, 0, 0, 1, 0, 1}, {1, 1, 0, 1, 1, 1}, {0, 1, 0, 0, 1, 1},
+                };
+                static const int hex_corners[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
+                                                       {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+                for (ptrdiff_t e = 0; e < n_c; ++e) {
+                    for (int ed = 0; ed < 12; ++ed) {
+                        const idx_t ca = c2f[csoa[hex_corners[ed][0]][e]];
+                        const idx_t cb2 = c2f[csoa[hex_corners[ed][1]][e]];
+                        if (ca < 0 || cb2 < 0 || (ptrdiff_t)ca >= n_fine || (ptrdiff_t)cb2 >= n_fine) {
+                            continue;
+                        }
+                        if (!mask[ca] || !mask[cb2]) {
+                            continue;
+                        }
+                        const int ax = hex_edge[ed][0] * L;
+                        const int ay = hex_edge[ed][1] * L;
+                        const int az = hex_edge[ed][2] * L;
+                        const int bx = hex_edge[ed][3] * L;
+                        const int by = hex_edge[ed][4] * L;
+                        const int bz = hex_edge[ed][5] * L;
+                        for (int i = 1; i < L; ++i) {
+                            const int x = ax + (bx - ax) / L * i;
+                            const int y = ay + (by - ay) / L * i;
+                            const int z = az + (bz - az) / L * i;
+                            mark_if_local(mask, n_fine, hex_exploded_lattice_node(L, fsoa, e, x, y, z));
+                        }
+                    }
+                }
+            } else if (ct == QUAD4 || ct == QUADSHELL4) {
+                const int L = exact_int_root(n_f / n_c, 2);
+                if (L < 2 || n_f != n_c * (ptrdiff_t)ssquad4_txe(L)) {
+                    continue;
+                }
+                static const int q_edge[4][4]     = {{0, 0, 1, 0}, {1, 0, 1, 1}, {1, 1, 0, 1}, {0, 1, 0, 0}};
+                static const int q_corners[4][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}};
+                for (ptrdiff_t e = 0; e < n_c; ++e) {
+                    for (int ed = 0; ed < 4; ++ed) {
+                        const idx_t ca  = c2f[csoa[q_corners[ed][0]][e]];
+                        const idx_t cb2 = c2f[csoa[q_corners[ed][1]][e]];
+                        if (ca < 0 || cb2 < 0 || (ptrdiff_t)ca >= n_fine || (ptrdiff_t)cb2 >= n_fine) {
+                            continue;
+                        }
+                        if (!mask[ca] || !mask[cb2]) {
+                            continue;
+                        }
+                        const int ax = q_edge[ed][0] * L;
+                        const int ay = q_edge[ed][1] * L;
+                        const int bx = q_edge[ed][2] * L;
+                        const int by = q_edge[ed][3] * L;
+                        for (int i = 1; i < L; ++i) {
+                            const int x = ax + (bx - ax) / L * i;
+                            const int y = ay + (by - ay) / L * i;
+                            mark_if_local(mask, n_fine, quad_exploded_lattice_node(L, fsoa, e, x, y));
+                        }
+                    }
+                }
+            } else if (ct == WEDGE6) {
+                const int L = exact_int_root(n_f / n_c, 3);
+                if (L < 2 || n_f != n_c * (ptrdiff_t)sswedge_txe(L)) {
+                    continue;
+                }
+                const int nxe = sswedge_nxe(L);
+                idx_t    *lat = (idx_t *)SMESH_ALLOC((size_t)nxe * sizeof(idx_t));
+                static const int w_edge[9][6] = {
+                        {0, 0, 0, 1, 0, 0}, {1, 0, 0, 0, 1, 0}, {0, 1, 0, 0, 0, 0},
+                        {0, 0, 1, 1, 0, 1}, {1, 0, 1, 0, 1, 1}, {0, 1, 1, 0, 0, 1},
+                        {0, 0, 0, 0, 0, 1}, {1, 0, 0, 1, 0, 1}, {0, 1, 0, 0, 1, 1},
+                };
+                static const int w_corners[9][2] = {{0, 1}, {1, 2}, {2, 0}, {3, 4}, {4, 5}, {5, 3}, {0, 3}, {1, 4}, {2, 5}};
+                for (ptrdiff_t e = 0; e < n_c; ++e) {
+                    int le = 0;
+                    for (int zi = 0; zi < L; ++zi) {
+                        for (int yi = 0; yi < L; ++yi) {
+                            for (int xi = 0; xi < L - yi; ++xi) {
+                                const ptrdiff_t fe = e * (ptrdiff_t)sswedge_txe(L) + le;
+                                lat[sswedge_lidx(L, xi, yi, zi)]         = fsoa[0][fe];
+                                lat[sswedge_lidx(L, xi + 1, yi, zi)]     = fsoa[1][fe];
+                                lat[sswedge_lidx(L, xi, yi + 1, zi)]     = fsoa[2][fe];
+                                lat[sswedge_lidx(L, xi, yi, zi + 1)]     = fsoa[3][fe];
+                                lat[sswedge_lidx(L, xi + 1, yi, zi + 1)] = fsoa[4][fe];
+                                lat[sswedge_lidx(L, xi, yi + 1, zi + 1)] = fsoa[5][fe];
+                                ++le;
+                                if (xi + yi + 1 < L) {
+                                    const ptrdiff_t fe2 = e * (ptrdiff_t)sswedge_txe(L) + le;
+                                    lat[sswedge_lidx(L, xi + 1, yi, zi)]         = fsoa[0][fe2];
+                                    lat[sswedge_lidx(L, xi + 1, yi + 1, zi)]     = fsoa[1][fe2];
+                                    lat[sswedge_lidx(L, xi, yi + 1, zi)]         = fsoa[2][fe2];
+                                    lat[sswedge_lidx(L, xi + 1, yi, zi + 1)]     = fsoa[3][fe2];
+                                    lat[sswedge_lidx(L, xi + 1, yi + 1, zi + 1)] = fsoa[4][fe2];
+                                    lat[sswedge_lidx(L, xi, yi + 1, zi + 1)]     = fsoa[5][fe2];
+                                    ++le;
+                                }
+                            }
+                        }
+                    }
+                    for (int ed = 0; ed < 9; ++ed) {
+                        const idx_t ca  = c2f[csoa[w_corners[ed][0]][e]];
+                        const idx_t cb2 = c2f[csoa[w_corners[ed][1]][e]];
+                        if (ca < 0 || cb2 < 0 || (ptrdiff_t)ca >= n_fine || (ptrdiff_t)cb2 >= n_fine) {
+                            continue;
+                        }
+                        if (!mask[ca] || !mask[cb2]) {
+                            continue;
+                        }
+                        const int ax = w_edge[ed][0] * L;
+                        const int ay = w_edge[ed][1] * L;
+                        const int az = w_edge[ed][2] * L;
+                        const int bx = w_edge[ed][3] * L;
+                        const int by = w_edge[ed][4] * L;
+                        const int bz = w_edge[ed][5] * L;
+                        for (int i = 1; i < L; ++i) {
+                            const int x = ax + (bx - ax) / L * i;
+                            const int y = ay + (by - ay) / L * i;
+                            const int z = az + (bz - az) / L * i;
+                            mark_if_local(mask, n_fine, lat[sswedge_lidx(L, x, y, z)]);
+                        }
+                    }
+                }
+                SMESH_FREE(lat);
+            }
+        }
+    }
+
+    static void insert_crs_child_mids(const std::shared_ptr<Mesh> &coarse,
+                                      const std::shared_ptr<Mesh> &fine,
+                                      const idx_t                 *c2f,
+                                      uint8_t                     *mask,
+                                      const ptrdiff_t              n_fine) {
+        const size_t n_blocks = std::min(coarse->n_blocks(), fine->n_blocks());
+        for (size_t b = 0; b < n_blocks; ++b) {
+            auto                cb = coarse->block(b);
+            auto                fb = fine->block(b);
+            const enum ElemType ct = cb->element_type();
+            const enum ElemType ft = fb->element_type();
+            if (ct != ft) {
+                continue;
+            }
+            const ptrdiff_t n_c = cb->n_elements();
+            const ptrdiff_t n_f = fb->n_elements();
+            auto            csoa = cb->elements()->data();
+            auto            fsoa = fb->elements()->data();
+            if (ct == TET4 && n_f == n_c * 8) {
+                for (ptrdiff_t e = 0; e < n_c; ++e) {
+                    const ptrdiff_t base = e * 8;
+                    const idx_t     a0   = c2f[csoa[0][e]];
+                    const idx_t     a1   = c2f[csoa[1][e]];
+                    const idx_t     a2   = c2f[csoa[2][e]];
+                    const idx_t     a3   = c2f[csoa[3][e]];
+                    // Child 0 = {0,4,6,7}, child 1 = {4,1,5,8}, child 2 = {6,5,2,9}.
+                    if (a0 >= 0 && a1 >= 0 && (ptrdiff_t)a0 < n_fine && (ptrdiff_t)a1 < n_fine && mask[a0] && mask[a1]) {
+                        mark_if_local(mask, n_fine, fsoa[1][base + 0]);
+                    }
+                    if (a1 >= 0 && a2 >= 0 && (ptrdiff_t)a1 < n_fine && (ptrdiff_t)a2 < n_fine && mask[a1] && mask[a2]) {
+                        mark_if_local(mask, n_fine, fsoa[2][base + 1]);
+                    }
+                    if (a0 >= 0 && a2 >= 0 && (ptrdiff_t)a0 < n_fine && (ptrdiff_t)a2 < n_fine && mask[a0] && mask[a2]) {
+                        mark_if_local(mask, n_fine, fsoa[2][base + 0]);
+                    }
+                    if (a0 >= 0 && a3 >= 0 && (ptrdiff_t)a0 < n_fine && (ptrdiff_t)a3 < n_fine && mask[a0] && mask[a3]) {
+                        mark_if_local(mask, n_fine, fsoa[3][base + 0]);
+                    }
+                    if (a1 >= 0 && a3 >= 0 && (ptrdiff_t)a1 < n_fine && (ptrdiff_t)a3 < n_fine && mask[a1] && mask[a3]) {
+                        mark_if_local(mask, n_fine, fsoa[3][base + 1]);
+                    }
+                    if (a2 >= 0 && a3 >= 0 && (ptrdiff_t)a2 < n_fine && (ptrdiff_t)a3 < n_fine && mask[a2] && mask[a3]) {
+                        mark_if_local(mask, n_fine, fsoa[3][base + 2]);
+                    }
+                }
+            } else if ((ct == TRI3 || ct == TRISHELL3) && n_f == n_c * 4) {
+                for (ptrdiff_t e = 0; e < n_c; ++e) {
+                    const ptrdiff_t base = e * 4;
+                    const idx_t     a0   = c2f[csoa[0][e]];
+                    const idx_t     a1   = c2f[csoa[1][e]];
+                    const idx_t     a2   = c2f[csoa[2][e]];
+                    if (a0 >= 0 && a1 >= 0 && (ptrdiff_t)a0 < n_fine && (ptrdiff_t)a1 < n_fine && mask[a0] && mask[a1]) {
+                        mark_if_local(mask, n_fine, fsoa[1][base + 0]);
+                    }
+                    if (a1 >= 0 && a2 >= 0 && (ptrdiff_t)a1 < n_fine && (ptrdiff_t)a2 < n_fine && mask[a1] && mask[a2]) {
+                        mark_if_local(mask, n_fine, fsoa[2][base + 1]);
+                    }
+                    if (a0 >= 0 && a2 >= 0 && (ptrdiff_t)a0 < n_fine && (ptrdiff_t)a2 < n_fine && mask[a0] && mask[a2]) {
+                        mark_if_local(mask, n_fine, fsoa[2][base + 0]);
+                    }
+                }
+            } else if ((ct == EDGE2 || ct == EDGESHELL2) && n_f == n_c * 2) {
+                for (ptrdiff_t e = 0; e < n_c; ++e) {
+                    const idx_t a0 = c2f[csoa[0][e]];
+                    const idx_t a1 = c2f[csoa[1][e]];
+                    if (a0 >= 0 && a1 >= 0 && (ptrdiff_t)a0 < n_fine && (ptrdiff_t)a1 < n_fine && mask[a0] && mask[a1]) {
+                        mark_if_local(mask, n_fine, fsoa[1][e * 2 + 0]);
+                    }
+                }
+            }
+        }
+    }
+
+    static void insert_mid_edge_nodes(const std::shared_ptr<Mesh> &coarse,
+                                      const std::shared_ptr<Mesh> &fine,
+                                      const idx_t                 *c2f,
+                                      uint8_t                     *mask,
+                                      const ptrdiff_t              n_fine) {
+        insert_p_edge_mids(fine, mask, n_fine);
+        insert_ss_hex_quad_wedge_mids(coarse, fine, c2f, mask, n_fine);
+        insert_crs_child_mids(coarse, fine, c2f, mask, n_fine);
+    }
+
     std::shared_ptr<Nodeset> map_nodeset_through_refine(const std::shared_ptr<Mesh>    &coarse_mesh,
                                                         const std::shared_ptr<Nodeset> &coarse_ns,
                                                         const std::shared_ptr<Mesh>    &fine_mesh) {
@@ -361,8 +701,8 @@ namespace smesh {
             return nullptr;
         }
 
-        const ptrdiff_t n     = coarse_ns->size();
-        const idx_t    *nodes = n > 0 ? coarse_ns->nodes()->data() : nullptr;
+        const ptrdiff_t n              = coarse_ns->size();
+        const idx_t    *nodes          = n > 0 ? coarse_ns->nodes()->data() : nullptr;
         const ptrdiff_t n_coarse_nodes = coarse_mesh->n_nodes();
         const ptrdiff_t n_fine_nodes   = fine_mesh->n_nodes();
 
@@ -380,11 +720,23 @@ namespace smesh {
             }
         }
 
+        idx_t *c2f = (idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_coarse_nodes, 1) * sizeof(idx_t));
+        for (ptrdiff_t i = 0; i < n_coarse_nodes; ++i) {
+            c2f[i] = invalid_idx<idx_t>();
+        }
+
+        uint8_t *mask = (uint8_t *)SMESH_CALLOC((size_t)std::max<ptrdiff_t>(n_fine_nodes, 1), sizeof(uint8_t));
+        idx_t   *orig = n > 0 ? (idx_t *)SMESH_ALLOC((size_t)n * sizeof(idx_t)) : nullptr;
+        ptrdiff_t n_orig = 0;
+
 #ifdef SMESH_ENABLE_MPI
         if (coarse_mesh->is_distributed() && fine_mesh->is_distributed()) {
             auto cdist = coarse_mesh->distributed();
             auto fdist = fine_mesh->distributed();
             if (!cdist || !fdist || !cdist->node_mapping() || !fdist->node_mapping()) {
+                SMESH_FREE(c2f);
+                SMESH_FREE(mask);
+                SMESH_FREE(orig);
                 fprintf(stderr, "map_nodeset_through_refine: distributed mesh is missing node_mapping\n");
                 return nullptr;
             }
@@ -398,42 +750,100 @@ namespace smesh {
                     inv[(size_t)g] = (idx_t)i;
                 }
             }
-            ptrdiff_t n_keep = 0;
+            for (ptrdiff_t i = 0; i < n_coarse_nodes; ++i) {
+                const large_idx_t g = c_map[i];
+                if (g >= 0 && g < n_fg) {
+                    c2f[i] = inv[(size_t)g];
+                }
+            }
+            const large_idx_t n_cg = (large_idx_t)cdist->n_nodes_global();
+            uint8_t *gmask = (uint8_t *)SMESH_CALLOC((size_t)std::max<large_idx_t>(n_cg, 1), sizeof(uint8_t));
             for (ptrdiff_t i = 0; i < n; ++i) {
                 const idx_t lid = nodes[i];
                 if (lid < 0 || (ptrdiff_t)lid >= n_coarse_nodes) {
+                    SMESH_FREE(c2f);
+                    SMESH_FREE(mask);
+                    SMESH_FREE(orig);
+                    SMESH_FREE(gmask);
                     SMESH_ERROR("map_nodeset_through_refine: node id out of range\n");
                     return nullptr;
                 }
                 const large_idx_t g = c_map[lid];
-                if (g >= 0 && g < n_fg && inv[(size_t)g] != invalid_idx<idx_t>()) {
-                    ++n_keep;
+                if (g >= 0 && g < n_cg) {
+                    gmask[(size_t)g] = 1;
+                }
+                const idx_t fid = c2f[lid];
+                if (fid != invalid_idx<idx_t>() && (ptrdiff_t)fid < n_fine_nodes && !mask[fid]) {
+                    mask[fid]      = 1;
+                    orig[n_orig++] = fid;
                 }
             }
-            auto out = create_host_buffer<idx_t>((size_t)n_keep);
-            idx_t *d = n_keep > 0 ? out->data() : nullptr;
-            ptrdiff_t w = 0;
-            for (ptrdiff_t i = 0; i < n; ++i) {
-                const large_idx_t g = c_map[nodes[i]];
-                if (g >= 0 && g < n_fg && inv[(size_t)g] != invalid_idx<idx_t>()) {
-                    d[w++] = inv[(size_t)g];
+            if (n_cg > 0) {
+                SMESH_MPI_CATCH(MPI_Allreduce(MPI_IN_PLACE, gmask, (int)n_cg, MPI_UINT8_T, MPI_MAX,
+                                              coarse_mesh->comm()->get()));
+            }
+            for (ptrdiff_t i = 0; i < n_coarse_nodes; ++i) {
+                const large_idx_t g = c_map[i];
+                if (g < 0 || g >= n_cg || !gmask[(size_t)g]) {
+                    continue;
+                }
+                const idx_t fid = c2f[i];
+                if (fid != invalid_idx<idx_t>() && (ptrdiff_t)fid < n_fine_nodes) {
+                    mask[fid] = 1;
                 }
             }
-            return Nodeset::create(fine_mesh->comm(), out, mapping);
-        }
+            SMESH_FREE(gmask);
+        } else
 #endif
-
-        auto out = create_host_buffer<idx_t>((size_t)n);
-        if (n > 0) {
+        {
+            for (ptrdiff_t i = 0; i < n_coarse_nodes && i < n_fine_nodes; ++i) {
+                c2f[i] = (idx_t)i;
+            }
             for (ptrdiff_t i = 0; i < n; ++i) {
                 const idx_t lid = nodes[i];
                 if (lid < 0 || (ptrdiff_t)lid >= n_coarse_nodes || (ptrdiff_t)lid >= n_fine_nodes) {
+                    SMESH_FREE(c2f);
+                    SMESH_FREE(mask);
+                    SMESH_FREE(orig);
                     SMESH_ERROR("map_nodeset_through_refine: node id out of range\n");
                     return nullptr;
                 }
-                out->data()[i] = lid;
+                if (!mask[lid]) {
+                    mask[lid]      = 1;
+                    orig[n_orig++] = lid;
+                }
             }
         }
+
+        insert_mid_edge_nodes(coarse_mesh, fine_mesh, c2f, mask, n_fine_nodes);
+
+        ptrdiff_t n_extra = 0;
+        for (ptrdiff_t i = 0; i < n_fine_nodes; ++i) {
+            if (mask[i]) {
+                ++n_extra;
+            }
+        }
+        n_extra -= n_orig;
+        if (n_extra < 0) {
+            n_extra = 0;
+        }
+
+        auto              out = create_host_buffer<idx_t>((size_t)(n_orig + n_extra));
+        idx_t            *d   = (n_orig + n_extra) > 0 ? out->data() : nullptr;
+        ptrdiff_t         w   = 0;
+        for (ptrdiff_t i = 0; i < n_orig; ++i) {
+            d[w++]     = orig[i];
+            mask[orig[i]] = 0;
+        }
+        for (ptrdiff_t i = 0; i < n_fine_nodes; ++i) {
+            if (mask[i]) {
+                d[w++] = (idx_t)i;
+            }
+        }
+
+        SMESH_FREE(c2f);
+        SMESH_FREE(mask);
+        SMESH_FREE(orig);
         return Nodeset::create(fine_mesh->comm(), out, mapping);
     }
 

@@ -147,8 +147,8 @@ static int test_mpi_hex8_refine() {
     SMESH_TEST_EQ(refined_reg->sidesets("left").size(), static_cast<size_t>(1));
     SMESH_TEST_EQ(refined_reg->sidesets("left")[0]->size(), coarse_ss[0]->size() * 4);
     SMESH_TEST_EQ(refined_reg->nodesets("left_nodes").size(), static_cast<size_t>(1));
-    SMESH_TEST_EQ(refined_reg->nodesets("left_nodes")[0]->size(),
-                 static_cast<ptrdiff_t>(ns_buf->size()));
+    SMESH_TEST_ASSERT(refined_reg->nodesets("left_nodes")[0]->size() >=
+                      static_cast<ptrdiff_t>(ns_buf->size()));
     auto mapped = map_sideset_through_refine(mesh, coarse_ss[0], refined_reg);
     SMESH_TEST_ASSERT(mapped != nullptr);
     SMESH_TEST_EQ(mapped->size(), refined_reg->sidesets("left")[0]->size());
@@ -1115,6 +1115,140 @@ static int test_mpi_promote_quadshell9() {
 #endif
 }
 
+#ifdef SMESH_ENABLE_MPI
+static int gather_sorted_gids(const std::shared_ptr<Communicator> &comm,
+                              std::vector<large_idx_t>            local,
+                              std::vector<large_idx_t>           *all) {
+    const int nloc = static_cast<int>(local.size());
+    std::vector<int> counts(static_cast<size_t>(comm->size()), 0);
+    SMESH_MPI_CATCH(MPI_Allgather(&nloc, 1, MPI_INT, counts.data(), 1, MPI_INT, comm->get()));
+    std::vector<int> displ(static_cast<size_t>(comm->size()), 0);
+    int              tot = 0;
+    for (int r = 0; r < comm->size(); ++r) {
+        displ[static_cast<size_t>(r)] = tot;
+        tot += counts[static_cast<size_t>(r)];
+    }
+    all->assign(static_cast<size_t>(tot), 0);
+    SMESH_MPI_CATCH(MPI_Allgatherv(local.data(),
+                                   nloc,
+                                   mpi_type<large_idx_t>(),
+                                   all->data(),
+                                   counts.data(),
+                                   displ.data(),
+                                   mpi_type<large_idx_t>(),
+                                   comm->get()));
+    std::sort(all->begin(), all->end());
+    all->erase(std::unique(all->begin(), all->end()), all->end());
+    return SMESH_SUCCESS;
+}
+
+static std::vector<large_idx_t> owned_nodeset_gids(const Mesh &mesh, const Nodeset &ns) {
+    std::vector<large_idx_t> g;
+    if (!mesh.is_distributed() || !mesh.distributed()) {
+        const idx_t *ids = ns.nodes()->data();
+        g.resize(static_cast<size_t>(ns.size()));
+        for (ptrdiff_t i = 0; i < ns.size(); ++i) {
+            g[static_cast<size_t>(i)] = static_cast<large_idx_t>(ids[i]);
+        }
+        return g;
+    }
+    auto               dist    = mesh.distributed();
+    const ptrdiff_t    n_owned = dist->n_nodes_owned();
+    const large_idx_t *map     = dist->node_mapping()->data();
+    const idx_t       *ids     = ns.nodes()->data();
+    for (ptrdiff_t i = 0; i < ns.size(); ++i) {
+        const idx_t lid = ids[i];
+        if (lid >= 0 && (ptrdiff_t)lid < n_owned) {
+            g.push_back(map[lid]);
+        }
+    }
+    return g;
+}
+#endif
+
+static int test_mpi_promote_hex27() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    return mpi_promote_check("smesh_mpi_xf_promote_hex27", 57,
+                             [nx]() { return Mesh::create_hex8_cube(Communicator::self(), nx, 2, 2); }, HEX27);
+#endif
+}
+
+static int test_mpi_hex_promote_refine_nodeset() {
+#ifndef SMESH_ENABLE_MPI
+    return SMESH_TEST_SUCCESS;
+#else
+    auto comm = Communicator::world();
+    if (comm->size() < 2) {
+        return SMESH_TEST_SUCCESS;
+    }
+    int token = 0;
+    if (comm->rank() == 0) {
+        token = static_cast<int>(std::time(nullptr)) + 70;
+    }
+    comm->broadcast(&token, 1, 0);
+    const Path path = make_tmp_path("smesh_mpi_xf_hex_sets", token);
+    const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+
+    ptrdiff_t serial_promote_n = 0;
+    ptrdiff_t serial_refine_n  = 0;
+    std::vector<large_idx_t> serial_promote_gids;
+    std::vector<large_idx_t> serial_refine_gids;
+    if (comm->rank() == 0) {
+        std::filesystem::remove_all(path.to_string());
+        auto serial = Mesh::create_hex8_cube(Communicator::self(), nx, 2, 2);
+        auto left   = Sideset::create_from_selector(
+            serial, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+        SMESH_TEST_EQ(left.size(), static_cast<size_t>(1));
+        serial->add_sideset("left", left[0]);
+        auto ns_buf = create_nodeset_from_sideset(serial, left[0]);
+        serial->add_nodeset("left_nodes", Nodeset::create(serial->comm(), ns_buf));
+        auto promoted = promote_to(HEX27, serial);
+        SMESH_TEST_ASSERT(promoted != nullptr);
+        serial_promote_gids = owned_nodeset_gids(*promoted, *promoted->nodesets("left_nodes")[0]);
+        std::sort(serial_promote_gids.begin(), serial_promote_gids.end());
+        serial_promote_n = static_cast<ptrdiff_t>(serial_promote_gids.size());
+        auto refined = refine(serial, 1);
+        SMESH_TEST_ASSERT(refined != nullptr);
+        serial_refine_gids = owned_nodeset_gids(*refined, *refined->nodesets("left_nodes")[0]);
+        std::sort(serial_refine_gids.begin(), serial_refine_gids.end());
+        serial_refine_n = static_cast<ptrdiff_t>(serial_refine_gids.size());
+        SMESH_TEST_ASSERT(serial->write(path) == SMESH_SUCCESS);
+    }
+    comm->broadcast(&serial_promote_n, 1, 0);
+    comm->broadcast(&serial_refine_n, 1, 0);
+    comm->barrier();
+
+    auto mesh = Mesh::create_from_file(comm, path);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    auto promoted = promote_to(HEX27, mesh);
+    SMESH_TEST_ASSERT(promoted != nullptr);
+    SMESH_TEST_EQ(promoted->element_type(0), HEX27);
+    SMESH_TEST_EQ(promoted->sidesets("left").size(), static_cast<size_t>(1));
+    std::vector<large_idx_t> all_p;
+    SMESH_TEST_EQ(gather_sorted_gids(comm, owned_nodeset_gids(*promoted, *promoted->nodesets("left_nodes")[0]), &all_p),
+                  SMESH_SUCCESS);
+    SMESH_TEST_EQ(static_cast<ptrdiff_t>(all_p.size()), serial_promote_n);
+
+    auto refined = refine(mesh, 1);
+    SMESH_TEST_ASSERT(refined != nullptr);
+    std::vector<large_idx_t> all_r;
+    SMESH_TEST_EQ(gather_sorted_gids(comm, owned_nodeset_gids(*refined, *refined->nodesets("left_nodes")[0]), &all_r),
+                  SMESH_SUCCESS);
+    SMESH_TEST_EQ(static_cast<ptrdiff_t>(all_r.size()), serial_refine_n);
+
+    if (comm->rank() == 0) {
+        SMESH_TEST_ASSERT(all_p == serial_promote_gids);
+        SMESH_TEST_ASSERT(all_r == serial_refine_gids);
+        std::filesystem::remove_all(path.to_string());
+    }
+    return SMESH_TEST_SUCCESS;
+#endif
+}
+
 static int test_mpi_promote_tet10_multiblock() {
 #ifndef SMESH_ENABLE_MPI
     return SMESH_TEST_SUCCESS;
@@ -1502,6 +1636,8 @@ int main(int argc, char **argv) {
     SMESH_RUN_TEST(test_mpi_promote_trishell6);
     SMESH_RUN_TEST(test_mpi_promote_quad9);
     SMESH_RUN_TEST(test_mpi_promote_quadshell9);
+    SMESH_RUN_TEST(test_mpi_promote_hex27);
+    SMESH_RUN_TEST(test_mpi_hex_promote_refine_nodeset);
     SMESH_RUN_TEST(test_mpi_promote_tet10_multiblock);
     SMESH_RUN_TEST(test_mpi_quad_extrude);
     SMESH_RUN_TEST(test_mpi_clone_convert);

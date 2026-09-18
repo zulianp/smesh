@@ -400,18 +400,18 @@ namespace smesh {
                 return SMESH_SUCCESS;
             }
 
-            if (element_type == TET4 || element_type == TET10) {
+            if (element_type == TET4 || element_type == TET10 || element_type == TET15) {
                 const int edges[6][2] = {{0, 1}, {1, 2}, {2, 0}, {0, 3}, {1, 3}, {2, 3}};
                 for (int e = 0; e < 6; ++e) {
                     (*this)(e, 0) = edges[e][0];
                     (*this)(e, 1) = edges[e][1];
                 }
-                if (element_type == TET10) {
+                if (element_type == TET10 || element_type == TET15) {
                     const int mids[6] = {4, 5, 6, 7, 8, 9};
                     for (int e = 0; e < 6; ++e) {
                         (*this)(e, 2) = mids[e];
                     }
-                    fill_edge_arities(TET10, 3);
+                    fill_edge_arities(element_type, 3);
                 } else {
                     fill_edge_arities(TET4, 2);
                 }
