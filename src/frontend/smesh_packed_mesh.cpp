@@ -17,6 +17,26 @@ public:
   ptrdiff_t n_packs;
   ptrdiff_t elements_per_pack;
 
+  // How much of the block the packs actually cover. On a serial mesh this is every
+  // element and every node, and everything below behaves exactly as it always has.
+  //
+  // On a distributed mesh it is the owned-not-shared prefix of each, and the reason is
+  // an ownership coupling that is invisible from this file. A rank's ghost entries name
+  // nodes by GLOBAL owned index -- exchange_create turns them into local ones by
+  // subtracting node_offsets[rank] -- so the position a node holds inside its owner's
+  // owned block is a number other ranks have already recorded. Renumbering a node that
+  // some other rank references therefore silently redirects that rank's gather, and no
+  // local check can see it.
+  //
+  // Owned-not-shared is exactly the set that cannot be referenced: a node is shared iff
+  // one of its incident elements belongs to another rank, so a node that is owned and
+  // not shared has every incident element here and appears in nobody's ghost list.
+  // Permuting that prefix is invisible off-rank, which is what keeps packing a local
+  // operation needing no collective and no rebuilt Exchange. Shared, ghost and aura
+  // nodes -- and the shared and aura elements -- keep their positions.
+  ptrdiff_t n_packed_elements{0};
+  ptrdiff_t n_packable_nodes{0};
+
   std::shared_ptr<Mesh::Block> block;
   SharedBuffer<pack_idx_t *> packed_elements;
 
@@ -114,7 +134,7 @@ public:
                       const SharedBuffer<mask_t> &owned_flag) {
     auto d_elements = block->elements()->data();
     const int nxe = block->n_nodes_per_element();
-    const ptrdiff_t nelements = block->n_elements();
+    const ptrdiff_t nelements = n_packed_elements;
 
     auto d_node_owner = node_owner->data();
     auto d_owned_flag = owned_flag->data();
@@ -126,6 +146,12 @@ public:
       for (ptrdiff_t e = start; e < end; e++) {
         for (int v = 0; v < nxe; v++) {
           const idx_t node = d_elements[v][e];
+          // A node past the packable prefix is left to no pack at all. It keeps its
+          // number and becomes a pack ghost, which the format already represents at
+          // arbitrary non-contiguous indices.
+          if (node >= n_packable_nodes) {
+            continue;
+          }
           if (!mask_get(node, d_owned_flag)) {
             d_node_owner[node] = p + pack_offset;
             mask_set(node, d_owned_flag);
@@ -142,7 +168,7 @@ public:
     auto d_shared_flag = shared_flag->data();
     auto d_elements = block->elements()->data();
     const int nxe = block->n_nodes_per_element();
-    const ptrdiff_t nelements = block->n_elements();
+    const ptrdiff_t nelements = n_packed_elements;
 
     for (ptrdiff_t p = 0; p < n_packs; p++) {
       const ptrdiff_t start = p * elements_per_pack;
@@ -151,6 +177,13 @@ public:
       for (ptrdiff_t e = start; e < end; e++) {
         for (int v = 0; v < nxe; v++) {
           const idx_t node = d_elements[v][e];
+
+          // Unclaimed nodes carry the -1 sentinel rather than a pack id, so they are
+          // not "shared between packs" -- they belong to none. Flagging them here would
+          // put them in a pack's shared tail, which is a range of OWNED nodes.
+          if (d_node_owner[node] < 0) {
+            continue;
+          }
 
           if (d_node_owner[node] != p + pack_offset) {
             mask_set(node, d_shared_flag);
@@ -174,7 +207,7 @@ public:
     auto d_ghost_ptr = ghost_ptr->data();
 
     const int nxe = block->n_nodes_per_element();
-    const ptrdiff_t nelements = block->n_elements();
+    const ptrdiff_t nelements = n_packed_elements;
     const ptrdiff_t nnodes = node_map->size();
 
     SharedBuffer<mask_t> selected =
@@ -273,7 +306,7 @@ public:
     auto d_node_owner = node_owner->data();
 
     const int nxe = block->n_nodes_per_element();
-    const ptrdiff_t nelements = block->n_elements();
+    const ptrdiff_t nelements = n_packed_elements;
 
     this->ghost_idx = smesh::create_host_buffer<idx_t>(d_ghost_ptr[n_packs]);
     auto d_ghost_idx = this->ghost_idx->data();
@@ -388,25 +421,69 @@ public:
     auto node_owner = smesh::create_host_buffer<idx_t>(mesh->n_nodes());
     auto flags = smesh::create_host_buffer<mask_t>(mask_count(mesh->n_nodes()));
 
+    // create_host_buffer calloc's, so an untouched entry reads as 0 -- which is a VALID
+    // pack id, not an absence. Every node a pack never claims has to say so explicitly or
+    // it silently passes for a node owned by pack 0.
+    {
+      auto d_node_owner = node_owner->data();
+      const ptrdiff_t nnodes = mesh->n_nodes();
+      for (ptrdiff_t i = 0; i < nnodes; i++) {
+        d_node_owner[i] = -1;
+      }
+    }
+
+    // See Block::n_packed_elements for why the distributed case stops at the
+    // owned-not-shared prefix. At one rank, and on any serial mesh, these are the whole
+    // mesh and everything below is unchanged.
+    const bool distributed = mesh->is_distributed();
+    const ptrdiff_t n_packable_nodes =
+        distributed ? mesh->distributed()->n_nodes_owned_not_shared()
+                    : mesh->n_nodes();
+
     // Construct packed blocks storage
     ptrdiff_t pack_offset = 0;
     for (auto &block : mesh->blocks(block_names)) {
       auto packed_block = std::make_shared<Block>();
       packed_block->block = block;
+      packed_block->n_packable_nodes = n_packable_nodes;
+
+      // Shared and aura elements keep their positions and are covered by no pack. The
+      // fallback matches reorder_distributed: a block carrying no distributed element
+      // counts is treated as entirely owned.
+      ptrdiff_t n_packed = block->n_elements();
+      if (distributed &&
+          (block->n_elements_owned() != 0 || block->n_elements_ghosts() != 0)) {
+        n_packed = block->n_elements_owned_not_shared();
+      }
+      packed_block->n_packed_elements = n_packed;
+
+      if (n_packed == 0) {
+        // A rank can legitimately own no unshared element of a block. Guarded because
+        // elements_per_pack divides by n_packs, which is zero here.
+        packed_block->n_packs = 0;
+        packed_block->elements_per_pack = 0;
+        packed_block->packed_elements = smesh::create_host_buffer<pack_idx_t>(
+            block->n_nodes_per_element(), 0);
+        packed_block->owned_nodes_ptr = smesh::create_host_buffer<ptrdiff_t>(1);
+        packed_block->n_shared = smesh::create_host_buffer<ptrdiff_t>(0);
+        packed_block->ghost_ptr = smesh::create_host_buffer<ptrdiff_t>(1);
+        blocks.push_back(packed_block);
+        continue;
+      }
 
       packed_block->n_packs =
-          (block->n_elements() * block->n_nodes_per_element() +
+          (n_packed * block->n_nodes_per_element() +
            max_nodes_per_pack - 1) /
           max_nodes_per_pack;
       packed_block->elements_per_pack =
-          (block->n_elements() + packed_block->n_packs - 1) /
+          (n_packed + packed_block->n_packs - 1) /
           packed_block->n_packs;
 
       if (SMESH_ELEMENTS_PER_PACK) {
         packed_block->elements_per_pack =
             std::min(packed_block->elements_per_pack, SMESH_ELEMENTS_PER_PACK);
         packed_block->n_packs =
-            (block->n_elements() + packed_block->elements_per_pack - 1) /
+            (n_packed + packed_block->elements_per_pack - 1) /
             packed_block->elements_per_pack;
       }
 
@@ -414,7 +491,7 @@ public:
              max_nodes_per_pack);
 
       packed_block->packed_elements = smesh::create_host_buffer<pack_idx_t>(
-          block->n_nodes_per_element(), block->n_elements());
+          block->n_nodes_per_element(), n_packed);
       packed_block->owned_nodes_ptr =
           smesh::create_host_buffer<ptrdiff_t>(packed_block->n_packs + 1);
       packed_block->n_shared =
@@ -448,6 +525,37 @@ public:
       pack_offset += packed_block->n_packs;
     }
 
+    // node_map has to be a permutation of [0, n_nodes): renumber_nodes writes
+    // new_points[d][node_map[i]] for every i and asserts the index is in range, so a
+    // node left without an id either trips that assert or corrupts the mesh quietly.
+    //
+    // The loops above give ids only to nodes some pack claimed, and two kinds of node
+    // are below the bound and claimed by nobody. On a distributed mesh, an
+    // owned-not-shared node whose incident elements are all SHARED elements is never
+    // visited, because the packs cover the owned-not-shared element range. On any mesh,
+    // a node touched by no element of the selected blocks is never visited either --
+    // that one is a pre-existing hole, which previously left such a node mapped to 0 and
+    // colliding with a real node.
+    //
+    // Both take the remaining ids in increasing node order, which keeps the map a
+    // bijection. Nodes at or above the bound keep the number they have: that is the
+    // whole point, since those are the ones other ranks can name.
+    {
+      auto d_node_map = node_map->data();
+      auto d_node_owner = node_owner->data();
+      const ptrdiff_t nnodes = mesh->n_nodes();
+      ptrdiff_t next_id = global_next_id;
+      for (ptrdiff_t node = 0; node < n_packable_nodes; node++) {
+        if (d_node_owner[node] < 0) {
+          d_node_map[node] = static_cast<idx_t>(next_id++);
+        }
+      }
+      assert(next_id == n_packable_nodes);
+      for (ptrdiff_t node = n_packable_nodes; node < nnodes; node++) {
+        d_node_map[node] = static_cast<idx_t>(node);
+      }
+    }
+
     pack_offset = 0;
     for (auto &packed_block : blocks) {
       packed_block->pack(mesh, pack_offset, node_map, node_owner, flags);
@@ -460,7 +568,13 @@ public:
       mesh->renumber_nodes(node_map);
       reordered_points = mesh->points();
       synched_with_mesh = true;
-      node_map = nullptr;
+      // node_map is KEPT. It used to be released here, which made both map_to_packed and
+      // map_to_unpacked unusable in every configuration: they refuse unless
+      // synched_with_mesh, and synched_with_mesh was set only on the branch that had just
+      // freed the map they dereference. So one branch gave a null dereference and the
+      // other an error, and the pair had no working path at all. The map is what
+      // translates a caller's vector between mesh and packed numbering, so it has to
+      // outlive the renumbering that made the two differ.
     } else {
       synched_with_mesh = false;
     }

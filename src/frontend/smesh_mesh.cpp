@@ -4822,6 +4822,70 @@ int Mesh::renumber_nodes(const SharedBuffer<idx_t> &node_mapping) {
   // that fails loudly; the solve simply constrains the wrong nodes.
   impl_->invalidate_node_indexed_caches();
 
+  // The distributed ownership metadata is keyed by local node too, and until now this
+  // function did not know it existed -- it would renumber the nodes and leave
+  // Distributed describing the previous numbering, which is the same class of silent
+  // wrongness as the caches above.
+  //
+  // Two different things have to happen, and only one of them is local.
+  //
+  // node_mapping (local -> global id) and node_owner are per-local-node, so they move
+  // with the nodes and are simply permuted here.
+  //
+  // ghosts_and_aura cannot be repaired here at all. Its entries name nodes by GLOBAL
+  // owned index -- exchange_create recovers a local index by subtracting
+  // node_offsets[rank] -- so they encode the position a node holds inside its OWNER's
+  // owned block, and the ranks holding those entries are the neighbours, not this one.
+  // Renumbering a node that some neighbour references would redirect that neighbour's
+  // gather with nothing on either side able to detect it.
+  //
+  // So this refuses any permutation that disturbs a node at or above
+  // n_nodes_owned_not_shared. That bound is exactly right rather than merely safe: a
+  // node is shared iff one of its incident elements belongs to another rank, so a node
+  // that is owned and not shared has every incident element here and can appear in no
+  // neighbour's ghost list. Permuting that prefix is invisible off-rank; permuting
+  // anything else is not, and needs a collective this function has no business running.
+  if (impl_->distributed) {
+    auto dist = impl_->distributed;
+    const ptrdiff_t n_permutable = dist->n_nodes_owned_not_shared();
+
+    for (ptrdiff_t i = n_permutable; i < n_nodes; i++) {
+      if (d_node_mapping[i] != i) {
+        SMESH_ERROR(
+            "Mesh::renumber_nodes: permutation moves node %td, which is shared, a "
+            "ghost or aura. Neighbouring ranks address it by its position in this "
+            "rank's owned block, so moving it silently corrupts their gathers. Only "
+            "[0, %td) may be permuted on a distributed mesh.\n",
+            (ptrdiff_t)i, (ptrdiff_t)n_permutable);
+        return SMESH_FAILURE;
+      }
+    }
+
+    if (auto nm = dist->node_mapping()) {
+      auto d_nm = nm->data();
+      auto old_nm = create_host_buffer<large_idx_t>(n_permutable);
+      auto d_old = old_nm->data();
+      for (ptrdiff_t i = 0; i < n_permutable; i++) {
+        d_old[i] = d_nm[i];
+      }
+      for (ptrdiff_t i = 0; i < n_permutable; i++) {
+        d_nm[d_node_mapping[i]] = d_old[i];
+      }
+    }
+
+    if (auto no = dist->node_owner()) {
+      auto d_no = no->data();
+      auto old_no = create_host_buffer<int>(n_permutable);
+      auto d_old = old_no->data();
+      for (ptrdiff_t i = 0; i < n_permutable; i++) {
+        d_old[i] = d_no[i];
+      }
+      for (ptrdiff_t i = 0; i < n_permutable; i++) {
+        d_no[d_node_mapping[i]] = d_old[i];
+      }
+    }
+  }
+
   return remap_registered_nodesets(d_node_mapping, n_nodes);
 }
 
