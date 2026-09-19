@@ -24,14 +24,4 @@ Sidesets, edgesets, and nodesets are topology, not geometry.
 
 `refine` refuses higher-order input. Converters (`db_to_raw` / `raw_to_db`) only translate file formats.
 
-## What works today
-
-| | Serial | MPI |
-|--|:------:|:---:|
-| Folder IO | yes | yes |
-| `refine` (linear HEX/TET/TRI/QUAD/WEDGE/PYRAMID/EDGE, including shells) | yes | yes |
-| `promote_to` (TET10/TET15, TRI6, QUAD9, HEX27, matching shells) | yes | yes |
-| Skin / selector sidesets | yes | yes |
-| Python VTK/Exodus converters | yes | n/a (serial scripts) |
-
-There are no public C++ Python bindings yet. `refine` of TET10/HEX27/`PROTEUS_*` is out of scope.
+Element-type coverage is in [features.md](features.md). There are no public C++ Python bindings yet.

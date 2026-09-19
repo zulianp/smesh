@@ -26,6 +26,7 @@ That writes a folder mesh. Next steps: [Getting started](docs/getting-started.md
 - [Install](docs/install.md)
 - [Getting started](docs/getting-started.md)
 - [Concepts](docs/concepts.md)
+- [Features and element types](docs/features.md)
 - [Folder format](docs/format.md)
 - [Command-line tools](docs/cli.md)
 - [C++](docs/cpp.md)
