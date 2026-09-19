@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <assert.h>
+#include <map>
 #include <chrono>
 #include <fstream>
 #include <limits>
@@ -379,7 +380,30 @@ int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
   std::vector<Path> i_files =
       detect_files(folder / "i*.*", {"raw", "int16", "int32", "int64"});
 
-  int nnodesxelem = i_files.size();
+  std::map<int, std::vector<Path>> by_index;
+  int max_ii = -1;
+  for (const auto &i_path : i_files) {
+    const std::string stem = i_path.file_name();
+    int ii = 0;
+    if (!parse_soa_index_stem(stem, &ii)) {
+      continue;
+    }
+    by_index[ii].push_back(i_path);
+    if (ii > max_ii) {
+      max_ii = ii;
+    }
+  }
+
+  int nnodesxelem = max_ii + 1;
+  if (nnodesxelem <= 0) {
+    SMESH_ERROR("No connectivity files found in input folder %s\n", folder.c_str());
+    *elems = nullptr;
+    *nnodesxelem_out = 0;
+    *n_local_elements_out = 0;
+    *n_global_elements_out = 0;
+    return SMESH_FAILURE;
+  }
+
   *elems = (idx_t **)SMESH_ALLOC(sizeof(idx_t *) * nnodesxelem);
   for (int d = 0; d < nnodesxelem; ++d) {
     (*elems)[d] = nullptr;
@@ -391,16 +415,17 @@ int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
   {
     ptrdiff_t n_elements0 = 0;
     ptrdiff_t n_global_elements0 = 0;
-    for (int d = 0; d < nnodesxelem; ++d) {
-      Path i_path = i_files[d];
-      std::string filename = i_path.file_name();
-      int ii = std::stoi(filename.substr(1, filename.find_last_of('.')));
-
-      if (ii >= nnodesxelem) {
-        SMESH_ERROR("Index out of range: %d >= %d\n", ii, nnodesxelem);
+    for (int ii = 0; ii < nnodesxelem; ++ii) {
+      const auto found = by_index.find(ii);
+      if (found == by_index.end() || found->second.empty()) {
+        SMESH_ERROR("Missing connectivity file i%d in %s\n", ii, folder.c_str());
         ret = SMESH_FAILURE;
-        break;
+        continue;
       }
+      const std::string preferred =
+          std::string("i") + std::to_string(ii) + "." +
+          std::string(TypeToString<idx_t>::value());
+      Path i_path = select_one_typed_file(found->second, preferred);
 
       idx_t *idx = 0;
       if (array_create_from_file_convert_from_extension<idx_t>(
@@ -410,10 +435,9 @@ int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
         ret = SMESH_FAILURE;
       }
 
-      // End of Selection
       (*elems)[ii] = idx;
 
-      if (d == 0) {
+      if (ii == 0) {
         n_elements0 = n_local_elements;
         n_global_elements0 = n_global_elements;
       } else {
@@ -458,38 +482,15 @@ int mesh_coordinates_from_folder(MPI_Comm comm, const Path &folder,
                                  ptrdiff_t *n_global_nodes_out) {
   SMESH_TRACE_SCOPE("mesh_coordinates_from_folder");
 
-  std::vector<Path> x_file =
-      detect_files(folder / "x.*", {"raw", "float16", "float32", "float64"});
-  std::vector<Path> y_file =
-      detect_files(folder / "y.*", {"raw", "float16", "float32", "float64"});
-  std::vector<Path> z_file =
-      detect_files(folder / "z.*", {"raw", "float16", "float32", "float64"});
-
-  if (x_file.empty()) {
-    x_file =
-        detect_files(folder / "x0.*", {"raw", "float16", "float32", "float64"});
-  }
-
-  if (y_file.empty()) {
-    y_file =
-        detect_files(folder / "x1.*", {"raw", "float16", "float32", "float64"});
-  }
-
-  if (z_file.empty()) {
-    z_file =
-        detect_files(folder / "x2.*", {"raw", "float16", "float32", "float64"});
-  }
-
-  int ndims = x_file.empty() ? 0 : 1; // x only
-  ndims += y_file.empty() ? 0 : 1;    // x and y
-  ndims += z_file.empty() ? 0 : 1;    // x, y and z
-
-  std::vector<Path> points_paths = x_file;
-  if (!y_file.empty()) {
-    points_paths.push_back(y_file[0]);
-  }
-  if (!z_file.empty()) {
-    points_paths.push_back(z_file[0]);
+  std::vector<Path> points_paths = select_coordinate_files(folder);
+  const int ndims = static_cast<int>(points_paths.size());
+  if (!ndims) {
+    SMESH_ERROR("No coordinates found in input folder %s\n", folder.c_str());
+    *spatial_dim_out = 0;
+    *points_out = nullptr;
+    *n_local_nodes_out = 0;
+    *n_global_nodes_out = 0;
+    return SMESH_FAILURE;
   }
 
   geom_t **points = (geom_t **)SMESH_CALLOC(ndims, sizeof(geom_t *));

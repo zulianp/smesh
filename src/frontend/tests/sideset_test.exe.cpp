@@ -22,6 +22,7 @@
 #include "smesh_mesh.hpp"
 #include "smesh_mesh_reorder.hpp"
 #include "smesh_nodeset.hpp"
+#include "smesh_refine.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sideset.hpp"
 #include "smesh_sidesets.impl.hpp"
@@ -439,6 +440,101 @@ int test_sideset_map_tet_refine() {
   return check_refine_sideset_map(mesh, sidesets[0], 4);
 }
 
+int test_tet4_face_child_lfi_matches_pattern() {
+  LocalSideTable lst;
+  SMESH_TEST_EQ(lst.fill(TET4), SMESH_SUCCESS);
+  for (int s = 0; s < 4; ++s) {
+    bool on_face[10] = {};
+    for (int n = 0; n < 3; ++n) {
+      on_face[lst(s, n)] = true;
+    }
+    for (int e = 0; e < 6; ++e) {
+      if (on_face[tet4_refine_edges[e][0]] && on_face[tet4_refine_edges[e][1]]) {
+        on_face[4 + e] = true;
+      }
+    }
+    for (int c = 0; c < 4; ++c) {
+      const int child = tet4_face_child[s][c];
+      int found = -1;
+      int n_found = 0;
+      for (int ls = 0; ls < 4; ++ls) {
+        const int n0 = tet4_refine_pattern[child][lst(ls, 0)];
+        const int n1 = tet4_refine_pattern[child][lst(ls, 1)];
+        const int n2 = tet4_refine_pattern[child][lst(ls, 2)];
+        if (on_face[n0] && on_face[n1] && on_face[n2]) {
+          found = ls;
+          ++n_found;
+        }
+      }
+      SMESH_TEST_EQ(n_found, 1);
+      SMESH_TEST_EQ(found, tet4_face_child_lfi[s][c]);
+    }
+  }
+  return SMESH_TEST_SUCCESS;
+}
+
+static int check_tet_refine_skin(const std::shared_ptr<Mesh> &mesh, const int levels) {
+  SMESH_TEST_ASSERT(mesh != nullptr);
+  auto coarse_skin = skin_sideset(mesh);
+  SMESH_TEST_ASSERT(coarse_skin != nullptr);
+  SMESH_TEST_ASSERT(coarse_skin->size() > 0);
+
+  auto fine = refine(mesh, levels);
+  SMESH_TEST_ASSERT(fine != nullptr);
+  auto mapped = map_sideset_through_refine(mesh, coarse_skin, fine);
+  SMESH_TEST_ASSERT(mapped != nullptr);
+
+  ptrdiff_t expand = 1;
+  for (int i = 0; i < levels; ++i) {
+    expand *= 4;
+  }
+  SMESH_TEST_EQ(mapped->size(), coarse_skin->size() * expand);
+
+  auto fine_skin = skin_sideset(fine);
+  SMESH_TEST_ASSERT(fine_skin != nullptr);
+  SMESH_TEST_EQ(fine_skin->size(), mapped->size());
+
+  const auto keys_mapped = corner_face_keys(fine, mapped);
+  const auto keys_skin = corner_face_keys(fine, fine_skin);
+  SMESH_TEST_EQ(keys_mapped.size(), keys_skin.size());
+  for (size_t i = 0; i < keys_mapped.size(); ++i) {
+    SMESH_TEST_EQ(keys_mapped[i].size(), keys_skin[i].size());
+    for (size_t k = 0; k < keys_mapped[i].size(); ++k) {
+      SMESH_TEST_EQ(keys_mapped[i][k][0], keys_skin[i][k][0]);
+      SMESH_TEST_EQ(keys_mapped[i][k][1], keys_skin[i][k][1]);
+      SMESH_TEST_EQ(keys_mapped[i][k][2], keys_skin[i][k][2]);
+    }
+  }
+  return SMESH_TEST_SUCCESS;
+}
+
+int test_sideset_map_tet_refine_skin() {
+  auto elems = create_host_buffer<idx_t>(4, static_cast<size_t>(1));
+  auto pts = create_host_buffer<geom_t>(3, static_cast<size_t>(4));
+  elems->data()[0][0] = 0;
+  elems->data()[1][0] = 1;
+  elems->data()[2][0] = 2;
+  elems->data()[3][0] = 3;
+  pts->data()[0][0] = 0;
+  pts->data()[1][0] = 0;
+  pts->data()[2][0] = 0;
+  pts->data()[0][1] = 1;
+  pts->data()[1][1] = 0;
+  pts->data()[2][1] = 0;
+  pts->data()[0][2] = 0;
+  pts->data()[1][2] = 1;
+  pts->data()[2][2] = 0;
+  pts->data()[0][3] = 0;
+  pts->data()[1][3] = 0;
+  pts->data()[2][3] = 1;
+  auto tet = std::make_shared<Mesh>(Communicator::self(), TET4, elems, pts);
+  SMESH_TEST_EQ(check_tet_refine_skin(tet, 1), SMESH_TEST_SUCCESS);
+  SMESH_TEST_EQ(check_tet_refine_skin(tet, 2), SMESH_TEST_SUCCESS);
+
+  auto cube = Mesh::create_tet4_cube(Communicator::self(), 2, 2, 2);
+  return check_tet_refine_skin(cube, 1);
+}
+
 int test_sideset_map_tri_refine() {
   auto mesh = Mesh::create_tri3_square(Communicator::self(), 2, 2);
   auto sidesets = Sideset::create_from_selector(
@@ -608,7 +704,7 @@ static int check_refine_registry(const std::shared_ptr<Mesh>    &mesh,
   SMESH_TEST_EQ(fine->nodesets("left_nodes").size(), static_cast<size_t>(1));
   auto fns = fine->nodesets("left_nodes")[0];
   SMESH_TEST_ASSERT(fns != nullptr);
-  SMESH_TEST_EQ(fns->size(), ns->size());
+  SMESH_TEST_ASSERT(fns->size() >= ns->size());
   const int          sdim = mesh->spatial_dimension();
   const geom_t *const *pc = mesh->points()->data();
   const geom_t *const *pf = fine->points()->data();
@@ -619,6 +715,9 @@ static int check_refine_registry(const std::shared_ptr<Mesh>    &mesh,
       SMESH_TEST_EQ(std::llround(static_cast<double>(pc[d][on[i]]) * 1e9),
                     std::llround(static_cast<double>(pf[d][nn[i]]) * 1e9));
     }
+  }
+  if (ns->size() > 1) {
+    SMESH_TEST_ASSERT(fns->size() > ns->size());
   }
   return SMESH_TEST_SUCCESS;
 }
@@ -651,6 +750,164 @@ int test_refine_registry_quad() {
       mesh, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
   SMESH_TEST_EQ(ss.size(), static_cast<size_t>(1));
   return check_refine_registry(mesh, ss[0], 2, 2);
+}
+
+static std::shared_ptr<Nodeset> left_nodeset(const std::shared_ptr<Mesh> &mesh) {
+  auto ss = Sideset::create_from_selector(
+      mesh, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+  if (ss.size() != 1) {
+    return nullptr;
+  }
+  auto buf = create_nodeset_from_sideset(mesh, ss[0]);
+  if (!buf) {
+    return nullptr;
+  }
+  return Nodeset::create(mesh->comm(), buf);
+}
+
+int test_promote_hex27_sets() {
+  auto hex = Mesh::create_hex8_cube(Communicator::self(), 1, 1, 1);
+  SMESH_TEST_ASSERT(hex != nullptr);
+  auto ss = make_left_boundary_sideset(hex);
+  SMESH_TEST_ASSERT(ss != nullptr);
+  hex->add_sideset("left", ss);
+  auto ns = left_nodeset(hex);
+  SMESH_TEST_ASSERT(ns != nullptr);
+  hex->add_nodeset("left_nodes", ns);
+
+  auto hex27 = promote_to(HEX27, hex);
+  SMESH_TEST_ASSERT(hex27 != nullptr);
+  SMESH_TEST_EQ(hex27->element_type(0), HEX27);
+  SMESH_TEST_EQ(hex27->n_elements(), hex->n_elements());
+  SMESH_TEST_EQ(hex27->n_nodes(), static_cast<ptrdiff_t>(27));
+
+  auto ref = Mesh::create_cube(Communicator::self(), HEX27, 1, 1, 1, 0, 0, 0, 1, 1, 1);
+  SMESH_TEST_ASSERT(ref != nullptr);
+  auto pels = hex27->elements(0)->data();
+  auto rels = ref->elements(0)->data();
+  auto pp   = hex27->points()->data();
+  auto rp   = ref->points()->data();
+  for (int s = 0; s < 27; ++s) {
+    const idx_t a = pels[s][0];
+    const idx_t b = rels[s][0];
+    for (int d = 0; d < 3; ++d) {
+      SMESH_TEST_APPROXEQ(pp[d][a], rp[d][b], 1e-12);
+    }
+  }
+
+  SMESH_TEST_EQ(hex27->sidesets("left").size(), static_cast<size_t>(1));
+  SMESH_TEST_EQ(hex27->sidesets("left")[0]->size(), ss->size());
+
+  SMESH_TEST_EQ(hex27->nodesets("left_nodes").size(), static_cast<size_t>(1));
+  auto fns = hex27->nodesets("left_nodes")[0];
+  SMESH_TEST_ASSERT(fns != nullptr);
+
+  uint8_t in_set[27];
+  std::memset(in_set, 0, sizeof(in_set));
+  LocalEdgeTable let;
+  SMESH_TEST_EQ(let.fill(HEX27), SMESH_SUCCESS);
+  auto             hsoa = hex->elements(0)->data();
+  const idx_t     *cns  = ns->nodes()->data();
+  uint8_t          coarse_mask[8];
+  std::memset(coarse_mask, 0, sizeof(coarse_mask));
+  for (ptrdiff_t i = 0; i < ns->size(); ++i) {
+    coarse_mask[cns[i]] = 1;
+    in_set[cns[i]]      = 1;
+  }
+  for (int ed = 0; ed < 12; ++ed) {
+    const idx_t a = hsoa[let(ed, 0)][0];
+    const idx_t b = hsoa[let(ed, 1)][0];
+    if (coarse_mask[a] && coarse_mask[b]) {
+      in_set[pels[let(ed, 2)][0]] = 1;
+    }
+  }
+  ptrdiff_t expect = 0;
+  for (int i = 0; i < 27; ++i) {
+    expect += in_set[i];
+  }
+  SMESH_TEST_EQ(fns->size(), expect);
+  uint8_t got[27];
+  std::memset(got, 0, sizeof(got));
+  for (ptrdiff_t i = 0; i < fns->size(); ++i) {
+    const idx_t id = fns->nodes()->data()[i];
+    SMESH_TEST_ASSERT(id >= 0 && id < 27);
+    got[id] = 1;
+  }
+  for (int i = 0; i < 27; ++i) {
+    SMESH_TEST_EQ(static_cast<int>(got[i]), static_cast<int>(in_set[i]));
+  }
+  for (int s = 20; s < 27; ++s) {
+    SMESH_TEST_ASSERT(!got[pels[s][0]]);
+  }
+
+  auto path = Path("/tmp/smesh_promote_hex27_sets");
+  std::filesystem::remove_all(path.to_string());
+  SMESH_TEST_EQ(hex27->write(path), SMESH_SUCCESS);
+  auto loaded = Mesh::create_from_file(Communicator::self(), path);
+  SMESH_TEST_ASSERT(loaded != nullptr);
+  SMESH_TEST_EQ(loaded->element_type(0), HEX27);
+  SMESH_TEST_EQ(loaded->sidesets("left").size(), static_cast<size_t>(1));
+  SMESH_TEST_EQ(loaded->nodesets("left_nodes")[0]->size(), fns->size());
+  std::filesystem::remove_all(path.to_string());
+  return SMESH_TEST_SUCCESS;
+}
+
+int test_promote_tet10_sets() {
+  auto tet = Mesh::create_tet4_cube(Communicator::self(), 2, 2, 2);
+  auto ss  = Sideset::create_from_selector(
+      tet, [](const geom_t x, const geom_t, const geom_t) { return x < 1e-12; });
+  SMESH_TEST_EQ(ss.size(), static_cast<size_t>(1));
+  tet->add_sideset("left", ss[0]);
+  auto ns = left_nodeset(tet);
+  SMESH_TEST_ASSERT(ns != nullptr);
+  tet->add_nodeset("left_nodes", ns);
+
+  auto tet10 = promote_to(TET10, tet);
+  SMESH_TEST_ASSERT(tet10 != nullptr);
+  SMESH_TEST_EQ(tet10->element_type(0), TET10);
+  SMESH_TEST_EQ(tet10->n_elements(), tet->n_elements());
+  SMESH_TEST_EQ(tet10->sidesets("left")[0]->size(), ss[0]->size());
+  auto fns = tet10->nodesets("left_nodes")[0];
+  SMESH_TEST_ASSERT(fns != nullptr);
+  SMESH_TEST_ASSERT(fns->size() > ns->size());
+
+  auto path = Path("/tmp/smesh_promote_tet10_sets");
+  std::filesystem::remove_all(path.to_string());
+  SMESH_TEST_EQ(tet10->write(path), SMESH_SUCCESS);
+  auto loaded = Mesh::create_from_file(Communicator::self(), path);
+  SMESH_TEST_ASSERT(loaded != nullptr);
+  SMESH_TEST_EQ(loaded->element_type(0), TET10);
+  SMESH_TEST_EQ(loaded->sidesets("left")[0]->size(), ss[0]->size());
+  SMESH_TEST_EQ(loaded->nodesets("left_nodes")[0]->size(), fns->size());
+  std::filesystem::remove_all(path.to_string());
+  return SMESH_TEST_SUCCESS;
+}
+
+int test_refine_hex_nodeset_mids() {
+  auto hex = Mesh::create_hex8_cube(Communicator::self(), 2, 2, 2);
+  auto ns  = left_nodeset(hex);
+  SMESH_TEST_ASSERT(ns != nullptr);
+  hex->add_nodeset("left_nodes", ns);
+  auto fine = refine(hex, 1);
+  SMESH_TEST_ASSERT(fine != nullptr);
+  auto fns = fine->nodesets("left_nodes")[0];
+  SMESH_TEST_ASSERT(fns != nullptr);
+  SMESH_TEST_ASSERT(fns->size() > ns->size());
+
+  const geom_t *const *pf = fine->points()->data();
+  ptrdiff_t            n_face_center = 0;
+  for (ptrdiff_t i = 0; i < fns->size(); ++i) {
+    const idx_t id = fns->nodes()->data()[i];
+    const geom_t x = pf[0][id];
+    const geom_t y = pf[1][id];
+    const geom_t z = pf[2][id];
+    SMESH_TEST_ASSERT(x < 1e-12);
+    if (std::fabs(static_cast<double>(y) - 0.25) < 1e-12 && std::fabs(static_cast<double>(z) - 0.25) < 1e-12) {
+      ++n_face_center;
+    }
+  }
+  SMESH_TEST_EQ(n_face_center, static_cast<ptrdiff_t>(0));
+  return SMESH_TEST_SUCCESS;
 }
 
 int test_refine_registry_empty() {
@@ -1632,6 +1889,8 @@ int main(int argc, char *argv[]) {
   SMESH_RUN_TEST(test_sideset_remap_from_tags);
   SMESH_RUN_TEST(test_sideset_map_hex_refine);
   SMESH_RUN_TEST(test_sideset_map_tet_refine);
+  SMESH_RUN_TEST(test_tet4_face_child_lfi_matches_pattern);
+  SMESH_RUN_TEST(test_sideset_map_tet_refine_skin);
   SMESH_RUN_TEST(test_sideset_map_tri_refine);
   SMESH_RUN_TEST(test_sideset_map_quad_refine);
   SMESH_RUN_TEST(test_sideset_map_quadshell_refine);
@@ -1644,6 +1903,9 @@ int main(int argc, char *argv[]) {
   SMESH_RUN_TEST(test_refine_registry_tet);
   SMESH_RUN_TEST(test_refine_registry_tri);
   SMESH_RUN_TEST(test_refine_registry_quad);
+  SMESH_RUN_TEST(test_promote_hex27_sets);
+  SMESH_RUN_TEST(test_promote_tet10_sets);
+  SMESH_RUN_TEST(test_refine_hex_nodeset_mids);
   SMESH_RUN_TEST(test_refine_registry_empty);
   SMESH_RUN_TEST(test_sideset_map_refine_unsupported);
   SMESH_RUN_TEST(test_sideset_select_propagate_cube_mesh);

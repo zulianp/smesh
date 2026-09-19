@@ -16,6 +16,12 @@ exodus_hex27_to_vtk_hex27 = (
     23, 21, 20, 22, 24, 25, 26,
 )
 
+# Inverse of exodus_hex27_to_vtk_hex27: raw[:, k] = vtk[:, vtk_hex27_to_exodus_hex27[k]]
+vtk_hex27_to_exodus_hex27 = (
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+    22, 21, 23, 20, 24, 25, 26,
+)
+
 
 def prepare_exodus_hex27_connectivity(connectivity, element_type):
     """PROTEUS_HEX27 -> HEX27; otherwise return connectivity unchanged."""

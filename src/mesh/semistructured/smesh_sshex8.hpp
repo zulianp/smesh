@@ -26,6 +26,15 @@ sshex8_lidx(const int L, const int x, const int y, const int z) {
   return ret;
 }
 
+/// PATRAN/Exodus HEX27 slot for lattice coordinates in {0,1,2}.
+/// Inverse of create_cube HEX27 cartesian permutation: slot s holds
+/// `x + 3 y + 9 z`. PROTEUS L=2 SoA column `sshex8_lidx(2,x,y,z)` maps to this slot.
+static SMESH_INLINE int hex27_slot(const int x, const int y, const int z) {
+    static const int cartesian_to_hex27[27] = {0,  8,  1,  11, 24, 9,  3,  10, 2,  16, 20, 17, 23, 26,
+                                               21, 19, 22, 18, 4,  12, 5,  15, 25, 13, 7,  14, 6};
+    return cartesian_to_hex27[x + 3 * y + 9 * z];
+}
+
 /// HEX8 VTK SoA (`sshex8_to_standard_hex8_mesh`) reindexed as `sshex8_lidx(1, xi, yi, zi)`.
 /// VTK HEX8 nodes 2↔3 and 6↔7 swap relative to lexicographic sshex8 order.
 template <typename idx_t>

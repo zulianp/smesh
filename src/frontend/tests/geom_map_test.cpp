@@ -5,8 +5,11 @@
 #include "smesh_test.hpp"
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -166,6 +169,103 @@ static int test_write_read_roundtrip() {
     return SMESH_TEST_SUCCESS;
 }
 
+static void write_bin(const Path &path, const void *data, size_t nbytes) {
+    FILE *fp = std::fopen(path.c_str(), "wb");
+    if (fp) {
+        std::fwrite(data, 1, nbytes, fp);
+        std::fclose(fp);
+    }
+}
+
+static int test_stale_coord_files_do_not_scramble() {
+    auto mesh = Mesh::create_tet4_cube(Communicator::self(), 2, 2, 2);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    const Path path = unique_tmp("stale_coords");
+    std::filesystem::remove_all(path.to_string());
+    SMESH_TEST_EQ(mesh->write(path), SMESH_SUCCESS);
+
+    const ptrdiff_t nn = mesh->n_nodes();
+    auto *orig = mesh->points()->data();
+    std::vector<double> x64(static_cast<size_t>(nn));
+    std::vector<float> x32(static_cast<size_t>(nn));
+    for (ptrdiff_t i = 0; i < nn; ++i) {
+        x64[static_cast<size_t>(i)] = static_cast<double>(orig[0][i]);
+        x32[static_cast<size_t>(i)] = static_cast<float>(orig[0][i]);
+    }
+    if ((path / "x.float32").exists()) {
+        write_bin(path / "x.float64", x64.data(), x64.size() * sizeof(double));
+    } else {
+        write_bin(path / "x.float32", x32.data(), x32.size() * sizeof(float));
+    }
+
+    auto loaded = Mesh::create_from_file(Communicator::self(), path);
+    SMESH_TEST_ASSERT(loaded != nullptr);
+    SMESH_TEST_EQ(loaded->n_nodes(), nn);
+    auto *got = loaded->points()->data();
+    for (ptrdiff_t i = 0; i < nn; ++i) {
+        SMESH_TEST_ASSERT(std::abs(got[0][i] - orig[0][i]) < geom_t(1e-6));
+        SMESH_TEST_ASSERT(std::abs(got[1][i] - orig[1][i]) < geom_t(1e-6));
+        SMESH_TEST_ASSERT(std::abs(got[2][i] - orig[2][i]) < geom_t(1e-6));
+    }
+
+    std::vector<double> y64(static_cast<size_t>(nn));
+    std::vector<double> z64(static_cast<size_t>(nn));
+    for (ptrdiff_t i = 0; i < nn; ++i) {
+        x64[static_cast<size_t>(i)] = static_cast<double>(orig[0][i]);
+        y64[static_cast<size_t>(i)] = static_cast<double>(orig[1][i]);
+        z64[static_cast<size_t>(i)] = static_cast<double>(orig[2][i]);
+    }
+    write_bin(path / "x.float64", x64.data(), x64.size() * sizeof(double));
+    write_bin(path / "y.float64", y64.data(), y64.size() * sizeof(double));
+    write_bin(path / "z.float64", z64.data(), z64.size() * sizeof(double));
+
+    std::vector<float> junk(static_cast<size_t>(nn), 999.f);
+    write_bin(path / "x.float32", junk.data(), junk.size() * sizeof(float));
+    write_bin(path / "y.float32", junk.data(), junk.size() * sizeof(float));
+    write_bin(path / "z.float32", junk.data(), junk.size() * sizeof(float));
+
+    {
+        const Path meta = path / "meta.yaml";
+        std::ifstream in(meta.c_str());
+        std::string yaml((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        in.close();
+        for (size_t at = 0; (at = yaml.find(".float32", at)) != std::string::npos;) {
+            yaml.replace(at, 8, ".float64");
+            at += 8;
+        }
+        std::ofstream out(meta.c_str());
+        out << yaml;
+    }
+
+    auto loaded64 = Mesh::create_from_file(Communicator::self(), path);
+    SMESH_TEST_ASSERT(loaded64 != nullptr);
+    auto *got64 = loaded64->points()->data();
+    for (ptrdiff_t i = 0; i < nn; ++i) {
+        SMESH_TEST_ASSERT(std::abs(got64[0][i] - orig[0][i]) < geom_t(1e-5));
+        SMESH_TEST_ASSERT(std::abs(got64[1][i] - orig[1][i]) < geom_t(1e-5));
+        SMESH_TEST_ASSERT(std::abs(got64[2][i] - orig[2][i]) < geom_t(1e-5));
+    }
+
+    std::filesystem::remove_all(path.to_string());
+    return SMESH_TEST_SUCCESS;
+}
+
+static int test_named_single_block_write() {
+    auto mesh = Mesh::create_tet4_cube(Communicator::self(), 2, 2, 2);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    mesh->block(0)->set_name("FLUID");
+    const Path path = unique_tmp("named_block");
+    std::filesystem::remove_all(path.to_string());
+    SMESH_TEST_EQ(mesh->write(path), SMESH_SUCCESS);
+    SMESH_TEST_ASSERT(std::filesystem::is_directory((path / "blocks" / "FLUID").to_string()));
+    auto loaded = Mesh::create_from_file(Communicator::self(), path);
+    SMESH_TEST_ASSERT(loaded != nullptr);
+    SMESH_TEST_EQ(loaded->n_blocks(), static_cast<size_t>(1));
+    SMESH_TEST_ASSERT(loaded->block(0)->name() == "FLUID");
+    std::filesystem::remove_all(path.to_string());
+    return SMESH_TEST_SUCCESS;
+}
+
 static int test_detect_geom_maps() {
     auto comm = Communicator::self();
     auto hex  = Mesh::create_hex8_cube(comm, 2, 2, 2);
@@ -314,6 +414,8 @@ int main(int argc, char **argv) {
     SMESH_RUN_TEST(test_axis_aligned_rejected_on_tet);
     SMESH_RUN_TEST(test_clone_split_convert_promote);
     SMESH_RUN_TEST(test_write_read_roundtrip);
+    SMESH_RUN_TEST(test_stale_coord_files_do_not_scramble);
+    SMESH_RUN_TEST(test_named_single_block_write);
     SMESH_RUN_TEST(test_detect_geom_maps);
     SMESH_RUN_TEST(test_detect_sheared_and_warped_hex);
 #ifdef SMESH_ENABLE_MPI
