@@ -747,6 +747,11 @@ ptrdiff_t PackedMesh<pack_idx_t>::n_elements_per_pack(const int block_idx) const
 }
 
 template <typename pack_idx_t>
+ptrdiff_t PackedMesh<pack_idx_t>::n_packed_elements(const int block_idx) const {
+  return impl_->blocks[block_idx]->n_packed_elements;
+}
+
+template <typename pack_idx_t>
 int PackedMesh<pack_idx_t>::write(const Path &path) {
 
   auto node_map = impl_->node_map;
