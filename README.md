@@ -34,3 +34,15 @@ That writes a folder mesh. Next steps: [Getting started](docs/getting-started.md
 - [Performance](docs/PERFORMANCE.md) (optional, HPC)
 
 License: [BSD-3-Clause](LICENSE).
+
+## Cite
+
+```bibtex
+@software{Zulian2026smesh,
+  author  = {Zulian, Patrick},
+  title   = {{SMESH}},
+  year    = {2026},
+  url     = {https://github.com/zulianp/smesh},
+  license = {BSD-3-Clause}
+}
+```
