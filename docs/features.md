@@ -20,6 +20,7 @@ Marks: **yes** supported · **part** partial · **—** not supported or not app
 | `extrude` | — | — | — | — | → HEX8 | → WEDGE6 | — |
 | Jacobians / FFF | yes | yes | — | — | planar | planar | — |
 | SS restrict (host) | yes | yes | — | — | yes | — | — |
+| SS restrict (CUDA) | yes | — | — | — | — | — | — |
 | SS prolong | yes | yes | — | — | yes | — | — |
 | SFC reorder | yes | yes | yes | yes | yes | yes | yes |
 | Graphs (n2n / n2e / dual) | yes | yes | yes | yes | yes | yes | yes |
@@ -70,7 +71,20 @@ Same element count, extra nodes. Same-type blocks only. Sidesets keep `(parent, 
 | Unstructured restrict | TET10 / MACRO_TET4 → TET4 | TRI6 / MACRO_TRI3 → TRI3 | — | — | — |
 | SS restrict / prolong | — | — | — | — | HEX / TET / QUAD (see linear table) |
 
-`create_cube(HEX27)` and `create_cube(TET10)` exist (`TET10` via promote). `create_square(TRI6)` and `create_square(PROTEUS_QUAD*)` exist; `create_square(QUAD9)` and `create_cube(PROTEUS_TET*)` do not. Device SS restrict is HEX-only. Unstructured multi-block restrict is not implemented.
+Device SS restrict (`Restrict` with `EXECUTION_SPACE_DEVICE`) is HEX-family only. Unstructured multi-block restrict is not implemented.
+
+## CUDA
+
+Off by default (`-DSMESH_ENABLE_CUDA=ON`). Device `Buffer`s (`to_device` / `to_host`), `Mesh::device_points_*` / `device_elements_*`, and kernels for:
+
+| Kernel | Coverage |
+|--------|----------|
+| SSHEX restrict / prolong | HEX SS |
+| SSQUAD restrict / prolong | QUAD SS (kernel; mesh `Restrict` DEVICE path is HEX-only) |
+| TET4 ↔ MACRO_TET4 prolong / restrict | unstructured TET |
+| Unstructured TET10 / TRI6 restrict / prolong | see higher-order table |
+
+WEDGE / PYRAMID have no CUDA restrict or prolong.
 
 ## Factories
 

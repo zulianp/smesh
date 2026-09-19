@@ -27,5 +27,6 @@ Useful entry points in `smesh_mesh.hpp`:
 - Create: `Mesh::create_hex8_cube`, `create_tet4_cube`, `create_from_file`
 - Transform: `refine`, `promote_to`, `convert_to`
 - IO: `write`, `write_with_xdmf` (adds `mesh.xdmf` in the folder)
+- CUDA (`SMESH_ENABLE_CUDA`): `to_device` / `to_host`, `Mesh::device_points_SoA` / `device_elements_SoA`
 
 For MPI, call `smesh::initialize` instead of `initialize_serial` and pass the communicator into factories. `create_from_file` reads a serial folder on every rank and distributes it.

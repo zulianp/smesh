@@ -9,6 +9,7 @@
 Optional:
 
 - MPI, plus the `external/mpi-sort` submodule
+- CUDA Toolkit (`-DSMESH_ENABLE_CUDA=ON`)
 - OpenMP (`-DSMESH_ENABLE_OPENMP=ON`)
 - Doxygen (`-DSMESH_ENABLE_INSTALL_DOCS=ON`, CMake target `docs` → `api/html`)
 - Python 3 with `numpy`, `meshio`, `netCDF4`, `pyyaml` for VTK/Exodus converters ([python.md](python.md))
@@ -34,6 +35,18 @@ cmake -S . -B build \
 cmake --build build -j
 ```
 
+CUDA (device buffers and SS restrict/prolong kernels):
+
+```bash
+cmake -S . -B build \
+  -DSMESH_ENABLE_MPI=OFF \
+  -DSMESH_ENABLE_DEV_MODE=OFF \
+  -DSMESH_ENABLE_CUDA=ON
+cmake --build build -j
+```
+
+Default `CMAKE_CUDA_ARCHITECTURES` is `90`. Override it for the GPU you have.
+
 ## Tests
 
 Tests are on by default at the top level (`SMESH_ENABLE_TESTING=ON`):
@@ -53,6 +66,8 @@ Stock defaults are aimed at in-tree development, not a first clone:
 | `SMESH_ENABLE_TRACE` | `ON` | Writes `smesh.trace.csv` |
 | `SMESH_ENABLE_TESTING` | `ON` (top-level) | `ctest` |
 | `SMESH_ENABLE_OPENMP` | `OFF` | |
+| `SMESH_ENABLE_CUDA` | `OFF` | CUDA Toolkit; default arch `90` |
+| `SMESH_ENABLE_CUDA_LINEINFO` | `OFF` | Device-line profiling |
 | `CMAKE_BUILD_TYPE` | `Release` if unset | |
 
 For a first build, pass `-DSMESH_ENABLE_MPI=OFF` and `-DSMESH_ENABLE_DEV_MODE=OFF`.

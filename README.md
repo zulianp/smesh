@@ -1,6 +1,6 @@
 # SMESH
 
-C++ mesh library for serial and MPI workflows. Meshes are stored as folders of SoA arrays plus `meta.yaml`. Python converters translate that layout to and from VTK and Exodus; they do not refine or promote.
+C++ mesh library for serial, MPI, and optional CUDA workflows. Meshes are stored as folders of SoA arrays plus `meta.yaml`. Python converters translate that layout to and from VTK and Exodus; they do not refine or promote.
 
 ## Build
 
