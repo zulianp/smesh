@@ -18,6 +18,64 @@ square <element_type> <nx> <ny> <xmin> <ymin> <xmax> <ymax> <output_folder>
 
 Planar mesh (`TRI3`, `QUAD4`, …).
 
+## nozzle
+
+FDA HEX8 nozzle (mm). `n_core` even and ≥ 2. `expansion < 0` is a pipe (no sudden expansion).
+
+```text
+nozzle <n_core> <n_bore> <n_outer> <expansion> <n_axial> <output_folder>
+```
+
+`n_axial` is one integer (uniform) or four comma-separated counts (graded), e.g. `6,5,10,30`. Optional `SMESH_NOZZLE_CORE_FRACTION` (default `0.5`).
+
+```bash
+./build/nozzle 2 1 1 3 6,5,10,30 fda_nozzle
+./build/nozzle 2 1 1 -1 8 pipe
+```
+
+## lshape
+
+```text
+lshape <nx> <ny> <nz> <xmax> <ymax> <zmax> <step_x> <step_y> <output_folder>
+```
+
+HEX8 backward-facing step. The step must fall on a grid line.
+
+## hump
+
+```text
+hump <element_type> <nx> <ny> <nz> <length> <height> <width> <hump_start> <hump_length> <hump_height> <output_folder>
+```
+
+`HEX8` or `TET4`. Defaults of the factory are `32 12 4 9 3 1 0.65 1 0.128`.
+
+## hex_tet_cube
+
+```text
+hex_tet_cube <nx> <ny> <nz> <xmin> <ymin> <zmin> <xmax> <ymax> <zmax> <output_folder>
+```
+
+HEX8 cube; the second half of hexes becomes 6 TET4 each.
+
+## hex_dominant
+
+```text
+hex_dominant <output_folder>
+```
+
+Fixed serial unit: HEX8 + PYRAMID5 + WEDGE6 + TET4. For a cylinder, use `cylinder`.
+
+## sshex_cube / ssquad_square
+
+```text
+sshex_cube <micro_per_dim> <nx> <ny> <nz> <xmin> <ymin> <zmin> <xmax> <ymax> <zmax> <output_folder>
+ssquad_square <micro_per_dim> <nx> <ny> <xmin> <ymin> <xmax> <ymax> <output_folder>
+```
+
+## Other create binaries
+
+`cylinder`, `half_sphere`, `ring2`, `checkerboard_cube`, `bidomain_cube`.
+
 ## refine
 
 ```text
