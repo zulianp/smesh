@@ -59,6 +59,33 @@ public:
 
   void max(void *buffer, int count, enum PrimitiveType type) const;
 
+  /// Every rank contributes @p count elements from @p sendbuf; @p recvbuf receives
+  /// size() * count elements, rank-major. Unlike sum/max/broadcast this is NOT in place:
+  /// send and receive buffers are distinct, and at one rank -- or in a build without MPI --
+  /// the contribution is copied straight across, because a gather that left the receive
+  /// buffer untouched would hand the caller uninitialised memory rather than its own data.
+  template <typename T>
+  void allgather(const T *const sendbuf, T *const recvbuf, int count) const {
+    allgather(sendbuf, recvbuf, count, TypeToEnum<T>::value());
+  }
+
+  void allgather(const void *sendbuf, void *recvbuf, int count,
+                 enum PrimitiveType type) const;
+
+  /// The variable-length form: rank r contributes @p sendcount elements and its block lands
+  /// at @p displs[r] in @p recvbuf. @p recvcounts and @p displs are size() long and must
+  /// agree on every rank -- the usual way to build them is an allgather of the local counts.
+  template <typename T>
+  void allgatherv(const T *const sendbuf, int sendcount, T *const recvbuf,
+                  const int *const recvcounts, const int *const displs) const {
+    allgatherv(sendbuf, sendcount, recvbuf, recvcounts, displs,
+               TypeToEnum<T>::value());
+  }
+
+  void allgatherv(const void *sendbuf, int sendcount, void *recvbuf,
+                  const int *recvcounts, const int *displs,
+                  enum PrimitiveType type) const;
+
 private:
   class Impl;
   std::unique_ptr<Impl> impl_;
