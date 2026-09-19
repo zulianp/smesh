@@ -12,6 +12,10 @@
 #include "smesh_distributed_base.hpp"
 #endif
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 namespace smesh {
 
 class Context::Impl {
@@ -23,8 +27,21 @@ public:
 
 Context::Context(int argc, char *argv[]) : impl_(std::make_unique<Impl>()) {
 #ifdef SMESH_ENABLE_MPI
-
-  MPI_Init(&argc, &argv);
+  int need_funneled = 0;
+#ifdef _OPENMP
+  need_funneled = omp_get_max_threads() > 1 ? 1 : 0;
+#endif
+  if (need_funneled) {
+    int provided = MPI_THREAD_SINGLE;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
+    if (provided < MPI_THREAD_FUNNELED) {
+      SMESH_ERROR(
+          "MPI_Init_thread did not provide MPI_THREAD_FUNNELED (got %d)\n",
+          provided);
+    }
+  } else {
+    MPI_Init(&argc, &argv);
+  }
   register_mpi_datatypes();
 #endif
   SMESH_UNUSED(argc);

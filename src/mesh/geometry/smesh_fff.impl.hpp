@@ -1,13 +1,57 @@
 #ifndef SMESH_FFF_IMPL_HPP
 #define SMESH_FFF_IMPL_HPP
 
+#include "smesh_fff.hpp"
 #include "smesh_jacobians.hpp"
 
 #include "smesh_hex8_inline.hpp"
+#include "smesh_quad4_inline.hpp"
 #include "smesh_sshex8.hpp"
 #include "smesh_tet4_inline.hpp"
+#include "smesh_tri3_inline.hpp"
 
 namespace smesh {
+
+template <typename FFFType>
+int tri3_fff_fill(
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
+    const ptrdiff_t stride,
+    FFFType *const SMESH_RESTRICT *const SMESH_RESTRICT fff) {
+  const geom_t *const SMESH_RESTRICT x = points[0];
+  const geom_t *const SMESH_RESTRICT y = points[1];
+
+#pragma omp parallel for schedule(static)
+  for (ptrdiff_t e = 0; e < nelements; e++) {
+    const ptrdiff_t idx = e * stride;
+    tri3_fff(x[elements[0][e]], x[elements[1][e]], x[elements[2][e]],
+             y[elements[0][e]], y[elements[1][e]], y[elements[2][e]],
+             &fff[0][idx], &fff[1][idx], &fff[2][idx]);
+  }
+  return SMESH_SUCCESS;
+}
+
+template <typename FFFType>
+int quad4_fff_fill(
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
+    const geom_t qx, const geom_t qy, const ptrdiff_t stride,
+    FFFType *const SMESH_RESTRICT *const SMESH_RESTRICT fff) {
+  const geom_t *const SMESH_RESTRICT x = points[0];
+  const geom_t *const SMESH_RESTRICT y = points[1];
+
+#pragma omp parallel for schedule(static)
+  for (ptrdiff_t e = 0; e < nelements; e++) {
+    const ptrdiff_t idx = e * stride;
+    quad4_fff(x[elements[0][e]], x[elements[1][e]], x[elements[2][e]],
+              x[elements[3][e]], y[elements[0][e]], y[elements[1][e]],
+              y[elements[2][e]], y[elements[3][e]], qx, qy, &fff[0][idx],
+              &fff[1][idx], &fff[2][idx]);
+  }
+  return SMESH_SUCCESS;
+}
 
 // TET4
 

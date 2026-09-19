@@ -41,7 +41,9 @@ int mesh_hex8_cube_to_folder(const Path &folder, const ptrdiff_t nx,
   create_directory(folder);
 
   mesh_write_yaml_basic(folder, HEX8, nx * ny * nz, 3,
-                        (nx + 1) * (ny + 1) * (nz + 1));
+                        (nx + 1) * (ny + 1) * (nz + 1),
+                        TypeToString<idx_t>::value(),
+                        TypeToString<geom_t>::value(), AXIS_ALIGNED);
 
   const ptrdiff_t ix[8] = {0, 1, 1, 0, 0, 1, 1, 0};
   const ptrdiff_t iy[8] = {0, 0, 1, 1, 0, 0, 1, 1};

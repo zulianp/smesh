@@ -37,8 +37,13 @@ public:
   template <typename T> int scatter_add(T *const inout);
   template <typename T>
   int scatter_add(T *const inout, const ptrdiff_t block_size);
-  template <typename T> int gather(T* const inout);
+  template <typename T> int gather(T *const inout);
   template <typename T> int gather(T *const inout, const ptrdiff_t block_size);
+
+  /// Pack and post non-blocking gather (or complete synchronously if counts do not fit Ialltoallv).
+  template <typename T> int gather_begin(T *const inout, const ptrdiff_t block_size = 1);
+  /// Wait for a pending gather_begin and unpack into ghost/aura slots.
+  int gather_wait();
 
   class Impl;
 

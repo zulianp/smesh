@@ -65,12 +65,12 @@ void mesh_wedge6_to_3x_tet4(
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT wedge6_elements,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT tet4_elements) {
   for (ptrdiff_t e = 0; e < n_elements; e++) {
-    const idx_t i0 = wedge6_elements[0][2];
-    const idx_t i1 = wedge6_elements[1][2];
-    const idx_t i2 = wedge6_elements[2][2];
-    const idx_t i3 = wedge6_elements[3][2];
-    const idx_t i4 = wedge6_elements[4][2];
-    const idx_t i5 = wedge6_elements[5][2];
+    const idx_t i0 = wedge6_elements[0][e];
+    const idx_t i1 = wedge6_elements[1][e];
+    const idx_t i2 = wedge6_elements[2][e];
+    const idx_t i3 = wedge6_elements[3][e];
+    const idx_t i4 = wedge6_elements[4][e];
+    const idx_t i5 = wedge6_elements[5][e];
 
     idx_t *node0 = &tet4_elements[0][e * 3];
     idx_t *node1 = &tet4_elements[1][e * 3];
@@ -94,6 +94,35 @@ void mesh_wedge6_to_3x_tet4(
     node1[2] = i1;
     node2[2] = i5;
     node3[2] = i3;
+  }
+}
+
+template <typename idx_t>
+void mesh_pyramid5_to_2x_tet4(
+    const ptrdiff_t n_elements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT pyramid5_elements,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT tet4_elements) {
+  for (ptrdiff_t e = 0; e < n_elements; e++) {
+    const idx_t i0 = pyramid5_elements[0][e];
+    const idx_t i1 = pyramid5_elements[1][e];
+    const idx_t i2 = pyramid5_elements[2][e];
+    const idx_t i3 = pyramid5_elements[3][e];
+    const idx_t i4 = pyramid5_elements[4][e];
+
+    idx_t *node0 = &tet4_elements[0][e * 2];
+    idx_t *node1 = &tet4_elements[1][e * 2];
+    idx_t *node2 = &tet4_elements[2][e * 2];
+    idx_t *node3 = &tet4_elements[3][e * 2];
+
+    node0[0] = i0;
+    node1[0] = i1;
+    node2[0] = i2;
+    node3[0] = i4;
+
+    node0[1] = i0;
+    node1[1] = i2;
+    node2[1] = i3;
+    node3[1] = i4;
   }
 }
 

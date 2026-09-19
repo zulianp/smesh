@@ -6,7 +6,12 @@
 namespace smesh {
     class Communicator;
     class Mesh;
+    class Distributed;
+    class DistributedBlock;
     class Sideset;
+    class Edgeset;
+    class Nodeset;
+    class Parametrization;
     template <typename T>
     class Buffer;
 

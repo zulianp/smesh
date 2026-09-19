@@ -16,6 +16,7 @@ namespace smesh {
         ~PackedMesh();
 
         std::shared_ptr<Mesh> mesh() const;
+        SharedBuffer<idx_t>   node_map() const;
         static std::shared_ptr<PackedMesh> create(const std::shared_ptr<Mesh>    &mesh,
                                               const std::vector<std::string> &block_names = {},
                                               const bool                      modify_mesh = false,

@@ -5,12 +5,18 @@
 #include "smesh_buffer.hpp"
 #include "smesh_communicator.hpp"
 #include "smesh_crs_graph.hpp"
+#include "smesh_elem_type.hpp"
 #include "smesh_forward_declarations.hpp"
 
 // STL
 #include <functional>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace smesh {
+
+class MeshTransformsDistributed;
 
 class Distributed {
 public:
@@ -49,6 +55,71 @@ public:
   friend std::shared_ptr<Mesh>
   mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
                              const std::shared_ptr<Sideset> &sideset);
+  friend std::shared_ptr<Mesh>
+  to_semistructured(const int level, const std::shared_ptr<Mesh> &mesh,
+                    const bool hiearchical_ordering, const bool use_GLL);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed(
+      const int level, const std::shared_ptr<Mesh> &mesh, const bool use_GLL,
+      const bool hierarchical_ordering);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_hex_tet(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_quad(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_wedge_pyramid(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering, const enum ElemType family);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_hex_dominant(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering);
+  friend class MeshTransformsDistributed;
+  friend std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex);
+  friend std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh,
+                                        const int to_level);
+  friend std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
+                                          const std::shared_ptr<Mesh> &mesh);
+  friend std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
+                                      const int levels);
+  friend std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
+                                       const geom_t height,
+                                       const ptrdiff_t nlayers);
+
+private:
+  void set_nodes(ptrdiff_t n_global, ptrdiff_t n_owned, ptrdiff_t n_shared,
+                 ptrdiff_t n_ghosts, ptrdiff_t n_aura,
+                 SharedBuffer<large_idx_t> node_mapping,
+                 SharedBuffer<int> node_owner,
+                 SharedBuffer<ptrdiff_t> node_offsets,
+                 SharedBuffer<idx_t> ghosts_and_aura);
+  void set_elements(ptrdiff_t n_global, ptrdiff_t n_owned, ptrdiff_t n_shared,
+                    ptrdiff_t n_ghosts,
+                    SharedBuffer<large_idx_t> element_mapping,
+                    SharedBuffer<large_idx_t> aura_element_mapping);
+
+  class Impl;
+  std::unique_ptr<Impl> impl_;
+};
+
+/// Per-block owned/shared/aura element layout. Nodes stay mesh-global on
+/// `Distributed`. SoA order is `[owned-not-shared | shared | aura]`.
+class DistributedBlock {
+public:
+  DistributedBlock();
+  ~DistributedBlock();
+
+  ptrdiff_t n_elements_local() const;
+  ptrdiff_t n_elements_owned_not_shared() const;
+  ptrdiff_t n_elements_owned() const;
+  ptrdiff_t n_elements_shared() const;
+  ptrdiff_t n_elements_ghosts() const;
+
+  SharedBuffer<large_idx_t> element_mapping() const;
+  SharedBuffer<large_idx_t> aura_element_mapping() const;
+
+  void set_elements(ptrdiff_t n_owned, ptrdiff_t n_shared, ptrdiff_t n_ghosts,
+                    SharedBuffer<large_idx_t> element_mapping,
+                    SharedBuffer<large_idx_t> aura_element_mapping);
 
 private:
   class Impl;
@@ -128,13 +199,33 @@ public:
 
     const std::string &name() const;
     enum ElemType element_type() const;
+    enum GeomMap geom_map() const;
     int n_nodes_per_element() const;
     const SharedBuffer<idx_t *> &elements() const;
 
     void set_name(const std::string &name);
     void set_element_type(enum ElemType element_type);
+    /// `AXIS_ALIGNED` is HEX/QUAD only. Returns `SMESH_FAILURE` and leaves the
+    /// previous value if the map is not allowed for `element_type()`.
+    int set_geom_map(enum GeomMap geom_map);
+    /// `set_geom_map(geom_map_inherit(src, element_type()))`.
+    int inherit_geom_map(enum GeomMap src);
     void set_elements(SharedBuffer<idx_t *> elements);
     ptrdiff_t n_elements() const;
+
+    std::shared_ptr<DistributedBlock> distributed() const;
+    void set_distributed(const std::shared_ptr<DistributedBlock> &distributed);
+
+    ptrdiff_t n_elements_owned() const;
+    ptrdiff_t n_elements_shared() const;
+    ptrdiff_t n_elements_ghosts() const;
+    ptrdiff_t n_elements_owned_not_shared() const;
+    SharedBuffer<large_idx_t> element_mapping() const;
+    SharedBuffer<large_idx_t> aura_element_mapping() const;
+    void set_distributed_elements(ptrdiff_t n_owned, ptrdiff_t n_shared,
+                                  ptrdiff_t n_ghosts,
+                                  SharedBuffer<large_idx_t> element_mapping,
+                                  SharedBuffer<large_idx_t> aura_element_mapping);
 
     SharedBuffer<idx_t *> device_elements_SoA();
     SharedBuffer<idx_t> device_elements_AoS();
@@ -164,6 +255,8 @@ public:
 
   int read(const Path &path);
   int write(const Path &path) const;
+  /// `write(path)` plus AoS `connectivity.<idx_t>` and `mesh.xdmf` inside `path`.
+  int write_with_xdmf(const Path &path) const;
   int initialize_node_to_node_graph();
   int convert_to_macro_element_mesh();
   const std::vector<std::shared_ptr<Block>> &blocks() const;
@@ -180,7 +273,59 @@ public:
   void add_block(const std::shared_ptr<Block> &block);
   void remove_block(size_t index);
 
+  /// Optional named sideset registry. Empty by default; Mesh::read/write
+  /// round-trip `sidesets/<name>/` when non-empty. One name may map to several
+  /// sidesets (typically one per block).
+  void add_sideset(const std::string &name, const std::shared_ptr<Sideset> &ss);
+  void add_sidesets(const std::string &name,
+                    const std::vector<std::shared_ptr<Sideset>> &ss);
+  void clear_sidesets();
+  const std::vector<std::pair<std::string, std::shared_ptr<Sideset>>> &
+  sidesets() const;
+  std::vector<std::shared_ptr<Sideset>> sidesets(const std::string &name) const;
+  int remap_registered_sidesets(
+      block_idx_t block_id, const element_idx_t *old_to_new, ptrdiff_t n,
+      const std::vector<std::shared_ptr<Sideset>> &already = {});
+
+  /// Optional named edgeset registry. Empty by default; Mesh::read/write
+  /// round-trip `edgesets/<name>/` when non-empty. One name may map to several
+  /// edgesets (typically one per block).
+  void add_edgeset(const std::string &name, const std::shared_ptr<Edgeset> &es);
+  void add_edgesets(const std::string &name,
+                    const std::vector<std::shared_ptr<Edgeset>> &es);
+  void clear_edgesets();
+  const std::vector<std::pair<std::string, std::shared_ptr<Edgeset>>> &
+  edgesets() const;
+  std::vector<std::shared_ptr<Edgeset>> edgesets(const std::string &name) const;
+  int remap_registered_edgesets(
+      block_idx_t block_id, const element_idx_t *old_to_new, ptrdiff_t n,
+      const std::vector<std::shared_ptr<Edgeset>> &already = {});
+
+  /// Optional named nodeset registry. Empty by default; Mesh::read/write
+  /// round-trip `nodesets/<name>/` when non-empty.
+  void add_nodeset(const std::string &name, const std::shared_ptr<Nodeset> &ns);
+  void add_nodesets(const std::string &name,
+                    const std::vector<std::shared_ptr<Nodeset>> &ns);
+  void clear_nodesets();
+  const std::vector<std::pair<std::string, std::shared_ptr<Nodeset>>> &
+  nodesets() const;
+  std::vector<std::shared_ptr<Nodeset>> nodesets(const std::string &name) const;
+  int remap_registered_nodesets(
+      const idx_t *old_to_new, ptrdiff_t n,
+      const std::vector<std::shared_ptr<Nodeset>> &already = {});
+
+  /// Optional named parametrization registry. Empty by default; not written
+  /// by Mesh::read/write in this phase. Clone copies the shared_ptr entries.
+  void add_parametrization(const std::string &name,
+                           const std::shared_ptr<Parametrization> &p);
+  void clear_parametrizations();
+  const std::vector<std::pair<std::string, std::shared_ptr<Parametrization>>> &
+  parametrizations() const;
+  std::vector<std::shared_ptr<Parametrization>>
+  parametrizations(const std::string &name) const;
+
   std::shared_ptr<Distributed> distributed() const;
+  bool is_distributed() const;
 
   int spatial_dimension() const;
   ptrdiff_t n_nodes() const;
@@ -189,6 +334,7 @@ public:
   int n_nodes_per_element(block_idx_t block_id) const;
   ptrdiff_t n_elements(block_idx_t block_id) const;
   enum ElemType element_type(block_idx_t block_id) const;
+  enum GeomMap geom_map(block_idx_t block_id) const;
   SharedBuffer<idx_t *> elements(block_idx_t block_id);
   SharedBuffer<idx_t *> elements(block_idx_t block_id) const;
 
@@ -196,7 +342,10 @@ public:
   std::shared_ptr<NodeToNodeGraph> node_to_node_graph_upper_triangular();
   std::shared_ptr<NodeToNodeGraph> edge_graph();
   std::shared_ptr<NodeToElementGraph> node_to_element_graph();
+  SharedBuffer<block_idx_t> node_to_element_block_number() const;
   SharedBuffer<element_idx_t> half_face_table();
+  SharedBuffer<element_idx_t> half_face_table(block_idx_t block_id);
+  SharedBuffer<block_idx_t> half_face_neighbor_block(block_idx_t block_id);
   std::shared_ptr<NodeToNodeGraph>
   create_node_to_node_graph(const enum ElemType element_type);
 
@@ -258,12 +407,60 @@ public:
       const geom_t ymin = 0, const geom_t zmin = 0, const geom_t xmax = 1,
       const geom_t ymax = 1, const geom_t zmax = 1);
 
+  /// L-shaped (backward-facing step) HEX8 mesh: the box with the notch
+  /// [0,step_x] x [0,step_y] x [0,zmax] removed. Defaults reproduce the 3D
+  /// backward-facing step of Farrell, Mitchell & Wechsung (arXiv:1810.03315).
+  /// The step must fall on a grid line; a resolution that would not put one there
+  /// is rejected rather than rounded.
+  static std::shared_ptr<Mesh> create_hex8_lshape(
+      const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx = 40,
+      const ptrdiff_t ny = 8, const ptrdiff_t nz = 4, const geom_t xmax = 10,
+      const geom_t ymax = 2, const geom_t zmax = 1, const geom_t step_x = 1,
+      const geom_t step_y = 1);
+
+  /// Axisymmetric HEX8 nozzle along +x (FDA benchmark nozzle and its kin).
+  /// A bore of piecewise-linear radius `bore_radius[k]` at `x_breaks[k]`, with
+  /// `n_axial[s]` cells in segment s, opening at break `expansion` into a pipe of
+  /// `expanded_radius` (pass expansion < 0 for no expansion). Each cross-section is a
+  /// butterfly O-grid: an n_core x n_core square core (n_core even, so the axis
+  /// carries nodes), n_bore ring layers to the bore, and n_outer ring layers to the
+  /// expanded radius downstream only. The expansion face is an exterior face of the
+  /// kept elements. Elements are not affine.
+  static std::shared_ptr<Mesh> create_hex8_nozzle(
+      const std::shared_ptr<Communicator> &comm,
+      const std::vector<geom_t> &x_breaks,
+      const std::vector<geom_t> &bore_radius,
+      const std::vector<ptrdiff_t> &n_axial, const ptrdiff_t expansion,
+      const geom_t expanded_radius, const ptrdiff_t n_core,
+      const ptrdiff_t n_bore, const ptrdiff_t n_outer,
+      const geom_t core_fraction = 0.5);
+
+  /// Place every micro node of `sshex` -- a semi-structured mesh made by
+  /// to_semistructured from create_hex8_nozzle with these same arguments -- on the
+  /// nozzle's own map at the lattice fractions, instead of on the chords between the
+  /// macro corners. The lattice is then create_hex8_nozzle at level times the
+  /// resolution, node for node, and every coarser level of the hierarchy is on the
+  /// nozzle too. Fails if a macro element is not a cell of that nozzle's grid.
+  static int warp_semistructured_hex8_nozzle(
+      const std::shared_ptr<Mesh> &sshex, const std::vector<geom_t> &x_breaks,
+      const std::vector<geom_t> &bore_radius,
+      const std::vector<ptrdiff_t> &n_axial, const ptrdiff_t expansion,
+      const geom_t expanded_radius, const ptrdiff_t n_core,
+      const ptrdiff_t n_bore, const ptrdiff_t n_outer,
+      const geom_t core_fraction = 0.5);
+
   static std::shared_ptr<Mesh> create_semistructured_hex_cube(
       const std::shared_ptr<Communicator> &comm,
       const int micro_elements_per_dim = 2, const ptrdiff_t nx = 1,
       const ptrdiff_t ny = 1, const ptrdiff_t nz = 1, const geom_t xmin = 0,
       const geom_t ymin = 0, const geom_t zmin = 0, const geom_t xmax = 1,
       const geom_t ymax = 1, const geom_t zmax = 1);
+
+  static std::shared_ptr<Mesh> create_semistructured_quad_square(
+      const std::shared_ptr<Communicator> &comm,
+      const int micro_elements_per_dim = 2, const ptrdiff_t nx = 1,
+      const ptrdiff_t ny = 1, const geom_t xmin = 0, const geom_t ymin = 0,
+      const geom_t xmax = 1, const geom_t ymax = 1);
 
   static std::shared_ptr<Mesh> create_tet4_cube(
       const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx = 1,
@@ -311,11 +508,32 @@ public:
       const geom_t ymin = 0, const geom_t zmin = 0, const geom_t xmax = 1,
       const geom_t ymax = 1, const geom_t zmax = 1);
 
+  /// HEX8 cube with the second half of hexes converted to 6 TET4 each.
+  /// Blocks `"hex"` / `"tet"` share unique nodes.
+  static std::shared_ptr<Mesh> create_hex8_tet4_cube(
+      const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx = 2,
+      const ptrdiff_t ny = 2, const ptrdiff_t nz = 2, const geom_t xmin = 0,
+      const geom_t ymin = 0, const geom_t zmin = 0, const geom_t xmax = 1,
+      const geom_t ymax = 1, const geom_t zmax = 1);
+
   static std::shared_ptr<Mesh> create_hex8_bidomain_cube(
       const std::shared_ptr<Communicator> &comm, const ptrdiff_t nx = 2,
       const ptrdiff_t ny = 2, const ptrdiff_t nz = 2, const geom_t xmin = 0,
       const geom_t ymin = 0, const geom_t zmin = 0, const geom_t xmax = 1,
       const geom_t ymax = 1, const geom_t zmax = 1);
+
+  /// Serial HEX-dominant unit: HEX8 + PYRAMID5 + WEDGE6 + TET4, shared nodes.
+  static std::shared_ptr<Mesh>
+  create_hex_dominant_serial(const std::shared_ptr<Communicator> &comm);
+
+  /// HEX-dominant solid cylinder (axis +z, centerline at x=y=0).
+  /// HEX8 Cartesian core (nodes on polar rays) + polar HEX8 annulus;
+  /// WEDGE6 only for leftover mid-side polar nodes, not at square corners.
+  /// Requires ntheta >= 8 and ntheta % 4 == 0.
+  static std::shared_ptr<Mesh> create_hex_dominant_cylinder(
+      const std::shared_ptr<Communicator> &comm, const geom_t radius,
+      const geom_t height, const ptrdiff_t nr = 2, const ptrdiff_t ntheta = 16,
+      const ptrdiff_t nz = 4, const geom_t zmin = 0);
 
   std::vector<std::pair<block_idx_t, SharedBuffer<element_idx_t>>>
   select_elements(const std::function<bool(const geom_t, const geom_t,
@@ -323,7 +541,7 @@ public:
                   const std::vector<std::string> &block_names = {});
 
   int split_block(const SharedBuffer<element_idx_t> &elements,
-                  const std::string &name);
+                  const std::string &name, block_idx_t block_id = 0);
   int split_boundary_layer();
   int renumber_nodes();
   int renumber_nodes(const SharedBuffer<idx_t> &node_mapping);
@@ -331,12 +549,22 @@ public:
   void set_comm(const std::shared_ptr<Communicator> &comm);
   void set_element_type(const block_idx_t block_id,
                         const enum ElemType element_type);
+  int set_geom_map(const block_idx_t block_id, const enum GeomMap geom_map);
+  /// Classify from coordinates. Does not write the stored map. MPI AND across ranks;
+  /// a rank with no local elements does not constrain the result. All-empty → IsoParametric.
+  enum GeomMap detect_geom_map(block_idx_t block_id = 0) const;
+  enum GeomMap detect_geom_map(block_idx_t block_id, geom_t rel_tol) const;
+  int detect_and_set_geom_map(block_idx_t block_id = 0);
+  int detect_and_set_geom_map(block_idx_t block_id, geom_t rel_tol);
+  int detect_and_set_geom_maps();
+  int detect_and_set_geom_maps(geom_t rel_tol);
   std::pair<SharedBuffer<geom_t>, SharedBuffer<geom_t>> compute_bounding_box();
 
   std::shared_ptr<Mesh> clone() const;
 
-  void reorder_elements_from_tags(const block_idx_t block_id,
-                                  const SharedBuffer<idx_t> &tags);
+  void reorder_elements_from_tags(
+      const block_idx_t block_id, const SharedBuffer<idx_t> &tags,
+      const std::vector<std::shared_ptr<Sideset>> &sidesets = {});
 
   void print(std::ostream &os = std::cout) const;
 
@@ -350,6 +578,80 @@ private:
   friend std::shared_ptr<Mesh>
   mesh_from_sideset_parallel(const std::shared_ptr<Mesh> &mesh,
                              const std::shared_ptr<Sideset> &sideset);
+  friend std::shared_ptr<Mesh>
+  to_semistructured(const int level, const std::shared_ptr<Mesh> &mesh,
+                    const bool hiearchical_ordering, const bool use_GLL);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed(
+      const int level, const std::shared_ptr<Mesh> &mesh, const bool use_GLL,
+      const bool hierarchical_ordering);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_hex_tet(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_quad(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_wedge_pyramid(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering, const enum ElemType family);
+  friend std::shared_ptr<Mesh> to_semistructured_distributed_hex_dominant(
+      const int level, const std::shared_ptr<Mesh> &mesh,
+      const bool hierarchical_ordering);
+  friend class MeshTransformsDistributed;
+  friend std::shared_ptr<Mesh> sshex_to_hex8(const std::shared_ptr<Mesh> &sshex);
+  friend std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh,
+                                        const int to_level);
+  friend std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
+                                          const std::shared_ptr<Mesh> &mesh);
+  friend std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
+                                      const int levels);
+  friend std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
+                                       const geom_t height,
+                                       const ptrdiff_t nlayers);
+
+  void set_distributed(const std::shared_ptr<Distributed> &distributed);
+
+#ifdef SMESH_ENABLE_MPI
+  static int adopt_parallel_arrays(Mesh *mesh, enum ElemType element_type,
+                                   const char *block_name, int nnodesxelem,
+                                   ptrdiff_t n_global_elements,
+                                   ptrdiff_t n_owned_elements,
+                                   ptrdiff_t n_shared_elements,
+                                   ptrdiff_t n_ghost_elements,
+                                   large_idx_t *element_mapping,
+                                   large_idx_t *aura_element_mapping,
+                                   idx_t **elements, int spatial_dim,
+                                   ptrdiff_t n_global_nodes,
+                                   ptrdiff_t n_owned_nodes,
+                                   ptrdiff_t n_shared_nodes,
+                                   ptrdiff_t n_ghost_nodes,
+                                   ptrdiff_t n_aura_nodes,
+                                   large_idx_t *node_mapping, geom_t **points,
+                                   int *node_owner, ptrdiff_t *node_offsets,
+                                   idx_t *ghosts);
+  static std::shared_ptr<Mesh>
+  wrap_create_parallel(const std::shared_ptr<Communicator> &comm,
+                       enum ElemType element_type, int nnodesxelem,
+                       ptrdiff_t n_local_elements, ptrdiff_t n_global_elements,
+                       idx_t **elems, int spatial_dim, ptrdiff_t n_local_nodes,
+                       ptrdiff_t n_global_nodes, geom_t **points,
+                       enum GeomMap geom_map = ISOPARAMETRIC);
+  static std::shared_ptr<Mesh> with_nodal_distributed(
+      const std::shared_ptr<Mesh> &src,
+      const std::vector<std::shared_ptr<Block>> &blocks,
+      ptrdiff_t n_elements_global, ptrdiff_t n_owned, ptrdiff_t n_shared,
+      ptrdiff_t n_ghosts, SharedBuffer<large_idx_t> element_mapping,
+      SharedBuffer<large_idx_t> aura_element_mapping);
+  static std::shared_ptr<Mesh>
+  split_hex8_checkerboard_distributed(const std::shared_ptr<Mesh> &hex_mesh,
+                                      const ptrdiff_t nx, const ptrdiff_t ny);
+  static std::shared_ptr<Mesh>
+  split_hex8_tet4_distributed(const std::shared_ptr<Mesh> &hex_mesh,
+                              const ptrdiff_t n_hex_all);
+  static std::shared_ptr<Mesh>
+  split_hex8_bidomain_distributed(const std::shared_ptr<Mesh> &hex_mesh,
+                                  const ptrdiff_t nx, const ptrdiff_t ny,
+                                  const ptrdiff_t nz, const ptrdiff_t split);
+#endif
 
   class Impl;
   std::unique_ptr<Impl> impl_;
@@ -358,6 +660,54 @@ private:
 using SharedMesh = std::shared_ptr<Mesh>;
 using SharedBlock = std::shared_ptr<Mesh::Block>;
 
+#ifdef SMESH_ENABLE_MPI
+class MeshTransformsDistributed {
+public:
+  static std::shared_ptr<Distributed> copy_distributed(const Distributed &src);
+  static std::shared_ptr<Distributed>
+  make_nodal_distributed(const std::shared_ptr<Communicator> &comm,
+                         ptrdiff_t n_global, ptrdiff_t n_owned, ptrdiff_t n_shared,
+                         ptrdiff_t n_ghosts, ptrdiff_t n_aura,
+                         SharedBuffer<large_idx_t> node_mapping,
+                         SharedBuffer<int> node_owner, ptrdiff_t n_elem_global,
+                         ptrdiff_t n_elem_owned, ptrdiff_t n_elem_shared,
+                         ptrdiff_t n_elem_ghosts,
+                         SharedBuffer<large_idx_t> element_mapping,
+                         SharedBuffer<large_idx_t> aura_element_mapping);
+  static std::shared_ptr<Mesh>
+  make_distributed_mesh(const std::shared_ptr<Communicator> &comm,
+                        const std::vector<std::shared_ptr<Mesh::Block>> &blocks,
+                        const SharedBuffer<geom_t *> &points,
+                        const std::shared_ptr<Distributed> &dist);
+  static void expand_element_maps(Distributed &dist, const int factor);
+  static void expand_block_elements(Mesh::Block &block, const int factor);
+  static int conversion_factor(const enum ElemType from, const enum ElemType to);
+  static std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
+                                      const int levels);
+  static std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
+                                       const geom_t height,
+                                       const ptrdiff_t nlayers);
+  static std::shared_ptr<Mesh> promote(const std::shared_ptr<Mesh> &mesh,
+                                       const enum ElemType element_type);
+  static void clone_distributed(const Mesh &src, Mesh &dst);
+  static int attach_convert_distributed(const Mesh &src, Mesh &dst);
+  static std::shared_ptr<Mesh>
+  attach_sshex_to_hex8(const std::shared_ptr<Mesh> &ss,
+                       const std::shared_ptr<Mesh> &hex);
+  /// Per-output-block explode attach. \p block_origin[i] is the SS source block
+  /// for linear block i; \p block_factor[i] is children per parent. Handles
+  /// pyramid 1:2 (PYRAMID5 + TET4) and mixed HEX/TET/WEDGE/PYRAMID factors.
+  static std::shared_ptr<Mesh>
+  attach_ss_to_linear(const std::shared_ptr<Mesh> &ss,
+                      const std::shared_ptr<Mesh> &linear,
+                      const std::vector<size_t>   &block_origin,
+                      const std::vector<int>      &block_factor);
+  static std::shared_ptr<Mesh>
+  derefine(const std::shared_ptr<Mesh> &mesh,
+           std::vector<std::shared_ptr<Mesh::Block>> &blocks);
+};
+#endif
+
 std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
                                  const std::shared_ptr<Mesh> &mesh);
 std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
@@ -365,6 +715,8 @@ std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
 std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
                              const int levels = 1);
 std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh);
+std::vector<std::shared_ptr<Sideset>>
+skin_sidesets(const std::shared_ptr<Mesh> &mesh);
 std::shared_ptr<Mesh>
 mesh_from_sideset(const std::shared_ptr<Mesh> &mesh,
                   const std::shared_ptr<Sideset> &sideset);

@@ -5,6 +5,18 @@
 namespace smesh {
 
 #define SMESH_EXPLICIT_INSTANTIATE_FFF(FFFType)                                \
+  template int tri3_fff_fill<FFFType>(                                         \
+      const ptrdiff_t nelements,                                               \
+      const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,        \
+      const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,         \
+      const ptrdiff_t stride,                                                  \
+      FFFType *const SMESH_RESTRICT *const SMESH_RESTRICT fff);                \
+  template int quad4_fff_fill<FFFType>(                                        \
+      const ptrdiff_t nelements,                                               \
+      const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,        \
+      const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,         \
+      const geom_t qx, const geom_t qy, const ptrdiff_t stride,                 \
+      FFFType *const SMESH_RESTRICT *const SMESH_RESTRICT fff);                \
   template int tet4_fff_fill<FFFType>(                                         \
       const ptrdiff_t nelements,                                               \
       const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,        \

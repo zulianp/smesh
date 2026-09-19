@@ -1,0 +1,857 @@
+#include "smesh_nodeset.hpp"
+#include "smesh_adjacency.hpp"
+#include "smesh_alloc.hpp"
+#include "smesh_edgesets.hpp"
+#include "smesh_elem_type.hpp"
+#include "smesh_file_extensions.hpp"
+#include "smesh_glob.hpp"
+#include "smesh_mesh.hpp"
+#include "smesh_read.hpp"
+#include "smesh_sshex8.hpp"
+#include "smesh_ssquad4.hpp"
+#include "smesh_sswedge.hpp"
+#include "smesh_tracer.hpp"
+#include "smesh_write.hpp"
+
+#ifdef SMESH_ENABLE_MPI
+#include "smesh_distributed_base.hpp"
+#include "smesh_distributed_write.hpp"
+#endif
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <vector>
+
+namespace smesh {
+
+    class Nodeset::Impl final {
+    public:
+        std::shared_ptr<Communicator> comm;
+        std::shared_ptr<Buffer<idx_t>> nodes;
+        SharedBuffer<large_idx_t>      node_mapping;
+    };
+
+    Nodeset::Nodeset(const std::shared_ptr<Communicator> &comm,
+                     const SharedBuffer<idx_t>           &nodes,
+                     const SharedBuffer<large_idx_t>     &node_mapping)
+        : impl_(std::make_unique<Impl>()) {
+        impl_->comm          = comm;
+        impl_->nodes         = nodes;
+        impl_->node_mapping  = node_mapping;
+    }
+
+    Nodeset::Nodeset() : impl_(std::make_unique<Impl>()) {}
+    Nodeset::~Nodeset() = default;
+
+    ptrdiff_t Nodeset::size() const { return impl_->nodes ? (ptrdiff_t)impl_->nodes->size() : 0; }
+
+    std::shared_ptr<Communicator> Nodeset::comm() const { return impl_->comm; }
+
+    std::shared_ptr<Nodeset> Nodeset::create(const std::shared_ptr<Communicator> &comm,
+                                             const SharedBuffer<idx_t>           &nodes,
+                                             const SharedBuffer<large_idx_t>     &node_mapping) {
+        return std::make_shared<Nodeset>(comm, nodes, node_mapping);
+    }
+
+    std::shared_ptr<Nodeset> Nodeset::create_from_file(const std::shared_ptr<Communicator> &comm,
+                                                       const Path                          &path) {
+        auto ret = std::make_shared<Nodeset>();
+        if (ret->read(comm, path) != SMESH_SUCCESS) {
+            return nullptr;
+        }
+        return ret;
+    }
+
+    static int parse_nodeset_meta(const Path &folder, bool *has_size, ptrdiff_t *meta_size) {
+        *has_size = false;
+        const Path meta = folder / "meta.yaml";
+        if (!meta.exists()) {
+            return SMESH_SUCCESS;
+        }
+        std::ifstream ifs(meta.to_string());
+        if (!ifs.good()) {
+            SMESH_ERROR("Unable to open nodeset meta.yaml file\n");
+            return SMESH_FAILURE;
+        }
+        std::string line;
+        while (std::getline(ifs, line)) {
+            const auto hash = line.find('#');
+            if (hash != std::string::npos) {
+                line.resize(hash);
+            }
+            const auto start = line.find_first_not_of(" \t");
+            if (start == std::string::npos) {
+                continue;
+            }
+            line = line.substr(start);
+            if (line.compare(0, 5, "size:") == 0) {
+                *has_size  = true;
+                *meta_size = static_cast<ptrdiff_t>(std::strtoll(line.c_str() + 5, nullptr, 10));
+            }
+        }
+        return SMESH_SUCCESS;
+    }
+
+    int Nodeset::write(const Path &path) const {
+        if (!comm()->rank()) {
+            smesh::create_directory(path.to_string());
+        }
+
+        Path nodes_path = path / ("nodes." + std::string(TypeToString<idx_t>::value()));
+        u64  n_global   = static_cast<u64>(size());
+
+#ifdef SMESH_ENABLE_MPI
+        comm()->barrier();
+        if (comm()->size() > 1) {
+            const u64 n_local = n_global;
+            MPI_Allreduce(MPI_IN_PLACE, &n_global, 1, mpi_type<u64>(), MPI_SUM, comm()->get());
+
+            if (impl_->node_mapping) {
+                auto          out   = create_host_buffer<idx_t>(n_local);
+                idx_t        *d_out = out->data();
+                const large_idx_t *b_map = impl_->node_mapping->data();
+                const idx_t       *b_loc = impl_->nodes->data();
+                for (u64 i = 0; i < n_local; ++i) {
+                    d_out[i] = (idx_t)b_map[b_loc[i]];
+                }
+                array_write_convert_from_extension(comm()->get(), nodes_path, d_out, n_local, n_global);
+            } else {
+                array_write_convert_from_extension(
+                        comm()->get(), nodes_path, impl_->nodes->data(), impl_->nodes->size(), n_global);
+            }
+        } else
+#endif
+        {
+            array_write(nodes_path, impl_->nodes->data(), impl_->nodes->size());
+        }
+
+        if (!comm()->rank()) {
+            std::ofstream os((path / "meta.yaml").to_string());
+            if (os.good()) {
+                os << "# Automatically generated by smesh_nodeset.cpp\n";
+                os << "size: " << n_global << "\n";
+                os << "nodes: nodes." << TypeToString<idx_t>::value() << "\n";
+                os << "rpath: true\n";
+            } else {
+                SMESH_ERROR("Unable to open nodeset meta.yaml file\n");
+                return SMESH_FAILURE;
+            }
+        }
+        return SMESH_SUCCESS;
+    }
+
+    int Nodeset::read(const std::shared_ptr<Communicator> &comm, const Path &folder) {
+        SMESH_TRACE_SCOPE("Nodeset::read");
+        if (comm->size() > 1) {
+            SMESH_ERROR("Nodeset::read is not supported for distributed runs\n");
+            return SMESH_FAILURE;
+        }
+
+        impl_->comm = comm;
+        ptrdiff_t nlocal{0};
+        idx_t    *nodes{nullptr};
+
+        auto nodes_file = detect_files(folder / "nodes.*", {"raw", "int16", "int32", "int64"});
+        if (nodes_file.empty()) {
+            nodes_file = detect_files(folder / "nodeset.*", {"raw", "int16", "int32", "int64"});
+        }
+        if (nodes_file.empty()) {
+            SMESH_ERROR("Unable to find nodes file in nodeset at %s\n", folder.c_str());
+            return SMESH_FAILURE;
+        }
+
+        int ret = array_read_convert_from_extension(nodes_file[0], &nodes, &nlocal);
+        impl_->nodes = smesh::manage_host_buffer(nlocal, nodes);
+
+        bool      has_size  = false;
+        ptrdiff_t meta_size = 0;
+        if (parse_nodeset_meta(folder, &has_size, &meta_size) != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+        if (has_size && meta_size != nlocal) {
+            SMESH_ERROR("Nodeset meta size %td does not match array length %td at %s\n",
+                        meta_size,
+                        nlocal,
+                        folder.c_str());
+            ret = SMESH_FAILURE;
+        }
+        return ret;
+    }
+
+    int Nodeset::read_and_redistibute(const std::shared_ptr<Mesh> &mesh, const Path &path) {
+#ifdef SMESH_ENABLE_MPI
+        const int rank = mesh->comm()->rank();
+        const int size = mesh->comm()->size();
+        if (size > 1) {
+            i64 n_nodes = 0;
+            if (rank == 0) {
+                if (read(Communicator::self(), path) != SMESH_SUCCESS) {
+                    n_nodes = -1;
+                } else {
+                    n_nodes = static_cast<i64>(this->size());
+                }
+            }
+            mesh->comm()->broadcast(&n_nodes, 1, 0);
+            if (n_nodes < 0) {
+                return SMESH_FAILURE;
+            }
+
+            impl_->comm = mesh->comm();
+            auto nodes_buf = create_host_buffer<idx_t>((size_t)n_nodes);
+            if (rank == 0 && n_nodes > 0) {
+                std::memcpy(nodes_buf->data(), impl_->nodes->data(), (size_t)n_nodes * sizeof(idx_t));
+            }
+            if (n_nodes > 0) {
+                mesh->comm()->broadcast(nodes_buf->data(), (int)n_nodes, 0);
+            }
+            impl_->nodes = nodes_buf;
+            return redistribute(mesh);
+        }
+#endif
+        if (read(mesh->comm(), path) != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+        return redistribute(mesh);
+    }
+
+    int Nodeset::redistribute(const std::shared_ptr<Mesh> &mesh) {
+        if (mesh->comm()->size() == 1) {
+            return SMESH_SUCCESS;
+        }
+
+#ifdef SMESH_ENABLE_MPI
+        auto dist = mesh->distributed();
+        if (!dist) {
+            SMESH_ERROR("Nodeset::redistribute: mesh is not distributed\n");
+            return SMESH_FAILURE;
+        }
+
+        const ptrdiff_t n_owned  = dist->n_nodes_owned();
+        auto            node_map = dist->node_mapping();
+        if (n_owned > 0 && !node_map) {
+            SMESH_ERROR("Nodeset::redistribute: mesh has no node_mapping\n");
+            return SMESH_FAILURE;
+        }
+
+        large_idx_t        n_global = 0;
+        const large_idx_t *d_nmap   = (n_owned > 0) ? node_map->data() : nullptr;
+        if (n_owned > 0) {
+            for (ptrdiff_t i = 0; i < n_owned; ++i) {
+                const large_idx_t gid = d_nmap[i] + 1;
+                if (gid > n_global) {
+                    n_global = gid;
+                }
+            }
+        }
+        n_global = mesh->comm()->max(n_global);
+
+        if (n_global == 0) {
+            impl_->nodes        = create_host_buffer<idx_t>(0);
+            impl_->node_mapping = node_map;
+            return SMESH_SUCCESS;
+        }
+
+        auto  invert = create_host_buffer<idx_t>((size_t)n_global);
+        idx_t *d_inv = invert->data();
+        for (large_idx_t i = 0; i < n_global; ++i) {
+            d_inv[i] = invalid_idx<idx_t>();
+        }
+        for (ptrdiff_t i = 0; i < n_owned; ++i) {
+            const large_idx_t serial_id = d_nmap[i];
+            if (serial_id >= 0 && serial_id < n_global) {
+                d_inv[serial_id] = (idx_t)i;
+            }
+        }
+
+        const ptrdiff_t n_ns  = size();
+        const idx_t    *nodes = impl_->nodes->data();
+
+        ptrdiff_t n_keep = 0;
+        for (ptrdiff_t i = 0; i < n_ns; ++i) {
+            const large_idx_t serial = (large_idx_t)nodes[i];
+            if (serial >= 0 && serial < n_global && d_inv[serial] != invalid_idx<idx_t>()) {
+                ++n_keep;
+            }
+        }
+
+        auto   new_nodes = create_host_buffer<idx_t>((size_t)n_keep);
+        idx_t *d_nn      = n_keep > 0 ? new_nodes->data() : nullptr;
+        ptrdiff_t w      = 0;
+        for (ptrdiff_t i = 0; i < n_ns; ++i) {
+            const large_idx_t serial = (large_idx_t)nodes[i];
+            if (serial >= 0 && serial < n_global) {
+                const idx_t local_n = d_inv[serial];
+                if (local_n != invalid_idx<idx_t>()) {
+                    d_nn[w++] = local_n;
+                }
+            }
+        }
+
+        impl_->nodes        = new_nodes;
+        impl_->node_mapping = node_map;
+        return SMESH_SUCCESS;
+#endif
+
+        SMESH_ERROR("Nodeset::redistribute is not supported for distributed runs\n");
+        return SMESH_FAILURE;
+    }
+
+    std::shared_ptr<Buffer<idx_t>> Nodeset::nodes() const { return impl_->nodes; }
+    SharedBuffer<large_idx_t>      Nodeset::node_mapping() const { return impl_->node_mapping; }
+
+    int Nodeset::remap_nodes(const idx_t *old_to_new, ptrdiff_t n) {
+        if (!old_to_new || n < 0 || !impl_->nodes) {
+            SMESH_ERROR("Nodeset::remap_nodes: invalid arguments\n");
+            return SMESH_FAILURE;
+        }
+        if (impl_->nodes->mem_space() != MEMORY_SPACE_HOST) {
+            SMESH_ERROR("Nodeset::remap_nodes requires host nodes buffer\n");
+            return SMESH_FAILURE;
+        }
+        auto            p   = impl_->nodes->data();
+        const ptrdiff_t nns = size();
+        for (ptrdiff_t i = 0; i < nns; ++i) {
+            const idx_t old = p[i];
+            if (old < 0 || static_cast<ptrdiff_t>(old) >= n) {
+                SMESH_ERROR("Nodeset::remap_nodes: node %td out of range [0, %td)\n",
+                            static_cast<ptrdiff_t>(old),
+                            n);
+                return SMESH_FAILURE;
+            }
+            p[i] = old_to_new[old];
+        }
+        return SMESH_SUCCESS;
+    }
+
+    std::shared_ptr<Nodeset> create_nodeset_from_edgeset(const std::shared_ptr<Mesh>    &mesh,
+                                                         const std::shared_ptr<Edgeset> &edgeset) {
+        if (!mesh || !edgeset) {
+            return nullptr;
+        }
+        auto block = mesh->block(edgeset->block_id());
+        if (!block) {
+            SMESH_ERROR("create_nodeset_from_edgeset: invalid block_id %d\n", (int)edgeset->block_id());
+            return nullptr;
+        }
+        ptrdiff_t n_nodes = 0;
+        idx_t    *nodes   = nullptr;
+        const ptrdiff_t n = edgeset->size();
+        if (extract_nodeset_from_edgeset(block->element_type(),
+                                         block->elements()->data(),
+                                         n,
+                                         n > 0 ? edgeset->parent()->data() : nullptr,
+                                         n > 0 ? edgeset->lei()->data() : nullptr,
+                                         &n_nodes,
+                                         &nodes) != SMESH_SUCCESS) {
+            return nullptr;
+        }
+        SharedBuffer<large_idx_t> mapping = nullptr;
+        if (mesh->is_distributed() && mesh->distributed()) {
+            mapping = mesh->distributed()->node_mapping();
+        }
+        return Nodeset::create(mesh->comm(), manage_host_buffer<idx_t>(n_nodes, nodes), mapping);
+    }
+
+    static int exact_int_root(const ptrdiff_t num, const int p) {
+        if (num <= 0 || p <= 0) {
+            return 0;
+        }
+        int L = 1;
+        for (;;) {
+            ptrdiff_t v = 1;
+            for (int i = 0; i < p; ++i) {
+                if (L > 1 && v > num / L) {
+                    return 0;
+                }
+                v *= L;
+            }
+            if (v == num) {
+                return L;
+            }
+            if (v > num) {
+                return 0;
+            }
+            ++L;
+            if (L > 1024) {
+                return 0;
+            }
+        }
+    }
+
+    static void mark_if_local(uint8_t *mask, const ptrdiff_t n_fine, const idx_t id) {
+        if (id >= 0 && (ptrdiff_t)id < n_fine && !mask[id]) {
+            mask[id] = 1;
+        }
+    }
+
+    static idx_t hex_exploded_lattice_node(const int         L,
+                                           idx_t *const     *els,
+                                           const ptrdiff_t   e,
+                                           const int         x,
+                                           const int         y,
+                                           const int         z) {
+        const int      xi  = x < L ? x : L - 1;
+        const int      yi  = y < L ? y : L - 1;
+        const int      zi  = z < L ? z : L - 1;
+        const int      le  = zi * L * L + yi * L + xi;
+        const int      dx  = x - xi;
+        const int      dy  = y - yi;
+        const int      dz  = z - zi;
+        static const int vtk[8] = {0, 1, 3, 2, 4, 5, 7, 6};
+        return els[vtk[dx + 2 * dy + 4 * dz]][e * (ptrdiff_t)(L * L * L) + (ptrdiff_t)le];
+    }
+
+    static idx_t quad_exploded_lattice_node(const int         L,
+                                            idx_t *const     *els,
+                                            const ptrdiff_t   e,
+                                            const int         x,
+                                            const int         y) {
+        const int      xi = x < L ? x : L - 1;
+        const int      yi = y < L ? y : L - 1;
+        const int      le = yi * L + xi;
+        const int      dx = x - xi;
+        const int      dy = y - yi;
+        static const int vtk[4] = {0, 1, 3, 2};
+        return els[vtk[dx + 2 * dy]][e * (ptrdiff_t)(L * L) + (ptrdiff_t)le];
+    }
+
+    static void insert_p_edge_mids(const std::shared_ptr<Mesh> &fine, uint8_t *mask, const ptrdiff_t n_fine) {
+        for (size_t b = 0; b < fine->n_blocks(); ++b) {
+            auto            block = fine->block(b);
+            enum ElemType   et    = block->element_type();
+            LocalEdgeTable  let;
+            if (let.fill(et) != SMESH_SUCCESS) {
+                continue;
+            }
+            const int n_edges = elem_num_edges(et);
+            if (n_edges <= 0 || let.nnxe < 3) {
+                continue;
+            }
+            auto            soa = block->elements()->data();
+            const ptrdiff_t n_e = block->n_elements();
+            for (ptrdiff_t e = 0; e < n_e; ++e) {
+                for (int ed = 0; ed < n_edges; ++ed) {
+                    if (let.nnxe_edge[ed] < 3) {
+                        continue;
+                    }
+                    const idx_t a = soa[let(ed, 0)][e];
+                    const idx_t b = soa[let(ed, 1)][e];
+                    if (a < 0 || b < 0 || (ptrdiff_t)a >= n_fine || (ptrdiff_t)b >= n_fine) {
+                        continue;
+                    }
+                    if (mask[a] && mask[b]) {
+                        mark_if_local(mask, n_fine, soa[let(ed, 2)][e]);
+                    }
+                }
+            }
+        }
+    }
+
+    static void insert_ss_hex_quad_wedge_mids(const std::shared_ptr<Mesh> &coarse,
+                                              const std::shared_ptr<Mesh> &fine,
+                                              const idx_t                 *c2f,
+                                              uint8_t                     *mask,
+                                              const ptrdiff_t              n_fine) {
+        const size_t n_blocks = std::min(coarse->n_blocks(), fine->n_blocks());
+        for (size_t b = 0; b < n_blocks; ++b) {
+            auto                  cb = coarse->block(b);
+            auto                  fb = fine->block(b);
+            const enum ElemType   ct = cb->element_type();
+            const enum ElemType   ft = fb->element_type();
+            const ptrdiff_t       n_c = cb->n_elements();
+            const ptrdiff_t       n_f = fb->n_elements();
+            if (n_c <= 0 || n_f <= n_c) {
+                continue;
+            }
+            auto csoa = cb->elements()->data();
+            auto fsoa = fb->elements()->data();
+
+            if ((ct == HEX8 && ft == HEX8) || (ct == WEDGE6 && ft == WEDGE6) ||
+                ((ct == QUAD4 || ct == QUADSHELL4) && (ft == QUAD4 || ft == QUADSHELL4))) {
+            } else {
+                continue;
+            }
+
+            if (ct == HEX8) {
+                const int L = exact_int_root(n_f / n_c, 3);
+                if (L < 2 || n_f != n_c * (ptrdiff_t)sshex8_txe(L)) {
+                    continue;
+                }
+                static const int hex_edge[12][6] = {
+                        {0, 0, 0, 1, 0, 0}, {1, 0, 0, 1, 1, 0}, {1, 1, 0, 0, 1, 0}, {0, 1, 0, 0, 0, 0},
+                        {0, 0, 1, 1, 0, 1}, {1, 0, 1, 1, 1, 1}, {1, 1, 1, 0, 1, 1}, {0, 1, 1, 0, 0, 1},
+                        {0, 0, 0, 0, 0, 1}, {1, 0, 0, 1, 0, 1}, {1, 1, 0, 1, 1, 1}, {0, 1, 0, 0, 1, 1},
+                };
+                static const int hex_corners[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
+                                                       {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+                for (ptrdiff_t e = 0; e < n_c; ++e) {
+                    for (int ed = 0; ed < 12; ++ed) {
+                        const idx_t ca = c2f[csoa[hex_corners[ed][0]][e]];
+                        const idx_t cb2 = c2f[csoa[hex_corners[ed][1]][e]];
+                        if (ca < 0 || cb2 < 0 || (ptrdiff_t)ca >= n_fine || (ptrdiff_t)cb2 >= n_fine) {
+                            continue;
+                        }
+                        if (!mask[ca] || !mask[cb2]) {
+                            continue;
+                        }
+                        const int ax = hex_edge[ed][0] * L;
+                        const int ay = hex_edge[ed][1] * L;
+                        const int az = hex_edge[ed][2] * L;
+                        const int bx = hex_edge[ed][3] * L;
+                        const int by = hex_edge[ed][4] * L;
+                        const int bz = hex_edge[ed][5] * L;
+                        for (int i = 1; i < L; ++i) {
+                            const int x = ax + (bx - ax) / L * i;
+                            const int y = ay + (by - ay) / L * i;
+                            const int z = az + (bz - az) / L * i;
+                            mark_if_local(mask, n_fine, hex_exploded_lattice_node(L, fsoa, e, x, y, z));
+                        }
+                    }
+                }
+            } else if (ct == QUAD4 || ct == QUADSHELL4) {
+                const int L = exact_int_root(n_f / n_c, 2);
+                if (L < 2 || n_f != n_c * (ptrdiff_t)ssquad4_txe(L)) {
+                    continue;
+                }
+                static const int q_edge[4][4]     = {{0, 0, 1, 0}, {1, 0, 1, 1}, {1, 1, 0, 1}, {0, 1, 0, 0}};
+                static const int q_corners[4][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}};
+                for (ptrdiff_t e = 0; e < n_c; ++e) {
+                    for (int ed = 0; ed < 4; ++ed) {
+                        const idx_t ca  = c2f[csoa[q_corners[ed][0]][e]];
+                        const idx_t cb2 = c2f[csoa[q_corners[ed][1]][e]];
+                        if (ca < 0 || cb2 < 0 || (ptrdiff_t)ca >= n_fine || (ptrdiff_t)cb2 >= n_fine) {
+                            continue;
+                        }
+                        if (!mask[ca] || !mask[cb2]) {
+                            continue;
+                        }
+                        const int ax = q_edge[ed][0] * L;
+                        const int ay = q_edge[ed][1] * L;
+                        const int bx = q_edge[ed][2] * L;
+                        const int by = q_edge[ed][3] * L;
+                        for (int i = 1; i < L; ++i) {
+                            const int x = ax + (bx - ax) / L * i;
+                            const int y = ay + (by - ay) / L * i;
+                            mark_if_local(mask, n_fine, quad_exploded_lattice_node(L, fsoa, e, x, y));
+                        }
+                    }
+                }
+            } else if (ct == WEDGE6) {
+                const int L = exact_int_root(n_f / n_c, 3);
+                if (L < 2 || n_f != n_c * (ptrdiff_t)sswedge_txe(L)) {
+                    continue;
+                }
+                const int nxe = sswedge_nxe(L);
+                idx_t    *lat = (idx_t *)SMESH_ALLOC((size_t)nxe * sizeof(idx_t));
+                static const int w_edge[9][6] = {
+                        {0, 0, 0, 1, 0, 0}, {1, 0, 0, 0, 1, 0}, {0, 1, 0, 0, 0, 0},
+                        {0, 0, 1, 1, 0, 1}, {1, 0, 1, 0, 1, 1}, {0, 1, 1, 0, 0, 1},
+                        {0, 0, 0, 0, 0, 1}, {1, 0, 0, 1, 0, 1}, {0, 1, 0, 0, 1, 1},
+                };
+                static const int w_corners[9][2] = {{0, 1}, {1, 2}, {2, 0}, {3, 4}, {4, 5}, {5, 3}, {0, 3}, {1, 4}, {2, 5}};
+                for (ptrdiff_t e = 0; e < n_c; ++e) {
+                    int le = 0;
+                    for (int zi = 0; zi < L; ++zi) {
+                        for (int yi = 0; yi < L; ++yi) {
+                            for (int xi = 0; xi < L - yi; ++xi) {
+                                const ptrdiff_t fe = e * (ptrdiff_t)sswedge_txe(L) + le;
+                                lat[sswedge_lidx(L, xi, yi, zi)]         = fsoa[0][fe];
+                                lat[sswedge_lidx(L, xi + 1, yi, zi)]     = fsoa[1][fe];
+                                lat[sswedge_lidx(L, xi, yi + 1, zi)]     = fsoa[2][fe];
+                                lat[sswedge_lidx(L, xi, yi, zi + 1)]     = fsoa[3][fe];
+                                lat[sswedge_lidx(L, xi + 1, yi, zi + 1)] = fsoa[4][fe];
+                                lat[sswedge_lidx(L, xi, yi + 1, zi + 1)] = fsoa[5][fe];
+                                ++le;
+                                if (xi + yi + 1 < L) {
+                                    const ptrdiff_t fe2 = e * (ptrdiff_t)sswedge_txe(L) + le;
+                                    lat[sswedge_lidx(L, xi + 1, yi, zi)]         = fsoa[0][fe2];
+                                    lat[sswedge_lidx(L, xi + 1, yi + 1, zi)]     = fsoa[1][fe2];
+                                    lat[sswedge_lidx(L, xi, yi + 1, zi)]         = fsoa[2][fe2];
+                                    lat[sswedge_lidx(L, xi + 1, yi, zi + 1)]     = fsoa[3][fe2];
+                                    lat[sswedge_lidx(L, xi + 1, yi + 1, zi + 1)] = fsoa[4][fe2];
+                                    lat[sswedge_lidx(L, xi, yi + 1, zi + 1)]     = fsoa[5][fe2];
+                                    ++le;
+                                }
+                            }
+                        }
+                    }
+                    for (int ed = 0; ed < 9; ++ed) {
+                        const idx_t ca  = c2f[csoa[w_corners[ed][0]][e]];
+                        const idx_t cb2 = c2f[csoa[w_corners[ed][1]][e]];
+                        if (ca < 0 || cb2 < 0 || (ptrdiff_t)ca >= n_fine || (ptrdiff_t)cb2 >= n_fine) {
+                            continue;
+                        }
+                        if (!mask[ca] || !mask[cb2]) {
+                            continue;
+                        }
+                        const int ax = w_edge[ed][0] * L;
+                        const int ay = w_edge[ed][1] * L;
+                        const int az = w_edge[ed][2] * L;
+                        const int bx = w_edge[ed][3] * L;
+                        const int by = w_edge[ed][4] * L;
+                        const int bz = w_edge[ed][5] * L;
+                        for (int i = 1; i < L; ++i) {
+                            const int x = ax + (bx - ax) / L * i;
+                            const int y = ay + (by - ay) / L * i;
+                            const int z = az + (bz - az) / L * i;
+                            mark_if_local(mask, n_fine, lat[sswedge_lidx(L, x, y, z)]);
+                        }
+                    }
+                }
+                SMESH_FREE(lat);
+            }
+        }
+    }
+
+    static void insert_crs_child_mids(const std::shared_ptr<Mesh> &coarse,
+                                      const std::shared_ptr<Mesh> &fine,
+                                      const idx_t                 *c2f,
+                                      uint8_t                     *mask,
+                                      const ptrdiff_t              n_fine) {
+        const size_t n_blocks = std::min(coarse->n_blocks(), fine->n_blocks());
+        for (size_t b = 0; b < n_blocks; ++b) {
+            auto                cb = coarse->block(b);
+            auto                fb = fine->block(b);
+            const enum ElemType ct = cb->element_type();
+            const enum ElemType ft = fb->element_type();
+            if (ct != ft) {
+                continue;
+            }
+            const ptrdiff_t n_c = cb->n_elements();
+            const ptrdiff_t n_f = fb->n_elements();
+            auto            csoa = cb->elements()->data();
+            auto            fsoa = fb->elements()->data();
+            if (ct == TET4 && n_f == n_c * 8) {
+                for (ptrdiff_t e = 0; e < n_c; ++e) {
+                    const ptrdiff_t base = e * 8;
+                    const idx_t     a0   = c2f[csoa[0][e]];
+                    const idx_t     a1   = c2f[csoa[1][e]];
+                    const idx_t     a2   = c2f[csoa[2][e]];
+                    const idx_t     a3   = c2f[csoa[3][e]];
+                    // Child 0 = {0,4,6,7}, child 1 = {4,1,5,8}, child 2 = {6,5,2,9}.
+                    if (a0 >= 0 && a1 >= 0 && (ptrdiff_t)a0 < n_fine && (ptrdiff_t)a1 < n_fine && mask[a0] && mask[a1]) {
+                        mark_if_local(mask, n_fine, fsoa[1][base + 0]);
+                    }
+                    if (a1 >= 0 && a2 >= 0 && (ptrdiff_t)a1 < n_fine && (ptrdiff_t)a2 < n_fine && mask[a1] && mask[a2]) {
+                        mark_if_local(mask, n_fine, fsoa[2][base + 1]);
+                    }
+                    if (a0 >= 0 && a2 >= 0 && (ptrdiff_t)a0 < n_fine && (ptrdiff_t)a2 < n_fine && mask[a0] && mask[a2]) {
+                        mark_if_local(mask, n_fine, fsoa[2][base + 0]);
+                    }
+                    if (a0 >= 0 && a3 >= 0 && (ptrdiff_t)a0 < n_fine && (ptrdiff_t)a3 < n_fine && mask[a0] && mask[a3]) {
+                        mark_if_local(mask, n_fine, fsoa[3][base + 0]);
+                    }
+                    if (a1 >= 0 && a3 >= 0 && (ptrdiff_t)a1 < n_fine && (ptrdiff_t)a3 < n_fine && mask[a1] && mask[a3]) {
+                        mark_if_local(mask, n_fine, fsoa[3][base + 1]);
+                    }
+                    if (a2 >= 0 && a3 >= 0 && (ptrdiff_t)a2 < n_fine && (ptrdiff_t)a3 < n_fine && mask[a2] && mask[a3]) {
+                        mark_if_local(mask, n_fine, fsoa[3][base + 2]);
+                    }
+                }
+            } else if ((ct == TRI3 || ct == TRISHELL3) && n_f == n_c * 4) {
+                for (ptrdiff_t e = 0; e < n_c; ++e) {
+                    const ptrdiff_t base = e * 4;
+                    const idx_t     a0   = c2f[csoa[0][e]];
+                    const idx_t     a1   = c2f[csoa[1][e]];
+                    const idx_t     a2   = c2f[csoa[2][e]];
+                    if (a0 >= 0 && a1 >= 0 && (ptrdiff_t)a0 < n_fine && (ptrdiff_t)a1 < n_fine && mask[a0] && mask[a1]) {
+                        mark_if_local(mask, n_fine, fsoa[1][base + 0]);
+                    }
+                    if (a1 >= 0 && a2 >= 0 && (ptrdiff_t)a1 < n_fine && (ptrdiff_t)a2 < n_fine && mask[a1] && mask[a2]) {
+                        mark_if_local(mask, n_fine, fsoa[2][base + 1]);
+                    }
+                    if (a0 >= 0 && a2 >= 0 && (ptrdiff_t)a0 < n_fine && (ptrdiff_t)a2 < n_fine && mask[a0] && mask[a2]) {
+                        mark_if_local(mask, n_fine, fsoa[2][base + 0]);
+                    }
+                }
+            } else if ((ct == EDGE2 || ct == EDGESHELL2) && n_f == n_c * 2) {
+                for (ptrdiff_t e = 0; e < n_c; ++e) {
+                    const idx_t a0 = c2f[csoa[0][e]];
+                    const idx_t a1 = c2f[csoa[1][e]];
+                    if (a0 >= 0 && a1 >= 0 && (ptrdiff_t)a0 < n_fine && (ptrdiff_t)a1 < n_fine && mask[a0] && mask[a1]) {
+                        mark_if_local(mask, n_fine, fsoa[1][e * 2 + 0]);
+                    }
+                }
+            }
+        }
+    }
+
+    static void insert_mid_edge_nodes(const std::shared_ptr<Mesh> &coarse,
+                                      const std::shared_ptr<Mesh> &fine,
+                                      const idx_t                 *c2f,
+                                      uint8_t                     *mask,
+                                      const ptrdiff_t              n_fine) {
+        insert_p_edge_mids(fine, mask, n_fine);
+        insert_ss_hex_quad_wedge_mids(coarse, fine, c2f, mask, n_fine);
+        insert_crs_child_mids(coarse, fine, c2f, mask, n_fine);
+    }
+
+    std::shared_ptr<Nodeset> map_nodeset_through_refine(const std::shared_ptr<Mesh>    &coarse_mesh,
+                                                        const std::shared_ptr<Nodeset> &coarse_ns,
+                                                        const std::shared_ptr<Mesh>    &fine_mesh) {
+        if (!coarse_mesh || !coarse_ns || !fine_mesh) {
+            SMESH_ERROR("map_nodeset_through_refine: null argument\n");
+            return nullptr;
+        }
+
+        const ptrdiff_t n              = coarse_ns->size();
+        const idx_t    *nodes          = n > 0 ? coarse_ns->nodes()->data() : nullptr;
+        const ptrdiff_t n_coarse_nodes = coarse_mesh->n_nodes();
+        const ptrdiff_t n_fine_nodes   = fine_mesh->n_nodes();
+
+        SharedBuffer<large_idx_t> mapping = nullptr;
+#ifdef SMESH_ENABLE_MPI
+        if (fine_mesh->is_distributed() && fine_mesh->distributed()) {
+            mapping = fine_mesh->distributed()->node_mapping();
+        } else
+#endif
+            if (coarse_ns->node_mapping()) {
+            const ptrdiff_t nm = coarse_ns->node_mapping()->size();
+            mapping            = create_host_buffer<large_idx_t>((size_t)nm);
+            if (nm > 0) {
+                std::memcpy(mapping->data(), coarse_ns->node_mapping()->data(), (size_t)nm * sizeof(large_idx_t));
+            }
+        }
+
+        idx_t *c2f = (idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_coarse_nodes, 1) * sizeof(idx_t));
+        for (ptrdiff_t i = 0; i < n_coarse_nodes; ++i) {
+            c2f[i] = invalid_idx<idx_t>();
+        }
+
+        uint8_t *mask = (uint8_t *)SMESH_CALLOC((size_t)std::max<ptrdiff_t>(n_fine_nodes, 1), sizeof(uint8_t));
+        idx_t   *orig = n > 0 ? (idx_t *)SMESH_ALLOC((size_t)n * sizeof(idx_t)) : nullptr;
+        ptrdiff_t n_orig = 0;
+
+#ifdef SMESH_ENABLE_MPI
+        if (coarse_mesh->is_distributed() && fine_mesh->is_distributed()) {
+            auto cdist = coarse_mesh->distributed();
+            auto fdist = fine_mesh->distributed();
+            if (!cdist || !fdist || !cdist->node_mapping() || !fdist->node_mapping()) {
+                SMESH_FREE(c2f);
+                SMESH_FREE(mask);
+                SMESH_FREE(orig);
+                fprintf(stderr, "map_nodeset_through_refine: distributed mesh is missing node_mapping\n");
+                return nullptr;
+            }
+            const large_idx_t *c_map = cdist->node_mapping()->data();
+            const large_idx_t *f_map = fdist->node_mapping()->data();
+            const large_idx_t  n_fg  = (large_idx_t)fdist->n_nodes_global();
+            std::vector<idx_t> inv((size_t)std::max<large_idx_t>(n_fg, 1), invalid_idx<idx_t>());
+            for (ptrdiff_t i = 0; i < n_fine_nodes; ++i) {
+                const large_idx_t g = f_map[i];
+                if (g >= 0 && g < n_fg) {
+                    inv[(size_t)g] = (idx_t)i;
+                }
+            }
+            for (ptrdiff_t i = 0; i < n_coarse_nodes; ++i) {
+                const large_idx_t g = c_map[i];
+                if (g >= 0 && g < n_fg) {
+                    c2f[i] = inv[(size_t)g];
+                }
+            }
+            const large_idx_t n_cg = (large_idx_t)cdist->n_nodes_global();
+            uint8_t *gmask = (uint8_t *)SMESH_CALLOC((size_t)std::max<large_idx_t>(n_cg, 1), sizeof(uint8_t));
+            for (ptrdiff_t i = 0; i < n; ++i) {
+                const idx_t lid = nodes[i];
+                if (lid < 0 || (ptrdiff_t)lid >= n_coarse_nodes) {
+                    SMESH_FREE(c2f);
+                    SMESH_FREE(mask);
+                    SMESH_FREE(orig);
+                    SMESH_FREE(gmask);
+                    SMESH_ERROR("map_nodeset_through_refine: node id out of range\n");
+                    return nullptr;
+                }
+                const large_idx_t g = c_map[lid];
+                if (g >= 0 && g < n_cg) {
+                    gmask[(size_t)g] = 1;
+                }
+                const idx_t fid = c2f[lid];
+                if (fid != invalid_idx<idx_t>() && (ptrdiff_t)fid < n_fine_nodes && !mask[fid]) {
+                    mask[fid]      = 1;
+                    orig[n_orig++] = fid;
+                }
+            }
+            if (n_cg > 0) {
+                SMESH_MPI_CATCH(MPI_Allreduce(MPI_IN_PLACE, gmask, (int)n_cg, MPI_UINT8_T, MPI_MAX,
+                                              coarse_mesh->comm()->get()));
+            }
+            for (ptrdiff_t i = 0; i < n_coarse_nodes; ++i) {
+                const large_idx_t g = c_map[i];
+                if (g < 0 || g >= n_cg || !gmask[(size_t)g]) {
+                    continue;
+                }
+                const idx_t fid = c2f[i];
+                if (fid != invalid_idx<idx_t>() && (ptrdiff_t)fid < n_fine_nodes) {
+                    mask[fid] = 1;
+                }
+            }
+            SMESH_FREE(gmask);
+        } else
+#endif
+        {
+            for (ptrdiff_t i = 0; i < n_coarse_nodes && i < n_fine_nodes; ++i) {
+                c2f[i] = (idx_t)i;
+            }
+            for (ptrdiff_t i = 0; i < n; ++i) {
+                const idx_t lid = nodes[i];
+                if (lid < 0 || (ptrdiff_t)lid >= n_coarse_nodes || (ptrdiff_t)lid >= n_fine_nodes) {
+                    SMESH_FREE(c2f);
+                    SMESH_FREE(mask);
+                    SMESH_FREE(orig);
+                    SMESH_ERROR("map_nodeset_through_refine: node id out of range\n");
+                    return nullptr;
+                }
+                if (!mask[lid]) {
+                    mask[lid]      = 1;
+                    orig[n_orig++] = lid;
+                }
+            }
+        }
+
+        insert_mid_edge_nodes(coarse_mesh, fine_mesh, c2f, mask, n_fine_nodes);
+
+        ptrdiff_t n_extra = 0;
+        for (ptrdiff_t i = 0; i < n_fine_nodes; ++i) {
+            if (mask[i]) {
+                ++n_extra;
+            }
+        }
+        n_extra -= n_orig;
+        if (n_extra < 0) {
+            n_extra = 0;
+        }
+
+        auto              out = create_host_buffer<idx_t>((size_t)(n_orig + n_extra));
+        idx_t            *d   = (n_orig + n_extra) > 0 ? out->data() : nullptr;
+        ptrdiff_t         w   = 0;
+        for (ptrdiff_t i = 0; i < n_orig; ++i) {
+            d[w++]     = orig[i];
+            mask[orig[i]] = 0;
+        }
+        for (ptrdiff_t i = 0; i < n_fine_nodes; ++i) {
+            if (mask[i]) {
+                d[w++] = (idx_t)i;
+            }
+        }
+
+        SMESH_FREE(c2f);
+        SMESH_FREE(mask);
+        SMESH_FREE(orig);
+        return Nodeset::create(fine_mesh->comm(), out, mapping);
+    }
+
+    void Nodeset::print(std::ostream &os) const {
+        os << "Nodeset size: " << size() << "\n";
+        if (nodes()) {
+            nodes()->print(os);
+        }
+    }
+
+}  // namespace smesh

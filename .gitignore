@@ -40,5 +40,13 @@
 # debug information files
 *.dwo
 
+# Build trees and caches
+build/
+build_*/
+.cache/
+__pycache__/
+.pytest_cache/
+*.pyc
+smesh.trace.csv
 
 .DS_Store

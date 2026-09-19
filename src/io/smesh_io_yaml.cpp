@@ -243,6 +243,10 @@ namespace smesh {
                 ret->add_block(name,
                                type_from_string(element_type.c_str()),
                                yaml_read_elements(node, blk, n_nodes_per_element, n_elements));
+                if (blk.has_child("geom_map") && ret->n_blocks() > 0) {
+                    ret->block(ret->n_blocks() - 1)
+                            ->set_geom_map(geom_map_from_string(yaml_scalar_to_string(blk["geom_map"]).c_str()));
+                }
             }
         } else {
             int       n_nodes_per_element = 0;
@@ -257,6 +261,9 @@ namespace smesh {
             ret->add_block("default",
                            type_from_string(element_type.c_str()),
                            yaml_read_elements(node, node, n_nodes_per_element, n_elements));
+            if (node.has_child("geom_map") && ret->n_blocks() > 0) {
+                ret->block(0)->set_geom_map(geom_map_from_string(yaml_scalar_to_string(node["geom_map"]).c_str()));
+            }
         }
 
         return ret;

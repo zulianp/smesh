@@ -8,26 +8,6 @@
 
 namespace smesh {
 
-static const int tet4_refine_pattern[8][4] = {
-    // Corner tests
-    {0, 4, 6, 7},
-    {4, 1, 5, 8},
-    {6, 5, 2, 9},
-    {7, 8, 9, 3},
-    // Octahedron tets
-    {4, 5, 6, 8},
-    {7, 4, 6, 8},
-    {6, 5, 9, 8},
-    {7, 6, 9, 8}};
-
-static const int tri3_refine_pattern[4][3] = {
-    // Corner triangles
-    {0, 3, 5},
-    {3, 1, 4},
-    {5, 4, 2},
-    // Center triangle
-    {3, 4, 5}};
-
 template <typename idx_t, typename count_t,
           typename geom_t>
 int mesh_refine(
@@ -39,8 +19,12 @@ int mesh_refine(
     const idx_t *const SMESH_RESTRICT n2n_idx,
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT refined_elements,
     geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT refined_points) {
-  if (element_type != TET4 && element_type != TRI3) {
-    SMESH_ERROR("mesh_refine: unsupported element_type %d\n", element_type);
+  if (element_type != TET4 && !refine_is_tri_family(element_type) &&
+      !refine_is_edge_family(element_type)) {
+    fprintf(stderr,
+            "mesh_refine: unsupported element_type %s "
+            "(kernel supports TET4, TRI3/TRISHELL3, and EDGE2/EDGESHELL2)\n",
+            type_to_string(element_type));
     return SMESH_FAILURE;
   }
 
@@ -75,7 +59,6 @@ int mesh_refine(
   }
 
   if (element_type == TET4) {
-    // TODO fill p2 node indices in elements
     for (ptrdiff_t e = 0; e < n_elements; e++) {
       idx_t macro_element[10];
       for (int k = 0; k < 4; k++) {
@@ -118,8 +101,7 @@ int mesh_refine(
       }
     }
 
-  } else if (element_type == TRI3) {
-    // TODO fill p2 node indices in elements
+  } else if (refine_is_tri_family(element_type)) {
     for (ptrdiff_t e = 0; e < n_elements; e++) {
       idx_t macro_element[6];
       for (int k = 0; k < 3; k++) {
@@ -152,6 +134,28 @@ int mesh_refine(
         for (int sub_e = 0; sub_e < 4; sub_e++) {
           const idx_t ik = macro_element[tri3_refine_pattern[sub_e][k]];
           refined_elements[k][element_offset + sub_e] = ik;
+        }
+      }
+    }
+  } else {
+    for (ptrdiff_t e = 0; e < n_elements; e++) {
+      idx_t macro_element[3];
+      macro_element[0] = coarse_elements[0][e];
+      macro_element[1] = coarse_elements[1][e];
+
+      const idx_t row = std::min(macro_element[0], macro_element[1]);
+      const idx_t key = std::max(macro_element[0], macro_element[1]);
+      const count_t row_begin = n2n_ptr[row];
+      const count_t len_row = n2n_ptr[row + 1] - row_begin;
+      const idx_t *cols = &n2n_idx[row_begin];
+      const idx_t k = binary_search(key, cols, len_row);
+      macro_element[2] = edge_idx[row_begin + k];
+
+      const ptrdiff_t element_offset = e * 2;
+      for (int d = 0; d < 2; d++) {
+        for (int sub_e = 0; sub_e < 2; sub_e++) {
+          refined_elements[d][element_offset + sub_e] =
+                  macro_element[edge2_refine_pattern[sub_e][d]];
         }
       }
     }

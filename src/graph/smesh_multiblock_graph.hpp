@@ -59,6 +59,27 @@ int create_multiblock_dual_graph_from_n2e(
     count_t **out_dual_eptr, element_idx_t **out_dual_eidx,
     block_idx_t **out_dual_eblock);
 
+template <typename idx_t, typename count_t, typename element_idx_t = idx_t>
+int create_multiblock_half_face_table_for_block(
+    const block_idx_t target_block, const block_idx_t n_blocks,
+    const enum ElemType element_types[], const ptrdiff_t n_elements[],
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems[],
+    const count_t *const SMESH_RESTRICT global_dual_ptr,
+    const element_idx_t *const SMESH_RESTRICT global_dual_idx,
+    const block_idx_t *const SMESH_RESTRICT global_dual_block,
+    const element_idx_t *const SMESH_RESTRICT block_base,
+    element_idx_t **out_table, block_idx_t **out_neighbor_block);
+
+template <typename idx_t, typename count_t, typename element_idx_t = idx_t>
+int create_multiblock_edge_graph_from_n2e(
+    const block_idx_t n_blocks, const enum ElemType element_types[],
+    const ptrdiff_t n_elements[],
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems[],
+    const ptrdiff_t n_nodes, const count_t *const SMESH_RESTRICT n2eptr,
+    const element_idx_t *const SMESH_RESTRICT elindex,
+    const block_idx_t *const SMESH_RESTRICT block_number, count_t **out_rowptr,
+    idx_t **out_colidx);
+
 } // namespace smesh
 
 #endif // SMESH_MULTIBLOCK_GRAPH_HPP

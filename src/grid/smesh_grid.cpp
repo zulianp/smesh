@@ -497,8 +497,8 @@ namespace smesh {
             return;
         }
 
-        auto data = impl_->field->data();
-        auto size = impl_->field->size();
+        auto            data = impl_->field->data();
+        const ptrdiff_t size = static_cast<ptrdiff_t>(impl_->field->size());
         for (ptrdiff_t i = 0; i < size; i++) {
             data[i] *= scale;
         }

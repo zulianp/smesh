@@ -42,7 +42,10 @@ static inline bool compute_side_normal(const int                                
                                        const i16                                                lfi,
                                        real_t                                                  *out_unit_normal) {
     LocalSideTable lst;
-    lst.fill(element_type);
+    if (lst.fill(element_type) != SMESH_SUCCESS) {
+        LocalSideTable::report_unsupported("create_sideset", element_type);
+        return false;
+    }
 
     const enum ElemType st      = side_type(element_type);
     const int           ncorner = side_num_corner_nodes(st);
@@ -151,7 +154,10 @@ int main(int argc, char **argv) {
         const auto surf_lfi    = sideset->lfi()->data();
 
         LocalSideTable lst;
-        lst.fill(element_type);
+        if (lst.fill(element_type) != SMESH_SUCCESS) {
+            LocalSideTable::report_unsupported("create_sideset", element_type);
+            return SMESH_FAILURE;
+        }
 
         const enum ElemType st      = side_type(element_type);
         const int           ncorner = side_num_corner_nodes(st);

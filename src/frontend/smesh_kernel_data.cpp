@@ -50,6 +50,10 @@ namespace smesh {
             }
 
             switch (element_type) {
+                case TRI3:
+                    return tri3_fff_fill(nelements, elements, points, stride, fff);
+                case QUAD4:
+                    return quad4_fff_fill(nelements, elements, points, 0.5, 0.5, stride, fff);
                 case TET4:
                 case TET10:
                     return tet4_fff_fill(nelements, elements, points, stride, fff);
@@ -162,7 +166,7 @@ namespace smesh {
             return nullptr;
         }
 
-        constexpr ptrdiff_t adjugate_size = 9;
+        const ptrdiff_t adjugate_size = jacobian_adjugate_components(mesh->element_type(block_id));
 
         auto       ret           = std::make_shared<JacobianAdjugateAndDeterminant>();
         auto       host_elements = to_host(mesh->elements(block_id));
@@ -196,7 +200,7 @@ namespace smesh {
             return nullptr;
         }
 
-        constexpr ptrdiff_t adjugate_size = 9;
+        const ptrdiff_t adjugate_size = jacobian_adjugate_components(mesh->element_type(block_id));
 
         auto       ret           = std::make_shared<JacobianAdjugateAndDeterminant>();
         auto       host_elements = to_host(mesh->elements(block_id));
@@ -227,7 +231,7 @@ namespace smesh {
             return nullptr;
         }
 
-        constexpr ptrdiff_t fff_size = 6;
+        const ptrdiff_t fff_size = fff_components(mesh->element_type(block_id));
 
         auto       ret           = std::make_shared<FFF>();
         auto       host_elements = to_host(mesh->elements(block_id));
@@ -256,7 +260,7 @@ namespace smesh {
             return nullptr;
         }
 
-        constexpr ptrdiff_t fff_size = 6;
+        const ptrdiff_t fff_size = fff_components(mesh->element_type(block_id));
 
         auto       ret           = std::make_shared<FFF>();
         auto       host_elements = to_host(mesh->elements(block_id));
