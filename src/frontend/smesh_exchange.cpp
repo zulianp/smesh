@@ -32,6 +32,11 @@ public:
   std::shared_ptr<Communicator> comm;
   ptrdiff_t nnodes{0};
   ptrdiff_t n_owned_nodes{0};
+  // The largest transfer any rank makes through this Exchange, in elements: the maximum
+  // over ranks of max(send_total, recv_total). Fixed as soon as the counts are, which is
+  // what lets gather_begin decide the int32 question without communicating. Zero until
+  // Exchange::create fills it, and zero is the answer that fits.
+  i64 max_transfer_count{0};
   SharedBuffer<i64> send_count;
   SharedBuffer<i64> send_displs;
   SharedBuffer<i64> recv_count;
@@ -138,6 +143,26 @@ std::shared_ptr<Exchange> Exchange::create(
     ret->impl_->import_idx = manage_host_buffer<idx_t>(send_total, import_idx);
   }
 
+  // Reduce the int32 fit question once, here, instead of on every gather.
+  //
+  // gather_begin needs to know whether any rank's counts exceed what MPI's int arguments
+  // can hold. That depends only on the counts, and the counts are final at this point, so
+  // the reduction belongs here rather than on the per-apply path -- and it is free in the
+  // sense that matters: this function is already collective, since exchange_create ran an
+  // MPI_Alltoall to build those counts.
+  //
+  // The maximum is reduced rather than the predicate because the two are equivalent and the
+  // maximum is the more useful thing to hold: MIN over ranks of (count <= limit) is 1
+  // exactly when MAX over ranks of count is <= limit.
+  {
+    const i64 local_count =
+        std::max<i64>((i64)send_displs[size], (i64)recv_displs[size]);
+    i64 global_count = 0;
+    SMESH_MPI_CATCH(MPI_Allreduce(&local_count, &global_count, 1, mpi_type<i64>(),
+                                  MPI_MAX, comm->get()));
+    ret->impl_->max_transfer_count = global_count;
+  }
+
   return ret;
 }
 #endif
@@ -226,14 +251,22 @@ int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
   const i64 *const large_recv_count = impl_->send_count->data();
   const i64 *const large_recv_displs = impl_->send_displs->data();
 
-  i64 all_count = large_send_displs[size - 1] + large_send_count[size - 1];
-  all_count = std::max(all_count,
-                       large_recv_displs[size - 1] + large_recv_count[size - 1]);
+  // Decided locally. This was a blocking MPI_Allreduce(MPI_MIN) on every gather -- a full
+  // synchronisation placed immediately before the Ialltoallv whose whole purpose is to let
+  // computation proceed while the transfer is in flight. It made the non-blocking path
+  // collective at its start: no rank could enter the overlap window until the slowest had
+  // arrived, which is the cost the overlap exists to avoid.
+  //
+  // Nothing it reduced varies per call. The quantity was max(send_total, recv_total), fixed
+  // when the counts were built in Exchange::create, where the reduction now lives.
+  // block_size is not part of it and never was: the int arrays handed to Ialltoallv below
+  // are ELEMENT counts, with block_size carried by the derived MPI_Type_contiguous datatype
+  // instead, so the int32 ceiling applies to the unscaled counts on both branches.
+  //
+  // Same branch on every rank as before, not merely a safe approximation of it -- see the
+  // equivalence noted at the reduction in Exchange::create.
   const i64 i32_max = (i64)std::numeric_limits<int>::max();
-  const int local_fits = all_count <= i32_max ? 1 : 0;
-  int global_fits = 0;
-  SMESH_MPI_CATCH(MPI_Allreduce(&local_fits, &global_fits, 1, MPI_INT, MPI_MIN,
-                                impl_->comm->get()));
+  const int global_fits = impl_->max_transfer_count <= i32_max ? 1 : 0;
 
   void *recv_ptr = ghosts_only
                        ? (void *)&inout[impl_->n_owned_nodes * block_size]
