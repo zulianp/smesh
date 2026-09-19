@@ -15,6 +15,7 @@ namespace smesh {
 
         SharedBuffer<count_t> adj_ptr();
         SharedBuffer<element_idx_t> adj_idx();
+        SharedBuffer<block_idx_t> adj_block();
         static std::shared_ptr<DualGraph> create(const std::shared_ptr<Mesh> &mesh);
     private:
         class Impl;

@@ -3,12 +3,28 @@
 
 #include "smesh_glob.hpp"
 #include "smesh_alloc.hpp"
+#include "smesh_file_extensions.hpp"
 #include "smesh_write.hpp"
 
+#include <cstdio>
+#include <string>
 #include <string_view>
 #include <vector>
 
 namespace smesh {
+
+static inline void remove_other_typed_files(const Path &folder,
+                                            const std::string &stem,
+                                            const Path &keep) {
+  const std::string keep_s = keep.to_string();
+  const std::vector<std::string> files =
+      find_files((folder / (stem + ".*")).to_string());
+  for (const auto &f : files) {
+    if (f != keep_s) {
+      std::remove(f.c_str());
+    }
+  }
+}
 
 template <typename T>
 int array_write(const Path &path, const T *const SMESH_RESTRICT data,
@@ -91,6 +107,20 @@ int mesh_block_to_folder(
             i_path, elements[d], n_elements) != SMESH_SUCCESS) {
       ret = SMESH_FAILURE;
     }
+    remove_other_typed_files(folder, std::string("i") + std::to_string(d), i_path);
+  }
+
+  const auto extras =
+      detect_files(folder / "i*.*", {"raw", "int16", "int32", "int64"});
+  for (const auto &p : extras) {
+    const std::string stem = p.file_name();
+    int ii = -1;
+    if (!parse_soa_index_stem(stem, &ii)) {
+      continue;
+    }
+    if (ii >= n_nodes_x_elem) {
+      std::remove(p.c_str());
+    }
   }
 
   return ret;
@@ -115,6 +145,7 @@ int mesh_coordinates_to_folder(
                                                    n_nodes) != SMESH_SUCCESS) {
       ret = SMESH_FAILURE;
     }
+    remove_other_typed_files(folder, std::string(xyz[d]), x_path);
   }
 
   return ret;
@@ -125,7 +156,8 @@ int mesh_to_folder(const Path &path, enum ElemType element_type,
                    const ptrdiff_t n_elements,
                    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
                    const int spatial_dim, const ptrdiff_t n_nodes,
-                   const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points) {
+                   const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
+                   enum GeomMap geom_map) {
   int n_nodes_x_elem = elem_num_nodes(element_type);
   if (mesh_block_to_folder(path, n_nodes_x_elem, n_elements, elements) !=
       SMESH_SUCCESS) {
@@ -137,7 +169,8 @@ int mesh_to_folder(const Path &path, enum ElemType element_type,
   }
 
   if (mesh_write_yaml_basic(path, element_type, n_elements, spatial_dim,
-                            n_nodes) != SMESH_SUCCESS) {
+                            n_nodes, TypeToString<idx_t>::value(),
+                            TypeToString<geom_t>::value(), geom_map) != SMESH_SUCCESS) {
     return SMESH_FAILURE;
   }
 
@@ -153,7 +186,8 @@ int mesh_multiblock_to_folder(const Path &path,
                                   elements[],
                               const int spatial_dim, const ptrdiff_t n_nodes,
                               const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT
-                                  points) {
+                                  points,
+                              const std::vector<enum GeomMap> &geom_maps) {
 
   SMESH_ASSERT(block_names.size() == element_types.size());
   SMESH_ASSERT(block_names.size() == n_elements.size());
@@ -183,9 +217,17 @@ int mesh_multiblock_to_folder(const Path &path,
   }
 
   if (mesh_multiblock_write_yaml(path, n_blocks, block_names, element_types,
-                                 n_elements, spatial_dim,
-                                 n_nodes) != SMESH_SUCCESS) {
+                                 n_elements, spatial_dim, n_nodes,
+                                 TypeToString<idx_t>::value(),
+                                 TypeToString<geom_t>::value(), geom_maps) !=
+      SMESH_SUCCESS) {
     ret = SMESH_FAILURE;
+  }
+
+  const auto leftover_root =
+      detect_files(path / "i*.*", {"raw", "int16", "int32", "int64"});
+  for (const auto &p : leftover_root) {
+    std::remove(p.c_str());
   }
 
   return ret;

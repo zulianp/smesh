@@ -3,6 +3,8 @@
 #include "smesh_types.hpp"
 #include "smesh_write.impl.hpp"
 
+#include <algorithm>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -22,11 +24,14 @@ namespace smesh {
         return SMESH_SUCCESS;
     }
 
-    int mesh_write_yaml_basic(const Path     &path,
-                              enum ElemType   element_type,
-                              const ptrdiff_t n_elements,
-                              const int       spatial_dim,
-                              const ptrdiff_t n_nodes) {
+    int mesh_write_yaml_basic(const Path            &path,
+                              enum ElemType          element_type,
+                              const ptrdiff_t        n_elements,
+                              const int              spatial_dim,
+                              const ptrdiff_t        n_nodes,
+                              const std::string_view idx_type,
+                              const std::string_view geom_type,
+                              enum GeomMap           geom_map) {
         if (smesh::create_directory(path.to_string()) != SMESH_SUCCESS) {
             return SMESH_FAILURE;
         }
@@ -46,17 +51,18 @@ namespace smesh {
         fprintf(meta_file, "spatial_dimension: %d\n", spatial_dim);
         fprintf(meta_file, "elem_num_nodes: %d\n", nxe);
         fprintf(meta_file, "element_type: %s\n", type_to_string(element_type));
+        fprintf(meta_file, "geom_map: %s\n", geom_map_to_string(geom_map));
         fprintf(meta_file, "n_elements: %ld\n", (long)n_elements);
         fprintf(meta_file, "n_nodes: %ld\n", (long)n_nodes);
 
         fprintf(meta_file, "elements:\n");
         for (int d = 0; d < nxe; ++d) {
-            fprintf(meta_file, "- i%d: i%d.%s\n", d, d, TypeToString<idx_t>::value().data());
+            fprintf(meta_file, "- i%d: i%d.%.*s\n", d, d, (int)idx_type.size(), idx_type.data());
         }
 
         fprintf(meta_file, "points:\n");
         for (int d = 0; d < spatial_dim; d++) {
-            fprintf(meta_file, "- %c: %c.%s\n", xyz[d], xyz[d], TypeToString<geom_t>::value().data());
+            fprintf(meta_file, "- %c: %c.%.*s\n", xyz[d], xyz[d], (int)geom_type.size(), geom_type.data());
         }
 
         fprintf(meta_file, "rpath: true\n");
@@ -70,7 +76,10 @@ namespace smesh {
                                    const std::vector<enum ElemType> &element_types,
                                    const std::vector<ptrdiff_t>     &n_elements,
                                    const int                         spatial_dim,
-                                   const ptrdiff_t                   n_nodes) {
+                                   const ptrdiff_t                   n_nodes,
+                                   const std::string_view            idx_type,
+                                   const std::string_view            geom_type,
+                                   const std::vector<enum GeomMap>  &geom_maps) {
         if (smesh::create_directory(path.to_string()) != SMESH_SUCCESS) {
             return SMESH_FAILURE;
         }
@@ -93,29 +102,211 @@ namespace smesh {
             int nxe = elem_num_nodes(element_types[b]);
             fprintf(meta_file, "- name: %s\n", block_names[b].data());
             fprintf(meta_file, "  element_type: %s\n", type_to_string(element_types[b]));
+            const enum GeomMap gm =
+                    (static_cast<size_t>(b) < geom_maps.size()) ? geom_maps[b] : ISOPARAMETRIC;
+            fprintf(meta_file, "  geom_map: %s\n", geom_map_to_string(gm));
             fprintf(meta_file, "  elem_num_nodes: %d\n", nxe);
             fprintf(meta_file, "  n_elements: %ld\n", n_elements[b]);
             fprintf(meta_file, "  elements:\n");
             for (int d = 0; d < nxe; ++d) {
                 fprintf(meta_file,
-                        "  - i%d: blocks/%s/i%d.%s\n",
+                        "  - i%d: blocks/%s/i%d.%.*s\n",
                         d,
                         block_names[b].data(),
                         d,
-                        TypeToString<idx_t>::value().data());
+                        (int)idx_type.size(),
+                        idx_type.data());
             }
         }
 
         fprintf(meta_file, "n_nodes: %ld\n", (long)n_nodes);
         fprintf(meta_file, "points:\n");
         for (int d = 0; d < spatial_dim; d++) {
-            fprintf(meta_file, "- %c: %c.%s\n", xyz[d], xyz[d], TypeToString<geom_t>::value().data());
+            fprintf(meta_file, "- %c: %c.%.*s\n", xyz[d], xyz[d], (int)geom_type.size(), geom_type.data());
         }
 
         fprintf(meta_file, "rpath: true\n");
         fclose(meta_file);
 
         return SMESH_SUCCESS;
+    }
+
+    static ptrdiff_t aos_write_tile(const int nxe) {
+        const ptrdiff_t max_vals = (ptrdiff_t)1 << 18;
+        if (nxe <= 0) {
+            return 1;
+        }
+        ptrdiff_t tile = max_vals / (ptrdiff_t)nxe;
+        if (tile < 1) {
+            tile = 1;
+        }
+        return tile;
+    }
+
+    int mesh_write_soa_to_aos(const Path                                                &path,
+                              int                                                        n_nodes_x_elem,
+                              const ptrdiff_t                                            n_elements,
+                              const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements) {
+        if (n_nodes_x_elem <= 0 || n_elements < 0) {
+            SMESH_ERROR("mesh_write_soa_to_aos: invalid sizes nxe=%d ne=%ld\n",
+                        n_nodes_x_elem,
+                        (long)n_elements);
+            return SMESH_FAILURE;
+        }
+        if (n_elements > 0 && !elements) {
+            SMESH_ERROR("mesh_write_soa_to_aos: null connectivity\n");
+            return SMESH_FAILURE;
+        }
+
+        FILE *fp = fopen(path.c_str(), "wb");
+        if (!fp) {
+            SMESH_ERROR("mesh_write_soa_to_aos: Unable to write file %s\n", path.c_str());
+            return SMESH_FAILURE;
+        }
+
+        if (n_elements == 0) {
+            fclose(fp);
+            return SMESH_SUCCESS;
+        }
+
+        const idx_t *cols[32];
+        const idx_t **colp = cols;
+        idx_t       **heap_cols = nullptr;
+        if (n_nodes_x_elem > 32) {
+            heap_cols = (idx_t **)SMESH_ALLOC((size_t)n_nodes_x_elem * sizeof(idx_t *));
+            if (!heap_cols) {
+                fclose(fp);
+                return SMESH_FAILURE;
+            }
+            colp = (const idx_t **)heap_cols;
+        }
+        for (int d = 0; d < n_nodes_x_elem; ++d) {
+            colp[d] = elements[d];
+            if (!colp[d]) {
+                SMESH_FREE(heap_cols);
+                fclose(fp);
+                SMESH_ERROR("mesh_write_soa_to_aos: null column %d\n", d);
+                return SMESH_FAILURE;
+            }
+        }
+
+        const ptrdiff_t tile = aos_write_tile(n_nodes_x_elem);
+        idx_t          *buf  = (idx_t *)SMESH_ALLOC((size_t)tile * (size_t)n_nodes_x_elem * sizeof(idx_t));
+        if (!buf) {
+            SMESH_FREE(heap_cols);
+            fclose(fp);
+            return SMESH_FAILURE;
+        }
+
+        int ret = SMESH_SUCCESS;
+        for (ptrdiff_t e0 = 0; e0 < n_elements; e0 += tile) {
+            const ptrdiff_t n = std::min(tile, n_elements - e0);
+            for (int d = 0; d < n_nodes_x_elem; ++d) {
+                const idx_t *const src = colp[d] + e0;
+                for (ptrdiff_t j = 0; j < n; ++j) {
+                    buf[j * n_nodes_x_elem + d] = src[j];
+                }
+            }
+            if (fwrite(buf, sizeof(idx_t), (size_t)n * (size_t)n_nodes_x_elem, fp) !=
+                (size_t)n * (size_t)n_nodes_x_elem) {
+                SMESH_ERROR("mesh_write_soa_to_aos: short write %s\n", path.c_str());
+                ret = SMESH_FAILURE;
+                break;
+            }
+        }
+
+        SMESH_FREE(buf);
+        SMESH_FREE(heap_cols);
+        fclose(fp);
+        return ret;
+    }
+
+    int mesh_write_soa_files_to_aos(const Path     &soa_folder,
+                                    const Path     &aos_path,
+                                    int             n_nodes_x_elem,
+                                    const ptrdiff_t n_elements) {
+        if (n_nodes_x_elem <= 0 || n_elements < 0) {
+            SMESH_ERROR("mesh_write_soa_files_to_aos: invalid sizes nxe=%d ne=%ld\n",
+                        n_nodes_x_elem,
+                        (long)n_elements);
+            return SMESH_FAILURE;
+        }
+
+        FILE *out = fopen(aos_path.c_str(), "wb");
+        if (!out) {
+            SMESH_ERROR("mesh_write_soa_files_to_aos: Unable to write file %s\n", aos_path.c_str());
+            return SMESH_FAILURE;
+        }
+        if (n_elements == 0) {
+            fclose(out);
+            return SMESH_SUCCESS;
+        }
+
+        FILE **in = (FILE **)SMESH_CALLOC((size_t)n_nodes_x_elem, sizeof(FILE *));
+        if (!in) {
+            fclose(out);
+            return SMESH_FAILURE;
+        }
+
+        int ret = SMESH_SUCCESS;
+        for (int d = 0; d < n_nodes_x_elem; ++d) {
+            const std::string fname =
+                    std::string("i") + std::to_string(d) + "." + std::string(TypeToString<idx_t>::value());
+            in[d] = fopen((soa_folder / Path(fname)).c_str(), "rb");
+            if (!in[d]) {
+                SMESH_ERROR("mesh_write_soa_files_to_aos: Unable to read %s\n",
+                            (soa_folder / Path(fname)).c_str());
+                ret = SMESH_FAILURE;
+                break;
+            }
+        }
+
+        const ptrdiff_t tile     = aos_write_tile(n_nodes_x_elem);
+        idx_t          *soa_tile = nullptr;
+        idx_t          *aos_tile = nullptr;
+        if (ret == SMESH_SUCCESS) {
+            soa_tile = (idx_t *)SMESH_ALLOC((size_t)tile * (size_t)n_nodes_x_elem * sizeof(idx_t));
+            aos_tile = (idx_t *)SMESH_ALLOC((size_t)tile * (size_t)n_nodes_x_elem * sizeof(idx_t));
+            if (!soa_tile || !aos_tile) {
+                ret = SMESH_FAILURE;
+            }
+        }
+
+        for (ptrdiff_t e0 = 0; ret == SMESH_SUCCESS && e0 < n_elements; e0 += tile) {
+            const ptrdiff_t n = std::min(tile, n_elements - e0);
+            for (int d = 0; d < n_nodes_x_elem; ++d) {
+                if (fread(soa_tile + (ptrdiff_t)d * tile, sizeof(idx_t), (size_t)n, in[d]) != (size_t)n) {
+                    SMESH_ERROR("mesh_write_soa_files_to_aos: short read column %d\n", d);
+                    ret = SMESH_FAILURE;
+                    break;
+                }
+            }
+            if (ret != SMESH_SUCCESS) {
+                break;
+            }
+            for (int d = 0; d < n_nodes_x_elem; ++d) {
+                const idx_t *const src = soa_tile + (ptrdiff_t)d * tile;
+                for (ptrdiff_t j = 0; j < n; ++j) {
+                    aos_tile[j * n_nodes_x_elem + d] = src[j];
+                }
+            }
+            if (fwrite(aos_tile, sizeof(idx_t), (size_t)n * (size_t)n_nodes_x_elem, out) !=
+                (size_t)n * (size_t)n_nodes_x_elem) {
+                SMESH_ERROR("mesh_write_soa_files_to_aos: short write %s\n", aos_path.c_str());
+                ret = SMESH_FAILURE;
+            }
+        }
+
+        SMESH_FREE(soa_tile);
+        SMESH_FREE(aos_tile);
+        for (int d = 0; d < n_nodes_x_elem; ++d) {
+            if (in[d]) {
+                fclose(in[d]);
+            }
+        }
+        SMESH_FREE(in);
+        fclose(out);
+        return ret;
     }
 
 }  // namespace smesh
@@ -135,7 +326,8 @@ namespace smesh {
                                                const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, \
                                                const int,                                               \
                                                const ptrdiff_t,                                         \
-                                               const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
+                                               const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT, \
+                                               enum GeomMap)
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(IDX_T, GEOM_T)                                          \
     template int mesh_multiblock_to_folder<IDX_T, GEOM_T>(const Path &,                                              \
@@ -145,7 +337,8 @@ namespace smesh {
                                                           const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT[], \
                                                           const int,                                                 \
                                                           const ptrdiff_t,                                           \
-                                                          const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
+                                                          const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT,  \
+                                                          const std::vector<enum GeomMap> &)
 
 #define SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT_FROM_EXTENSION(TYPE) \
     template int array_write_convert_from_extension<TYPE>(                  \
@@ -181,14 +374,19 @@ namespace smesh {
     SMESH_EXPLICIT_INSTANTIATE_MESH_BLOCK_TO_FOLDER(i64);
 
     SMESH_EXPLICIT_INSTANTIATE_MESH_COORDINATES_TO_FOLDER(f32);
+    SMESH_EXPLICIT_INSTANTIATE_MESH_COORDINATES_TO_FOLDER(f64);
 
     // SMESH_EXPLICIT_INSTANTIATE_MESH_TO_FOLDER(i16, f32);
     SMESH_EXPLICIT_INSTANTIATE_MESH_TO_FOLDER(i32, f32);
     SMESH_EXPLICIT_INSTANTIATE_MESH_TO_FOLDER(i64, f32);
+    SMESH_EXPLICIT_INSTANTIATE_MESH_TO_FOLDER(i32, f64);
+    SMESH_EXPLICIT_INSTANTIATE_MESH_TO_FOLDER(i64, f64);
 
     // SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(i16, f32);
     SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(i32, f32);
     SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(i64, f32);
+    SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(i32, f64);
+    SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(i64, f64);
 
     SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT_FROM_EXTENSION(f16);
     SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT_FROM_EXTENSION(f32);

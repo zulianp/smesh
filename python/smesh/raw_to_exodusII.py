@@ -2,13 +2,22 @@
 
 import getopt
 import os
-import re
 import sys
 from collections import OrderedDict
 
 import numpy as np
 
 from common.hex27_ordering import prepare_exodus_hex27_connectivity
+from common.raw_io import (
+    DEFAULT_GEOM_DTYPE,
+    is_dtype_token,
+    load_raw_mesh,
+    read_array,
+    sidesets_to_global,
+    smesh_element_type,
+    unique_preserve_order,
+)
+from common.raw_io import ELEMENT_INFO, exodus_element_type
 
 
 try:
@@ -23,44 +32,6 @@ except NameError:
 LEN_STRING = 33
 LEN_LINE = 81
 
-ELEMENT_INFO = {
-    "HEX8": {"exodus": "HEX8", "nnodes": 8},
-    "HEX": {"exodus": "HEX8", "nnodes": 8},
-    "hex8": {"exodus": "HEX8", "nnodes": 8},
-    "hexahedron": {"exodus": "HEX8", "nnodes": 8},
-    "hexahedron8": {"exodus": "HEX8", "nnodes": 8},
-    "HEX27": {"exodus": "HEX27", "nnodes": 27},
-    "hex27": {"exodus": "HEX27", "nnodes": 27},
-    "hexahedron27": {"exodus": "HEX27", "nnodes": 27},
-    "PROTEUS_HEX27": {"exodus": "HEX27", "nnodes": 27},
-    "proteus_hex27": {"exodus": "HEX27", "nnodes": 27},
-    "TET4": {"exodus": "TETRA", "nnodes": 4},
-    "TETRA": {"exodus": "TETRA", "nnodes": 4},
-    "tetra": {"exodus": "TETRA", "nnodes": 4},
-    "tetra4": {"exodus": "TETRA", "nnodes": 4},
-    "QUAD4": {"exodus": "QUAD4", "nnodes": 4},
-    "QUAD": {"exodus": "QUAD4", "nnodes": 4},
-    "quad4": {"exodus": "QUAD4", "nnodes": 4},
-    "TRI3": {"exodus": "TRI3", "nnodes": 3},
-    "TRI": {"exodus": "TRI3", "nnodes": 3},
-    "tri3": {"exodus": "TRI3", "nnodes": 3},
-}
-
-ELEMENT_TYPE_BY_NUM_NODES = {
-    3: "TRI3",
-    4: "TET4",
-    8: "HEX8",
-    27: "HEX27",
-}
-
-
-def is_dtype_token(token):
-    try:
-        np.dtype(token)
-        return True
-    except TypeError:
-        return False
-
 
 def strip_typed_suffix(filename):
     parts = filename.split(".")
@@ -73,295 +44,9 @@ def strip_typed_suffix(filename):
     return filename
 
 
-def dtype_from_path(path, default_dtype=None):
-    name = os.path.basename(path)
-    parts = name.split(".")
-    if len(parts) >= 3 and parts[-1] == "raw" and is_dtype_token(parts[-2]):
-        return np.dtype(parts[-2])
-    if len(parts) >= 2 and is_dtype_token(parts[-1]):
-        return np.dtype(parts[-1])
-    return np.dtype(default_dtype) if default_dtype is not None else None
-
-
-def read_array(path, default_dtype=None, count=None):
-    dtype = dtype_from_path(path, default_dtype)
-    if dtype is None:
-        if count is not None:
-            nbytes = os.path.getsize(path)
-            if count == 0:
-                dtype = np.dtype(default_dtype if default_dtype is not None else np.int32)
-            else:
-                itemsize = nbytes // count
-                if itemsize == 2:
-                    dtype = np.int16
-                elif itemsize == 4:
-                    dtype = np.int32
-                elif itemsize == 8:
-                    dtype = np.int64
-                else:
-                    raise RuntimeError(f"unable to infer dtype for {path}")
-        else:
-            dtype = np.dtype(default_dtype if default_dtype is not None else np.float32)
-    return np.fromfile(path, dtype=dtype)
-
-
-def read_simple_meta(path):
-    meta = {}
-    if not os.path.exists(path):
-        return meta
-
-    with open(path, "r", encoding="utf-8") as handle:
-        for raw_line in handle:
-            line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("- "):
-                continue
-            if ":" not in line:
-                continue
-            key, value = line.split(":", 1)
-            meta[key.strip()] = value.strip()
-    return meta
-
-
-def normalize_element_type(raw_type):
-    if raw_type is None:
-        raise RuntimeError("missing element_type in meta.yaml")
-
-    if raw_type not in ELEMENT_INFO:
-        raise RuntimeError(f"unsupported element_type '{raw_type}'")
-
-    return raw_type, ELEMENT_INFO[raw_type]
-
-
-def metadata_element_type(meta):
-    for key in ("element_type", "cell_type", "elem_type"):
-        raw_type = meta.get(key)
-        if raw_type:
-            return raw_type
-    return None
-
-
-def resolve_element_type(meta, nnodes_per_elem):
-    raw_type = metadata_element_type(meta)
-    if raw_type is not None:
-        _, element_info = normalize_element_type(raw_type)
-        if element_info["nnodes"] != nnodes_per_elem:
-            raise RuntimeError(
-                "meta.yaml element_type=%s expects %d nodes but connectivity has %d"
-                % (raw_type, element_info["nnodes"], nnodes_per_elem)
-            )
-        if "elem_num_nodes" in meta and int(meta["elem_num_nodes"]) != nnodes_per_elem:
-            raise RuntimeError(
-                "meta.yaml elem_num_nodes=%s but connectivity has %d"
-                % (meta["elem_num_nodes"], nnodes_per_elem)
-            )
-        return raw_type
-
-    if "elem_num_nodes" in meta:
-        expected = int(meta["elem_num_nodes"])
-        if expected != nnodes_per_elem:
-            raise RuntimeError(
-                "meta.yaml elem_num_nodes=%d but connectivity has %d"
-                % (expected, nnodes_per_elem)
-            )
-
-    inferred = ELEMENT_TYPE_BY_NUM_NODES.get(nnodes_per_elem)
-    if inferred is None:
-        raise RuntimeError(
-            "missing meta.yaml element_type and unable to infer from connectivity width %d"
-            % nnodes_per_elem
-        )
-    return inferred
-
-
-def find_axis_path(folder, axis):
-    candidates = []
-    for entry in os.listdir(folder):
-        if not entry.startswith(f"{axis}."):
-            continue
-        if entry.endswith(".yaml"):
-            continue
-        candidates.append(os.path.join(folder, entry))
-
-    candidates.sort()
-    return candidates[0] if candidates else None
-
-
-def load_points(folder):
-    points = []
-    for axis in ("x", "y", "z"):
-        path = find_axis_path(folder, axis)
-        if path is None:
-            break
-        points.append(read_array(path, default_dtype=geom_t).astype(geom_t))
-
-    if not points:
-        raise RuntimeError(f"no coordinate files found in {folder}")
-
-    n_nodes = len(points[0])
-    for axis in points:
-        if len(axis) != n_nodes:
-            raise RuntimeError("coordinate arrays have inconsistent lengths")
-
-    return np.vstack(points)
-
-
-def load_connectivity(folder):
-    index_pattern = re.compile(r"^i(\d+)\.")
-    entries = []
-    for entry in os.listdir(folder):
-        match = index_pattern.match(entry)
-        if match:
-            entries.append((int(match.group(1)), os.path.join(folder, entry)))
-
-    if not entries:
-        raise RuntimeError(f"no connectivity files found in {folder}")
-
-    entries.sort(key=lambda item: item[0])
-    arrays = [read_array(path, default_dtype=idx_t).astype(idx_t) for _, path in entries]
-
-    n_elements = len(arrays[0])
-    for array in arrays:
-        if len(array) != n_elements:
-            raise RuntimeError("connectivity arrays have inconsistent lengths")
-
-    return np.column_stack(arrays)
-
-
-def load_block_ranges(folder, n_elements):
-    blocks_dir = os.path.join(folder, "blocks")
-    if not os.path.isdir(blocks_dir):
-        return [{"name": "block_1", "begin": 0, "end": n_elements}]
-
-    blocks = []
-    for entry in sorted(os.listdir(blocks_dir)):
-        path = os.path.join(blocks_dir, entry)
-        if not os.path.isfile(path):
-            continue
-        values = read_array(path, default_dtype=np.int64)
-        if len(values) != 2:
-            raise RuntimeError(f"invalid block range in {path}")
-        begin = int(values[0])
-        end = int(values[1])
-        if begin < 0 or end < begin or end > n_elements:
-            raise RuntimeError(f"invalid block bounds [{begin}, {end}) in {path}")
-        blocks.append({"name": strip_typed_suffix(entry), "begin": begin, "end": end})
-
-    if not blocks:
-        return [{"name": "block_1", "begin": 0, "end": n_elements}]
-
-    return blocks
-
-
-def load_sidesets(folder):
-    sidesets_dir = os.path.join(folder, "sidesets")
-    if not os.path.isdir(sidesets_dir):
-        return []
-
-    sidesets = []
-    for name in sorted(os.listdir(sidesets_dir)):
-        ss_dir = os.path.join(sidesets_dir, name)
-        if not os.path.isdir(ss_dir):
-            continue
-
-        lfi_path = None
-        parent_path = None
-        node_paths = []
-
-        for entry in sorted(os.listdir(ss_dir)):
-            path = os.path.join(ss_dir, entry)
-            if not os.path.isfile(path):
-                continue
-            stem = strip_typed_suffix(entry)
-            if stem == "lfi":
-                lfi_path = path
-            elif stem == "parent":
-                parent_path = path
-            else:
-                prefix = f"{name}."
-                if entry.startswith(prefix):
-                    suffix = entry[len(prefix) :]
-                    suffix = strip_typed_suffix(suffix)
-                    if suffix.isdigit():
-                        node_paths.append((int(suffix), path))
-
-        if lfi_path is None or parent_path is None:
-            raise RuntimeError(f"incomplete sideset data in {ss_dir}")
-
-        lfi = read_array(lfi_path, default_dtype=np.int16).astype(np.int16)
-        count = len(lfi)
-        parent = read_array(parent_path, default_dtype=element_idx_t, count=count).astype(
-            element_idx_t
-        )
-
-        node_paths.sort(key=lambda item: item[0])
-        node_columns = []
-        for _, path in node_paths:
-            node_columns.append(read_array(path, default_dtype=idx_t, count=count).astype(idx_t))
-
-        sidesets.append(
-            {
-                "name": name,
-                "parent": parent,
-                "lfi": lfi,
-                "nodes": node_columns,
-            }
-        )
-
-    return sidesets
-
-
-def load_nodesets(folder, sidesets):
-    nodesets_dir = os.path.join(folder, "nodesets")
-    nodesets = []
-
-    if os.path.isdir(nodesets_dir):
-        for entry in sorted(os.listdir(nodesets_dir)):
-            path = os.path.join(nodesets_dir, entry)
-            if os.path.isdir(path):
-                files = [
-                    os.path.join(path, child)
-                    for child in sorted(os.listdir(path))
-                    if os.path.isfile(os.path.join(path, child))
-                ]
-                candidates = []
-                for candidate in files:
-                    stem = strip_typed_suffix(os.path.basename(candidate))
-                    if stem in ("nodeset", "nodes", entry):
-                        candidates.append(candidate)
-                if not candidates:
-                    candidates = files
-                if not candidates:
-                    continue
-                data_path = candidates[0]
-                name = entry
-            else:
-                data_path = path
-                name = strip_typed_suffix(entry)
-
-            data = read_array(data_path, default_dtype=idx_t).astype(idx_t)
-            nodesets.append({"name": name, "nodes": np.unique(data)})
-
-        return nodesets
-
-    for sideset in sidesets:
-        if not sideset["nodes"]:
-            continue
-        combined = np.concatenate(sideset["nodes"])
-        nodesets.append({"name": sideset["name"], "nodes": np.unique(combined)})
-
-    return nodesets
-
-
-def drop_empty_sets(blocks, sidesets, nodesets):
-    filtered_blocks = [block for block in blocks if block["end"] > block["begin"]]
-    filtered_sidesets = [sideset for sideset in sidesets if len(sideset["parent"]) > 0]
-    filtered_nodesets = [nodeset for nodeset in nodesets if len(nodeset["nodes"]) > 0]
-    return filtered_blocks, filtered_sidesets, filtered_nodesets
-
-
 def load_time_whole(folder):
+    if not os.path.isdir(folder):
+        return None
     for entry in sorted(os.listdir(folder)):
         if not entry.startswith("time_whole."):
             continue
@@ -440,21 +125,23 @@ def string_matrix(values, string_len=LEN_STRING):
     return netCDF4.stringtochar(encoded)
 
 
-def write_field_names(dataset, var_name, dim_name, names):
-    if not names:
-        return None
-    dataset.createDimension(dim_name, len(names))
-    var = dataset.createVariable(var_name, "S1", (dim_name, "len_string"))
-    var[:, :] = string_matrix(names)
-    return var
+def _prop_ids(items, count):
+    ids = []
+    for i, item in enumerate(items):
+        if isinstance(item, dict):
+            exo_id = item.get("exodus_id")
+        else:
+            exo_id = getattr(item, "exodus_id", None)
+        ids.append(int(exo_id) if exo_id is not None else i + 1)
+    while len(ids) < count:
+        ids.append(len(ids) + 1)
+    return np.asarray(ids, dtype=np.int32)
 
 
 def write_exodus(
     output_mesh,
     title,
     points,
-    connectivity,
-    element_type,
     blocks,
     sidesets,
     nodesets,
@@ -465,19 +152,21 @@ def write_exodus(
     import netCDF4
 
     n_dim, n_nodes = points.shape
-    n_elem, nnodes_per_elem = connectivity.shape
-
-    _, element_info = normalize_element_type(element_type)
-    if nnodes_per_elem != element_info["nnodes"]:
-        raise RuntimeError(
-            f"connectivity width {nnodes_per_elem} does not match {element_type} ({element_info['nnodes']})"
-        )
+    n_elem = int(sum(block.connectivity.shape[0] for block in blocks))
+    n_blocks = len(blocks)
 
     time_whole = np.asarray(time_whole, dtype=np.float32)
     n_time_steps = len(time_whole)
 
     point_field_names = list(point_fields.keys())
     cell_field_names = list(cell_fields.keys())
+    coord_dtype = points.dtype if points.size else DEFAULT_GEOM_DTYPE
+
+    begins = []
+    offset = 0
+    for block in blocks:
+        begins.append(offset)
+        offset += int(block.connectivity.shape[0])
 
     with netCDF4.Dataset(output_mesh, "w", format="NETCDF3_64BIT_OFFSET") as nc:
         nc.title = title
@@ -488,7 +177,7 @@ def write_exodus(
         nc.createDimension("num_dim", n_dim)
         nc.createDimension("num_nodes", n_nodes)
         nc.createDimension("num_elem", n_elem)
-        nc.createDimension("num_el_blk", len(blocks))
+        nc.createDimension("num_el_blk", max(n_blocks, 0))
         nc.createDimension("len_string", LEN_STRING)
         nc.createDimension("len_line", LEN_LINE)
         nc.createDimension("four", 4)
@@ -505,21 +194,31 @@ def write_exodus(
         coor_names = nc.createVariable("coor_names", "S1", ("num_dim", "len_string"))
         coor_names[:, :] = string_matrix(["x", "y", "z"][:n_dim])
 
-        coord = nc.createVariable("coord", points.dtype, ("num_dim", "num_nodes"))
+        coord = nc.createVariable("coord", coord_dtype, ("num_dim", "num_nodes"))
         coord[:, :] = points
 
-        eb_status = nc.createVariable("eb_status", np.int32, ("num_el_blk",))
-        eb_status[:] = np.ones(len(blocks), dtype=np.int32)
+        if n_blocks:
+            eb_status = nc.createVariable("eb_status", np.int32, ("num_el_blk",))
+            eb_status[:] = np.ones(n_blocks, dtype=np.int32)
 
-        eb_prop1 = nc.createVariable("eb_prop1", np.int32, ("num_el_blk",))
-        eb_prop1.setncattr("name", "ID")
-        eb_prop1[:] = np.arange(1, len(blocks) + 1, dtype=np.int32)
+            eb_prop1 = nc.createVariable("eb_prop1", np.int32, ("num_el_blk",))
+            eb_prop1.setncattr("name", "ID")
+            eb_prop1[:] = _prop_ids(blocks, n_blocks)
 
-        eb_names = nc.createVariable("eb_names", "S1", ("num_el_blk", "len_string"))
-        eb_names[:, :] = string_matrix([block["name"] for block in blocks])
+            eb_names = nc.createVariable("eb_names", "S1", ("num_el_blk", "len_string"))
+            eb_names[:, :] = string_matrix([block.name for block in blocks])
 
         for block_index, block in enumerate(blocks, start=1):
-            block_size = block["end"] - block["begin"]
+            conn = np.asarray(block.connectivity)
+            smesh_type = smesh_element_type(block.element_type, nnodes=conn.shape[1])
+            exo_type = exodus_element_type(smesh_type)
+            info = ELEMENT_INFO[smesh_type]
+            if conn.shape[1] != info["nnodes"]:
+                raise RuntimeError(
+                    f"connectivity width {conn.shape[1]} does not match {smesh_type} ({info['nnodes']})"
+                )
+            block_size = int(conn.shape[0])
+            nnodes_per_elem = int(conn.shape[1])
             nc.createDimension(f"num_el_in_blk{block_index}", block_size)
             nc.createDimension(f"num_nod_per_el{block_index}", nnodes_per_elem)
             connect = nc.createVariable(
@@ -527,17 +226,9 @@ def write_exodus(
                 np.int32,
                 (f"num_el_in_blk{block_index}", f"num_nod_per_el{block_index}"),
             )
-            connect.setncattr("elem_type", element_info["exodus"])
-            block_connect = connectivity[block["begin"] : block["end"], :] + 1
-            connect[:, :] = block_connect.astype(np.int32)
-
-        if len(blocks) > 1:
-            for block_index, block in enumerate(blocks, start=1):
-                prop = nc.createVariable(f"eb_prop{block_index + 1}", np.int32, ("num_el_blk",))
-                prop.setncattr("name", block["name"])
-                values = np.zeros(len(blocks), dtype=np.int32)
-                values[block_index - 1] = block_index
-                prop[:] = values
+            connect.setncattr("elem_type", exo_type)
+            if block_size:
+                connect[:, :] = (conn.astype(np.int32, copy=False) + 1)
 
         if point_field_names:
             nc.createDimension("num_nod_var", len(point_field_names))
@@ -567,20 +258,20 @@ def write_exodus(
                 np.int32,
                 ("num_el_blk", "num_elem_var"),
             )
-            elem_var_tab[:, :] = np.ones((len(blocks), len(cell_field_names)), dtype=np.int32)
+            elem_var_tab[:, :] = np.ones((n_blocks, len(cell_field_names)), dtype=np.int32)
 
             for var_index, name in enumerate(cell_field_names, start=1):
                 first = cell_fields[name][0]
                 for block_index, block in enumerate(blocks, start=1):
+                    begin = begins[block_index - 1]
+                    end = begin + int(block.connectivity.shape[0])
                     values = nc.createVariable(
                         f"vals_elem_var{var_index}eb{block_index}",
                         first.dtype,
                         ("time_step", f"num_el_in_blk{block_index}"),
                     )
                     for time_index in range(n_time_steps):
-                        values[time_index, :] = cell_fields[name][time_index][
-                            block["begin"] : block["end"]
-                        ]
+                        values[time_index, :] = cell_fields[name][time_index][begin:end]
 
         if sidesets:
             ss_status = nc.createVariable("ss_status", np.int32, ("num_side_sets",))
@@ -588,7 +279,7 @@ def write_exodus(
 
             ss_prop1 = nc.createVariable("ss_prop1", np.int32, ("num_side_sets",))
             ss_prop1.setncattr("name", "ID")
-            ss_prop1[:] = np.arange(1, len(sidesets) + 1, dtype=np.int32)
+            ss_prop1[:] = _prop_ids(sidesets, len(sidesets))
 
             ss_names = nc.createVariable("ss_names", "S1", ("num_side_sets", "len_string"))
             ss_names[:, :] = string_matrix([sideset["name"] for sideset in sidesets])
@@ -597,6 +288,10 @@ def write_exodus(
                 size = len(sideset["parent"])
                 if len(sideset["lfi"]) != size:
                     raise RuntimeError(f"sideset '{sideset['name']}' has inconsistent lengths")
+                ss_status[ss_index - 1] = 1 if size > 0 else 0
+                # netCDF3 treats size 0 as NC_UNLIMITED (already used by time_step).
+                if size == 0:
+                    continue
 
                 nc.createDimension(f"num_side_ss{ss_index}", size)
                 elem_ss = nc.createVariable(
@@ -609,8 +304,8 @@ def write_exodus(
                     np.int32,
                     (f"num_side_ss{ss_index}",),
                 )
-                elem_ss[:] = sideset["parent"].astype(np.int64) + 1
-                side_ss[:] = sideset["lfi"].astype(np.int16) + 1
+                elem_ss[:] = np.asarray(sideset["parent"], dtype=np.int64) + 1
+                side_ss[:] = np.asarray(sideset["lfi"], dtype=np.int16) + 1
 
         if nodesets:
             ns_status = nc.createVariable("ns_status", np.int32, ("num_node_sets",))
@@ -618,13 +313,16 @@ def write_exodus(
 
             ns_prop1 = nc.createVariable("ns_prop1", np.int32, ("num_node_sets",))
             ns_prop1.setncattr("name", "ID")
-            ns_prop1[:] = np.arange(1, len(nodesets) + 1, dtype=np.int32)
+            ns_prop1[:] = _prop_ids(nodesets, len(nodesets))
 
             ns_names = nc.createVariable("ns_names", "S1", ("num_node_sets", "len_string"))
-            ns_names[:, :] = string_matrix([nodeset["name"] for nodeset in nodesets])
+            ns_names[:, :] = string_matrix([nodeset.name for nodeset in nodesets])
 
             for ns_index, nodeset in enumerate(nodesets, start=1):
-                nodes = np.unique(nodeset["nodes"].astype(np.int64))
+                nodes = unique_preserve_order(np.asarray(nodeset.nodes, dtype=np.int64))
+                ns_status[ns_index - 1] = 1 if nodes.size > 0 else 0
+                if nodes.size == 0:
+                    continue
                 nc.createDimension(f"num_nod_ns{ns_index}", len(nodes))
                 node_ns = nc.createVariable(
                     f"node_ns{ns_index}",
@@ -635,20 +333,32 @@ def write_exodus(
 
 
 def raw_to_exodusII(input_folder, output_mesh, title=None):
-    meta = read_simple_meta(os.path.join(input_folder, "meta.yaml"))
-    points = load_points(input_folder)
-    connectivity = load_connectivity(input_folder)
-    element_type = resolve_element_type(meta, connectivity.shape[1])
-    connectivity, element_type = prepare_exodus_hex27_connectivity(
-        connectivity, element_type
-    )
-    blocks = load_block_ranges(input_folder, connectivity.shape[0])
-    sidesets = load_sidesets(input_folder)
-    nodesets = load_nodesets(input_folder, sidesets)
-    blocks, sidesets, nodesets = drop_empty_sets(blocks, sidesets, nodesets)
+    mesh = load_raw_mesh(input_folder)
+    for block in mesh.blocks:
+        conn, element_type = prepare_exodus_hex27_connectivity(
+            block.connectivity, block.element_type
+        )
+        block.connectivity = conn
+        block.element_type = element_type
 
-    point_fields = load_field_series(os.path.join(input_folder, "point_data"), points.shape[1])
-    cell_fields = load_field_series(os.path.join(input_folder, "cell_data"), connectivity.shape[0])
+    offsets = mesh.element_offsets()
+    sidesets = sidesets_to_global(mesh.sidesets, offsets)
+    sidesets.sort(
+        key=lambda item: (
+            item["exodus_id"] is None,
+            int(item["exodus_id"]) if item["exodus_id"] is not None else 0,
+        )
+    )
+    nodesets = sorted(
+        mesh.nodesets,
+        key=lambda item: (
+            item.exodus_id is None,
+            int(item.exodus_id) if item.exodus_id is not None else 0,
+        ),
+    )
+
+    point_fields = load_field_series(os.path.join(input_folder, "point_data"), mesh.n_nodes)
+    cell_fields = load_field_series(os.path.join(input_folder, "cell_data"), mesh.n_elements)
     time_whole = load_time_whole(input_folder)
     time_whole, _ = align_time_series(point_fields, cell_fields, time_whole)
 
@@ -658,10 +368,8 @@ def raw_to_exodusII(input_folder, output_mesh, title=None):
     write_exodus(
         output_mesh=output_mesh,
         title=title,
-        points=points,
-        connectivity=connectivity,
-        element_type=element_type,
-        blocks=blocks,
+        points=mesh.points,
+        blocks=mesh.blocks,
         sidesets=sidesets,
         nodesets=nodesets,
         point_fields=point_fields,

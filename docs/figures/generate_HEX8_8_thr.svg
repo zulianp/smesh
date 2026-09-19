@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" viewBox="0 0 640 420">
+<style>text{font-family:Helvetica,Arial,sans-serif;font-size:12px;fill:#222} .muted{fill:#666;font-size:11px}</style>
+<rect x="0" y="0" width="640" height="420" fill="#fff"/>
+<rect x="72.0" y="24.0" width="544.0" height="340.0" fill="#fafafa" stroke="#ccc"/>
+<line x1="344.0" y1="24.0" x2="344.0" y2="364.0" stroke="#eee"/>
+<text class="muted" x="344.0" y="380.0" text-anchor="middle">1</text>
+<line x1="72.0" y1="364.0" x2="616.0" y2="364.0" stroke="#eee"/>
+<text class="muted" x="64.0" y="368.0" text-anchor="end">20.7</text>
+<line x1="72.0" y1="279.0" x2="616.0" y2="279.0" stroke="#eee"/>
+<text class="muted" x="64.0" y="283.0" text-anchor="end">21.9</text>
+<line x1="72.0" y1="194.0" x2="616.0" y2="194.0" stroke="#eee"/>
+<text class="muted" x="64.0" y="198.0" text-anchor="end">23.1</text>
+<line x1="72.0" y1="109.0" x2="616.0" y2="109.0" stroke="#eee"/>
+<text class="muted" x="64.0" y="113.0" text-anchor="end">24.2</text>
+<line x1="72.0" y1="24.0" x2="616.0" y2="24.0" stroke="#eee"/>
+<text class="muted" x="64.0" y="28.0" text-anchor="end">25.4</text>
+<circle cx="344.0" cy="194.0" r="4" fill="#0b6e99"/>
+<text x="344.0" y="408.0" text-anchor="middle">MPI ranks (1 rank / socket, 72 OMP threads)</text>
+<text x="16" y="194.0" text-anchor="middle" transform="rotate(-90 16 194.0)">Melem/s</text>
+</svg>

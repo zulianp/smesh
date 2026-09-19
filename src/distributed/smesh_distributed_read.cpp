@@ -51,6 +51,10 @@ template int mesh_coordinates_from_folder<f32>(
     MPI_Comm comm, const Path &folder, int *spatial_dim_out, f32 ***points_out,
     ptrdiff_t *n_local_nodes_out, ptrdiff_t *n_global_nodes_out);
 
+template int mesh_coordinates_from_folder<f64>(
+    MPI_Comm comm, const Path &folder, int *spatial_dim_out, f64 ***points_out,
+    ptrdiff_t *n_local_nodes_out, ptrdiff_t *n_global_nodes_out);
+
 template int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
                                     int *nnodesxelem_out, i32 ***const elems,
                                     ptrdiff_t *const n_local_elements_out,
@@ -63,9 +67,15 @@ template int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
 SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i32, f32, i32);
 SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i32, f32, i64);
 SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i64, f32, i64);
+SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i32, f64, i32);
+SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i32, f64, i64);
+SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i64, f64, i64);
 SMESH_EXPLICIT_INSTANTIATE_MESH_CREATE_PARALLEL(i32, f32, i32);
 SMESH_EXPLICIT_INSTANTIATE_MESH_CREATE_PARALLEL(i32, f32, i64);
 SMESH_EXPLICIT_INSTANTIATE_MESH_CREATE_PARALLEL(i64, f32, i64);
+SMESH_EXPLICIT_INSTANTIATE_MESH_CREATE_PARALLEL(i32, f64, i32);
+SMESH_EXPLICIT_INSTANTIATE_MESH_CREATE_PARALLEL(i32, f64, i64);
+SMESH_EXPLICIT_INSTANTIATE_MESH_CREATE_PARALLEL(i64, f64, i64);
 } // namespace smesh
 
 #undef SMESH_EXPLICIT_INSTANTIATE_MESH_CREATE_PARALLEL

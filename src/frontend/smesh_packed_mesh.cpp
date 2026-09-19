@@ -29,14 +29,23 @@ public:
   SharedBuffer<idx_t> ghost_reduce_dest;
 
   int write(const Path &path) const {
+    // `ptrdiff_t` has no TypeToString specialization: it cannot have one
+    // portably, because on LP64 Linux it is the same type as i64 (both `long`)
+    // while on macOS it is `long` and i64 is `long long`. Left unspecialized it
+    // falls back to "raw", which would name these files differently per
+    // platform, so name them by the i64 they actually are.
+    static_assert(sizeof(ptrdiff_t) == sizeof(i64),
+                  "ptrdiff_t arrays are written as int64");
+    const std::string ptrdiff_ext = std::string(TypeToString<i64>::value());
+
     packed_elements->to_files(path / ("i%d." + std::string(TypeToString<pack_idx_t>::value())));
-    owned_nodes_ptr->to_file(path / ("owned_nodes_ptr." + std::string(TypeToString<ptrdiff_t>::value())));
-    n_shared->to_file(path / ("n_shared." + std::string(TypeToString<ptrdiff_t>::value())));
-    ghost_ptr->to_file(path / ("ghost_ptr." + std::string(TypeToString<ptrdiff_t>::value())));
+    owned_nodes_ptr->to_file(path / ("owned_nodes_ptr." + ptrdiff_ext));
+    n_shared->to_file(path / ("n_shared." + ptrdiff_ext));
+    ghost_ptr->to_file(path / ("ghost_ptr." + ptrdiff_ext));
     ghost_idx->to_file(path / ("ghost_idx." + std::string(TypeToString<idx_t>::value())));
     if (ghost_reduce_ptr) {
-      ghost_reduce_ptr->to_file(path / ("ghost_reduce_ptr." + std::string(TypeToString<ptrdiff_t>::value())));
-      ghost_reduce_idx->to_file(path / ("ghost_reduce_idx." + std::string(TypeToString<ptrdiff_t>::value())));
+      ghost_reduce_ptr->to_file(path / ("ghost_reduce_ptr." + ptrdiff_ext));
+      ghost_reduce_idx->to_file(path / ("ghost_reduce_idx." + ptrdiff_ext));
       ghost_reduce_dest->to_file(path / ("ghost_reduce_dest." + std::string(TypeToString<idx_t>::value())));
     }
     return SMESH_SUCCESS;
@@ -478,6 +487,11 @@ public:
 template <typename pack_idx_t>
 std::shared_ptr<Mesh> PackedMesh<pack_idx_t>::mesh() const {
   return impl_->mesh;
+}
+
+template <typename pack_idx_t>
+SharedBuffer<idx_t> PackedMesh<pack_idx_t>::node_map() const {
+  return impl_->node_map;
 }
 
 template <typename pack_idx_t> ptrdiff_t PackedMesh<pack_idx_t>::n_blocks() const {

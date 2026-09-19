@@ -1,0 +1,4 @@
+kernel,elem_type,nx,n_elements,n_nodes,n_elements_out,n_nodes_out,mpi_ranks,slurm_nodes,omp_threads,repeat,time_s,melems_s,bytes,gib_s,job_id,host
+generate,HEX8,8,512,729,512,729,1,0,1,0,0.000373958,1.36914,25132,0.0625899,,MacBookPro.usilu.net
+generate,HEX8,8,512,729,512,729,1,0,1,1,1.28746e-05,39.7682,25132,1.818,,MacBookPro.usilu.net
+generate,HEX8,8,512,729,512,729,1,0,1,2,2.22079e-05,23.0549,25132,1.05395,,MacBookPro.usilu.net

@@ -6,6 +6,8 @@
 #include "smesh_types.hpp"
 
 #include <memory>
+#include <string>
+#include <vector>
 namespace smesh {
 
 class SFC {
@@ -14,7 +16,7 @@ public:
   SFC(const std::string &ordering_type);
   ~SFC();
 
-  int reorder(Mesh &mesh);
+  int reorder(Mesh &mesh, const std::vector<std::shared_ptr<Sideset>> &sidesets = {});
 
   static std::shared_ptr<SFC> create_from_env();
 

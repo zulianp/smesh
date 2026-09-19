@@ -353,9 +353,11 @@ int p1_to_p2(const enum ElemType element_type, const ptrdiff_t n_elements,
              const count_t *const SMESH_RESTRICT n2n_ptr,
              const idx_t *const SMESH_RESTRICT n2n_idx,
              idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT p2_elements,
-             geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT p2_points) {
+             geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT p2_points,
+             const ptrdiff_t elem_offset) {
   if (element_type != TET4 && element_type != TRI3 &&
-      element_type != TRISHELL3) {
+      element_type != TRISHELL3 && element_type != QUAD4 &&
+      element_type != QUADSHELL4) {
     SMESH_ERROR("p1_to_p2: unsupported element_type %d\n", element_type);
     return SMESH_FAILURE;
   }
@@ -441,6 +443,30 @@ int p1_to_p2(const enum ElemType element_type, const ptrdiff_t n_elements,
         p2_elements[l + p1_nxe][e] = edge_idx[row_begin + k];
       }
     }
+  } else if (element_type == QUAD4 || element_type == QUADSHELL4) {
+    for (ptrdiff_t e = 0; e < n_elements; e++) {
+      idx_t row[4];
+      row[0] = std::min(p2_elements[0][e], p2_elements[1][e]);
+      row[1] = std::min(p2_elements[1][e], p2_elements[2][e]);
+      row[2] = std::min(p2_elements[2][e], p2_elements[3][e]);
+      row[3] = std::min(p2_elements[3][e], p2_elements[0][e]);
+
+      idx_t key[4];
+      key[0] = std::max(p2_elements[0][e], p2_elements[1][e]);
+      key[1] = std::max(p2_elements[1][e], p2_elements[2][e]);
+      key[2] = std::max(p2_elements[2][e], p2_elements[3][e]);
+      key[3] = std::max(p2_elements[3][e], p2_elements[0][e]);
+
+      for (int l = 0; l < 4; l++) {
+        const idx_t r = row[l];
+        const count_t row_begin = n2n_ptr[r];
+        const count_t len_row = n2n_ptr[r + 1] - row_begin;
+        const idx_t *cols = &n2n_idx[row_begin];
+        const idx_t k = binary_search(key[l], cols, len_row);
+        p2_elements[l + p1_nxe][e] = edge_idx[row_begin + k];
+      }
+      p2_elements[8][e] = next_id + elem_offset + e;
+    }
   }
 
   for (ptrdiff_t i = 0; i < p1_n_nodes; i++) {
@@ -458,6 +484,18 @@ int p1_to_p2(const enum ElemType element_type, const ptrdiff_t n_elements,
           const geom_t xj = p2_points[d][j];
           p2_points[d][nidx] = (xi + xj) / 2;
         }
+      }
+    }
+  }
+
+  if (element_type == QUAD4 || element_type == QUADSHELL4) {
+    for (ptrdiff_t e = 0; e < n_elements; e++) {
+      const idx_t cid = p2_elements[8][e];
+      for (int d = 0; d < spatial_dim; d++) {
+        p2_points[d][cid] =
+            (p1_points[d][p1_elements[0][e]] + p1_points[d][p1_elements[1][e]] +
+             p1_points[d][p1_elements[2][e]] + p1_points[d][p1_elements[3][e]]) /
+            geom_t(4);
       }
     }
   }

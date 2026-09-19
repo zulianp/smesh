@@ -25,6 +25,12 @@ void mesh_wedge6_to_3x_tet4(
     idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT tet4_elements);
 
 template <typename idx_t>
+void mesh_pyramid5_to_2x_tet4(
+    const ptrdiff_t n_elements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT pyramid5_elements,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT tet4_elements);
+
+template <typename idx_t>
 void mesh_quad4_to_2x_tri3(
     const ptrdiff_t n_elements,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT quad4_elements,

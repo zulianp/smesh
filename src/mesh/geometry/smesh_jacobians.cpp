@@ -3,6 +3,20 @@
 namespace smesh {
 
 #define SMESH_EXPLICIT_INSTANTIATE_JACOBIANS(AdjugateType, DeterminantType)    \
+  template int tri3_adjugate_fill<AdjugateType, DeterminantType>(              \
+      const ptrdiff_t nelements,                                               \
+      const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,        \
+      const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,         \
+      const ptrdiff_t stride,                                                  \
+      AdjugateType *const SMESH_RESTRICT *const SMESH_RESTRICT adjugate,       \
+      DeterminantType *const SMESH_RESTRICT determinant);                      \
+  template int quad4_adjugate_fill<AdjugateType, DeterminantType>(             \
+      const ptrdiff_t nelements,                                               \
+      const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,        \
+      const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,         \
+      const geom_t qx, const geom_t qy, const ptrdiff_t stride,                 \
+      AdjugateType *const SMESH_RESTRICT *const SMESH_RESTRICT adjugate,       \
+      DeterminantType *const SMESH_RESTRICT determinant);                      \
   template int tet4_adjugate_fill<AdjugateType, DeterminantType>(              \
       const ptrdiff_t nelements,                                               \
       const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,        \
@@ -29,6 +43,8 @@ namespace smesh {
 
 SMESH_EXPLICIT_INSTANTIATE_JACOBIANS(f32, f32);
 SMESH_EXPLICIT_INSTANTIATE_JACOBIANS(f16, f32);
+SMESH_EXPLICIT_INSTANTIATE_JACOBIANS(f32, f64);
+SMESH_EXPLICIT_INSTANTIATE_JACOBIANS(f16, f64);
 
 #undef SMESH_EXPLICIT_INSTANTIATE_JACOBIANS
 

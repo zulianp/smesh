@@ -16,7 +16,7 @@ int barycenters(
 #pragma omp parallel for
   for (ptrdiff_t e = 0; e < n_elements; e++) {
     geom_t barycenter[3];
-    for (int d = 0; d < spatial_dim; d++) {
+    for (int d = 0; d < 3; d++) {
       barycenter[d] = 0;
     }
 
@@ -28,7 +28,7 @@ int barycenters(
       barycenter[d] /= nxe;
     }
 
-    for (int d = 0; d < 3; d++) {
+    for (int d = 0; d < spatial_dim; d++) {
       barycenters[d][e] = barycenter[d];
     }
   }

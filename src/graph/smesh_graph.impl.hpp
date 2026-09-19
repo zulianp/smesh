@@ -8,6 +8,7 @@
 #include "smesh_base.hpp"
 #include "smesh_sort.hpp"
 
+#include "smesh_refine.hpp"
 #include "smesh_ssquad4_graph.hpp"
 
 #include <math.h>
@@ -143,17 +144,6 @@ static int create_n2e_for_elem_type(
   memset(book_keeping, 0, (nnodes) * sizeof(int));
 
   if (element_type == MACRO_TET4) {
-    static const int tet4_refine_pattern[8][4] = {// Corner tests
-                                                  {0, 4, 6, 7},
-                                                  {4, 1, 5, 8},
-                                                  {6, 5, 2, 9},
-                                                  {7, 8, 9, 3},
-                                                  // Octahedron tets
-                                                  {4, 5, 6, 8},
-                                                  {7, 4, 6, 8},
-                                                  {6, 5, 9, 8},
-                                                  {7, 6, 9, 8}};
-
     for (int sub_elem = 0; sub_elem < 8; sub_elem++) {
       for (int sub_elem_node = 0; sub_elem_node < 4; ++sub_elem_node) {
         int node_number = tet4_refine_pattern[sub_elem][sub_elem_node];
@@ -554,13 +544,6 @@ static int create_dual_graph_from_n2e(
     n_nodes_per_elem = 4;
   }
 
-  enum ElemType st = side_type(element_type);
-  int n_nodes_per_side = elem_num_nodes(st);
-
-  if (element_type == TET10) {
-    n_nodes_per_side = 3;
-  }
-
 #ifdef SMESH_ENABLE_MEM_DIAGNOSTICS
   printf("create_dual_graph_from_n2e: allocating %g GB\n",
          (n_elements + 1) * sizeof(count_t) * 1e-9);
@@ -615,7 +598,7 @@ static int create_dual_graph_from_n2e(
       int overlap = connection_counter[l];
       assert(overlap <= n_nodes_per_elem);
 
-      if (overlap == n_nodes_per_side) {
+      if (elem_overlap_is_full_side(element_type, overlap)) {
         elist[actual_count++] = l;
       }
 

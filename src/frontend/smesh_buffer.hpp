@@ -7,6 +7,7 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <type_traits>
 
 #include "smesh_base.hpp"
 #include "smesh_read.hpp"
@@ -145,14 +146,26 @@ namespace smesh {
     template <typename T>
     std::shared_ptr<Buffer<T>> sub(const std::shared_ptr<Buffer<T *>> &buffer, const size_t i0);
 
+    /// Return `in` with element type O.
+    ///
+    /// When O differs from the input element type a new buffer is always allocated.
+    /// When the types already match the input buffer is returned *as is*, so the
+    /// result aliases `in` and writing through it modifies the original. Pass
+    /// `duplicate = true` whenever the result will be written to; then a copy is
+    /// returned regardless of whether a conversion was needed, so the call behaves
+    /// the same way in every build (in particular independently of whether geom_t
+    /// and real_t happen to be the same type).
     template <typename O>
-    std::shared_ptr<Buffer<O>> astype(const std::shared_ptr<Buffer<O>> &in);
+    std::shared_ptr<Buffer<O>> astype(const std::shared_ptr<Buffer<O>> &in, const bool duplicate = false);
 
-    template <typename O, typename I>
-    std::shared_ptr<Buffer<O>> astype(const std::shared_ptr<Buffer<I>> &in);
+    template <typename O, typename I, typename = std::enable_if_t<!std::is_same<O, I>::value>>
+    std::shared_ptr<Buffer<O>> astype(const std::shared_ptr<Buffer<I>> &in, const bool duplicate = false);
 
-    template <typename O, typename I>
-    std::shared_ptr<Buffer<O *>> astype(const std::shared_ptr<Buffer<I *>> &in);
+    template <typename O>
+    std::shared_ptr<Buffer<O *>> astype(const std::shared_ptr<Buffer<O *>> &in, const bool duplicate = false);
+
+    template <typename O, typename I, typename = std::enable_if_t<!std::is_same<O, I>::value>>
+    std::shared_ptr<Buffer<O *>> astype(const std::shared_ptr<Buffer<I *>> &in, const bool duplicate = false);
 
     template <typename T>
     std::shared_ptr<Buffer<T *>> copy(const std::shared_ptr<Buffer<T *>> &buffer);
