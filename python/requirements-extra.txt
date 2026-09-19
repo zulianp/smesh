@@ -1,0 +1,15 @@
+# Optional Python tools used outside the documented converters.
+# Converters only need python/requirements.txt.
+-r requirements.txt
+gmsh
+gmsh-interop
+h5
+h5py
+matplotlib
+matplotlib-inline
+numba
+rich
+scipy
+sympy
+taichi
+nanobind

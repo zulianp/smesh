@@ -44,8 +44,8 @@ function(SMESH_REQUIRE_MPISORT_SOURCES mpi_sort_dir)
     if(NOT _smesh_mpi_sort_available)
         message(FATAL_ERROR
             "Incomplete mpi-sort checkout at ${mpi_sort_dir}. "
-            "Run `git submodule update --init --recursive external/smesh/external/mpi-sort` "
-            "from the SFEM source tree before configuring with SMESH_ENABLE_MPI.")
+            "Run `git submodule update --init --recursive external/mpi-sort` "
+            "before configuring with SMESH_ENABLE_MPI.")
     endif()
 endfunction()
 

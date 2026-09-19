@@ -11,7 +11,7 @@
 namespace smesh {
 
 /// Unstructured `refine()` contract: HEX8, TET4, TRI3/TRISHELL3, QUAD4/QUADSHELL4,
-/// WEDGE6, EDGE2/EDGESHELL2 (see REFINE.md).
+/// WEDGE6, EDGE2/EDGESHELL2 (see wip/REFINE.md).
 inline bool refine_is_tri_family(const enum ElemType t) {
     return t == TRI3 || t == TRISHELL3;
 }
