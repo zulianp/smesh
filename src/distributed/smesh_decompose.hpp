@@ -10,9 +10,23 @@
 
 namespace smesh {
 
+// These three functions define one partition of [0, n) over comm_size ranks and must agree
+// exactly: rank_start gives where a rank's block begins, rank_split how long it is, and
+// rank_owner which rank a global index falls in. The layout is that the first
+// `n % comm_size` ranks take one extra entry each.
+//
+// n < comm_size is a real case, not a misuse: a coarse multigrid level has far fewer nodes
+// and elements than a full node has ranks, and the id spaces derived from them are passed
+// here unchanged. The assertion that used to stand in for handling it is compiled out of
+// every -DNDEBUG build, leaving `n / comm_size` to evaluate to zero and the arithmetic
+// below to divide by it. Giving the first n ranks one entry each and the rest none keeps
+// the three consistent, and matches what id_space_size already does where it is used.
+
 inline ptrdiff_t rank_split(const ptrdiff_t n, const int comm_size,
                             const int comm_rank) {
-  SMESH_ASSERT(n >= comm_size);
+  SMESH_ASSERT(comm_size > 0);
+  SMESH_ASSERT(comm_rank >= 0 && comm_rank < comm_size);
+
   ptrdiff_t uniform_split = n / comm_size;
   ptrdiff_t nlocal = uniform_split;
   ptrdiff_t remainder = n - nlocal * comm_size;
@@ -26,7 +40,9 @@ inline ptrdiff_t rank_split(const ptrdiff_t n, const int comm_size,
 
 inline ptrdiff_t rank_start(const ptrdiff_t n, const int comm_size,
                             const int comm_rank) {
-  SMESH_ASSERT(n >= comm_size);
+  SMESH_ASSERT(comm_size > 0);
+  SMESH_ASSERT(comm_rank >= 0 && comm_rank <= comm_size);
+
   ptrdiff_t uniform_split = n / comm_size;
   ptrdiff_t remainder = n - uniform_split * comm_size;
 
@@ -35,37 +51,60 @@ inline ptrdiff_t rank_start(const ptrdiff_t n, const int comm_size,
   return rank_start;
 }
 
+/// The exact inverse of rank_start: which rank owns global index gidx.
+///
+/// rank_start lays the range out as `r * uniform_split + min(r, remainder)`, so the first
+/// `remainder` ranks hold `uniform_split + 1` entries each and the rest hold
+/// `uniform_split`. Dividing gidx by uniform_split alone is therefore not the inverse: it
+/// ignores the wider blocks at the front and overshoots, and a single `rank -= 1` cannot
+/// correct an overshoot of more than one rank. Swept over the (n, comm_size) pairs this
+/// code actually sees, the previous form returned a rank equal to comm_size for 2915
+/// global indices: n=512 at 288 ranks returns 288 for 223 of its 512 indices, and n=729 at
+/// 256 ranks returns 256 for 215 of them. The overshoot appears and disappears as
+/// comm_size grows rather than worsening monotonically, which is what makes it look like a
+/// problem-size effect when it is arithmetic.
+///
+/// It mattered because callers use the result as an array index without checking it.
+/// `send_displs[rank_owner(...) + 1]++` then writes one past the end of a
+/// SMESH_CALLOC(comm_size + 1) buffer, which corrupts the heap rather than failing: the
+/// symptom is glibc reporting "munmap_chunk(): invalid pointer" or "corrupted size vs.
+/// prev_size" from some later free, with nothing pointing back at the write. Every
+/// SMESH_ASSERT here is compiled out under -DNDEBUG, which is how a release build reaches
+/// the allocator without tripping a check.
+///
+/// Splitting at the boundary between the two block sizes gives the inverse directly.
 inline int rank_owner(const ptrdiff_t n, const ptrdiff_t gidx,
                       const int comm_size) {
+  SMESH_ASSERT(gidx >= 0);
   SMESH_ASSERT(gidx < n);
-  SMESH_ASSERT(n >= comm_size);
-  ptrdiff_t uniform_split = n / comm_size;
-  ptrdiff_t remainder = n - uniform_split * comm_size;
+  SMESH_ASSERT(comm_size > 0);
 
-  ptrdiff_t rank = gidx / uniform_split;
-  ptrdiff_t rank_start = rank * uniform_split + std::min(rank, remainder);
+  const ptrdiff_t uniform_split = n / comm_size;
+  const ptrdiff_t remainder = n - uniform_split * comm_size;
 
-  if (gidx >= rank_start) {
-#ifndef NDEBUG
-    ptrdiff_t rank_end =
-        rank_start + uniform_split + (ptrdiff_t)(rank < remainder);
-    SMESH_ASSERT(gidx < rank_end);
-    SMESH_ASSERT(rank < comm_size);
-#endif
-    return rank;
-  } else {
-    rank -= 1;
-#ifndef NDEBUG
-    ptrdiff_t rank_start = rank * uniform_split + std::min(rank, remainder);
-    ptrdiff_t rank_end =
-        rank_start + uniform_split + (ptrdiff_t)(rank < remainder);
-
-    SMESH_ASSERT(gidx >= rank_start);
-    SMESH_ASSERT(gidx < rank_end);
-    SMESH_ASSERT(rank < comm_size);
-#endif
-    return rank;
+  // Fewer indices than ranks: rank_split gives the first n ranks one index each and the
+  // rest none, so index i belongs to rank i. The trailing empty ranks own nothing and are
+  // never named here.
+  if (uniform_split == 0) {
+    return (int)gidx;
   }
+
+  // The first `remainder` ranks own uniform_split + 1 entries and so cover
+  // [0, remainder * (uniform_split + 1)); above that the blocks are uniform_split wide.
+  const ptrdiff_t wide_end = remainder * (uniform_split + 1);
+  const ptrdiff_t rank = gidx < wide_end
+                             ? gidx / (uniform_split + 1)
+                             : remainder + (gidx - wide_end) / uniform_split;
+
+#ifndef NDEBUG
+  const ptrdiff_t start = rank * uniform_split + std::min(rank, remainder);
+  const ptrdiff_t end = start + uniform_split + (ptrdiff_t)(rank < remainder);
+  SMESH_ASSERT(gidx >= start);
+  SMESH_ASSERT(gidx < end);
+  SMESH_ASSERT(rank >= 0);
+  SMESH_ASSERT(rank < comm_size);
+#endif
+  return (int)rank;
 }
 
 template <typename idx_t, typename count_t, typename element_idx_t>
