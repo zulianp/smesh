@@ -24,7 +24,16 @@ namespace smesh {
     using large_idx_t   = i64;
     using large_count_t = i64;
 
-#if defined(__APPLE__)
+#if defined(__EMSCRIPTEN__)
+// FIXME
+    struct f16 {
+        u16 bits;
+        constexpr f16() : bits(0) {}
+        template <typename T, typename = std::enable_if_t<std::is_arithmetic_v<T>>>
+        constexpr f16(const T value) : bits(static_cast<u16>(value)) {}
+        constexpr operator float() const { return static_cast<float>(bits); }
+    };
+#elif defined(__APPLE__)
     using f16 = __fp16;
 #else
     using f16 = _Float16;

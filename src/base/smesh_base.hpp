@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#ifdef __GNUC__
+#if defined(__GNUC__) && !defined(__EMSCRIPTEN__)
 #include <execinfo.h>
 #include <sys/time.h>
 #endif

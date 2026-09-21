@@ -185,7 +185,12 @@ typedef char mask_t;
 
 #endif // SMESH_ENABLE_CUDA
 
-#if defined(__APPLE__)
+#if defined(__EMSCRIPTEN__)
+// FIXME
+struct half_t {
+    uint16_t bits;
+};
+#elif defined(__APPLE__)
 typedef __fp16 half_t;
 #else
 typedef _Float16 half_t;
