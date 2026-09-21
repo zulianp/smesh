@@ -426,6 +426,12 @@ public:
   /// carries nodes), n_bore ring layers to the bore, and n_outer ring layers to the
   /// expanded radius downstream only. The expansion face is an exterior face of the
   /// kept elements. Elements are not affine.
+  ///
+  /// `radial_grading` clusters the ring layers toward the bore wall and
+  /// `axial_grading` clusters each segment's planes toward its downstream break --
+  /// for this geometry, the throat and the expansion. Both are tanh stretches in
+  /// [0, 8]; both default to 0, which is the ungraded mesh bit for bit, not merely
+  /// to within a rounding error.
   static std::shared_ptr<Mesh> create_hex8_nozzle(
       const std::shared_ptr<Communicator> &comm,
       const std::vector<geom_t> &x_breaks,
@@ -433,7 +439,8 @@ public:
       const std::vector<ptrdiff_t> &n_axial, const ptrdiff_t expansion,
       const geom_t expanded_radius, const ptrdiff_t n_core,
       const ptrdiff_t n_bore, const ptrdiff_t n_outer,
-      const geom_t core_fraction = 0.5);
+      const geom_t core_fraction = 0.5, const geom_t radial_grading = 0,
+      const geom_t axial_grading = 0);
 
   /// Place every micro node of `sshex` -- a semi-structured mesh made by
   /// to_semistructured from create_hex8_nozzle with these same arguments -- on the
@@ -441,13 +448,17 @@ public:
   /// macro corners. The lattice is then create_hex8_nozzle at level times the
   /// resolution, node for node, and every coarser level of the hierarchy is on the
   /// nozzle too. Fails if a macro element is not a cell of that nozzle's grid.
+  /// Pass the SAME grading the mesh was created with: the micro nodes are placed by
+  /// the generator's own map, so a different grading puts them on chords of a
+  /// different nozzle and the corner check below rejects the mesh.
   static int warp_semistructured_hex8_nozzle(
       const std::shared_ptr<Mesh> &sshex, const std::vector<geom_t> &x_breaks,
       const std::vector<geom_t> &bore_radius,
       const std::vector<ptrdiff_t> &n_axial, const ptrdiff_t expansion,
       const geom_t expanded_radius, const ptrdiff_t n_core,
       const ptrdiff_t n_bore, const ptrdiff_t n_outer,
-      const geom_t core_fraction = 0.5);
+      const geom_t core_fraction = 0.5, const geom_t radial_grading = 0,
+      const geom_t axial_grading = 0);
 
   static std::shared_ptr<Mesh> create_semistructured_hex_cube(
       const std::shared_ptr<Communicator> &comm,

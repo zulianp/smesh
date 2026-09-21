@@ -49,6 +49,12 @@ namespace smesh {
         ptrdiff_t                  n_ghost_reduce_rows(const int block_idx) const;
         ptrdiff_t                  n_packs(const int block_idx) const;
         ptrdiff_t                  n_elements_per_pack(const int block_idx) const;
+        /// Elements the packs actually cover, which is NOT n_packs * n_elements_per_pack:
+        /// the last pack is short, and on a distributed mesh the packs span only the
+        /// owned-not-shared prefix of the block. Anything walking the packed element array
+        /// must bound itself by this rather than by the block's element count, or it reads
+        /// past the allocation on the last pack.
+        ptrdiff_t                  n_packed_elements(const int block_idx) const;
 
         ptrdiff_t max_nodes_per_pack() const;
 

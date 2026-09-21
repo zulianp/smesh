@@ -58,9 +58,11 @@ namespace smesh {
                                                    const ptrdiff_t                      n_core,
                                                    const ptrdiff_t                      n_bore,
                                                    const ptrdiff_t                      n_outer,
-                                                   const geom_t                         core_fraction) {
+                                                   const geom_t                         core_fraction,
+                                                   const geom_t                         radial_grading,
+                                                   const geom_t                         axial_grading) {
         if (!nozzle_arguments_valid(x_breaks, bore_radius, n_axial, expansion, expanded_radius, n_core, n_bore,
-                                    n_outer, core_fraction, "create_hex8_nozzle"))
+                                    n_outer, core_fraction, radial_grading, axial_grading, "create_hex8_nozzle"))
             return nullptr;
 #ifdef SMESH_ENABLE_MPI
         if (comm && comm->size() > 1) {
@@ -79,6 +81,8 @@ namespace smesh {
                                                               n_bore,
                                                               n_outer,
                                                               core_fraction,
+                                                              radial_grading,
+                                                              axial_grading,
                                                               &nxe,
                                                               &n_local_e,
                                                               &n_global_e,
@@ -100,7 +104,8 @@ namespace smesh {
         const ptrdiff_t n_segments    = (ptrdiff_t)n_axial.size();
         const bool      has_expansion = expansion >= 0 && expansion < n_segments;
 
-        const NozzleSection sec(n_core, n_bore, n_outer, has_expansion, (double)core_fraction);
+        const NozzleSection sec(n_core, n_bore, n_outer, has_expansion, (double)core_fraction,
+                                (double)radial_grading);
         const ptrdiff_t     n2d = sec.n2d;
         std::vector<double> by, bz, oy, oz;
         sec.reference(by, bz, oy, oz);
@@ -111,7 +116,7 @@ namespace smesh {
         std::vector<NozzleQuad> quads;
         nozzle_build_quads(sec, quads);
 
-        const NozzlePlanes pl(x_breaks, bore_radius, n_axial);
+        const NozzlePlanes pl(x_breaks, bore_radius, n_axial, (double)axial_grading);
         const ptrdiff_t    n_cells_x = pl.n_cells_x;
         const ptrdiff_t    n_planes  = pl.n_planes;
 
@@ -203,9 +208,12 @@ namespace smesh {
                                               const ptrdiff_t               n_core,
                                               const ptrdiff_t               n_bore,
                                               const ptrdiff_t               n_outer,
-                                              const geom_t                  core_fraction) {
+                                              const geom_t                  core_fraction,
+                                              const geom_t                  radial_grading,
+                                              const geom_t                  axial_grading) {
         if (!sshex || !nozzle_arguments_valid(x_breaks, bore_radius, n_axial, expansion, expanded_radius, n_core,
-                                              n_bore, n_outer, core_fraction, "warp_semistructured_hex8_nozzle"))
+                                              n_bore, n_outer, core_fraction, radial_grading, axial_grading,
+                                              "warp_semistructured_hex8_nozzle"))
             return SMESH_FAILURE;
         const int nxe = sshex->n_nodes_per_element(0);
         int       L   = (int)std::lround(std::cbrt((double)nxe)) - 1;
@@ -215,8 +223,9 @@ namespace smesh {
         }
         const ptrdiff_t n_segments    = (ptrdiff_t)n_axial.size();
         const bool      has_expansion = expansion >= 0 && expansion < n_segments;
-        const NozzleSection sec(n_core, n_bore, n_outer, has_expansion, (double)core_fraction);
-        const NozzlePlanes  pl(x_breaks, bore_radius, n_axial);
+        const NozzleSection sec(n_core, n_bore, n_outer, has_expansion, (double)core_fraction,
+                                (double)radial_grading);
+        const NozzlePlanes  pl(x_breaks, bore_radius, n_axial, (double)axial_grading);
         std::vector<double> by, bz, oy, oz;
         sec.reference(by, bz, oy, oz);
         const double R = has_expansion ? (double)expanded_radius : 0.0;
@@ -300,9 +309,12 @@ namespace smesh {
             const bool outer = !is_core && l_cell >= sec.n_bore;
 
             for (int zi = 0; zi <= L; ++zi) {
-                const double t  = (double)zi / (double)L;
-                const double px = (1 - t) * pl.plane_x[(size_t)k0] + t * pl.plane_x[(size_t)k0 + 1];
-                const double rb = (1 - t) * pl.plane_rb[(size_t)k0] + t * pl.plane_rb[(size_t)k0 + 1];
+                const double t = (double)zi / (double)L;
+                // Through the map at the fractional plane coordinate rather than by
+                // interpolating the two bounding planes: with grading on, the chord between
+                // them is not the nozzle.
+                double px, rb;
+                pl.at((double)k0 + t, px, rb);
                 for (int yi = 0; yi <= L; ++yi)
                     for (int xi = 0; xi <= L; ++xi) {
                         const double a = a0 + (double)xi / (double)L;

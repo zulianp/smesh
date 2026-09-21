@@ -4,6 +4,7 @@
 #include "smesh_distributed_base.hpp"
 #endif
 
+#include <cstring>
 #include <sstream>
 
 namespace smesh {
@@ -136,4 +137,35 @@ void Communicator::max(void *buffer, int count, enum PrimitiveType type) const {
   SMESH_UNUSED(type);
 #endif
 }
+
+void Communicator::allgather(const void *sendbuf, void *recvbuf, int count,
+                             enum PrimitiveType type) const {
+#ifdef SMESH_ENABLE_MPI
+  MPI_Allgather(const_cast<void *>(sendbuf), count,
+                mpi_type_from_primitive_type(type), recvbuf, count,
+                mpi_type_from_primitive_type(type), impl_->comm);
+#else
+  // Not a no-op, unlike the reductions above: with one rank the gathered result IS this
+  // rank's contribution, and leaving recvbuf alone would return uninitialised memory.
+  std::memcpy(recvbuf, sendbuf, (size_t)count * num_bytes(type));
+#endif
+}
+
+void Communicator::allgatherv(const void *sendbuf, int sendcount, void *recvbuf,
+                              const int *recvcounts, const int *displs,
+                              enum PrimitiveType type) const {
+#ifdef SMESH_ENABLE_MPI
+  MPI_Allgatherv(const_cast<void *>(sendbuf), sendcount,
+                 mpi_type_from_primitive_type(type), recvbuf,
+                 const_cast<int *>(recvcounts), const_cast<int *>(displs),
+                 mpi_type_from_primitive_type(type), impl_->comm);
+#else
+  // One rank: its block sits at displs[0], which a caller is free to make non-zero.
+  const size_t bytes = num_bytes(type);
+  std::memcpy(static_cast<char *>(recvbuf) + (size_t)displs[0] * bytes, sendbuf,
+              (size_t)sendcount * bytes);
+  SMESH_UNUSED(recvcounts);
+#endif
+}
+
 } // namespace smesh

@@ -12,7 +12,9 @@ template <typename Scalar>
 inline bool nozzle_arguments_valid(const std::vector<Scalar> &x_breaks, const std::vector<Scalar> &bore_radius,
                                    const std::vector<ptrdiff_t> &n_axial, const ptrdiff_t expansion,
                                    const Scalar expanded_radius, const ptrdiff_t n_core, const ptrdiff_t n_bore,
-                                   const ptrdiff_t n_outer, const Scalar core_fraction, const char *const who) {
+                                   const ptrdiff_t n_outer, const Scalar core_fraction,
+                                   const Scalar radial_grading, const Scalar axial_grading,
+                                   const char *const who) {
     const ptrdiff_t n_segments = (ptrdiff_t)n_axial.size();
     if (n_segments < 1 || (ptrdiff_t)x_breaks.size() != n_segments + 1 ||
         (ptrdiff_t)bore_radius.size() != n_segments + 1) {
@@ -37,6 +39,15 @@ inline bool nozzle_arguments_valid(const std::vector<Scalar> &x_breaks, const st
                     who);
         return false;
     }
+    // Zero is ungraded and is the default; negative would invert the stretch and fold the
+    // layers it is meant to cluster. The upper bound is not a taste: tanh(8) is 1 - 2.3e-7, so
+    // beyond it every interior layer lands on the wall to within single precision and the mesh
+    // degenerates silently instead of failing.
+    if (!(radial_grading >= 0) || !(axial_grading >= 0) || radial_grading > 8 || axial_grading > 8) {
+        SMESH_ERROR("%s: grading must lie in [0, 8]; got radial %g, axial %g", who,
+                    (double)radial_grading, (double)axial_grading);
+        return false;
+    }
     const bool has_expansion = expansion >= 0 && expansion < n_segments;
     if (has_expansion) {
         if (n_outer < 1) {
@@ -55,12 +66,33 @@ inline bool nozzle_arguments_valid(const std::vector<Scalar> &x_breaks, const st
     return true;
 }
 
+// A one-sided tanh stretch of a normalised coordinate, clustering cells toward t = 1. On the
+// ring layers that puts resolution at the bore wall; on the axial planes it puts it at the
+// downstream end of each segment, which for the FDA nozzle is the throat and the expansion --
+// the two places the gradients are.
+//
+// beta == 0 RETURNS t, as the first statement and before any arithmetic. That is not a
+// convenience: it is what makes an ungraded mesh bit-for-bit the mesh this generator produced
+// before grading existed. A form that merely tends to the identity as beta falls --
+// t * (1 + beta * f(t)), say -- would move every node by a rounding error, and every number
+// ever recorded on this geometry with it.
+//
+// The map fixes both ends exactly (tanh(0) = 0, and the ratio is 1 at t = 1) and is monotone
+// for beta > 0, so it cannot fold a cell or reorder the grid. Vinokur's one-sided form
+// (J. Comput. Phys. 50, 1983); the two-sided variant is not needed because each axial segment
+// already ends at a break.
+inline double nozzle_stretch(const double t, const double beta) {
+    if (beta == 0) return t;
+    return std::tanh(beta * t) / std::tanh(beta);
+}
+
 struct NozzleSection {
     ptrdiff_t n{0}, n_bore{0}, n_outer{0}, n_perim{0}, n_loops{0}, n_core_nodes{0}, n2d{0}, n2d_inner{0};
     double    c{0};
+    double    beta_r{0};  // radial grading toward the bore wall; 0 is ungraded, exactly
 
     NozzleSection(const ptrdiff_t n_core, const ptrdiff_t nb, const ptrdiff_t no, const bool has_expansion,
-                  const double core_fraction)
+                  const double core_fraction, const double radial_grading = 0)
         : n(n_core),
           n_bore(nb),
           n_outer(no),
@@ -69,7 +101,8 @@ struct NozzleSection {
           n_core_nodes((n_core + 1) * (n_core + 1)),
           n2d((n_core + 1) * (n_core + 1) + (nb + (has_expansion ? no : 0)) * 4 * n_core),
           n2d_inner((n_core + 1) * (n_core + 1) + nb * 4 * n_core),
-          c(core_fraction) {}
+          c(core_fraction),
+          beta_r(radial_grading) {}
 
     ptrdiff_t core_node(const ptrdiff_t i, const ptrdiff_t j) const { return i + j * (n + 1); }
 
@@ -129,14 +162,19 @@ struct NozzleSection {
         const double sq_z = -1.0 + 2.0 * sj / dn;
         const double th   = -0.25 * M_PI + 0.5 * M_PI * m / dn;
         const double cy = std::cos(th), cz = std::sin(th);
+        // Graded in s -- the normalised position ACROSS the layers -- and not in l. The stretch
+        // fixes s = 0 and s = 1, so the core boundary stays on the core square and the outermost
+        // layer stays on the bore; only the interior layers move. That is why core() needs no
+        // grading of its own, and why a node on the core boundary is still placed identically
+        // whichever element places it.
         if (!outer) {
-            const double s = l / (double)n_bore;
+            const double s = nozzle_stretch(l / (double)n_bore, beta_r);
             by             = (1.0 - s) * c * sq_y + s * cy;
             bz             = (1.0 - s) * c * sq_z + s * cz;
             oy             = 0;
             oz             = 0;
         } else {
-            const double s = (l - (double)n_bore) / (double)n_outer;
+            const double s = nozzle_stretch((l - (double)n_bore) / (double)n_outer, beta_r);
             by             = cy;
             bz             = cz;
             oy             = s * cy;
@@ -168,9 +206,15 @@ struct NozzlePlanes {
     ptrdiff_t              n_cells_x{0}, n_planes{0};
     std::vector<double>    plane_x, plane_rb;
     std::vector<ptrdiff_t> cell_segment;
+    // The segment table, kept rather than discarded after the constructor, so that at() can
+    // evaluate the same map at a FRACTIONAL plane coordinate.
+    std::vector<double>    seg_x0, seg_x1, seg_rb0, seg_rb1;
+    std::vector<ptrdiff_t> seg_first_cell, seg_cells;
+    double                 beta_a{0};  // axial grading; 0 is ungraded, exactly
 
     NozzlePlanes(const std::vector<Scalar> &x_breaks, const std::vector<Scalar> &bore_radius,
-                 const std::vector<ptrdiff_t> &n_axial) {
+                 const std::vector<ptrdiff_t> &n_axial, const double axial_grading = 0)
+        : beta_a(axial_grading) {
         const ptrdiff_t n_segments = (ptrdiff_t)n_axial.size();
         for (auto na : n_axial)
             n_cells_x += na;
@@ -181,8 +225,14 @@ struct NozzlePlanes {
         ptrdiff_t k = 0;
         for (ptrdiff_t s = 0; s < n_segments; ++s) {
             const ptrdiff_t na = n_axial[(size_t)s];
+            seg_first_cell.push_back(k);
+            seg_cells.push_back(na);
+            seg_x0.push_back((double)x_breaks[(size_t)s]);
+            seg_x1.push_back((double)x_breaks[(size_t)s + 1]);
+            seg_rb0.push_back((double)bore_radius[(size_t)s]);
+            seg_rb1.push_back((double)bore_radius[(size_t)s + 1]);
             for (ptrdiff_t a = 0; a < na; ++a, ++k) {
-                const double t          = (double)a / (double)na;
+                const double t          = nozzle_stretch((double)a / (double)na, beta_a);
                 plane_x[(size_t)k]      = (1 - t) * x_breaks[(size_t)s] + t * x_breaks[(size_t)s + 1];
                 plane_rb[(size_t)k]     = (1 - t) * bore_radius[(size_t)s] + t * bore_radius[(size_t)s + 1];
                 cell_segment[(size_t)k] = s;
@@ -190,6 +240,29 @@ struct NozzlePlanes {
         }
         plane_x[(size_t)k]  = x_breaks[(size_t)n_segments];
         plane_rb[(size_t)k] = bore_radius[(size_t)n_segments];
+    }
+
+    // The axial map at a CONTINUOUS plane coordinate.
+    //
+    // The integer samples are the same expression, with the same operand order, that filled
+    // plane_x and plane_rb above -- so the generator, which places nodes at integers, and the
+    // warp, which places them at the fractions a lattice sits at, agree at every node they
+    // share. That is the property the nozzle's header comment claims for the cross-section map,
+    // extended to the axial one.
+    //
+    // Without it the planes could be graded while the micro nodes between them stayed uniformly
+    // spaced: grading that is piecewise-linear across macro cells, with a kink at every cell
+    // boundary, and the finer the lattice the more of the mesh sits on chords rather than on
+    // the nozzle.
+    void at(const double k, double &x, double &rb) const {
+        ptrdiff_t cell = (ptrdiff_t)std::floor(k);
+        if (cell < 0) cell = 0;
+        if (cell > n_cells_x - 1) cell = n_cells_x - 1;
+        const ptrdiff_t s = cell_segment[(size_t)cell];
+        const double    a = k - (double)seg_first_cell[(size_t)s];
+        const double    t = nozzle_stretch(a / (double)seg_cells[(size_t)s], beta_a);
+        x  = (1 - t) * seg_x0[(size_t)s] + t * seg_x1[(size_t)s];
+        rb = (1 - t) * seg_rb0[(size_t)s] + t * seg_rb1[(size_t)s];
     }
 };
 

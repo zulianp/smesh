@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <vector>
 
 #include "smesh_mesh.hpp"
@@ -131,9 +132,12 @@ namespace {
         ptrdiff_t n_skin_faces;
     };
 
-    bool measure(const ptrdiff_t n_core, const ptrdiff_t n_bore, const ptrdiff_t n_outer, Measured &out) {
+    // The grading arguments default to 0, so every call that predates grading measures exactly
+    // the mesh it always did.
+    bool measure(const ptrdiff_t n_core, const ptrdiff_t n_bore, const ptrdiff_t n_outer, Measured &out,
+                 const geom_t radial_grading = 0, const geom_t axial_grading = 0) {
         auto mesh = Mesh::create_hex8_nozzle(Communicator::self(), X, RB, NA, EXPANSION, R_EXP, n_core,
-                                             n_bore, n_outer);
+                                             n_bore, n_outer, 0.5, radial_grading, axial_grading);
         if (!mesh) return false;
         const auto *const *p  = mesh->points()->data();
         const auto *const *el = mesh->elements(0)->data();
@@ -269,11 +273,125 @@ int test_nozzle_semistructured_warp() {
     return SMESH_TEST_SUCCESS;
 }
 
+int test_nozzle_grading() {
+    // Grading moves nodes; it must move nothing else.
+    //
+    // beta = 0 is the identity, and not approximately: nozzle_stretch returns its argument
+    // before any arithmetic, so a mesh asked for with zero grading is the ungraded mesh bit for
+    // bit. Asserting that here is what lets every number ever recorded on this geometry stand.
+    const ptrdiff_t n = 4, nb = 3, no = 2;
+    Measured        plain, zero, graded;
+    SMESH_TEST_ASSERT(measure(n, nb, no, plain));
+    SMESH_TEST_ASSERT(measure(n, nb, no, zero, 0, 0));
+    SMESH_TEST_EQ(zero.n_elements, plain.n_elements);
+    SMESH_TEST_EQ(zero.n_skin_faces, plain.n_skin_faces);
+    SMESH_TEST_EQ(zero.n_axis_nodes, plain.n_axis_nodes);
+    SMESH_TEST_ASSERT(zero.volume_rel_err == plain.volume_rel_err);
+
+    // With grading on the topology is untouched -- same elements, same skin, same axis -- and
+    // the mesh stays valid: the stretch is monotone, so no cell folds and no node is orphaned.
+    SMESH_TEST_ASSERT(measure(n, nb, no, graded, 2.0, 1.5));
+    SMESH_TEST_EQ(graded.n_elements, plain.n_elements);
+    SMESH_TEST_EQ(graded.n_skin_faces, plain.n_skin_faces);
+    SMESH_TEST_EQ(graded.n_axis_nodes, plain.n_axis_nodes);
+    SMESH_TEST_EQ(graded.n_bad_corners, (ptrdiff_t)0);
+    SMESH_TEST_EQ(graded.n_orphans, (ptrdiff_t)0);
+
+    // The volume is the SAME volume -- measured, not assumed.
+    //
+    // Grading redistributes nodes and changes nothing about how much space the mesh occupies.
+    // The cross-section's polygonal area telescopes: splitting the annulus at different radii
+    // leaves the area between the innermost and outermost rings unchanged, so the 4*n_core-gon's
+    // deficit is fixed by the ANGULAR resolution alone. Axially the segments are frusta,
+    // integrated exactly at any plane spacing. Measured here: -2.550465e-02 relative, graded and
+    // ungraded alike, ratio 1.0000. The tolerance is relative rather than exact only because the
+    // volumes are summed in a different order once the nodes move.
+    std::printf("grading: volume_rel_err plain %.6e  graded %.6e  ratio %.4f\n", plain.volume_rel_err,
+                graded.volume_rel_err, graded.volume_rel_err / plain.volume_rel_err);
+    SMESH_TEST_ASSERT(graded.volume_rel_err < 0);
+    SMESH_TEST_ASSERT(std::fabs(graded.volume_rel_err / plain.volume_rel_err - 1.0) < 1e-6);
+
+    // Grading must nevertheless MOVE something, or every assertion above would hold on a no-op.
+    // Node positions are what it moves, so that is what this checks.
+    auto m_plain  = Mesh::create_hex8_nozzle(Communicator::self(), X, RB, NA, EXPANSION, R_EXP, n, nb, no);
+    auto m_graded = Mesh::create_hex8_nozzle(Communicator::self(), X, RB, NA, EXPANSION, R_EXP, n, nb, no,
+                                             0.5, 2.0, 1.5);
+    SMESH_TEST_ASSERT(m_plain != nullptr && m_graded != nullptr);
+    SMESH_TEST_EQ(m_graded->n_nodes(), m_plain->n_nodes());
+    {
+        const auto *const *a     = m_plain->points()->data();
+        const auto *const *b     = m_graded->points()->data();
+        double             worst = 0;
+        for (ptrdiff_t i = 0; i < m_plain->n_nodes(); ++i)
+            for (int c = 0; c < 3; ++c)
+                worst = std::max(worst, std::fabs((double)a[c][i] - (double)b[c][i]));
+        SMESH_TEST_ASSERT(worst > 1e-3);
+    }
+
+    // And beta = 0 moves NOTHING: bit for bit, not to within a tolerance. This is the assertion
+    // that lets every number recorded on the ungraded nozzle stand unchanged.
+    {
+        auto m_zero = Mesh::create_hex8_nozzle(Communicator::self(), X, RB, NA, EXPANSION, R_EXP, n, nb, no,
+                                               0.5, 0, 0);
+        SMESH_TEST_ASSERT(m_zero != nullptr);
+        SMESH_TEST_EQ(m_zero->n_nodes(), m_plain->n_nodes());
+        const auto *const *a         = m_plain->points()->data();
+        const auto *const *b         = m_zero->points()->data();
+        ptrdiff_t          differing = 0;
+        for (ptrdiff_t i = 0; i < m_plain->n_nodes(); ++i)
+            for (int c = 0; c < 3; ++c)
+                if (a[c][i] != b[c][i]) ++differing;
+        SMESH_TEST_EQ(differing, (ptrdiff_t)0);
+    }
+    return SMESH_TEST_SUCCESS;
+}
+
+int test_nozzle_graded_warp() {
+    // The warp identity, with grading on.
+    //
+    // This is why NozzlePlanes::at() evaluates the axial map at a CONTINUOUS plane coordinate.
+    // Grading only the planes would leave the micro nodes between them uniformly spaced --
+    // piecewise-linear grading, with a kink at every macro cell boundary -- and a warped lattice
+    // would then NOT be the fine graded nozzle. This asserts it is.
+    const int       L = 4;
+    const ptrdiff_t n = 2, nb = 1, no = 1;
+    const geom_t    br = 2.0, ba = 1.5;
+
+    auto coarse = Mesh::create_hex8_nozzle(Communicator::self(), X, RB, NA, EXPANSION, R_EXP, n, nb, no,
+                                           0.5, br, ba);
+    SMESH_TEST_ASSERT(coarse != nullptr);
+    auto ss = to_semistructured(L, coarse, true, false);
+    SMESH_TEST_ASSERT(ss != nullptr);
+
+    std::vector<ptrdiff_t> na_fine;
+    for (const auto a : NA) na_fine.push_back(a * L);
+    auto fine = Mesh::create_hex8_nozzle(Communicator::self(), X, RB, na_fine, EXPANSION, R_EXP, n * L,
+                                         nb * L, no * L, 0.5, br, ba);
+    SMESH_TEST_ASSERT(fine != nullptr);
+    double v_fine = 0;
+    {
+        const auto *const *p  = fine->points()->data();
+        const auto *const *el = fine->elements(0)->data();
+        for (ptrdiff_t e = 0; e < fine->n_elements(0); ++e) v_fine += hex_volume(p, el, e);
+    }
+
+    ptrdiff_t bad = 0;
+    SMESH_TEST_EQ(Mesh::warp_semistructured_hex8_nozzle(ss, X, RB, NA, EXPANSION, R_EXP, n, nb, no, 0.5, br, ba),
+                  (int)SMESH_SUCCESS);
+    const double v_warp = ss_volume(ss, L, bad);
+    SMESH_TEST_EQ(bad, (ptrdiff_t)0);
+    SMESH_TEST_ASSERT(std::fabs(v_warp / v_fine - 1.0) < 1e-5);
+    SMESH_TEST_EQ(ss->n_nodes(), fine->n_nodes());
+    return SMESH_TEST_SUCCESS;
+}
+
 int main(int argc, char *argv[]) {
     SMESH_UNIT_TEST_INIT(argc, argv);
     SMESH_RUN_TEST(test_nozzle_topology);
     SMESH_RUN_TEST(test_nozzle_volume_converges);
     SMESH_RUN_TEST(test_nozzle_semistructured_warp);
+    SMESH_RUN_TEST(test_nozzle_grading);
+    SMESH_RUN_TEST(test_nozzle_graded_warp);
     SMESH_UNIT_TEST_FINALIZE();
     return SMESH_UNIT_TEST_ERR();
 }

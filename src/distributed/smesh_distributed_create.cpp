@@ -74,6 +74,7 @@
       const ptrdiff_t expansion, const GEOM_T expanded_radius,                 \
       const ptrdiff_t n_core, const ptrdiff_t n_bore,                          \
       const ptrdiff_t n_outer, const GEOM_T core_fraction,                     \
+      const GEOM_T radial_grading, const GEOM_T axial_grading,                 \
       int *nnodesxelem_out, ptrdiff_t *n_local_elements_out,                   \
       ptrdiff_t *n_global_elements_out, IDX_T ***elems_out,                    \
       int *spatial_dim_out, ptrdiff_t *n_local_nodes_out,                      \
