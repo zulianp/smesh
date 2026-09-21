@@ -12,6 +12,8 @@ Marks: **yes** supported · **part** partial · **—** not supported or not app
 | `write_with_xdmf` | yes | yes | yes | yes | yes | yes | yes |
 | `create_cube` / `create_square` | cube | cube | — | — | square | square | — |
 | `refine` | yes | yes | yes | yes | yes | yes | yes |
+| `adapt_refine` | — | yes | — | — | yes | yes | — |
+| `improve` / `remesh` | — | yes | — | — | yes | yes | — |
 | `to_semistructured` / `derefine` | yes | yes | yes | yes | yes | — | — |
 | Sidesets (skin / selector) | yes | yes | yes | yes | yes | yes | yes |
 | Sidesets through `refine` | yes | yes | yes | part | yes | yes | yes |
@@ -27,6 +29,10 @@ Marks: **yes** supported · **part** partial · **—** not supported or not app
 | `split_block` | yes | yes | yes | yes | yes | yes | yes |
 
 `refine` is linear (P1) only. PYRAMID `refine` emits a PYRAMID5 block plus a TET4 block; sidesets through refine cover the quad base (`lfi == 4`), not the triangular sides. Nodesets through refine/promote add mid-edge nodes when both coarse endpoints are already in the set (not face or body mids). Planar QUAD4 / TRI3 use 2-component points; shells stay in 3D.
+
+`adapt_refine` is a separate serial OpenMP API (not uniform `refine()`). Single-block `TET4` and `TRI3`/`TRISHELL3`/`QUAD4`/`QUADSHELL4` only. Size field from Meyer curvature (sharp creases skipped), 2:1 gradation, conforming newest-vertex / longest-edge bisection (TRI/TET) or quad 4-split with 2:1 closure. Optional Jacobi smooth with corner pin / crease slide, then parametrization `apply`. HEX/WEDGE/PYRAMID/mixed/MPI are rejected.
+
+`improve` / `remesh` is a separate serial OpenMP quality remesher (not `refine()` / `adapt_refine()`). Same types as `adapt_refine`. Mean-ratio split / collapse / swap (QUAD: 4-split + 2:1 only), feature locks from sharp edges (corners pinned, creases slide), surface nodes clipped to a displacement band about the input (`0.02 * bbox_diag` default). `improve` mutates in place; `remesh` clones then `improve`. HEX/WEDGE/PYRAMID/mixed/MPI are rejected.
 
 Mixed-volume `refine` and SS (HEX / TET / WEDGE / PYRAMID, including hex-dominant) are supported. Mixed HEX+QUAD is not. Mixed QUAD4+QUADSHELL4 is supported. GLL nodes on SS are HEX-only.
 

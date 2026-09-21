@@ -358,7 +358,7 @@ Ship each phase with tests green under `build` (serial) and `build_mpi_debug` (M
 
 - Changing HEX child ordering or replacing TET Bey split with Kuhn (`sstet_to_tet4`).
 - Returning PROTEUS_* from `refine()`.
-- Adaptive / local (hanging-node) refinement.
+- Adaptive / local (hanging-node) refinement of `refine()`. Conforming serial `adapt_refine` (TET4 / TRI / QUAD, curvature size field, NVB / longest-edge, no HEX hanging nodes) is a separate API; see `docs/features.md`. Quality remesh (`improve` / `remesh`) is also a separate API, not `refine()` / `adapt_refine()`.
 - EDGE2→EDGE3 p-refine (separate from h-refine). `promote_to` MPI covers TET10/TET15/TRI6/TRISHELL6/QUAD9/QUADSHELL9/HEX27.
 - PYRAMID tri-face sideset remap through refine (quad base is supported; tri sides are not yet remapped).
 - Hanging-node adaptivity.

@@ -17,6 +17,10 @@ class Parametrization {
 public:
     virtual ~Parametrization() = default;
     virtual int apply(Mesh &mesh) const = 0;
+    virtual std::shared_ptr<Nodeset> nodeset() const = 0;
+    /// Same map, new target nodeset (after h-adapt).
+    virtual std::shared_ptr<Parametrization>
+    with_nodeset(const std::shared_ptr<Nodeset> &ns) const = 0;
 };
 
 /// Closest-point projection onto a plane circle (center, unit axis, radius).
@@ -41,6 +45,10 @@ public:
                                                          geom_t                          radius);
 
     int apply(Mesh &mesh) const override;
+    std::shared_ptr<Nodeset> nodeset() const override { return nodeset_; }
+
+    std::shared_ptr<Parametrization>
+    with_nodeset(const std::shared_ptr<Nodeset> &ns) const override;
 
 private:
     std::shared_ptr<Nodeset> nodeset_;
@@ -66,6 +74,15 @@ public:
                                                          geom_t                          radius);
 
     int apply(Mesh &mesh) const override;
+    std::shared_ptr<Nodeset> nodeset() const override { return nodeset_; }
+
+    geom_t cx() const { return cx_; }
+    geom_t cy() const { return cy_; }
+    geom_t cz() const { return cz_; }
+    geom_t radius() const { return radius_; }
+
+    std::shared_ptr<Parametrization>
+    with_nodeset(const std::shared_ptr<Nodeset> &ns) const override;
 
 private:
     std::shared_ptr<Nodeset> nodeset_;
@@ -109,6 +126,10 @@ public:
            ptrdiff_t                       n_coeffs);
 
     int apply(Mesh &mesh) const override;
+    std::shared_ptr<Nodeset> nodeset() const override { return nodeset_; }
+
+    std::shared_ptr<Parametrization>
+    with_nodeset(const std::shared_ptr<Nodeset> &ns) const override;
 
 private:
     std::shared_ptr<Nodeset> nodeset_;
@@ -128,6 +149,10 @@ public:
     static std::shared_ptr<IdentityParametrization> create(const std::shared_ptr<Nodeset> &nodeset);
 
     int apply(Mesh &mesh) const override;
+    std::shared_ptr<Nodeset> nodeset() const override { return nodeset_; }
+
+    std::shared_ptr<Parametrization>
+    with_nodeset(const std::shared_ptr<Nodeset> &ns) const override;
 
 private:
     std::shared_ptr<Nodeset> nodeset_;

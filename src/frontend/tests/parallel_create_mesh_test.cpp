@@ -371,7 +371,7 @@ static int test_create_remaining_a17_generators() {
 #endif
 }
 
-static double owned_coord_sum(const Mesh &mesh) {
+[[maybe_unused]] static double owned_coord_sum(const Mesh &mesh) {
     const auto     *p = mesh.points()->data();
     const ptrdiff_t n =
         mesh.is_distributed() ? mesh.distributed()->n_nodes_owned() : mesh.n_nodes();

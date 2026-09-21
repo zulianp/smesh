@@ -4268,6 +4268,18 @@ void Mesh::set_points(const SharedBuffer<geom_t *> &points) {
   impl_->points = points;
 }
 
+void Mesh::invalidate_derived_graphs() {
+  impl_->invalidate_node_indexed_caches();
+  SMESH_FREE(impl_->dual_ptr);
+  SMESH_FREE(impl_->dual_idx);
+  SMESH_FREE(impl_->dual_block);
+  impl_->dual_ptr = nullptr;
+  impl_->dual_idx = nullptr;
+  impl_->dual_block = nullptr;
+  impl_->half_face_tables.clear();
+  impl_->half_face_neighbor_blocks.clear();
+}
+
 SharedBuffer<idx_t *> Mesh::elements(block_idx_t block_id) {
   auto blk = this->block(block_id);
   SMESH_ASSERT(blk);

@@ -310,6 +310,11 @@ std::shared_ptr<CircleParametrization> CircleParametrization::create(const std::
     return std::make_shared<CircleParametrization>(nodeset, cx, cy, cz, ax, ay, az, radius);
 }
 
+std::shared_ptr<Parametrization>
+CircleParametrization::with_nodeset(const std::shared_ptr<Nodeset> &ns) const {
+    return create(ns, cx_, cy_, cz_, ax_, ay_, az_, radius_);
+}
+
 int CircleParametrization::apply(Mesh &mesh) const {
     struct Ctx {
         geom_t cx, cy, cz, ax, ay, az, radius;
@@ -351,6 +356,11 @@ std::shared_ptr<SphereParametrization> SphereParametrization::create(const std::
                                                                      geom_t                          cz,
                                                                      geom_t                          radius) {
     return std::make_shared<SphereParametrization>(nodeset, cx, cy, cz, radius);
+}
+
+std::shared_ptr<Parametrization>
+SphereParametrization::with_nodeset(const std::shared_ptr<Nodeset> &ns) const {
+    return create(ns, cx_, cy_, cz_, radius_);
 }
 
 int SphereParametrization::apply(Mesh &mesh) const {
@@ -433,6 +443,13 @@ std::shared_ptr<PolynomialSurfaceParametrization> PolynomialSurfaceParametrizati
             nodeset, ox, oy, oz, e0x, e0y, e0z, e1x, e1y, e1z, degree, coeffs, n_coeffs);
 }
 
+std::shared_ptr<Parametrization>
+PolynomialSurfaceParametrization::with_nodeset(const std::shared_ptr<Nodeset> &ns) const {
+    const geom_t *c = coeffs_ ? coeffs_->data() : nullptr;
+    const ptrdiff_t n = coeffs_ ? (ptrdiff_t)coeffs_->size() : 0;
+    return create(ns, ox_, oy_, oz_, e0x_, e0y_, e0z_, e1x_, e1y_, e1z_, degree_, c, n);
+}
+
 int PolynomialSurfaceParametrization::apply(Mesh &mesh) const {
     if (mesh.spatial_dimension() < 3) {
         SMESH_ERROR("PolynomialSurfaceParametrization::apply: mesh must have 3D points\n");
@@ -484,6 +501,11 @@ IdentityParametrization::IdentityParametrization(const std::shared_ptr<Nodeset> 
 std::shared_ptr<IdentityParametrization>
 IdentityParametrization::create(const std::shared_ptr<Nodeset> &nodeset) {
     return std::make_shared<IdentityParametrization>(nodeset);
+}
+
+std::shared_ptr<Parametrization>
+IdentityParametrization::with_nodeset(const std::shared_ptr<Nodeset> &ns) const {
+    return create(ns);
 }
 
 int IdentityParametrization::apply(Mesh &mesh) const {

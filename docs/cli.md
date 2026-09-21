@@ -84,6 +84,38 @@ refine <mesh_folder> <output_folder>
 
 Levels: environment `SMESH_REFINEMENT_LEVELS` (default `1`). Linear types only.
 
+## adapt_refine
+
+```text
+adapt_refine <mesh_folder> <output_folder>
+```
+
+Curvature-driven conforming adapt for single-block serial `TET4` and `TRI`/`QUAD` (including shells). Not uniform `refine()`.
+
+Environment:
+
+- `SMESH_CELLS_PER_RADIUS` (default `8`)
+- `SMESH_SHARP_EDGES_THRESHOLD` (default `0.15`)
+- `SMESH_ADAPT_LEVELS` (default `8`)
+- `SMESH_SMOOTH_ITERS` (default `10`)
+
+## improve
+
+```text
+improve <mesh_folder> <output_folder>
+```
+
+Quality remesh for single-block serial `TET4` and `TRI`/`QUAD` (including shells). Not uniform `refine()` and not `adapt_refine()`.
+
+Environment:
+
+- `SMESH_Q_MIN` (default `0.3`)
+- `SMESH_MAX_ABS_DEV` (default `0` → `0.02 * bbox_diag`)
+- `SMESH_MAX_NORMAL_DEV` (default `0` → same as abs)
+- `SMESH_SHARP_EDGES_THRESHOLD` (default `0.15`)
+- `SMESH_IMPROVE_PASSES` (default `8`)
+- `SMESH_SMOOTH_ITERS` (default `8`)
+
 ## mesh_promote
 
 ```text

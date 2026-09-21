@@ -17,6 +17,8 @@
 namespace smesh {
 
 class MeshTransformsDistributed;
+struct AdaptRefineOptions;
+struct ImproveOptions;
 
 class Distributed {
 public:
@@ -81,6 +83,9 @@ public:
                                           const std::shared_ptr<Mesh> &mesh);
   friend std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
                                       const int levels);
+  friend std::shared_ptr<Mesh> adapt_refine(const std::shared_ptr<Mesh> &mesh,
+                                            const AdaptRefineOptions    &opt);
+  friend int smooth_enhance(Mesh &mesh, const AdaptRefineOptions &opt);
   friend std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
                                        const geom_t height,
                                        const ptrdiff_t nlayers);
@@ -604,9 +609,17 @@ private:
                                           const std::shared_ptr<Mesh> &mesh);
   friend std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
                                       const int levels);
+  friend std::shared_ptr<Mesh> adapt_refine(const std::shared_ptr<Mesh> &mesh,
+                                            const AdaptRefineOptions    &opt);
+  friend int smooth_enhance(Mesh &mesh, const AdaptRefineOptions &opt);
+  friend int improve(Mesh &mesh, const ImproveOptions &opt);
+  friend std::shared_ptr<Mesh> remesh(const std::shared_ptr<Mesh> &mesh,
+                                      const ImproveOptions        &opt);
   friend std::shared_ptr<Mesh> extrude(const std::shared_ptr<Mesh> &mesh,
                                        const geom_t height,
                                        const ptrdiff_t nlayers);
+
+  void invalidate_derived_graphs();
 
   void set_distributed(const std::shared_ptr<Distributed> &distributed);
 
@@ -714,6 +727,43 @@ std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
                                  const std::shared_ptr<Mesh> &mesh);
 std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
                              const int levels = 1);
+
+struct AdaptRefineOptions {
+  geom_t         cells_per_radius    = static_cast<geom_t>(8);
+  geom_t         geom_error          = static_cast<geom_t>(0);
+  geom_t         h_min               = static_cast<geom_t>(0);
+  geom_t         h_max               = static_cast<geom_t>(0);
+  geom_t         sharp_cos_threshold = static_cast<geom_t>(0.15);
+  int            max_levels          = 8;
+  int            smooth_iters        = 10;
+  geom_t         smooth_lambda       = static_cast<geom_t>(0.5);
+  bool           use_parametrization = true;
+  geom_t         q_min               = static_cast<geom_t>(0.3);
+  const uint8_t *element_mark        = nullptr;
+};
+
+std::shared_ptr<Mesh> adapt_refine(const std::shared_ptr<Mesh> &mesh,
+                                   const AdaptRefineOptions    &opt = {});
+int smooth_enhance(Mesh &mesh, const AdaptRefineOptions &opt = {});
+
+struct ImproveOptions {
+  geom_t q_min               = static_cast<geom_t>(0.5);
+  geom_t max_abs_dev         = static_cast<geom_t>(0);
+  geom_t max_normal_dev      = static_cast<geom_t>(0);
+  geom_t sharp_cos_threshold = static_cast<geom_t>(0.15);
+  int    max_passes          = 8;
+  int    smooth_iters        = 8;
+  geom_t smooth_lambda       = static_cast<geom_t>(0.5);
+  bool   use_parametrization = true;
+  bool   allow_split         = true;
+  bool   allow_collapse      = true;
+  bool   allow_swap          = true;
+};
+
+int improve(Mesh &mesh, const ImproveOptions &opt = {});
+std::shared_ptr<Mesh> remesh(const std::shared_ptr<Mesh> &mesh,
+                             const ImproveOptions        &opt = {});
+
 std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh);
 std::vector<std::shared_ptr<Sideset>>
 skin_sidesets(const std::shared_ptr<Mesh> &mesh);

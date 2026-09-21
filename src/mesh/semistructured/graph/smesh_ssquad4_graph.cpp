@@ -73,6 +73,10 @@ namespace smesh {
 SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_GRAPH(i32);
 SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_GRAPH(i64);
 SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_GRAPH(i16);
+template int quad4_build_edge_graph_from_n2e<i64, i32, element_idx_t>(
+    ptrdiff_t, ptrdiff_t, const i64 *const SMESH_RESTRICT *const SMESH_RESTRICT,
+    const i32 *const SMESH_RESTRICT, const element_idx_t *const SMESH_RESTRICT,
+    i32 **, i64 **);
 SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_SINGLE(i32);
 SMESH_EXPLICIT_INSTANTIATE_SSQUAD4_SINGLE(i64);
 
