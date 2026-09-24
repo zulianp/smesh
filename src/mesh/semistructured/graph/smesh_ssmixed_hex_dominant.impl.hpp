@@ -470,7 +470,7 @@ int ssmixed_hex_dominant_generate_elements_blocks(
         ptrdiff_t                                                                    *n_unique_nodes_out,
         ptrdiff_t                                                                    *interior_start_out) {
     SMESH_ASSERT(L >= 1);
-    double tick = time_seconds();
+    // double tick = time_seconds();
 
     int hex_corners[8] = {sshex8_lidx(L, 0, 0, 0),
                           sshex8_lidx(L, L, 0, 0),
@@ -856,9 +856,9 @@ int ssmixed_hex_dominant_generate_elements_blocks(
     }
     *n_unique_nodes_out = index_base;
     *interior_start_out = interior_start;
-    printf("Create idx (HEX-dominant mixed) took\t%g [s]\n", time_seconds() - tick);
-    printf("#macroelements %ld, #macronodes %ld\n", n_e_total, m_nnodes);
-    printf("#micronodes %ld\n", *n_unique_nodes_out);
+    // printf("Create idx (HEX-dominant mixed) took\t%g [s]\n", time_seconds() - tick);
+    // printf("#macroelements %ld, #macronodes %ld\n", n_e_total, m_nnodes);
+    // printf("#micronodes %ld\n", *n_unique_nodes_out);
     return SMESH_SUCCESS;
 }
 

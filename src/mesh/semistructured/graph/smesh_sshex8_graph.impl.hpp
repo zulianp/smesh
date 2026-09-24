@@ -261,7 +261,7 @@ namespace smesh {
                               const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
                               count_t                                               **out_rowptr,
                               idx_t                                                 **out_colidx) {
-        double tick = time_seconds();
+        // double tick = time_seconds();
 
         count_t       *n2eptr;
         element_idx_t *elindex;
@@ -272,8 +272,8 @@ namespace smesh {
         SMESH_FREE(n2eptr);
         SMESH_FREE(elindex);
 
-        double tock = time_seconds();
-        printf("crs_graph.c: build nz (mem conservative) structure\t%g seconds\n", tock - tick);
+        // double tock = time_seconds();
+        // printf("crs_graph.c: build nz (mem conservative) structure\t%g seconds\n", tock - tick);
         return err;
     }
 
@@ -284,7 +284,7 @@ namespace smesh {
                                   const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
                                   count_t                                               **out_rowptr,
                                   idx_t                                                 **out_colidx) {
-        double tick = time_seconds();
+        // double tick = time_seconds();
 
         count_t       *n2eptr;
         element_idx_t *elindex;
@@ -295,10 +295,10 @@ namespace smesh {
         SMESH_FREE(n2eptr);
         SMESH_FREE(elindex);
 
-        double tock = time_seconds();
-        printf("sshex8_skeleton_crs_graph.c: build nz (mem conservative) "
-               "structure\t%g seconds\n",
-               tock - tick);
+        // double tock = time_seconds();
+        // printf("sshex8_skeleton_crs_graph.c: build nz (mem conservative) "
+        //        "structure\t%g seconds\n",
+        //        tock - tick);
         return SMESH_SUCCESS;
     }
 
@@ -428,7 +428,7 @@ namespace smesh {
         SMESH_ASSERT(L >= 2);
         static int verbose = 0;
 
-        double tick = time_seconds();
+        // double tick = time_seconds();
 
         const int nxe = sshex8_nxe(L);
 
@@ -478,9 +478,9 @@ namespace smesh {
 
         idx_t index_base = m_nnodes;
 
-        double tack = time_seconds();
+        // double tack = time_seconds();
 
-        if (verbose) printf("NODES\t%g [s]\n", tack - tick);
+        // if (verbose) printf("NODES\t%g [s]\n", tack - tick);
 
         // 2) Compute the unique edge-node indices using the CRSGraph
         // A unique edge index can be used and use the multiple to store all indices
@@ -490,7 +490,7 @@ namespace smesh {
         ptrdiff_t nxedge = L - 1;  // L == 0 (is this correct?)
 
         if (nxedge) {
-            double temp_tick = time_seconds();
+            // double temp_tick = time_seconds();
 
             count_t *rowptr;
             idx_t   *colidx;
@@ -611,15 +611,15 @@ namespace smesh {
 
             index_base += (nedges * nxedge);
 
-            tack = time_seconds();
-            if (verbose) printf("EDGES\t%g [s]\n", tack - temp_tick);
+            // tack = time_seconds();
+            // if (verbose) printf("EDGES\t%g [s]\n", tack - temp_tick);
         }
 
         // 3) Compute the unique face-node indices using the adjacency table
         // Two elements share a face, figure out the ordering
         int nxf = (L - 1) * (L - 1);  // TODO number of nodes in the face interior
         if (nxf) {
-            double temp_tick = time_seconds();
+            // double temp_tick = time_seconds();
 
             LocalSideTable lst;
             lst.fill(HEX8);
@@ -671,8 +671,8 @@ namespace smesh {
             // Clean-up
             SMESH_FREE(adj_table);
 
-            tack = time_seconds();
-            if (verbose) printf("FACES\t%g [s]\n", tack - temp_tick);
+            // tack = time_seconds();
+            // if (verbose) printf("FACES\t%g [s]\n", tack - temp_tick);
         }
 
         // 4) Compute the unique internal nodes implicitly using the element id and
@@ -682,7 +682,7 @@ namespace smesh {
         int       nxelement      = (L - 1) * (L - 1) * (L - 1);
         ptrdiff_t interior_start = index_base;
         if (nxelement) {
-            double temp_tick = time_seconds();
+            // double temp_tick = time_seconds();
 
 #pragma omp parallel for collapse(3)
             for (int zi = 1; zi < L; zi++) {
@@ -698,8 +698,8 @@ namespace smesh {
                 }
             }
 
-            tack = time_seconds();
-            if (verbose) printf("ELEMS\t%g [s]\n", tack - temp_tick);
+            // tack = time_seconds();
+            // if (verbose) printf("ELEMS\t%g [s]\n", tack - temp_tick);
         }
 
         for (int d = 0; d < 3; d++) {
@@ -709,10 +709,10 @@ namespace smesh {
         *n_unique_nodes_out = interior_start + m_nelements * nxelement;
         *interior_start_out = interior_start;
 
-        double tock = time_seconds();
-        printf("Create idx (%s) took\t%g [s]\n", type_to_string(m_element_type), tock - tick);
-        printf("#macroelements %ld, #macronodes %ld\n", m_nelements, m_nnodes);
-        printf("#microelements %ld, #micronodes %ld\n", m_nelements * (L * L * L), *n_unique_nodes_out);
+        // double tock = time_seconds();
+        // printf("Create idx (%s) took\t%g [s]\n", type_to_string(m_element_type), tock - tick);
+        // printf("#macroelements %ld, #macronodes %ld\n", m_nelements, m_nnodes);
+        // printf("#microelements %ld, #micronodes %ld\n", m_nelements * (L * L * L), *n_unique_nodes_out);
 
         return SMESH_SUCCESS;
     }
@@ -734,7 +734,7 @@ namespace smesh {
         SMESH_ASSERT(L >= 2);
         SMESH_ASSERT(n_blocks >= 1);
 
-        double tick = time_seconds();
+        // double tick = time_seconds();
 
         const int nxe = sshex8_nxe(L);
 
@@ -983,10 +983,10 @@ namespace smesh {
         *n_unique_nodes_out = interior_start + n_e_total * nxelement;
         *interior_start_out = interior_start;
 
-        double tock = time_seconds();
-        printf("Create idx (HEX8 blocks) took\t%g [s]\n", tock - tick);
-        printf("#macroelements %ld, #macronodes %ld\n", n_e_total, m_nnodes);
-        printf("#microelements %ld, #micronodes %ld\n", n_e_total * (L * L * L), *n_unique_nodes_out);
+        // double tock = time_seconds();
+        // printf("Create idx (HEX8 blocks) took\t%g [s]\n", tock - tick);
+        // printf("#macroelements %ld, #macronodes %ld\n", n_e_total, m_nnodes);
+        // printf("#microelements %ld, #micronodes %ld\n", n_e_total * (L * L * L), *n_unique_nodes_out);
 
         return SMESH_SUCCESS;
     }
@@ -998,7 +998,7 @@ namespace smesh {
                          const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elems,
                          count_t                                               **out_n2eptr,
                          element_idx_t                                         **out_elindex) {
-        double tick = time_seconds();
+        // double tick = time_seconds();
 
 #ifdef SMESH_ENABLE_MEM_DIAGNOSTICS
         printf("build_n2e: allocating %g GB\n", (nnodes + 1) * sizeof(count_t) * 1e-9);
@@ -1073,8 +1073,8 @@ namespace smesh {
         *out_n2eptr  = n2eptr;
         *out_elindex = elindex;
 
-        double tock = time_seconds();
-        printf("crs_graph.c: build_n2e\t\t%g seconds\n", tock - tick);
+        // double tock = time_seconds();
+        // printf("crs_graph.c: build_n2e\t\t%g seconds\n", tock - tick);
         return SMESH_SUCCESS;
     }
 
@@ -1199,7 +1199,7 @@ namespace smesh {
                          const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
                          count_t                                               **out_rowptr,
                          idx_t                                                 **out_colidx) {
-        double tick = time_seconds();
+        // double tick = time_seconds();
 
         count_t       *n2eptr;
         element_idx_t *elindex;
@@ -1210,8 +1210,8 @@ namespace smesh {
         SMESH_FREE(n2eptr);
         SMESH_FREE(elindex);
 
-        double tock = time_seconds();
-        printf("sshex8_crs_graph \t%g seconds\n", tock - tick);
+        // double tock = time_seconds();
+        // printf("sshex8_crs_graph \t%g seconds\n", tock - tick);
         return err;
     }
 

@@ -449,7 +449,7 @@ namespace smesh {
         SMESH_ASSERT(n_blocks >= 1);
         SMESH_ASSERT(block_types != nullptr);
 
-        double tick = time_seconds();
+        // double tick = time_seconds();
 
         int hex_corners[8] = {sshex8_lidx(L, 0, 0, 0),
                               sshex8_lidx(L, L, 0, 0),
@@ -784,10 +784,10 @@ namespace smesh {
         *n_unique_nodes_out = index_base;
         *interior_start_out = interior_start;
 
-        const double tock = time_seconds();
-        printf("Create idx (HEX8+TET4 mixed) took\t%g [s]\n", tock - tick);
-        printf("#macroelements %ld, #macronodes %ld\n", n_e_total, m_nnodes);
-        printf("#micronodes %ld\n", *n_unique_nodes_out);
+        // const double tock = time_seconds();
+        // printf("Create idx (HEX8+TET4 mixed) took\t%g [s]\n", tock - tick);
+        // printf("#macroelements %ld, #macronodes %ld\n", n_e_total, m_nnodes);
+        // printf("#micronodes %ld\n", *n_unique_nodes_out);
 
         return SMESH_SUCCESS;
     }

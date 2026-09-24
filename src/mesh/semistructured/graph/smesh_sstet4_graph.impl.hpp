@@ -349,7 +349,7 @@ namespace smesh {
                                  ptrdiff_t                                              *interior_start_out) {
         SMESH_ASSERT(L >= 1);
 
-        double tick = time_seconds();
+        // double tick = time_seconds();
         const int nxe = sstet4_nxe(L);
 
         int lagr_to_proteus_corners[4] = {sstet4_lidx(L, 0, 0, 0),
@@ -480,10 +480,10 @@ namespace smesh {
         *n_unique_nodes_out = interior_start + m_nelements * nxvol;
         *interior_start_out = interior_start;
 
-        const double tock = time_seconds();
-        printf("Create idx (%s) took\t%g [s]\n", type_to_string(TET4), tock - tick);
-        printf("#macroelements %ld, #macronodes %ld\n", m_nelements, m_nnodes);
-        printf("#microelements %ld, #micronodes %ld\n", m_nelements * sstet4_txe(L), *n_unique_nodes_out);
+        // const double tock = time_seconds();
+        // printf("Create idx (%s) took\t%g [s]\n", type_to_string(TET4), tock - tick);
+        // printf("#macroelements %ld, #macronodes %ld\n", m_nelements, m_nnodes);
+        // printf("#microelements %ld, #micronodes %ld\n", m_nelements * sstet4_txe(L), *n_unique_nodes_out);
 
         SMESH_UNUSED(nxe);
         return SMESH_SUCCESS;
@@ -504,7 +504,7 @@ namespace smesh {
         SMESH_ASSERT(L >= 1);
         SMESH_ASSERT(n_blocks >= 1);
 
-        double tick = time_seconds();
+        // double tick = time_seconds();
 
         int lagr_to_proteus_corners[4] = {sstet4_lidx(L, 0, 0, 0),
                                           sstet4_lidx(L, L, 0, 0),
@@ -678,10 +678,10 @@ namespace smesh {
         *n_unique_nodes_out = interior_start + n_e_total * nxvol;
         *interior_start_out = interior_start;
 
-        const double tock = time_seconds();
-        printf("Create idx (TET4 blocks) took\t%g [s]\n", tock - tick);
-        printf("#macroelements %ld, #macronodes %ld\n", n_e_total, m_nnodes);
-        printf("#microelements %ld, #micronodes %ld\n", n_e_total * sstet4_txe(L), *n_unique_nodes_out);
+        // const double tock = time_seconds();
+        // printf("Create idx (TET4 blocks) took\t%g [s]\n", tock - tick);
+        // printf("#macroelements %ld, #macronodes %ld\n", n_e_total, m_nnodes);
+        // printf("#microelements %ld, #micronodes %ld\n", n_e_total * sstet4_txe(L), *n_unique_nodes_out);
 
         return SMESH_SUCCESS;
     }
