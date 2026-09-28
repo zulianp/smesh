@@ -21,7 +21,10 @@
             COUNT_T **,                                                                              \
             IDX_T **,                                                                                \
             IDX_T **,                                                                                \
-            IDX_T **);
+            IDX_T **,                                                                                \
+            int (*)(void *, GEOM_T, GEOM_T, GEOM_T, IDX_T, IDX_T, const IDX_T *, const IDX_T *, ptrdiff_t, GEOM_T *, GEOM_T *, GEOM_T *), \
+            void (*)(void *, ptrdiff_t, IDX_T **, ptrdiff_t, GEOM_T **, const IDX_T *, const IDX_T *), \
+            void *);
 
 namespace smesh {
 SMESH_EXPLICIT_INSTANTIATE_ADAPT(i32, i32, f32)

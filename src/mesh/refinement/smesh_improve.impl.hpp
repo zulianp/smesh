@@ -8,6 +8,7 @@
 #include "smesh_graph.hpp"
 #include "smesh_quality.hpp"
 #include "smesh_search.hpp"
+#include "smesh_smooth.hpp"
 
 #include <cmath>
 #include <string.h>
@@ -231,6 +232,37 @@ idx_t add_mid(ImproveW<idx_t, geom_t> &w, const idx_t a, const idx_t b, const in
     for (int d = 0; d < w.sdim; ++d) {
         w.pts[d][m] = static_cast<geom_t>(0.5) * (w.pts[d][a] + w.pts[d][b]);
         w.x0[d][m]  = static_cast<geom_t>(0.5) * (w.x0[d][a] + w.x0[d][b]);
+    }
+    if (feature && w.sdim >= 3 && w.se0 && w.se1) {
+        idx_t third = static_cast<idx_t>(-1);
+        for (ptrdiff_t s = 0; s < w.n_sharp && third < 0; ++s) {
+            const idx_t u = w.se0[s];
+            const idx_t v = w.se1[s];
+            if (u == a && v != b && v != a) {
+                third = v;
+            } else if (v == a && u != b && u != a) {
+                third = u;
+            } else if (u == b && v != a && v != b) {
+                third = v;
+            } else if (v == b && u != a && u != b) {
+                third = u;
+            }
+        }
+        if (third >= 0) {
+            geom_t x = w.pts[0][m], y = w.pts[1][m], z = w.pts[2][m];
+            if (feature_curve_project(w.pts[0][m], w.pts[1][m], w.pts[2][m],
+                                      w.pts[0][a], w.pts[1][a], w.pts[2][a],
+                                      w.pts[0][b], w.pts[1][b], w.pts[2][b],
+                                      w.pts[0][third], w.pts[1][third], w.pts[2][third],
+                                      &x, &y, &z)) {
+                w.pts[0][m] = x;
+                w.pts[1][m] = y;
+                w.pts[2][m] = z;
+                w.x0[0][m]  = x;
+                w.x0[1][m]  = y;
+                w.x0[2][m]  = z;
+            }
+        }
     }
     uint8_t lk = 0;
     if (feature) {
@@ -654,6 +686,467 @@ ptrdiff_t edge_splits(ImproveW<idx_t, geom_t> &w,
 }
 
 template <typename idx_t, typename count_t, typename geom_t>
+geom_t collapse_new_qmin(ImproveW<idx_t, geom_t> &w,
+                         const idx_t              killed,
+                         const idx_t              survive,
+                         const ptrdiff_t         *einc,
+                         const int                ni,
+                         const count_t           *n2eptr,
+                         const element_idx_t     *elindex) {
+    ptrdiff_t cav[128];
+    int       ncav = 0;
+    for (count_t k = n2eptr[killed]; k < n2eptr[killed + 1]; ++k) {
+        const ptrdiff_t e = (ptrdiff_t)elindex[k];
+        if (w.dead_e[e]) {
+            continue;
+        }
+        int skip = 0;
+        for (int j = 0; j < ni; ++j) {
+            if (einc[j] == e) {
+                skip = 1;
+            }
+        }
+        if (skip) {
+            continue;
+        }
+        if (ncav >= 128) {
+            return static_cast<geom_t>(-1);
+        }
+        cav[ncav++] = e;
+    }
+    if (ncav == 0) {
+        return static_cast<geom_t>(-1);
+    }
+    geom_t qnmin = static_cast<geom_t>(1);
+    for (int k = 0; k < ncav; ++k) {
+        idx_t v[8];
+        int   dup = 0;
+        for (int d = 0; d < w.nxe; ++d) {
+            v[d] = w.elems[d][cav[k]] == killed ? survive : w.elems[d][cav[k]];
+        }
+        for (int d = 0; d < w.nxe; ++d) {
+            for (int j = d + 1; j < w.nxe; ++j) {
+                if (v[d] == v[j]) {
+                    dup = 1;
+                }
+            }
+        }
+        if (dup) {
+            return static_cast<geom_t>(-1);
+        }
+        if (w.is_tet) {
+            fix_tet(w.pts, v);
+        } else if (w.is_tri) {
+            fix_tri(w.pts, w.sdim, v);
+        }
+        const geom_t qq =
+                q_from<idx_t, geom_t>(w.et, w.sdim, w.pts, v[0], v[1], v[2], w.is_tet ? v[3] : 0);
+        if (!(qq > static_cast<geom_t>(0))) {
+            return static_cast<geom_t>(-1);
+        }
+        if (qq < qnmin) {
+            qnmin = qq;
+        }
+    }
+    return qnmin;
+}
+
+template <typename idx_t, typename geom_t>
+geom_t tet_orient6(const geom_t *const *p, const idx_t a, const idx_t b, const idx_t c, const idx_t d) {
+    const geom_t abx = p[0][b] - p[0][a];
+    const geom_t aby = p[1][b] - p[1][a];
+    const geom_t abz = p[2][b] - p[2][a];
+    const geom_t acx = p[0][c] - p[0][a];
+    const geom_t acy = p[1][c] - p[1][a];
+    const geom_t acz = p[2][c] - p[2][a];
+    const geom_t adx = p[0][d] - p[0][a];
+    const geom_t ady = p[1][d] - p[1][a];
+    const geom_t adz = p[2][d] - p[2][a];
+    return abx * (acy * adz - acz * ady) - aby * (acx * adz - acz * adx) + abz * (acx * ady - acy * adx);
+}
+
+template <typename idx_t, typename geom_t>
+int point_in_tet(const geom_t *const *p,
+                 const idx_t          a,
+                 const idx_t          b,
+                 const idx_t          c,
+                 const idx_t          d,
+                 const idx_t          q) {
+    const geom_t V  = tet_orient6<idx_t, geom_t>(p, a, b, c, d);
+    const geom_t av = V < static_cast<geom_t>(0) ? -V : V;
+    if (!(av > static_cast<geom_t>(0))) {
+        return 0;
+    }
+    const geom_t eps = av * static_cast<geom_t>(1.0e-3);
+    const geom_t s   = V > static_cast<geom_t>(0) ? static_cast<geom_t>(1) : static_cast<geom_t>(-1);
+    const geom_t v0  = tet_orient6<idx_t, geom_t>(p, q, b, c, d);
+    const geom_t v1  = tet_orient6<idx_t, geom_t>(p, a, q, c, d);
+    const geom_t v2  = tet_orient6<idx_t, geom_t>(p, a, b, q, d);
+    const geom_t v3  = tet_orient6<idx_t, geom_t>(p, a, b, c, q);
+    return (s * v0 > eps && s * v1 > eps && s * v2 > eps && s * v3 > eps) ? 1 : 0;
+}
+
+template <typename idx_t, typename count_t, typename geom_t>
+int collapse_overlap_free(ImproveW<idx_t, geom_t> &w,
+                          const idx_t              killed,
+                          const idx_t              survive,
+                          const ptrdiff_t         *einc,
+                          const int                ni,
+                          const count_t           *n2eptr,
+                          const element_idx_t     *elindex) {
+    if (!w.is_tet || w.sdim < 3) {
+        return 1;
+    }
+    idx_t tv[64][4];
+    int   ncav = 0;
+    for (count_t k = n2eptr[killed]; k < n2eptr[killed + 1]; ++k) {
+        const ptrdiff_t e = (ptrdiff_t)elindex[k];
+        if (e < 0 || w.dead_e[e]) {
+            continue;
+        }
+        int skip = 0;
+        for (int j = 0; j < ni; ++j) {
+            skip |= einc[j] == e;
+        }
+        if (skip) {
+            continue;
+        }
+        if (ncav >= 64) {
+            return 0;
+        }
+        for (int d = 0; d < 4; ++d) {
+            tv[ncav][d] = w.elems[d][e] == killed ? survive : w.elems[d][e];
+        }
+        for (int d = 0; d < 4; ++d) {
+            for (int j = d + 1; j < 4; ++j) {
+                if (tv[ncav][d] == tv[ncav][j]) {
+                    return 0;
+                }
+            }
+        }
+        ++ncav;
+    }
+    for (int i = 0; i < ncav; ++i) {
+        idx_t s0 = tv[i][0], s1 = tv[i][1], s2 = tv[i][2], s3 = tv[i][3];
+        if (s0 > s1) {
+            const idx_t t = s0;
+            s0            = s1;
+            s1            = t;
+        }
+        if (s2 > s3) {
+            const idx_t t = s2;
+            s2            = s3;
+            s3            = t;
+        }
+        if (s0 > s2) {
+            const idx_t t = s0;
+            s0            = s2;
+            s2            = t;
+        }
+        if (s1 > s3) {
+            const idx_t t = s1;
+            s1            = s3;
+            s3            = t;
+        }
+        if (s1 > s2) {
+            const idx_t t = s1;
+            s1            = s2;
+            s2            = t;
+        }
+        tv[i][0] = s0;
+        tv[i][1] = s1;
+        tv[i][2] = s2;
+        tv[i][3] = s3;
+        for (int j = 0; j < i; ++j) {
+            if (tv[j][0] == s0 && tv[j][1] == s1 && tv[j][2] == s2 && tv[j][3] == s3) {
+                return 0;
+            }
+        }
+        const idx_t corner[4] = {s0, s1, s2, s3};
+        for (int c = 0; c < 4; ++c) {
+            const idx_t cv = corner[c];
+            if (cv < 0 || cv >= w.n_nodes) {
+                return 0;
+            }
+            for (count_t k = n2eptr[cv]; k < n2eptr[cv + 1]; ++k) {
+                const ptrdiff_t e = (ptrdiff_t)elindex[k];
+                if (e < 0 || w.dead_e[e]) {
+                    continue;
+                }
+                for (int d = 0; d < 4; ++d) {
+                    const idx_t u = w.elems[d][e];
+                    if (u == killed || u == corner[0] || u == corner[1] || u == corner[2] || u == corner[3]) {
+                        continue;
+                    }
+                    if (point_in_tet<idx_t, geom_t>(w.pts, corner[0], corner[1], corner[2], corner[3], u)) {
+                        return 0;
+                    }
+                }
+            }
+        }
+    }
+    return 1;
+}
+
+template <typename idx_t, typename count_t, typename geom_t>
+int collapse_manifold_ok(ImproveW<idx_t, geom_t> &w,
+                         const idx_t              killed,
+                         const idx_t              survive,
+                         const ptrdiff_t         *einc,
+                         const int                ni,
+                         const count_t           *n2eptr,
+                         const element_idx_t     *elindex) {
+    if (!w.is_tet) {
+        return 1;
+    }
+    ptrdiff_t star[128];
+    int       nstar = 0;
+    for (count_t k = n2eptr[killed]; k < n2eptr[killed + 1]; ++k) {
+        const ptrdiff_t e = (ptrdiff_t)elindex[k];
+        if (e < 0 || w.dead_e[e]) {
+            continue;
+        }
+        if (nstar >= 128) {
+            return 0;
+        }
+        star[nstar++] = e;
+    }
+    ptrdiff_t cav[128];
+    int       ncav = 0;
+    for (int s = 0; s < nstar; ++s) {
+        int skip = 0;
+        for (int j = 0; j < ni; ++j) {
+            skip |= einc[j] == star[s];
+        }
+        if (skip) {
+            continue;
+        }
+        if (ncav >= 128) {
+            return 0;
+        }
+        cav[ncav++] = star[s];
+    }
+    idx_t fa[128], fb[128], fc[128];
+    int   nf = 0;
+    for (int k = 0; k < ncav; ++k) {
+        idx_t v[4];
+        for (int d = 0; d < 4; ++d) {
+            v[d] = w.elems[d][cav[k]] == killed ? survive : w.elems[d][cav[k]];
+        }
+        for (int d = 0; d < 4; ++d) {
+            for (int j = d + 1; j < 4; ++j) {
+                if (v[d] == v[j]) {
+                    return 0;
+                }
+            }
+        }
+        for (int m = 0; m < 4; ++m) {
+            idx_t a = v[(m + 1) & 3], b = v[(m + 2) & 3], c = v[(m + 3) & 3];
+            if (a > b) {
+                const idx_t t = a;
+                a             = b;
+                b             = t;
+            }
+            if (b > c) {
+                const idx_t t = b;
+                b             = c;
+                c             = t;
+            }
+            if (a > b) {
+                const idx_t t = a;
+                a             = b;
+                b             = t;
+            }
+            int seen = 0;
+            for (int i = 0; i < nf; ++i) {
+                seen |= fa[i] == a && fb[i] == b && fc[i] == c;
+            }
+            if (seen) {
+                continue;
+            }
+            if (nf >= 128) {
+                return 0;
+            }
+            fa[nf] = a;
+            fb[nf] = b;
+            fc[nf] = c;
+            ++nf;
+        }
+    }
+    for (int i = 0; i < nf; ++i) {
+        int nc = 0;
+        for (int k = 0; k < ncav; ++k) {
+            int hit = 0, hb = 0, hc = 0;
+            for (int d = 0; d < 4; ++d) {
+                const idx_t v = w.elems[d][cav[k]] == killed ? survive : w.elems[d][cav[k]];
+                hit |= v == fa[i];
+                hb |= v == fb[i];
+                hc |= v == fc[i];
+            }
+            nc += (hit && hb && hc) ? 1 : 0;
+        }
+        int nout = 0;
+        for (count_t k = n2eptr[fa[i]]; k < n2eptr[fa[i] + 1]; ++k) {
+            const ptrdiff_t e = (ptrdiff_t)elindex[k];
+            if (e < 0 || w.dead_e[e]) {
+                continue;
+            }
+            int in_star = 0;
+            for (int s = 0; s < nstar; ++s) {
+                in_star |= star[s] == e;
+            }
+            if (in_star) {
+                continue;
+            }
+            int hb = 0, hc = 0;
+            for (int d = 0; d < 4; ++d) {
+                hb |= w.elems[d][e] == fb[i];
+                hc |= w.elems[d][e] == fc[i];
+            }
+            nout += (hb && hc) ? 1 : 0;
+        }
+        if (nc + nout > 2) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+template <typename idx_t, typename count_t, typename geom_t>
+void mark_fold_edges(ImproveW<idx_t, geom_t> &w,
+                     const count_t           *rowptr,
+                     const idx_t             *colidx,
+                     const ptrdiff_t         *uid,
+                     const ptrdiff_t          n_uedge,
+                     uint8_t                 *fold) {
+    if (!w.is_tet || !fold || n_uedge <= 0 || !rowptr || !colidx || !uid) {
+        return;
+    }
+    element_idx_t *adj = nullptr;
+    create_element_adj_table<idx_t, count_t, element_idx_t>(
+            w.n_elem, w.n_nodes, w.et, w.elems, &adj);
+    if (!adj) {
+        return;
+    }
+    geom_t *nx = (geom_t *)SMESH_CALLOC((size_t)n_uedge, sizeof(geom_t));
+    geom_t *ny = (geom_t *)SMESH_CALLOC((size_t)n_uedge, sizeof(geom_t));
+    geom_t *nz = (geom_t *)SMESH_CALLOC((size_t)n_uedge, sizeof(geom_t));
+    uint8_t *seen = (uint8_t *)SMESH_CALLOC((size_t)n_uedge, sizeof(uint8_t));
+    if (!nx || !ny || !nz || !seen) {
+        SMESH_FREE(adj);
+        SMESH_FREE(nx);
+        SMESH_FREE(ny);
+        SMESH_FREE(nz);
+        SMESH_FREE(seen);
+        return;
+    }
+    const int ns = w.n_sides;
+    for (ptrdiff_t e = 0; e < w.n_elem; ++e) {
+        if (w.dead_e[e]) {
+            continue;
+        }
+        for (int f = 0; f < ns; ++f) {
+            const element_idx_t nb = adj[e * ns + f];
+            if (nb != invalid_idx<element_idx_t>() && (ptrdiff_t)nb >= 0 &&
+                (ptrdiff_t)nb < w.n_elem && !w.dead_e[(ptrdiff_t)nb]) {
+                continue;
+            }
+            const idx_t a = w.elems[w.lst(f, 0)][e];
+            const idx_t b = w.elems[w.lst(f, 1)][e];
+            const idx_t c = w.elems[w.lst(f, 2)][e];
+            idx_t       opp = static_cast<idx_t>(-1);
+            for (int d = 0; d < 4; ++d) {
+                const idx_t v = w.elems[d][e];
+                if (v != a && v != b && v != c) {
+                    opp = v;
+                }
+            }
+            if (opp < 0 || w.sdim < 3) {
+                continue;
+            }
+            const geom_t abx = w.pts[0][b] - w.pts[0][a];
+            const geom_t aby = w.pts[1][b] - w.pts[1][a];
+            const geom_t abz = w.pts[2][b] - w.pts[2][a];
+            const geom_t acx = w.pts[0][c] - w.pts[0][a];
+            const geom_t acy = w.pts[1][c] - w.pts[1][a];
+            const geom_t acz = w.pts[2][c] - w.pts[2][a];
+            geom_t       fx  = aby * acz - abz * acy;
+            geom_t       fy  = abz * acx - abx * acz;
+            geom_t       fz  = abx * acy - aby * acx;
+            const geom_t side = (w.pts[0][opp] - w.pts[0][a]) * fx +
+                                (w.pts[1][opp] - w.pts[1][a]) * fy +
+                                (w.pts[2][opp] - w.pts[2][a]) * fz;
+            if (side > static_cast<geom_t>(0)) {
+                fx = -fx;
+                fy = -fy;
+                fz = -fz;
+            }
+            const geom_t n2 = fx * fx + fy * fy + fz * fz;
+            if (!(n2 > static_cast<geom_t>(0))) {
+                continue;
+            }
+            const geom_t invn = static_cast<geom_t>(1) / std::sqrt(n2);
+            fx *= invn;
+            fy *= invn;
+            fz *= invn;
+            const idx_t fv[3] = {a, b, c};
+            for (int k = 0; k < 3; ++k) {
+                const count_t slot = find_n2n_slot(rowptr, colidx, fv[k], fv[(k + 1) % 3]);
+                if (slot == (count_t)(-1) || uid[slot] < 0 || uid[slot] >= n_uedge) {
+                    continue;
+                }
+                const ptrdiff_t id = uid[slot];
+                if (!seen[id]) {
+                    nx[id]   = fx;
+                    ny[id]   = fy;
+                    nz[id]   = fz;
+                    seen[id] = 1;
+                } else if (nx[id] * fx + ny[id] * fy + nz[id] * fz < static_cast<geom_t>(-0.5)) {
+                    fold[id] = 1;
+                }
+            }
+        }
+    }
+    for (ptrdiff_t e = 0; e < w.n_elem; ++e) {
+        if (w.dead_e[e]) {
+            continue;
+        }
+        for (int f = 0; f < ns; ++f) {
+            const element_idx_t nb = adj[e * ns + f];
+            if (nb != invalid_idx<element_idx_t>() && (ptrdiff_t)nb >= 0 &&
+                (ptrdiff_t)nb < w.n_elem && !w.dead_e[(ptrdiff_t)nb]) {
+                continue;
+            }
+            const idx_t fv[3] = {w.elems[w.lst(f, 0)][e], w.elems[w.lst(f, 1)][e], w.elems[w.lst(f, 2)][e]};
+            ptrdiff_t   ids[3];
+            int         hit = 0;
+            int         ok  = 1;
+            for (int k = 0; k < 3; ++k) {
+                const count_t slot = find_n2n_slot(rowptr, colidx, fv[k], fv[(k + 1) % 3]);
+                if (slot == (count_t)(-1) || uid[slot] < 0 || uid[slot] >= n_uedge) {
+                    ok = 0;
+                    break;
+                }
+                ids[k] = uid[slot];
+                hit |= fold[ids[k]] == 1;
+            }
+            if (ok && hit) {
+                for (int k = 0; k < 3; ++k) {
+                    if (!fold[ids[k]]) {
+                        fold[ids[k]] = 2;
+                    }
+                }
+            }
+        }
+    }
+    SMESH_FREE(adj);
+    SMESH_FREE(nx);
+    SMESH_FREE(ny);
+    SMESH_FREE(nz);
+    SMESH_FREE(seen);
+}
+
+template <typename idx_t, typename count_t, typename geom_t>
 ptrdiff_t edge_collapses(ImproveW<idx_t, geom_t> &w,
                          const count_t           *rowptr,
                          const idx_t             *colidx,
@@ -663,7 +1156,8 @@ ptrdiff_t edge_collapses(ImproveW<idx_t, geom_t> &w,
                          const ptrdiff_t          n_uedge,
                          const count_t           *n2eptr,
                          const element_idx_t             *elindex,
-                         uint8_t                 *busy) {
+                         uint8_t                 *busy,
+                         const uint8_t           *fold) {
     ptrdiff_t nops = 0;
     for (ptrdiff_t id = 0; id < n_uedge; ++id) {
         const idx_t a0 = eu[id], b0 = ev[id];
@@ -673,7 +1167,7 @@ ptrdiff_t edge_collapses(ImproveW<idx_t, geom_t> &w,
         if (w.lock[a0] == 2 && w.lock[b0] == 2) {
             continue;
         }
-        if (feat[id]) {
+        if (feat[id] && !(fold && fold[id])) {
             if (!(w.lock[a0] == 1 && w.lock[b0] == 1)) {
                 continue;
             }
@@ -686,7 +1180,7 @@ ptrdiff_t edge_collapses(ImproveW<idx_t, geom_t> &w,
             survive = b0;
             killed  = a0;
         }
-        if (w.lock[killed] == 2) {
+        if (w.lock[killed] == 2 && w.lock[survive] == 2) {
             continue;
         }
         if (w.is_tet && w.surf[a0] != w.surf[b0]) {
@@ -716,6 +1210,7 @@ ptrdiff_t edge_collapses(ImproveW<idx_t, geom_t> &w,
                 continue;
             }
         }
+        int link_ok = 1;
         if (w.is_tet) {
             idx_t ring[32];
             int   nr          = 0;
@@ -794,18 +1289,81 @@ ptrdiff_t edge_collapses(ImproveW<idx_t, geom_t> &w,
                 ncom += in_b ? 1 : 0;
             }
             if (ncom != nr) {
-                continue;
+                if (!(fold && fold[id])) {
+                    continue;
+                }
+                link_ok = 0;
             }
             if (w.surf[a0] && w.surf[b0] && n_surf_ring != 2) {
-                continue;
+                if (!(fold && fold[id])) {
+                    continue;
+                }
+                link_ok = 0;
             }
         }
+        const int folded = fold && fold[id];
         geom_t qold = qe(w, einc[0]);
         for (int k = 1; k < ni; ++k) {
             const geom_t qq = qe(w, einc[k]);
             if (qq < qold) {
                 qold = qq;
             }
+        }
+        int accepted = 0;
+        for (int dir = 0; dir < (folded ? 2 : 1) && !accepted; ++dir) {
+            if (dir == 1) {
+                const idx_t tmp = survive;
+                survive         = killed;
+                killed          = tmp;
+            }
+            if (w.lock[killed] == 2) {
+                continue;
+            }
+            ptrdiff_t cav_q[128];
+            int       ncav_q = 0;
+            int       overflow = 0;
+            geom_t    qgate = qold;
+            for (count_t k = n2eptr[killed]; k < n2eptr[killed + 1]; ++k) {
+                const ptrdiff_t e = (ptrdiff_t)elindex[k];
+                if (w.dead_e[e]) {
+                    continue;
+                }
+                int skip = 0;
+                for (int j = 0; j < ni; ++j) {
+                    if (einc[j] == e) {
+                        skip = 1;
+                    }
+                }
+                if (skip) {
+                    continue;
+                }
+                if (ncav_q >= 128) {
+                    overflow = 1;
+                    break;
+                }
+                cav_q[ncav_q++] = e;
+                const geom_t qq = qe(w, e);
+                if (qq < qgate) {
+                    qgate = qq;
+                }
+            }
+            if (overflow || ncav_q == 0) {
+                continue;
+            }
+            const geom_t qnmin =
+                    collapse_new_qmin<idx_t, count_t, geom_t>(w, killed, survive, einc, ni, n2eptr, elindex);
+            const int improves    = qnmin > qgate;
+            const int q_fold      = folded && qnmin >= w.q_min && qnmin > static_cast<geom_t>(0);
+            const int manifold_ok = link_ok || collapse_manifold_ok<idx_t, count_t, geom_t>(
+                                                     w, killed, survive, einc, ni, n2eptr, elindex);
+            if ((improves || q_fold) && manifold_ok &&
+                collapse_overlap_free<idx_t, count_t, geom_t>(
+                        w, killed, survive, einc, ni, n2eptr, elindex)) {
+                accepted = 1;
+            }
+        }
+        if (!accepted) {
+            continue;
         }
         ptrdiff_t cav[128];
         int       ncav = 0;
@@ -827,49 +1385,6 @@ ptrdiff_t edge_collapses(ImproveW<idx_t, geom_t> &w,
                 cav[ncav++] = e;
             }
         }
-        for (int k = 0; k < ncav; ++k) {
-            const geom_t qq = qe(w, cav[k]);
-            if (qq < qold) {
-                qold = qq;
-            }
-        }
-        int ok = 1;
-        geom_t qnmin = static_cast<geom_t>(1);
-        for (int k = 0; k < ncav; ++k) {
-            idx_t v[8];
-            int   dup = 0;
-            for (int d = 0; d < w.nxe; ++d) {
-                v[d] = w.elems[d][cav[k]] == killed ? survive : w.elems[d][cav[k]];
-            }
-            for (int d = 0; d < w.nxe; ++d) {
-                for (int j = d + 1; j < w.nxe; ++j) {
-                    if (v[d] == v[j]) {
-                        dup = 1;
-                    }
-                }
-            }
-            if (dup) {
-                ok = 0;
-                break;
-            }
-            if (w.is_tet) {
-                fix_tet(w.pts, v);
-            } else if (w.is_tri) {
-                fix_tri(w.pts, w.sdim, v);
-            }
-            const geom_t qq =
-                    q_from<idx_t, geom_t>(w.et, w.sdim, w.pts, v[0], v[1], v[2], w.is_tet ? v[3] : 0);
-            if (qq < qnmin) {
-                qnmin = qq;
-            }
-            if (!(qq > static_cast<geom_t>(0))) {
-                ok = 0;
-                break;
-            }
-        }
-        if (!ok || (ncav > 0 && !(qnmin > qold))) {
-            continue;
-        }
         if (ncav == 0) {
             continue;
         }
@@ -890,6 +1405,18 @@ ptrdiff_t edge_collapses(ImproveW<idx_t, geom_t> &w,
         }
         busy[survive] = 1;
         busy[killed]  = 1;
+        for (count_t k = n2eptr[killed]; k < n2eptr[killed + 1]; ++k) {
+            const ptrdiff_t e = (ptrdiff_t)elindex[k];
+            if (e < 0) {
+                continue;
+            }
+            for (int d = 0; d < w.nxe; ++d) {
+                const idx_t v = w.elems[d][e];
+                if (v >= 0 && v < w.n_nodes) {
+                    busy[v] = 1;
+                }
+            }
+        }
         ++nops;
     }
     return nops;
@@ -902,10 +1429,16 @@ ptrdiff_t tet_23(ImproveW<idx_t, geom_t> &w,
                  const idx_t             *colidx,
                  const ptrdiff_t         *uid,
                  const uint8_t           *feat,
+                 const count_t           *n2eptr,
+                 const element_idx_t     *elindex,
                  uint8_t                 *busy) {
     ptrdiff_t nops = 0;
     const int ns   = w.n_sides;
     const ptrdiff_t n0 = w.n_elem;
+    uint8_t *done = (uint8_t *)SMESH_CALLOC((size_t)(n0 > 0 ? n0 : 1), sizeof(uint8_t));
+    if (!done) {
+        return 0;
+    }
     for (ptrdiff_t e = 0; e < n0; ++e) {
         if (w.dead_e[e]) {
             continue;
@@ -913,7 +1446,7 @@ ptrdiff_t tet_23(ImproveW<idx_t, geom_t> &w,
         for (int f = 0; f < ns; ++f) {
             const element_idx_t nb = adj[e * ns + f];
             if (nb == invalid_idx<element_idx_t>() || (ptrdiff_t)nb <= e || (ptrdiff_t)nb >= n0 ||
-                w.dead_e[(ptrdiff_t)nb]) {
+                w.dead_e[(ptrdiff_t)nb] || done[e] || done[(ptrdiff_t)nb]) {
                 continue;
             }
             idx_t face[3];
@@ -983,15 +1516,41 @@ ptrdiff_t tet_23(ImproveW<idx_t, geom_t> &w,
             if (!(qn > qold)) {
                 continue;
             }
+            int face_taken = 0;
+            const idx_t nf0[3] = {te, tn, face[0]};
+            const idx_t nf1[3] = {te, tn, face[1]};
+            const idx_t nf2[3] = {te, tn, face[2]};
+            const idx_t *nfs[3] = {nf0, nf1, nf2};
+            for (int s = 0; s < 3 && !face_taken; ++s) {
+                const idx_t fa = nfs[s][0], fb = nfs[s][1], fc = nfs[s][2];
+                for (count_t k = n2eptr[fa]; k < n2eptr[fa + 1] && !face_taken; ++k) {
+                    const ptrdiff_t et = (ptrdiff_t)elindex[k];
+                    if (et < 0 || w.dead_e[et]) {
+                        continue;
+                    }
+                    int hb = 0, hc = 0;
+                    for (int d = 0; d < 4; ++d) {
+                        hb |= w.elems[d][et] == fb;
+                        hc |= w.elems[d][et] == fc;
+                    }
+                    face_taken |= hb && hc;
+                }
+            }
+            if (face_taken) {
+                continue;
+            }
             write_elem(w, e, c0);
             write_elem(w, (ptrdiff_t)nb, c1);
             write_elem(w, w.n_elem, c2);
+            done[e] = 1;
+            done[(ptrdiff_t)nb] = 1;
             for (int k = 0; k < 5; ++k) {
                 busy[vs[k]] = 1;
             }
             ++nops;
         }
     }
+    SMESH_FREE(done);
     return nops;
 }
 
@@ -1060,6 +1619,22 @@ ptrdiff_t tet_32(ImproveW<idx_t, geom_t> &w,
         const geom_t q1 = q_from<idx_t, geom_t>(w.et, w.sdim, w.pts, c1[0], c1[1], c1[2], c1[3]);
         const geom_t qn = q0 < q1 ? q0 : q1;
         if (!(qn > qold)) {
+            continue;
+        }
+        int face_taken = 0;
+        for (count_t k = n2eptr[eq[0]]; k < n2eptr[eq[0] + 1] && !face_taken; ++k) {
+            const ptrdiff_t et = (ptrdiff_t)elindex[k];
+            if (et < 0 || w.dead_e[et]) {
+                continue;
+            }
+            int h1 = 0, h2 = 0;
+            for (int d = 0; d < 4; ++d) {
+                h1 |= w.elems[d][et] == eq[1];
+                h2 |= w.elems[d][et] == eq[2];
+            }
+            face_taken |= h1 && h2;
+        }
+        if (face_taken) {
             continue;
         }
         write_elem(w, inc[0], c0);
@@ -1449,11 +2024,13 @@ int mesh_improve(const enum ElemType                                      elemen
                 nops += tri_flips<idx_t, count_t, geom_t>(
                         w, rowptr, colidx, uid, eu, ev, feat, n_uedge, n2eptr, elindex, busy);
             }
-            if (allow_swap && w.is_tet) {
+            /* 2-3/3-2 on a mesh that is also split leaves faces shared by 3+ tets. */
+            if (allow_swap && w.is_tet && 0) {
                 element_idx_t *adj = nullptr;
                 create_element_adj_table<idx_t, count_t, element_idx_t>(
                         w.n_elem, w.n_nodes, w.et, w.elems, &adj);
-                nops += tet_23<idx_t, count_t, geom_t>(w, adj, rowptr, colidx, uid, feat, busy);
+                nops += tet_23<idx_t, count_t, geom_t>(
+                        w, adj, rowptr, colidx, uid, feat, n2eptr, elindex, busy);
                 SMESH_FREE(adj);
                 if (compact_w(w) != SMESH_SUCCESS ||
                     rebuild_improve_graphs<idx_t, count_t, geom_t>(w,
@@ -1512,8 +2089,13 @@ int mesh_improve(const enum ElemType                                      elemen
                 if (reset_busy() != SMESH_SUCCESS) {
                     return fail_pass();
                 }
+                uint8_t *fold = (uint8_t *)SMESH_CALLOC((size_t)(n_uedge > 0 ? n_uedge : 1), sizeof(uint8_t));
+                if (w.is_tet) {
+                    mark_fold_edges<idx_t, count_t, geom_t>(w, rowptr, colidx, uid, n_uedge, fold);
+                }
                 nops += edge_collapses<idx_t, count_t, geom_t>(
-                        w, rowptr, colidx, eu, ev, feat, n_uedge, n2eptr, elindex, busy);
+                        w, rowptr, colidx, eu, ev, feat, n_uedge, n2eptr, elindex, busy, fold);
+                SMESH_FREE(fold);
             }
         }
         total_ops += nops;

@@ -5,6 +5,7 @@
 #include <cstring>
 #include <vector>
 
+#include "smesh_adjacency.hpp"
 #include "smesh_extractions.hpp"
 #include "smesh_improve.hpp"
 #include "smesh_mesh.hpp"
@@ -473,6 +474,147 @@ static int test_improve_tet_param_no_invert() {
     return SMESH_TEST_SUCCESS;
 }
 
+static geom_t dist_to_seg(geom_t px, geom_t py, geom_t pz,
+                          geom_t ax, geom_t ay, geom_t az,
+                          geom_t bx, geom_t by, geom_t bz) {
+    const geom_t abx = bx - ax, aby = by - ay, abz = bz - az;
+    const geom_t apx = px - ax, apy = py - ay, apz = pz - az;
+    const geom_t ab2 = abx * abx + aby * aby + abz * abz;
+    geom_t       t   = 0;
+    if (ab2 > static_cast<geom_t>(0)) {
+        t = (apx * abx + apy * aby + apz * abz) / ab2;
+        if (t < static_cast<geom_t>(0)) {
+            t = 0;
+        } else if (t > static_cast<geom_t>(1)) {
+            t = 1;
+        }
+    }
+    const geom_t dx = px - (ax + t * abx);
+    const geom_t dy = py - (ay + t * aby);
+    const geom_t dz = pz - (az + t * abz);
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+static int test_improve_tet_sharp_stays() {
+    auto mesh = Mesh::create_half_sphere(Communicator::self(), TET4, 1, 4, 4, 2);
+    SMESH_TEST_ASSERT(mesh != nullptr);
+    geom_t **p = mesh->points()->data();
+    ptrdiff_t n_on = 0;
+    for (ptrdiff_t i = 0; i < mesh->n_nodes(); ++i) {
+        const geom_t r = std::sqrt(p[0][i] * p[0][i] + p[1][i] * p[1][i] + p[2][i] * p[2][i]);
+        n_on += r > static_cast<geom_t>(0.85);
+    }
+    auto ids = create_host_buffer<idx_t>((size_t)n_on);
+    ptrdiff_t k = 0;
+    for (ptrdiff_t i = 0; i < mesh->n_nodes(); ++i) {
+        const geom_t r = std::sqrt(p[0][i] * p[0][i] + p[1][i] * p[1][i] + p[2][i] * p[2][i]);
+        if (r > static_cast<geom_t>(0.85)) {
+            ids->data()[k++] = (idx_t)i;
+        }
+    }
+    mesh->add_parametrization(
+            "sphere", SphereParametrization::create(Nodeset::create(mesh->comm(), ids), 0, 0, 0, 1));
+    auto sk0 = skin(mesh);
+    auto se0 = extract_sharp_edges(*sk0, static_cast<geom_t>(0.15));
+    SMESH_TEST_ASSERT(se0 != nullptr && se0->size() > 0);
+    LocalEdgeTable let;
+    SMESH_TEST_EQ(let.fill(sk0->element_type(0)), SMESH_SUCCESS);
+    idx_t **el0 = sk0->elements(0)->data();
+    geom_t **sp0 = sk0->points()->data();
+    const element_idx_t *par = se0->parent()->data();
+    const i16           *lei = se0->lei()->data();
+    std::vector<geom_t> seg((size_t)se0->size() * 6);
+    std::vector<uint8_t> seg_eq((size_t)se0->size(), 0);
+    for (ptrdiff_t i = 0; i < se0->size(); ++i) {
+        const idx_t a = el0[let((int)lei[i], 0)][(ptrdiff_t)par[i]];
+        const idx_t b = el0[let((int)lei[i], 1)][(ptrdiff_t)par[i]];
+        seg[(size_t)i * 6 + 0] = sp0[0][a];
+        seg[(size_t)i * 6 + 1] = sp0[1][a];
+        seg[(size_t)i * 6 + 2] = sp0[2][a];
+        seg[(size_t)i * 6 + 3] = sp0[0][b];
+        seg[(size_t)i * 6 + 4] = sp0[1][b];
+        seg[(size_t)i * 6 + 5] = sp0[2][b];
+        const geom_t ra = std::sqrt(sp0[0][a] * sp0[0][a] + sp0[1][a] * sp0[1][a] + sp0[2][a] * sp0[2][a]);
+        const geom_t rb = std::sqrt(sp0[0][b] * sp0[0][b] + sp0[1][b] * sp0[1][b] + sp0[2][b] * sp0[2][b]);
+        seg_eq[(size_t)i] = (uint8_t)(std::fabs(sp0[2][a]) < static_cast<geom_t>(1e-3) &&
+                                      std::fabs(sp0[2][b]) < static_cast<geom_t>(1e-3) &&
+                                      std::fabs(ra - static_cast<geom_t>(1)) < static_cast<geom_t>(2e-2) &&
+                                      std::fabs(rb - static_cast<geom_t>(1)) < static_cast<geom_t>(2e-2));
+    }
+    auto co0 = extract_sharp_corners(*sk0, se0, false);
+    SMESH_TEST_ASSERT(co0 != nullptr);
+    std::vector<geom_t> corn((size_t)co0->size() * 3);
+    if (co0->size() > 0) {
+        const idx_t *cid = co0->nodes()->data();
+        for (ptrdiff_t i = 0; i < co0->size(); ++i) {
+            corn[(size_t)i * 3 + 0] = sp0[0][cid[i]];
+            corn[(size_t)i * 3 + 1] = sp0[1][cid[i]];
+            corn[(size_t)i * 3 + 2] = sp0[2][cid[i]];
+        }
+    }
+    ImproveOptions opt;
+    opt.q_min               = static_cast<geom_t>(0.5);
+    opt.max_passes          = 4;
+    opt.smooth_iters        = 4;
+    opt.use_parametrization = true;
+    SMESH_TEST_EQ(improve(*mesh, opt), SMESH_SUCCESS);
+    auto sk1 = skin(mesh);
+    SMESH_TEST_EQ(manifold_surface(sk1), SMESH_TEST_SUCCESS);
+    auto se1 = extract_sharp_edges(*sk1, static_cast<geom_t>(0.15));
+    SMESH_TEST_ASSERT(se1 != nullptr && se1->size() > 0);
+    LocalEdgeTable let1;
+    SMESH_TEST_EQ(let1.fill(sk1->element_type(0)), SMESH_SUCCESS);
+    idx_t **el1 = sk1->elements(0)->data();
+    geom_t **sp1 = sk1->points()->data();
+    const element_idx_t *par1 = se1->parent()->data();
+    const i16           *lei1 = se1->lei()->data();
+    const geom_t tol = static_cast<geom_t>(1e-4);
+    for (ptrdiff_t i = 0; i < se1->size(); ++i) {
+        const idx_t vs[2] = {el1[let1((int)lei1[i], 0)][(ptrdiff_t)par1[i]],
+                             el1[let1((int)lei1[i], 1)][(ptrdiff_t)par1[i]]};
+        for (int s = 0; s < 2; ++s) {
+            const idx_t v = vs[s];
+            geom_t      best = static_cast<geom_t>(1e30);
+            uint8_t     best_eq = 0;
+            for (ptrdiff_t e = 0; e < se0->size(); ++e) {
+                const geom_t d = dist_to_seg(sp1[0][v], sp1[1][v], sp1[2][v],
+                                             seg[(size_t)e * 6 + 0], seg[(size_t)e * 6 + 1],
+                                             seg[(size_t)e * 6 + 2], seg[(size_t)e * 6 + 3],
+                                             seg[(size_t)e * 6 + 4], seg[(size_t)e * 6 + 5]);
+                if (d < best) {
+                    best = d;
+                    best_eq = seg_eq[(size_t)e];
+                }
+            }
+            const geom_t rxy = std::sqrt(sp1[0][v] * sp1[0][v] + sp1[1][v] * sp1[1][v]);
+            const geom_t circ = std::sqrt((rxy - static_cast<geom_t>(1)) * (rxy - static_cast<geom_t>(1)) +
+                                          sp1[2][v] * sp1[2][v]);
+            const int on_curve = best <= tol || (best_eq && circ <= static_cast<geom_t>(1e-3));
+            SMESH_TEST_ASSERT(on_curve);
+        }
+    }
+    auto co1 = extract_sharp_corners(*sk1, se1, false);
+    SMESH_TEST_ASSERT(co1 != nullptr);
+    SMESH_TEST_EQ(co1->size(), co0->size());
+    if (co1->size() > 0) {
+        const idx_t *cid = co1->nodes()->data();
+        for (ptrdiff_t i = 0; i < co1->size(); ++i) {
+            geom_t best = static_cast<geom_t>(1e30);
+            for (ptrdiff_t j = 0; j < co0->size(); ++j) {
+                const geom_t dx = sp1[0][cid[i]] - corn[(size_t)j * 3 + 0];
+                const geom_t dy = sp1[1][cid[i]] - corn[(size_t)j * 3 + 1];
+                const geom_t dz = sp1[2][cid[i]] - corn[(size_t)j * 3 + 2];
+                const geom_t d  = std::sqrt(dx * dx + dy * dy + dz * dz);
+                if (d < best) {
+                    best = d;
+                }
+            }
+            SMESH_TEST_ASSERT(best <= tol);
+        }
+    }
+    return SMESH_TEST_SUCCESS;
+}
+
 static int test_improve_quad_conforming() {
     auto hex  = Mesh::create_cube(Communicator::self(), HEX8, 3, 3, 3);
     auto surf = skin(hex);
@@ -579,6 +721,7 @@ int main(int argc, char **argv) {
     SMESH_RUN_TEST(test_improve_tet_volume);
     SMESH_RUN_TEST(test_improve_tet_collapse_manifold);
     SMESH_RUN_TEST(test_improve_tet_param_no_invert);
+    SMESH_RUN_TEST(test_improve_tet_sharp_stays);
     SMESH_RUN_TEST(test_improve_quad_conforming);
     SMESH_RUN_TEST(test_improve_omp_determinism);
     SMESH_RUN_TEST(test_improve_tet_23_grows_safe);

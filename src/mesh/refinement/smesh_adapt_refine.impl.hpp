@@ -119,7 +119,102 @@ static const int kQuad4Child[4][4] = {{0, 4, 8, 7}, {4, 1, 5, 8}, {8, 5, 2, 6}, 
 struct UniqueEdgePri {
     double    l2;
     ptrdiff_t id;
+    ptrdiff_t a;
+    ptrdiff_t b;
 };
+
+template <typename geom_t>
+geom_t tet_q_abs(geom_t x0,
+                 geom_t y0,
+                 geom_t z0,
+                 geom_t x1,
+                 geom_t y1,
+                 geom_t z1,
+                 geom_t x2,
+                 geom_t y2,
+                 geom_t z2,
+                 geom_t x3,
+                 geom_t y3,
+                 geom_t z3) {
+    const geom_t ux = x1 - x0, uy = y1 - y0, uz = z1 - z0;
+    const geom_t vx = x2 - x0, vy = y2 - y0, vz = z2 - z0;
+    const geom_t wx = x3 - x0, wy = y3 - y0, wz = z3 - z0;
+    geom_t       vol6 =
+            ux * (vy * wz - vz * wy) - uy * (vx * wz - vz * wx) + uz * (vx * wy - vy * wx);
+    if (vol6 < static_cast<geom_t>(0)) {
+        vol6 = -vol6;
+    }
+    if (!(vol6 > static_cast<geom_t>(0))) {
+        return static_cast<geom_t>(0);
+    }
+    const geom_t vol = vol6 / static_cast<geom_t>(6);
+    auto         l2  = [](geom_t ax, geom_t ay, geom_t az, geom_t bx, geom_t by, geom_t bz) {
+        const geom_t dx = bx - ax, dy = by - ay, dz = bz - az;
+        return dx * dx + dy * dy + dz * dz;
+    };
+    const geom_t s2 = l2(x0, y0, z0, x1, y1, z1) + l2(x1, y1, z1, x2, y2, z2) +
+                      l2(x2, y2, z2, x0, y0, z0) + l2(x0, y0, z0, x3, y3, z3) +
+                      l2(x1, y1, z1, x3, y3, z3) + l2(x2, y2, z2, x3, y3, z3);
+    if (!(s2 > static_cast<geom_t>(0))) {
+        return static_cast<geom_t>(0);
+    }
+    const geom_t t = static_cast<geom_t>(3) * vol;
+    const geom_t q =
+            static_cast<geom_t>(12) * std::pow(t, static_cast<geom_t>(2) / static_cast<geom_t>(3)) / s2;
+    return q > static_cast<geom_t>(1) ? static_cast<geom_t>(1) : q;
+}
+
+/// Children about midpoint (mx,my,mz) stay positive. A parent at or above q_min
+/// is not replaced by a child below q_min; a parent already below q_min is split
+/// only when both children are at least as good.
+template <typename idx_t, typename count_t, typename geom_t>
+int tet_children_ok(const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT pts,
+                    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT  elems,
+                    const count_t                                            *e2tptr,
+                    const ptrdiff_t                                          *e2t,
+                    const ptrdiff_t                                           id,
+                    const idx_t                                               a,
+                    const idx_t                                               b,
+                    const geom_t                                              mx,
+                    const geom_t                                              my,
+                    const geom_t                                              mz,
+                    const geom_t                                              q_min) {
+    for (count_t t = e2tptr[id]; t < e2tptr[id + 1]; ++t) {
+        const ptrdiff_t e  = e2t[t];
+        idx_t           v0 = -1, v1 = -1;
+        for (int d = 0; d < 4; ++d) {
+            const idx_t qv = elems[d][e];
+            if (qv == a || qv == b) {
+                continue;
+            }
+            if (v0 < 0) {
+                v0 = qv;
+            } else {
+                v1 = qv;
+            }
+        }
+        if (v0 < 0 || v1 < 0) {
+            return 0;
+        }
+        const geom_t qp = tet_q_abs(pts[0][a], pts[1][a], pts[2][a], pts[0][b], pts[1][b], pts[2][b],
+                                    pts[0][v0], pts[1][v0], pts[2][v0], pts[0][v1], pts[1][v1], pts[2][v1]);
+        const geom_t q0 = tet_q_abs(pts[0][a], pts[1][a], pts[2][a], mx, my, mz, pts[0][v0], pts[1][v0],
+                                    pts[2][v0], pts[0][v1], pts[1][v1], pts[2][v1]);
+        const geom_t q1 = tet_q_abs(mx, my, mz, pts[0][b], pts[1][b], pts[2][b], pts[0][v0], pts[1][v0],
+                                    pts[2][v0], pts[0][v1], pts[1][v1], pts[2][v1]);
+        if (!(q0 > static_cast<geom_t>(0)) || !(q1 > static_cast<geom_t>(0))) {
+            return 0;
+        }
+        if (q_min > static_cast<geom_t>(0)) {
+            const geom_t floor = qp >= q_min ? q_min : qp;
+            const geom_t slack = static_cast<geom_t>(1e-5);
+            if (q0 + slack < floor || q1 + slack < floor) {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
 
 int unique_edge_pri_desc(const void *a, const void *b) {
     const UniqueEdgePri *x = static_cast<const UniqueEdgePri *>(a);
@@ -196,7 +291,27 @@ int mesh_adapt_refine(const enum ElemType                                     el
                       count_t                                               **parent_ptr_out,
                       idx_t                                                 **child_id_out,
                       idx_t                                                 **node_a_out,
-                      idx_t                                                 **node_b_out) {
+                      idx_t                                                 **node_b_out,
+                      int (*locate_mid)(void *,
+                                        geom_t,
+                                        geom_t,
+                                        geom_t,
+                                        idx_t,
+                                        idx_t,
+                                        const idx_t *,
+                                        const idx_t *,
+                                        ptrdiff_t,
+                                        geom_t *,
+                                        geom_t *,
+                                        geom_t *),
+                      void (*on_level)(void *,
+                                       ptrdiff_t,
+                                       idx_t **,
+                                       ptrdiff_t,
+                                       geom_t **,
+                                       const idx_t *,
+                                       const idx_t *),
+                      void                                                   *on_level_ctx) {
     if (!adapt_refine_type_supported(element_type) || !elements_in || !points_in || !h ||
         !n_elements_out || !elements_out || !n_nodes_out || !points_out || !parent_elem_out ||
         !parent_ptr_out || !child_id_out || !node_a_out || !node_b_out || sdim < 2) {
@@ -466,6 +581,24 @@ int mesh_adapt_refine(const enum ElemType                                     el
         }
 
         ptrdiff_t *mid_of = (ptrdiff_t *)SMESH_ALLOC((size_t)n_uedge * sizeof(ptrdiff_t));
+        geom_t    *pmx    = nullptr;
+        geom_t    *pmy    = nullptr;
+        geom_t    *pmz    = nullptr;
+        uint8_t   *puse   = nullptr;
+        if (locate_mid && is_tet && sdim >= 3) {
+            pmx  = (geom_t *)SMESH_ALLOC((size_t)n_uedge * sizeof(geom_t));
+            pmy  = (geom_t *)SMESH_ALLOC((size_t)n_uedge * sizeof(geom_t));
+            pmz  = (geom_t *)SMESH_ALLOC((size_t)n_uedge * sizeof(geom_t));
+            puse = (uint8_t *)SMESH_CALLOC((size_t)n_uedge, sizeof(uint8_t));
+            if (!pmx || !pmy || !pmz || !puse) {
+                SMESH_FREE(pmx);
+                SMESH_FREE(pmy);
+                SMESH_FREE(pmz);
+                SMESH_FREE(puse);
+                pmx = pmy = pmz = nullptr;
+                puse            = nullptr;
+            }
+        }
 #pragma omp parallel for schedule(static)
         for (ptrdiff_t i = 0; i < n_uedge; ++i) {
             mid_of[i] = -1;
@@ -493,6 +626,8 @@ int mesh_adapt_refine(const enum ElemType                                     el
                     }
                     ord[n_marked].l2 = (double)edge_len2(sdim, pts, (idx_t)i, colidx[k]);
                     ord[n_marked].id = id;
+                    ord[n_marked].a  = i;
+                    ord[n_marked].b  = (ptrdiff_t)colidx[k];
                     ++n_marked;
                 }
             }
@@ -544,6 +679,30 @@ int mesh_adapt_refine(const enum ElemType                                     el
                 }
                 if (busy) {
                     continue;
+                }
+                if (is_tet && sdim >= 3) {
+                    const idx_t  a  = (idx_t)ord[k].a;
+                    const idx_t  b  = (idx_t)ord[k].b;
+                    const geom_t cx = static_cast<geom_t>(0.5) * (pts[0][a] + pts[0][b]);
+                    const geom_t cy = static_cast<geom_t>(0.5) * (pts[1][a] + pts[1][b]);
+                    const geom_t cz = static_cast<geom_t>(0.5) * (pts[2][a] + pts[2][b]);
+                    geom_t       ux = cx, uy = cy, uz = cz;
+                    int          on_geom = 0;
+                    if (puse && locate_mid &&
+                        locate_mid(on_level_ctx, cx, cy, cz, a, b, node_a, node_b, n_nodes, &ux, &uy, &uz) &&
+                        tet_children_ok<idx_t, count_t, geom_t>(
+                                pts, elems, e2tptr, e2t, id, a, b, ux, uy, uz, q_min)) {
+                        on_geom = 1;
+                    } else if (!tet_children_ok<idx_t, count_t, geom_t>(
+                                       pts, elems, e2tptr, e2t, id, a, b, cx, cy, cz, q_min)) {
+                        continue;
+                    }
+                    if (on_geom) {
+                        puse[id] = 1;
+                        pmx[id]  = ux;
+                        pmy[id]  = uy;
+                        pmz[id]  = uz;
+                    }
                 }
                 mid_of[id] = n_nodes + n_split_edges;
                 ++n_split_edges;
@@ -600,6 +759,10 @@ int mesh_adapt_refine(const enum ElemType                                     el
             SMESH_FREE(long_uid);
             SMESH_FREE(mid_of);
             SMESH_FREE(split);
+            SMESH_FREE(pmx);
+            SMESH_FREE(pmy);
+            SMESH_FREE(pmz);
+            SMESH_FREE(puse);
             break;
         }
 
@@ -641,8 +804,18 @@ int mesh_adapt_refine(const enum ElemType                                     el
                     }
                     const idx_t j = colidx[k];
                     const idx_t mid = (idx_t)mid_of[id];
-                    for (int d = 0; d < sdim; ++d) {
-                        npts[d][mid] = static_cast<geom_t>(0.5) * (pts[d][i] + pts[d][j]);
+                    if (puse && puse[id]) {
+                        npts[0][mid] = pmx[id];
+                        if (sdim > 1) {
+                            npts[1][mid] = pmy[id];
+                        }
+                        if (sdim > 2) {
+                            npts[2][mid] = pmz[id];
+                        }
+                    } else {
+                        for (int d = 0; d < sdim; ++d) {
+                            npts[d][mid] = static_cast<geom_t>(0.5) * (pts[d][i] + pts[d][j]);
+                        }
                     }
                     nna[mid] = (idx_t)i;
                     nnb[mid] = j;
@@ -651,6 +824,12 @@ int mesh_adapt_refine(const enum ElemType                                     el
             }
             (void)written;
         }
+        SMESH_FREE(pmx);
+        SMESH_FREE(pmy);
+        SMESH_FREE(pmz);
+        SMESH_FREE(puse);
+        pmx = pmy = pmz = nullptr;
+        puse            = nullptr;
 
         geom_t *h_new = (geom_t *)SMESH_ALLOC((size_t)n_nodes_new * sizeof(geom_t));
         uint8_t *g_new = (uint8_t *)SMESH_CALLOC((size_t)n_nodes_new, sizeof(uint8_t));
@@ -844,6 +1023,9 @@ int mesh_adapt_refine(const enum ElemType                                     el
         SMESH_FREE(long_uid);
         SMESH_FREE(mid_of);
         SMESH_FREE(split);
+        if (on_level) {
+            on_level(on_level_ctx, n_elem, elems, n_nodes, pts, node_a, node_b);
+        }
     }
 
     SMESH_FREE(h_work);

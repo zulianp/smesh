@@ -131,11 +131,32 @@ int mesh_smooth_feature(const int                                               
                 continue;
             }
             if (lock[i] == 1 && cn[i] == 2 && c0[i] >= 0 && c1[i] >= 0) {
-                dstx[i] = srcx[i] + lam * (static_cast<geom_t>(0.5) * (srcx[c0[i]] + srcx[c1[i]]) - srcx[i]);
-                dsty[i] = srcy[i] + lam * (static_cast<geom_t>(0.5) * (srcy[c0[i]] + srcy[c1[i]]) - srcy[i]);
-                if (sdim >= 3) {
-                    dstz[i] =
-                            srcz[i] + lam * (static_cast<geom_t>(0.5) * (srcz[c0[i]] + srcz[c1[i]]) - srcz[i]);
+                const geom_t dx =
+                        lam * (static_cast<geom_t>(0.5) * (srcx[c0[i]] + srcx[c1[i]]) - srcx[i]);
+                const geom_t dy =
+                        lam * (static_cast<geom_t>(0.5) * (srcy[c0[i]] + srcy[c1[i]]) - srcy[i]);
+                const geom_t dz =
+                        sdim >= 3 ? lam * (static_cast<geom_t>(0.5) * (srcz[c0[i]] + srcz[c1[i]]) - srcz[i])
+                                  : static_cast<geom_t>(0);
+                geom_t qx = srcx[i], qy = srcy[i], qz = sdim >= 3 ? srcz[i] : static_cast<geom_t>(0);
+                const geom_t sz0 = sdim >= 3 ? srcz[c0[i]] : static_cast<geom_t>(0);
+                const geom_t sz1 = sdim >= 3 ? srcz[c1[i]] : static_cast<geom_t>(0);
+                const geom_t sz  = sdim >= 3 ? srcz[i] : static_cast<geom_t>(0);
+                if (feature_curve_point(srcx[i], srcy[i], sz,
+                                        srcx[c0[i]], srcy[c0[i]], sz0,
+                                        srcx[c1[i]], srcy[c1[i]], sz1,
+                                        dx, dy, dz, &qx, &qy, &qz)) {
+                    dstx[i] = qx;
+                    dsty[i] = qy;
+                    if (sdim >= 3) {
+                        dstz[i] = qz;
+                    }
+                } else {
+                    dstx[i] = srcx[i];
+                    dsty[i] = srcy[i];
+                    if (sdim >= 3) {
+                        dstz[i] = srcz[i];
+                    }
                 }
             } else {
                 const count_t b = rowptr[i];

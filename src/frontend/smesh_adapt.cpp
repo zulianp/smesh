@@ -85,6 +85,74 @@ geom_t incident_qmin(const idx_t                                              i,
     return any ? mn : static_cast<geom_t>(1);
 }
 
+int snapshot_incident_q(const idx_t          i,
+                        const count_t       *n2eptr,
+                        const element_idx_t *elindex,
+                        idx_t **const        el,
+                        geom_t **const       p,
+                        geom_t              *oq,
+                        const int            cap) {
+    int n = 0;
+    for (count_t k = n2eptr[i]; k < n2eptr[i + 1]; ++k) {
+        if (n >= cap) {
+            return -1;
+        }
+        oq[n++] = mesh_elem_mean_ratio<idx_t, geom_t>(TET4, 3, el, p, (ptrdiff_t)elindex[k]);
+    }
+    return n;
+}
+
+int incident_qmin_floor(const idx_t          i,
+                        const count_t       *n2eptr,
+                        const element_idx_t *elindex,
+                        idx_t **const        el,
+                        geom_t **const       p,
+                        const geom_t        *oq,
+                        const int            nq,
+                        const geom_t         qbar,
+                        geom_t              *mn) {
+    geom_t m   = 1;
+    int    any = 0;
+    int    ok  = 1;
+    int    t   = 0;
+    for (count_t k = n2eptr[i]; k < n2eptr[i + 1]; ++k) {
+        const geom_t q = mesh_elem_mean_ratio<idx_t, geom_t>(TET4, 3, el, p, (ptrdiff_t)elindex[k]);
+        if (!any || q < m) {
+            m = q;
+        }
+        any = 1;
+        if (nq >= 0 && t < nq && oq[t] >= qbar && q < qbar) {
+            ok = 0;
+        }
+        ++t;
+    }
+    *mn = any ? m : static_cast<geom_t>(1);
+    return ok;
+}
+
+int incident_guarded(const idx_t          i,
+                     const count_t       *n2eptr,
+                     const element_idx_t *elindex,
+                     idx_t **const        el,
+                     geom_t **const       p,
+                     const geom_t        *oq,
+                     const int            nq,
+                     const geom_t         q_floor,
+                     geom_t              *mn) {
+    if (nq < 0 || !incident_qmin_floor(i, n2eptr, elindex, el, p, oq, nq, q_floor, mn)) {
+        return 0;
+    }
+    int t = 0;
+    for (count_t k = n2eptr[i]; k < n2eptr[i + 1]; ++k) {
+        const geom_t q = mesh_elem_mean_ratio<idx_t, geom_t>(TET4, 3, el, p, (ptrdiff_t)elindex[k]);
+        if (t < nq && oq[t] > static_cast<geom_t>(0) && !(q > static_cast<geom_t>(0))) {
+            return 0;
+        }
+        ++t;
+    }
+    return 1;
+}
+
 void quality_laplace_tets(Mesh                    &mesh,
                           const uint8_t           *lock,
                           const count_t           *rowptr,
@@ -95,7 +163,9 @@ void quality_laplace_tets(Mesh                    &mesh,
                           const geom_t            *ny,
                           const geom_t            *nz,
                           const int                n_iters,
-                          const geom_t             lambda) {
+                          const geom_t             lambda,
+                          const idx_t             *c0,
+                          const idx_t             *c1) {
     if (!lock || !rowptr || !colidx || !n2eptr || !elindex || n_iters <= 0) {
         return;
     }
@@ -107,7 +177,11 @@ void quality_laplace_tets(Mesh                    &mesh,
     const geom_t step[3] = {lam, static_cast<geom_t>(0.5) * lam, static_cast<geom_t>(0.25) * lam};
     for (int it = 0; it < n_iters; ++it) {
         for (ptrdiff_t i = 0; i < nn; ++i) {
-            if (lock[i] >= 2 || (nx && lock[i] >= 1)) {
+            if (lock[i] >= 2) {
+                continue;
+            }
+            const int crease = lock[i] == 1;
+            if (crease && (!c0 || !c1 || c0[i] < 0 || c1[i] < 0)) {
                 continue;
             }
             geom_t  mx = 0, my = 0, mz = 0;
@@ -129,7 +203,7 @@ void quality_laplace_tets(Mesh                    &mesh,
             geom_t       dx = mx * inv - p[0][i];
             geom_t       dy = my * inv - p[1][i];
             geom_t       dz = mz * inv - p[2][i];
-            if (nx && ny && nz) {
+            if (!crease && nx && ny && nz) {
                 const geom_t nl2 = nx[i] * nx[i] + ny[i] * ny[i] + nz[i] * nz[i];
                 if (nl2 > static_cast<geom_t>(0)) {
                     const geom_t invn = static_cast<geom_t>(1) / std::sqrt(nl2);
@@ -144,9 +218,22 @@ void quality_laplace_tets(Mesh                    &mesh,
             geom_t       qbest = qold;
             geom_t       bx = ox, by = oy, bz = oz;
             for (int s = 0; s < 3; ++s) {
-                p[0][i] = ox + step[s] * dx;
-                p[1][i] = oy + step[s] * dy;
-                p[2][i] = oz + step[s] * dz;
+                if (crease) {
+                    if (!feature_curve_point(ox, oy, oz,
+                                             p[0][c0[i]], p[1][c0[i]], p[2][c0[i]],
+                                             p[0][c1[i]], p[1][c1[i]], p[2][c1[i]],
+                                             step[s] * dx, step[s] * dy, step[s] * dz,
+                                             &p[0][i], &p[1][i], &p[2][i])) {
+                        p[0][i] = ox;
+                        p[1][i] = oy;
+                        p[2][i] = oz;
+                        continue;
+                    }
+                } else {
+                    p[0][i] = ox + step[s] * dx;
+                    p[1][i] = oy + step[s] * dy;
+                    p[2][i] = oz + step[s] * dz;
+                }
                 const geom_t qn = incident_qmin((idx_t)i, n2eptr, elindex, el, p);
                 if (qn > qbest) {
                     qbest = qn;
@@ -169,7 +256,9 @@ void sliver_exorcise_tets(Mesh                    &mesh,
                           const geom_t             qbar,
                           const geom_t            *tnx,
                           const geom_t            *tny,
-                          const geom_t            *tnz) {
+                          const geom_t            *tnz,
+                          const idx_t             *c0,
+                          const idx_t             *c1) {
     if (!lock || !n2eptr || !elindex) {
         return;
     }
@@ -190,6 +279,10 @@ void sliver_exorcise_tets(Mesh                    &mesh,
                 if (lock[iv] >= 2) {
                     continue;
                 }
+                const int crease = lock[iv] == 1;
+                if (crease && (!c0 || !c1 || c0[iv] < 0 || c1[iv] < 0)) {
+                    continue;
+                }
                 const idx_t ia = v[faces[f][0]], ib = v[faces[f][1]], ic = v[faces[f][2]];
                 geom_t nx = (p[1][ib] - p[1][ia]) * (p[2][ic] - p[2][ia]) -
                             (p[2][ib] - p[2][ia]) * (p[1][ic] - p[1][ia]);
@@ -204,7 +297,7 @@ void sliver_exorcise_tets(Mesh                    &mesh,
                 nx /= nl;
                 ny /= nl;
                 nz /= nl;
-                if (tnx && tny && tnz && lock[iv] < 2) {
+                if (!crease && tnx && tny && tnz && lock[iv] < 2) {
                     const geom_t nl2 = tnx[iv] * tnx[iv] + tny[iv] * tny[iv] + tnz[iv] * tnz[iv];
                     if (nl2 > static_cast<geom_t>(0)) {
                         const geom_t invn = static_cast<geom_t>(1) / std::sqrt(nl2);
@@ -233,9 +326,22 @@ void sliver_exorcise_tets(Mesh                    &mesh,
                                         static_cast<geom_t>(1),
                                         static_cast<geom_t>(-0.25)};
                 for (int s = 0; s < 6; ++s) {
-                    p[0][iv] = ox + frac[s] * h * nx;
-                    p[1][iv] = oy + frac[s] * h * ny;
-                    p[2][iv] = oz + frac[s] * h * nz;
+                    if (crease) {
+                        if (!feature_curve_point(ox, oy, oz,
+                                                 p[0][c0[iv]], p[1][c0[iv]], p[2][c0[iv]],
+                                                 p[0][c1[iv]], p[1][c1[iv]], p[2][c1[iv]],
+                                                 frac[s] * h * nx, frac[s] * h * ny, frac[s] * h * nz,
+                                                 &p[0][iv], &p[1][iv], &p[2][iv])) {
+                            p[0][iv] = ox;
+                            p[1][iv] = oy;
+                            p[2][iv] = oz;
+                            continue;
+                        }
+                    } else {
+                        p[0][iv] = ox + frac[s] * h * nx;
+                        p[1][iv] = oy + frac[s] * h * ny;
+                        p[2][iv] = oz + frac[s] * h * nz;
+                    }
                     const geom_t qn = incident_qmin(iv, n2eptr, elindex, el, p);
                     if (qn > qbest) {
                         qbest = qn;
@@ -271,13 +377,17 @@ void sliver_exorcise_tets(Mesh                    &mesh,
                     if (lock[iv] >= 2) {
                         continue;
                     }
+                    const int crease = lock[iv] == 1;
+                    if (crease && (!c0 || !c1 || c0[iv] < 0 || c1[iv] < 0)) {
+                        continue;
+                    }
                     const geom_t ox = p[0][iv], oy = p[1][iv], oz = p[2][iv];
                     const geom_t qold = incident_qmin(iv, n2eptr, elindex, el, p);
                     geom_t       qbest = qold;
                     geom_t       bx = ox, by = oy, bz = oz;
                     for (int s = 0; s < 6; ++s) {
                         geom_t dx = dir[s][0], dy = dir[s][1], dz = dir[s][2];
-                        if (tnx && tny && tnz) {
+                        if (!crease && tnx && tny && tnz) {
                             const geom_t nl2 =
                                     tnx[iv] * tnx[iv] + tny[iv] * tny[iv] + tnz[iv] * tnz[iv];
                             if (nl2 > static_cast<geom_t>(0)) {
@@ -288,9 +398,22 @@ void sliver_exorcise_tets(Mesh                    &mesh,
                                 dz -= dtn * tnz[iv] * invn;
                             }
                         }
-                        p[0][iv] = ox + dx;
-                        p[1][iv] = oy + dy;
-                        p[2][iv] = oz + dz;
+                        if (crease) {
+                            if (!feature_curve_point(ox, oy, oz,
+                                                     p[0][c0[iv]], p[1][c0[iv]], p[2][c0[iv]],
+                                                     p[0][c1[iv]], p[1][c1[iv]], p[2][c1[iv]],
+                                                     dx, dy, dz,
+                                                     &p[0][iv], &p[1][iv], &p[2][iv])) {
+                                p[0][iv] = ox;
+                                p[1][iv] = oy;
+                                p[2][iv] = oz;
+                                continue;
+                            }
+                        } else {
+                            p[0][iv] = ox + dx;
+                            p[1][iv] = oy + dy;
+                            p[2][iv] = oz + dz;
+                        }
                         const geom_t qn = incident_qmin(iv, n2eptr, elindex, el, p);
                         if (qn > qbest) {
                             qbest = qn;
@@ -314,7 +437,9 @@ void sliver_exorcise_tets(Mesh                    &mesh,
 
 void quality_gated_param_apply(Mesh                &mesh,
                                const count_t       *n2eptr,
-                               const element_idx_t *elindex) {
+                               const element_idx_t *elindex,
+                               const geom_t         q_floor,
+                               const uint8_t       *allow) {
     if (mesh.parametrizations().empty()) {
         return;
     }
@@ -367,19 +492,47 @@ void quality_gated_param_apply(Mesh                &mesh,
             const idx_t *ids = ns->nodes()->data();
             for (ptrdiff_t k = 0; k < ns->size(); ++k) {
                 const idx_t i = ids[k];
-                if (i < 0 || (ptrdiff_t)i >= nn) {
+                if (i < 0 || (ptrdiff_t)i >= nn || (allow && !allow[i])) {
                     continue;
                 }
                 const geom_t ox = p[0][i], oy = p[1][i], oz = p[2][i];
                 const geom_t sx = snp[0][i], sy = snp[1][i], sz = snp[2][i];
+                geom_t       oq[256];
+                const int    nq = q_floor > static_cast<geom_t>(0)
+                                          ? snapshot_incident_q(i, n2eptr, elindex, el, p, oq, 256)
+                                          : 0;
                 const geom_t q0 = incident_qmin(i, n2eptr, elindex, el, p);
                 geom_t       bf = 0;
-                for (int s = 0; s < 4; ++s) {
-                    p[0][i] = ox + frac[s] * (sx - ox);
-                    p[1][i] = oy + frac[s] * (sy - oy);
-                    p[2][i] = oz + frac[s] * (sz - oz);
-                    if (incident_qmin(i, n2eptr, elindex, el, p) >= q0) {
-                        bf = frac[s];
+                auto         accept = [&](geom_t f) -> int {
+                    p[0][i] = ox + f * (sx - ox);
+                    p[1][i] = oy + f * (sy - oy);
+                    p[2][i] = oz + f * (sz - oz);
+                    geom_t qn = 0;
+                    if (q_floor > static_cast<geom_t>(0)) {
+                        return incident_guarded(i, n2eptr, elindex, el, p, oq, nq, q_floor, &qn) && qn >= q0;
+                    }
+                    return incident_qmin(i, n2eptr, elindex, el, p) >= q0;
+                };
+                if (q_floor > static_cast<geom_t>(0)) {
+                    if (accept(static_cast<geom_t>(1))) {
+                        bf = static_cast<geom_t>(1);
+                    } else {
+                        geom_t lo = 0, hi = 1;
+                        for (int it = 0; it < 12; ++it) {
+                            const geom_t mid = static_cast<geom_t>(0.5) * (lo + hi);
+                            if (accept(mid)) {
+                                bf = mid;
+                                lo = mid;
+                            } else {
+                                hi = mid;
+                            }
+                        }
+                    }
+                } else {
+                    for (int s = 0; s < 4; ++s) {
+                        if (accept(frac[s])) {
+                            bf = frac[s];
+                        }
                     }
                 }
                 p[0][i] = ox + bf * (sx - ox);
@@ -1077,6 +1230,65 @@ int project_onto_snap(Mesh                &mesh,
     return err;
 }
 
+void crease_neighbors(const ptrdiff_t n_nodes,
+                      const ptrdiff_t n_a,
+                      const idx_t    *a0,
+                      const idx_t    *a1,
+                      const ptrdiff_t n_b,
+                      const idx_t    *b0,
+                      const idx_t    *b1,
+                      idx_t          *c0,
+                      idx_t          *c1) {
+    uint8_t *cc = (uint8_t *)SMESH_CALLOC((size_t)n_nodes, sizeof(uint8_t));
+    for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+        c0[i] = static_cast<idx_t>(-1);
+        c1[i] = static_cast<idx_t>(-1);
+    }
+    if (!cc) {
+        return;
+    }
+    const idx_t *e0s[2] = {a0, b0};
+    const idx_t *e1s[2] = {a1, b1};
+    const ptrdiff_t ns[2] = {n_a, n_b};
+    for (int pass = 0; pass < 2; ++pass) {
+        const idx_t *e0 = e0s[pass];
+        const idx_t *e1 = e1s[pass];
+        if (!e0 || !e1) {
+            continue;
+        }
+        for (ptrdiff_t s = 0; s < ns[pass]; ++s) {
+            const idx_t ends[2] = {e0[s], e1[s]};
+            for (int t = 0; t < 2; ++t) {
+                const idx_t v = ends[t];
+                const idx_t u = ends[1 - t];
+                if (v < 0 || (ptrdiff_t)v >= n_nodes || u < 0 || (ptrdiff_t)u >= n_nodes || u == v) {
+                    continue;
+                }
+                if (cc[v] == 0) {
+                    c0[v] = u;
+                    cc[v] = 1;
+                } else if (c0[v] == u) {
+                    continue;
+                } else if (cc[v] == 1) {
+                    c1[v] = u;
+                    cc[v] = 2;
+                } else if (c1[v] == u) {
+                    continue;
+                } else {
+                    cc[v] = 3;
+                }
+            }
+        }
+    }
+    for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+        if (cc[i] != 2) {
+            c0[i] = static_cast<idx_t>(-1);
+            c1[i] = static_cast<idx_t>(-1);
+        }
+    }
+    SMESH_FREE(cc);
+}
+
 int constrained_smooth(Mesh              &mesh,
                        const int          n_iters,
                        const geom_t       lambda,
@@ -1089,7 +1301,8 @@ int constrained_smooth(Mesh              &mesh,
                        const idx_t       *crease0,
                        const idx_t       *crease1,
                        const ptrdiff_t    n_pin,
-                       const geom_t       q_min) {
+                       const geom_t       q_min,
+                       const geom_t       param_floor) {
     SMESH_TRACE_SCOPE("constrained_smooth");
     const geom_t qbar = q_min > static_cast<geom_t>(0) ? q_min : static_cast<geom_t>(0.5);
     if (n_iters <= 0) {
@@ -1242,12 +1455,16 @@ int constrained_smooth(Mesh              &mesh,
                                  nullptr,
                                  nullptr,
                                  n_iters,
-                                 lambda);
+                                 lambda,
+                                 nullptr,
+                                 nullptr);
             sliver_exorcise_tets(mesh,
                                  lk_int,
                                  n2e->rowptr()->data(),
                                  n2e->colidx()->data(),
                                  qbar,
+                                 nullptr,
+                                 nullptr,
                                  nullptr,
                                  nullptr,
                                  nullptr);
@@ -1264,6 +1481,28 @@ int constrained_smooth(Mesh              &mesh,
             }
         }
     }
+    idx_t *cn0 = nullptr;
+    idx_t *cn1 = nullptr;
+    if (mesh.element_type(0) == TET4 && n_nodes > 0) {
+        cn0 = (idx_t *)SMESH_ALLOC((size_t)n_nodes * sizeof(idx_t));
+        cn1 = (idx_t *)SMESH_ALLOC((size_t)n_nodes * sizeof(idx_t));
+        if (cn0 && cn1) {
+            crease_neighbors(n_nodes,
+                             nsh,
+                             se0,
+                             se1,
+                             (n_crease > 0 && crease0 && crease1) ? n_crease : 0,
+                             crease0,
+                             crease1,
+                             cn0,
+                             cn1);
+        } else {
+            SMESH_FREE(cn0);
+            SMESH_FREE(cn1);
+            cn0 = nullptr;
+            cn1 = nullptr;
+        }
+    }
     int err = SMESH_SUCCESS;
     if (mesh.element_type(0) == TET4 && n2e && n2n) {
         quality_laplace_tets(mesh,
@@ -1276,7 +1515,9 @@ int constrained_smooth(Mesh              &mesh,
                              ny,
                              nz,
                              n_iters,
-                             lambda);
+                             lambda,
+                             cn0,
+                             cn1);
         sliver_exorcise_tets(mesh,
                              lock,
                              n2e->rowptr()->data(),
@@ -1284,7 +1525,9 @@ int constrained_smooth(Mesh              &mesh,
                              qbar,
                              nx,
                              ny,
-                             nz);
+                             nz,
+                             cn0,
+                             cn1);
     } else {
         err = mesh_smooth_feature<idx_t, count_t, geom_t>(sdim,
                                                           n_nodes,
@@ -1315,6 +1558,8 @@ int constrained_smooth(Mesh              &mesh,
         SMESH_FREE(x0);
         SMESH_FREE(se0);
         SMESH_FREE(se1);
+        SMESH_FREE(cn0);
+        SMESH_FREE(cn1);
         SMESH_FREE(surf);
         SMESH_FREE(lock);
         SMESH_FREE(lk_int);
@@ -1338,6 +1583,8 @@ int constrained_smooth(Mesh              &mesh,
                                  : SMESH_SUCCESS;
     SMESH_FREE(se0);
     SMESH_FREE(se1);
+    SMESH_FREE(cn0);
+    SMESH_FREE(cn1);
     SMESH_FREE(surf);
     SMESH_FREE(lock);
     surface_snap_free(fine_s);
@@ -1352,7 +1599,7 @@ int constrained_smooth(Mesh              &mesh,
     }
     if (use_param) {
         if (n2e) {
-            quality_gated_param_apply(mesh, n2e->rowptr()->data(), n2e->colidx()->data());
+            quality_gated_param_apply(mesh, n2e->rowptr()->data(), n2e->colidx()->data(), param_floor, nullptr);
         } else {
             for (const auto &kv : mesh.parametrizations()) {
                 if (kv.second && kv.second->apply(mesh) != SMESH_SUCCESS) {
@@ -1377,12 +1624,16 @@ int constrained_smooth(Mesh              &mesh,
                              nullptr,
                              nullptr,
                              n_iters,
-                             lambda);
+                             lambda,
+                             nullptr,
+                             nullptr);
         sliver_exorcise_tets(mesh,
                              lk_int,
                              n2e->rowptr()->data(),
                              n2e->colidx()->data(),
                              qbar,
+                             nullptr,
+                             nullptr,
                              nullptr,
                              nullptr,
                              nullptr);
@@ -1471,6 +1722,153 @@ int rebind_params_to_surface(Mesh &mesh) {
     return SMESH_SUCCESS;
 }
 
+struct AdaptLevelSnap {
+    std::shared_ptr<Mesh>                  coarse;
+    std::shared_ptr<SphereParametrization> sphere;
+    geom_t                                 q_min;
+    enum ElemType                          et;
+    int                                    nxe;
+    int                                    sdim;
+    uint8_t                               *orig;
+    ptrdiff_t                              n_orig;
+    uint8_t                               *mark;
+    ptrdiff_t                              mark_n;
+};
+
+int node_on_param(AdaptLevelSnap *s, idx_t i, const idx_t *na, const idx_t *nb, ptrdiff_t n) {
+    if (!s || !na || !nb || i < 0 || (ptrdiff_t)i >= n) {
+        return 0;
+    }
+    if ((ptrdiff_t)i >= s->mark_n) {
+        uint8_t *m = (uint8_t *)SMESH_ALLOC((size_t)n);
+        if (!m) {
+            return 0;
+        }
+        for (ptrdiff_t k = 0; k < n; ++k) {
+            m[k] = 2;
+        }
+        if (s->mark) {
+            const ptrdiff_t keep = s->mark_n < n ? s->mark_n : n;
+            for (ptrdiff_t k = 0; k < keep; ++k) {
+                m[k] = s->mark[k];
+            }
+            SMESH_FREE(s->mark);
+        }
+        s->mark   = m;
+        s->mark_n = n;
+    }
+    if (s->mark[i] == 3) {
+        return 0;
+    }
+    if (s->mark[i] != 2) {
+        return s->mark[i];
+    }
+    s->mark[i] = 3;
+    int on = 0;
+    if (na[i] == nb[i]) {
+        on = s->orig && (ptrdiff_t)i < s->n_orig && s->orig[i];
+    } else {
+        on = node_on_param(s, na[i], na, nb, n) && node_on_param(s, nb[i], na, nb, n);
+    }
+    s->mark[i] = (uint8_t)on;
+    return on;
+}
+
+int adapt_locate_mid(void        *ctx,
+                     geom_t       x,
+                     geom_t       y,
+                     geom_t       z,
+                     idx_t        a,
+                     idx_t        b,
+                     const idx_t *na,
+                     const idx_t *nb,
+                     ptrdiff_t    n,
+                     geom_t      *ox,
+                     geom_t      *oy,
+                     geom_t      *oz) {
+    auto *s = static_cast<AdaptLevelSnap *>(ctx);
+    if (!s || !s->sphere || !ox || !oy || !oz) {
+        return 0;
+    }
+    if (!node_on_param(s, a, na, nb, n) || !node_on_param(s, b, na, nb, n)) {
+        return 0;
+    }
+    const geom_t dx   = x - s->sphere->cx();
+    const geom_t dy   = y - s->sphere->cy();
+    const geom_t dz   = z - s->sphere->cz();
+    const geom_t len2 = dx * dx + dy * dy + dz * dz;
+    if (!(len2 > static_cast<geom_t>(0))) {
+        return 0;
+    }
+    const geom_t sc = s->sphere->radius() / std::sqrt(len2);
+    *ox             = s->sphere->cx() + sc * dx;
+    *oy             = s->sphere->cy() + sc * dy;
+    *oz             = s->sphere->cz() + sc * dz;
+    return 1;
+}
+
+void adapt_level_snap(void        *ctx,
+                      ptrdiff_t    n_elem,
+                      idx_t      **elems,
+                      ptrdiff_t    n_nodes,
+                      geom_t     **pts,
+                      const idx_t *na,
+                      const idx_t *nb) {
+    auto *s = static_cast<AdaptLevelSnap *>(ctx);
+    if (!s || !s->coarse || s->coarse->parametrizations().empty() || !pts || !na || !nb) {
+        return;
+    }
+    auto fine = wrap_adapt_mesh(s->coarse, s->et, s->nxe, s->sdim, n_elem, elems, n_nodes, pts);
+    if (!fine) {
+        return;
+    }
+    for (const auto &kv : s->coarse->parametrizations()) {
+        if (!kv.second) {
+            continue;
+        }
+        auto src = kv.second->nodeset();
+        auto exp = expand_nodeset(s->coarse, src, fine, na, nb);
+        fine->add_parametrization(kv.first, kv.second->with_nodeset(exp ? exp : src));
+    }
+    if (s->et != TET4) {
+        quality_gated_param_apply(*fine, nullptr, nullptr, static_cast<geom_t>(0), nullptr);
+    } else {
+        uint8_t *allow = (uint8_t *)SMESH_CALLOC((size_t)n_nodes, sizeof(uint8_t));
+        if (allow) {
+            for (ptrdiff_t i = 0; i < n_nodes; ++i) {
+                const idx_t a = na[i];
+                const idx_t b = nb[i];
+                if (a == b || a < 0 || b < 0 || (ptrdiff_t)a >= n_nodes || (ptrdiff_t)b >= n_nodes) {
+                    continue;
+                }
+                const geom_t mx = static_cast<geom_t>(0.5) * (pts[0][a] + pts[0][b]);
+                const geom_t my = static_cast<geom_t>(0.5) * (pts[1][a] + pts[1][b]);
+                const geom_t mz = static_cast<geom_t>(0.5) * (pts[2][a] + pts[2][b]);
+                const geom_t dx = pts[0][i] - mx, dy = pts[1][i] - my, dz = pts[2][i] - mz;
+                const geom_t ex = pts[0][b] - pts[0][a], ey = pts[1][b] - pts[1][a], ez = pts[2][b] - pts[2][a];
+                const geom_t el2 = ex * ex + ey * ey + ez * ez;
+                if (dx * dx + dy * dy + dz * dz <= static_cast<geom_t>(1e-8) * el2) {
+                    allow[i] = 1;
+                }
+            }
+            auto n2e = fine->node_to_element_graph();
+            if (n2e) {
+                quality_gated_param_apply(*fine,
+                                          n2e->rowptr()->data(),
+                                          n2e->colidx()->data(),
+                                          s->q_min,
+                                          allow);
+            }
+            SMESH_FREE(allow);
+        }
+        pull_mids_of_inverted_tets(*fine, na, nb);
+    }
+    geom_t **const fp = fine->points()->data();
+    for (int d = 0; d < s->sdim && fp; ++d) {
+        std::memcpy(pts[d], fp[d], (size_t)n_nodes * sizeof(geom_t));
+    }
+}
+
 }  // namespace
 
 int smooth_enhance(Mesh &mesh, const AdaptRefineOptions &opt) {
@@ -1497,7 +1895,8 @@ int smooth_enhance(Mesh &mesh, const AdaptRefineOptions &opt) {
                               nullptr,
                               nullptr,
                               0,
-                              opt.q_min);
+                              opt.q_min,
+                              static_cast<geom_t>(0));
 }
 
 std::shared_ptr<Mesh> adapt_refine(const std::shared_ptr<Mesh> &mesh,
@@ -1611,6 +2010,43 @@ std::shared_ptr<Mesh> adapt_refine(const std::shared_ptr<Mesh> &mesh,
             geom_node[i] = (kappa[i] * diag > static_cast<geom_t>(0.5)) ? 1 : 0;
         }
     }
+    AdaptLevelSnap level_snap;
+    level_snap.coarse = mesh;
+    level_snap.sphere = nullptr;
+    level_snap.q_min  = opt.q_min;
+    level_snap.et     = et;
+    level_snap.nxe    = nxe;
+    level_snap.sdim   = sdim;
+    level_snap.orig   = nullptr;
+    level_snap.n_orig = mesh->n_nodes();
+    level_snap.mark   = nullptr;
+    level_snap.mark_n = 0;
+    for (const auto &kv : mesh->parametrizations()) {
+        auto sp = std::dynamic_pointer_cast<SphereParametrization>(kv.second);
+        if (sp) {
+            level_snap.sphere = sp;
+            break;
+        }
+    }
+    if (level_snap.sphere && level_snap.sphere->nodeset()) {
+        level_snap.orig = (uint8_t *)SMESH_CALLOC((size_t)level_snap.n_orig, sizeof(uint8_t));
+        if (level_snap.orig) {
+            const idx_t *ids = level_snap.sphere->nodeset()->nodes()->data();
+            for (ptrdiff_t i = 0; i < level_snap.sphere->nodeset()->size(); ++i) {
+                const idx_t id = ids[i];
+                if (id >= 0 && (ptrdiff_t)id < level_snap.n_orig) {
+                    level_snap.orig[id] = 1;
+                }
+            }
+        }
+    }
+    void (*on_level)(void *, ptrdiff_t, idx_t **, ptrdiff_t, geom_t **, const idx_t *, const idx_t *) =
+            nullptr;
+    void *on_ctx = nullptr;
+    if (opt.use_parametrization && !mesh->parametrizations().empty()) {
+        on_level = adapt_level_snap;
+        on_ctx   = &level_snap;
+    }
     if (mesh_adapt_refine<idx_t, count_t, geom_t>(et,
                                                   n_elem,
                                                   elems,
@@ -1630,7 +2066,12 @@ std::shared_ptr<Mesh> adapt_refine(const std::shared_ptr<Mesh> &mesh,
                                                   &pptr,
                                                   &cid,
                                                   &na,
-                                                  &nb) != SMESH_SUCCESS) {
+                                                  &nb,
+                                                  on_level ? adapt_locate_mid : nullptr,
+                                                  on_level,
+                                                  on_ctx) != SMESH_SUCCESS) {
+        SMESH_FREE(level_snap.orig);
+        SMESH_FREE(level_snap.mark);
         SMESH_FREE(kappa);
         SMESH_FREE(sharp);
         SMESH_FREE(sharp_node);
@@ -1641,6 +2082,8 @@ std::shared_ptr<Mesh> adapt_refine(const std::shared_ptr<Mesh> &mesh,
         surface_snap_free(snap);
         return nullptr;
     }
+    SMESH_FREE(level_snap.orig);
+    SMESH_FREE(level_snap.mark);
 
     auto fine = wrap_adapt_mesh(mesh, et, nxe, sdim, n_elem_o, elems_o, n_node_o, pts_o);
     remap_sets_through_adapt(mesh, fine, parent, na, nb);
@@ -1654,7 +2097,19 @@ std::shared_ptr<Mesh> adapt_refine(const std::shared_ptr<Mesh> &mesh,
             auto exp = expand_nodeset(mesh, src, fine, na, nb);
             auto np  = kv.second->with_nodeset(exp ? exp : src);
             fine->add_parametrization(kv.first, np);
-            np->apply(*fine);
+            if (et != TET4) {
+                np->apply(*fine);
+            }
+        }
+        if (et == TET4) {
+            auto n2e = fine->node_to_element_graph();
+            if (n2e) {
+                quality_gated_param_apply(*fine,
+                                          n2e->rowptr()->data(),
+                                          n2e->colidx()->data(),
+                                          opt.q_min,
+                                          nullptr);
+            }
         }
         pull_mids_of_inverted_tets(*fine, na, nb);
     }
@@ -1680,6 +2135,7 @@ std::shared_ptr<Mesh> adapt_refine(const std::shared_ptr<Mesh> &mesh,
                                se0,
                                se1,
                                n_nodes,
+                               opt.q_min,
                                opt.q_min) != SMESH_SUCCESS) {
             SMESH_FREE(se0);
             SMESH_FREE(se1);
@@ -1710,6 +2166,102 @@ static void install_improve_soA(Mesh       &mesh,
     }
     mesh.set_points(pbuf);
     mesh.block(0)->set_elements(ebuf);
+}
+
+void lift_below_floor(Mesh &mesh, const uint8_t *lock, const geom_t qbar) {
+    if (mesh.element_type(0) != TET4 || !lock || !(qbar > static_cast<geom_t>(0))) {
+        return;
+    }
+    auto n2e = mesh.node_to_element_graph();
+    if (!n2e) {
+        return;
+    }
+    const count_t       *n2eptr  = n2e->rowptr()->data();
+    const element_idx_t *elindex = n2e->colidx()->data();
+    idx_t **const        el      = mesh.elements(0)->data();
+    geom_t **const       p       = mesh.points()->data();
+    const ptrdiff_t      ne      = mesh.n_elements(0);
+    const geom_t         frac[8] = {static_cast<geom_t>(0.002),
+                            static_cast<geom_t>(0.005),
+                            static_cast<geom_t>(0.01),
+                            static_cast<geom_t>(0.02),
+                            static_cast<geom_t>(0.05),
+                            static_cast<geom_t>(-0.005),
+                            static_cast<geom_t>(-0.01),
+                            static_cast<geom_t>(-0.02)};
+    for (int sweep = 0; sweep < 4; ++sweep) {
+        int moved = 0;
+        for (ptrdiff_t e = 0; e < ne; ++e) {
+            if (!(mesh_elem_mean_ratio<idx_t, geom_t>(TET4, 3, el, p, e) < qbar)) {
+                continue;
+            }
+            const idx_t v[4] = {el[0][e], el[1][e], el[2][e], el[3][e]};
+            geom_t      elen = 0;
+            const int   ed[6][2] = {{0, 1}, {0, 2}, {0, 3}, {1, 2}, {1, 3}, {2, 3}};
+            for (int k = 0; k < 6; ++k) {
+                const idx_t  a  = v[ed[k][0]], b = v[ed[k][1]];
+                const geom_t dx = p[0][b] - p[0][a], dy = p[1][b] - p[1][a], dz = p[2][b] - p[2][a];
+                elen += std::sqrt(dx * dx + dy * dy + dz * dz);
+            }
+            const geom_t h = elen / static_cast<geom_t>(6);
+            for (int k = 0; k < 4; ++k) {
+                const idx_t iv = v[k];
+                if (lock[iv] != 0) {
+                    continue;
+                }
+                const idx_t ia = v[(k + 1) & 3], ib = v[(k + 2) & 3], ic = v[(k + 3) & 3];
+                geom_t      nx = (p[1][ib] - p[1][ia]) * (p[2][ic] - p[2][ia]) -
+                            (p[2][ib] - p[2][ia]) * (p[1][ic] - p[1][ia]);
+                geom_t ny = (p[2][ib] - p[2][ia]) * (p[0][ic] - p[0][ia]) -
+                            (p[0][ib] - p[0][ia]) * (p[2][ic] - p[2][ia]);
+                geom_t nz = (p[0][ib] - p[0][ia]) * (p[1][ic] - p[1][ia]) -
+                            (p[1][ib] - p[1][ia]) * (p[0][ic] - p[0][ia]);
+                const geom_t nl = std::sqrt(nx * nx + ny * ny + nz * nz);
+                if (!(nl > static_cast<geom_t>(0))) {
+                    continue;
+                }
+                nx /= nl;
+                ny /= nl;
+                nz /= nl;
+                const geom_t dir[7][3] = {{nx, ny, nz},
+                                          {1, 0, 0},
+                                          {-1, 0, 0},
+                                          {0, 1, 0},
+                                          {0, -1, 0},
+                                          {0, 0, 1},
+                                          {0, 0, -1}};
+                geom_t       oq[48];
+                const int    nq = snapshot_incident_q(iv, n2eptr, elindex, el, p, oq, 48);
+                const geom_t ox = p[0][iv], oy = p[1][iv], oz = p[2][iv];
+                geom_t       bx = ox, by = oy, bz = oz;
+                int          hit = 0;
+                for (int d = 0; d < 7 && !hit; ++d) {
+                    for (int s = 0; s < 8; ++s) {
+                        p[0][iv] = ox + frac[s] * h * dir[d][0];
+                        p[1][iv] = oy + frac[s] * h * dir[d][1];
+                        p[2][iv] = oz + frac[s] * h * dir[d][2];
+                        geom_t       qn = 0;
+                        const int    ok = incident_qmin_floor(iv, n2eptr, elindex, el, p, oq, nq, qbar, &qn);
+                        const geom_t qt = mesh_elem_mean_ratio<idx_t, geom_t>(TET4, 3, el, p, e);
+                        if (ok && qt >= qbar) {
+                            bx  = p[0][iv];
+                            by  = p[1][iv];
+                            bz  = p[2][iv];
+                            hit = 1;
+                            break;
+                        }
+                    }
+                }
+                p[0][iv] = bx;
+                p[1][iv] = by;
+                p[2][iv] = bz;
+                moved += hit;
+            }
+        }
+        if (!moved) {
+            break;
+        }
+    }
 }
 
 int improve(Mesh &mesh, const ImproveOptions &opt) {
@@ -1879,7 +2431,8 @@ int improve(Mesh &mesh, const ImproveOptions &opt) {
                                nullptr,
                                nullptr,
                                0,
-                               opt.q_min) != SMESH_SUCCESS) {
+                               opt.q_min,
+                               static_cast<geom_t>(0)) != SMESH_SUCCESS) {
             mesh_improve_free(nxe, sdim, elems_o, pts_o, lock_o, surf_o, x0_o);
             for (int d = 0; d < sdim; ++d) {
                 SMESH_FREE(x0[d]);
@@ -2010,7 +2563,8 @@ int improve(Mesh &mesh, const ImproveOptions &opt) {
                                                             nullptr,
                                                             nullptr,
                                                             0,
-                                                            opt.q_min)
+                                                            opt.q_min,
+                                                            static_cast<geom_t>(0))
                                        : SMESH_FAILURE;
                 if (s2 != SMESH_SUCCESS) {
                     mesh_improve_free(nxe, sdim, elems2, pts2, lock2, surf2, x0_2);
@@ -2061,6 +2615,9 @@ int improve(Mesh &mesh, const ImproveOptions &opt) {
         }
     }
 
+    if (et == TET4 && lock_o) {
+        lift_below_floor(mesh, lock_o, opt.q_min);
+    }
     mesh_improve_free(nxe, sdim, elems_o, pts_o, lock_o, surf_o, x0_o);
     for (int d = 0; d < sdim; ++d) {
         SMESH_FREE(x0[d]);
