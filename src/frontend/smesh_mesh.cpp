@@ -634,6 +634,29 @@ public:
     device_points = std::make_shared<Points>();
   }
 
+  // Everything derived from the mesh that is indexed or VALUED by element
+  // number, and so is wrong the moment the elements are renumbered. The
+  // node-to-element graph is the one that catches people out: it is indexed by
+  // node, which puts it in the list above as well, but its values are element
+  // ids, so an element permutation leaves it pointing at the wrong elements
+  // while it still looks like a well-formed graph. The dual graph and the
+  // half-face tables are element on both sides.
+  //
+  // Node-valued data is deliberately not in this list: an element renumbering
+  // permutes the connectivity arrays and leaves the node numbering alone.
+  void invalidate_element_indexed_caches() {
+    node_to_element_graph = nullptr;
+    n2e_block_number = nullptr;
+    SMESH_FREE(dual_ptr);
+    SMESH_FREE(dual_idx);
+    SMESH_FREE(dual_block);
+    dual_ptr = nullptr;
+    dual_idx = nullptr;
+    dual_block = nullptr;
+    half_face_tables.clear();
+    half_face_neighbor_blocks.clear();
+  }
+
   void clear() {
     comm = nullptr;
     blocks.clear();
@@ -4999,6 +5022,12 @@ void Mesh::reorder_elements_from_tags(
   }
   remap_registered_sidesets(block_id, d_otn, nelems, sidesets);
   remap_registered_edgesets(block_id, d_otn, nelems);
+
+  // The cached graphs and tables carry element ids, which this function has
+  // just permuted. They are returned to the next caller in place of a correct
+  // one with nothing to distinguish them, which is the same silent wrongness
+  // the node renumbering above guards against.
+  impl_->invalidate_element_indexed_caches();
 }
 
 std::shared_ptr<Mesh> Mesh::clone() const {
