@@ -59,12 +59,19 @@ namespace smesh {
         int n_colors(const int block_idx) const;
 
         /// One colour per element of the block, in the element numbering the mesh has NOW -- so
-        /// after a `modify_mesh` build this is sorted, and `color_ptr` is the more useful view.
+        /// after a `modify_mesh` build this is sorted and `color_ptr` is the more useful view.
         SharedBuffer<idx_t> colors(const int block_idx) const;
 
-        /// Colour `c` spans elements `[color_ptr[c], color_ptr[c + 1])`. Only meaningful after a
-        /// `modify_mesh` build; without one the elements of a colour are scattered and this
-        /// returns null.
+        /// The block's elements grouped by colour, as indices into the numbering the mesh had
+        /// when `create` was called. With `modify_mesh` this is the permutation that was applied;
+        /// without it, it is the permutation a caller may apply itself, or drive a kernel by when
+        /// the elements cannot be moved -- a device assembly reading `element_order[i]` is the
+        /// case that wants this form.
+        SharedBuffer<element_idx_t> element_order(const int block_idx) const;
+
+        /// Colour `c` spans `element_order[color_ptr[c] .. color_ptr[c + 1])`. After a
+        /// `modify_mesh` build the permutation has been applied, so the same range indexes the
+        /// block's elements directly and a sweep needs no indirection at all.
         SharedBuffer<ptrdiff_t> color_ptr(const int block_idx) const;
 
         /// The spread between the smallest and largest colour. Every colour is a

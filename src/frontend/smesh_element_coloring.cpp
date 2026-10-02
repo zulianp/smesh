@@ -12,6 +12,7 @@ namespace smesh {
     public:
         std::shared_ptr<Mesh::Block> block;
         SharedBuffer<idx_t>          colors;
+        SharedBuffer<element_idx_t>  element_order;
         SharedBuffer<ptrdiff_t>      color_ptr;
         int                          n_colors{0};
         ptrdiff_t                    min_per_color{0};
@@ -173,6 +174,22 @@ namespace smesh {
                 d_colors[e] = static_cast<idx_t>(color[static_cast<size_t>(e)]);
             }
 
+            out.color_ptr = create_host_buffer<ptrdiff_t>(static_cast<size_t>(n_colors) + 1);
+            ptrdiff_t *const d_ptr = out.color_ptr->data();
+            for (int c = 0; c < n_colors; ++c) {
+                d_ptr[c + 1] = d_ptr[c] + count[static_cast<size_t>(c)];
+            }
+
+            // Grouped by colour, ascending within a colour -- the same order
+            // `reorder_elements_from_tags` produces, so the ranges above describe the mesh once
+            // the renumbering below has run.
+            out.element_order = create_host_buffer<element_idx_t>(static_cast<size_t>(nelems));
+            element_idx_t *const d_order = out.element_order->data();
+            std::vector<ptrdiff_t> fill(d_ptr, d_ptr + n_colors);
+            for (ptrdiff_t e = 0; e < nelems; ++e) {
+                d_order[fill[static_cast<size_t>(color[static_cast<size_t>(e)])]++] = static_cast<element_idx_t>(e);
+            }
+
             if (!modify_mesh) {
                 return;
             }
@@ -184,13 +201,6 @@ namespace smesh {
             // which is what preserves the locality the visit order above was chosen for.
             mesh->reorder_elements_from_tags(bnum, out.colors, sidesets);
 
-            // After that sort colour c is exactly [prefix[c], prefix[c + 1]).
-            out.color_ptr = create_host_buffer<ptrdiff_t>(static_cast<size_t>(n_colors) + 1);
-            ptrdiff_t *const d_ptr = out.color_ptr->data();
-            d_ptr[0]               = 0;
-            for (int c = 0; c < n_colors; ++c) {
-                d_ptr[c + 1] = d_ptr[c] + count[static_cast<size_t>(c)];
-            }
             // `colors` described the OLD numbering; in the new one it is sorted by construction.
             for (int c = 0; c < n_colors; ++c) {
                 for (ptrdiff_t e = d_ptr[c]; e < d_ptr[c + 1]; ++e) {
@@ -227,6 +237,10 @@ namespace smesh {
 
     SharedBuffer<idx_t> ElementColoring::colors(const int block_idx) const {
         return impl_->blocks[static_cast<size_t>(block_idx)]->colors;
+    }
+
+    SharedBuffer<element_idx_t> ElementColoring::element_order(const int block_idx) const {
+        return impl_->blocks[static_cast<size_t>(block_idx)]->element_order;
     }
 
     SharedBuffer<ptrdiff_t> ElementColoring::color_ptr(const int block_idx) const {

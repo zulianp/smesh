@@ -92,9 +92,25 @@ static int test_conflict_free_single_block() {
     }
     SMESH_TEST_EQ(total, mesh->n_elements(0));
 
-    // Without `modify_mesh` the mesh is untouched, so the ranges are meaningless and must not be
-    // handed out as if they were not.
-    SMESH_TEST_ASSERT(ec->color_ptr(0) == nullptr);
+    // Without `modify_mesh` the mesh is untouched, so the colour ranges index `element_order`
+    // rather than the block: a device assembly that cannot move its elements reads the colouring
+    // in this form.
+    auto order     = ec->element_order(0);
+    auto color_ptr = ec->color_ptr(0);
+    SMESH_TEST_ASSERT(order != nullptr);
+    SMESH_TEST_ASSERT(color_ptr != nullptr);
+    SMESH_TEST_EQ(static_cast<ptrdiff_t>(order->size()), mesh->n_elements(0));
+    SMESH_TEST_EQ(color_ptr->data()[ec->n_colors(0)], mesh->n_elements(0));
+    std::vector<unsigned char> seen_elem(static_cast<size_t>(mesh->n_elements(0)), 0);
+    for (int c = 0; c < ec->n_colors(0); ++c) {
+        for (ptrdiff_t i = color_ptr->data()[c]; i < color_ptr->data()[c + 1]; ++i) {
+            const element_idx_t e = order->data()[i];
+            SMESH_TEST_ASSERT(e >= 0 && e < mesh->n_elements(0));
+            SMESH_TEST_ASSERT(seen_elem[static_cast<size_t>(e)] == 0);
+            seen_elem[static_cast<size_t>(e)] = 1;
+            SMESH_TEST_EQ(d_col[e], static_cast<idx_t>(c));
+        }
+    }
     return SMESH_TEST_SUCCESS;
 }
 
@@ -114,17 +130,16 @@ static int test_renumbering_makes_colors_contiguous() {
     const int nxe    = mesh->n_nodes_per_element(0);
     const ptrdiff_t nelems = mesh->n_elements(0);
 
-    // The element set before the renumbering, as node tuples: the permutation must move elements
-    // around without inventing or losing any.
-    std::set<std::vector<idx_t>> before;
+    // The connectivity before the renumbering, as node tuples in element order, so the
+    // permutation can be checked element by element rather than only for conserving the set.
+    std::vector<std::vector<idx_t>> before(static_cast<size_t>(nelems));
     {
         idx_t **const elems = mesh->elements(0)->data();
         for (ptrdiff_t e = 0; e < nelems; ++e) {
-            std::vector<idx_t> nodes(static_cast<size_t>(nxe));
+            before[static_cast<size_t>(e)].resize(static_cast<size_t>(nxe));
             for (int a = 0; a < nxe; ++a) {
-                nodes[static_cast<size_t>(a)] = elems[a][e];
+                before[static_cast<size_t>(e)][static_cast<size_t>(a)] = elems[a][e];
             }
-            before.insert(nodes);
         }
     }
 
@@ -150,18 +165,20 @@ static int test_renumbering_makes_colors_contiguous() {
     }
     SMESH_TEST_ASSERT(colors_are_conflict_free(mesh, 0, ec->colors(0)) == SMESH_TEST_SUCCESS);
 
-    std::set<std::vector<idx_t>> after;
-    {
-        idx_t **const elems = mesh->elements(0)->data();
-        for (ptrdiff_t e = 0; e < nelems; ++e) {
-            std::vector<idx_t> nodes(static_cast<size_t>(nxe));
-            for (int a = 0; a < nxe; ++a) {
-                nodes[static_cast<size_t>(a)] = elems[a][e];
-            }
-            after.insert(nodes);
+    // New element i is old element `element_order[i]`, exactly. This is what makes the two views
+    // of the colouring one object rather than two: a caller that cannot move its elements drives
+    // a kernel by the order array and sweeps the same elements in the same groups as a caller
+    // that let the mesh be renumbered.
+    auto order = ec->element_order(0);
+    SMESH_TEST_EQ(static_cast<ptrdiff_t>(order->size()), nelems);
+    idx_t **const after = mesh->elements(0)->data();
+    for (ptrdiff_t i = 0; i < nelems; ++i) {
+        const element_idx_t src = order->data()[i];
+        SMESH_TEST_ASSERT(src >= 0 && src < nelems);
+        for (int a = 0; a < nxe; ++a) {
+            SMESH_TEST_EQ(after[a][i], before[static_cast<size_t>(src)][static_cast<size_t>(a)]);
         }
     }
-    SMESH_TEST_ASSERT(before == after);
     return SMESH_TEST_SUCCESS;
 }
 
