@@ -17,6 +17,7 @@ namespace smesh {
 
     template <typename pack_idx_t>
     class PackedMesh;
+    class ElementColoring;
 }  // namespace smesh
 
 #ifdef SMESH_ENABLE_RYAML
