@@ -81,13 +81,17 @@ static inline int smesh_test_should_run(const int argc, char **argv, const char 
             SMESH_TRACE_SCOPE(#test_);                                                                          \
             int this_test = 0;                                                                                  \
             try {                                                                                               \
-                if ((this_test = test_()))                                                                      \
+                this_test = test_();                                                                            \
+                if (this_test == SMESH_TEST_FAILURE) {                                                          \
                     fprintf(stderr, "TEST: %s failed! %s:%d\n", #test_, __FILE__, __LINE__);                   \
+                    err += 1;                                                                                   \
+                } else if (this_test == SMESH_TEST_SKIPPED) {                                                   \
+                    fprintf(stderr, "TEST: %s skipped\n", #test_);                                              \
+                }                                                                                               \
             } catch (const std::exception &ex) {                                                                \
                 fprintf(stderr, "Exception: %s, in test %s! %s:%d\n", ex.what(), #test_, __FILE__, __LINE__);   \
-                this_test = SMESH_TEST_FAILURE;                                                                 \
+                err += 1;                                                                                       \
             }                                                                                                   \
-            err += this_test;                                                                                   \
         }                                                                                                       \
     } while (0)
 
