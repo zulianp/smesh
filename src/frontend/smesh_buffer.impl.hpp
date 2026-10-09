@@ -169,15 +169,24 @@ namespace smesh {
 
     template <typename T>
     std::shared_ptr<Buffer<T>> create_host_buffer(const size_t n) {
-        auto ret = std::make_shared<Buffer<T>>(n, static_cast<T *>(SMESH_CALLOC(n, sizeof(T))), &free, MEMORY_SPACE_HOST);
-        return ret;
+        T *data = static_cast<T *>(SMESH_CALLOC(n, sizeof(T)));
+        if (n > 0 && !data) {
+            SMESH_ERROR("create_host_buffer: failed to allocate %zu elements (%zu bytes)\n", n, n * sizeof(T));
+        }
+        return std::make_shared<Buffer<T>>(n, data, &free, MEMORY_SPACE_HOST);
     }
 
     template <typename T>
     std::shared_ptr<Buffer<T *>> create_host_buffer(const size_t n0, const size_t n1) {
         T **data = static_cast<T **>(SMESH_ALLOC(n0 * sizeof(T *)));
+        if (n0 > 0 && !data) {
+            SMESH_ERROR("create_host_buffer: failed to allocate %zu SoA rows\n", n0);
+        }
         for (size_t i = 0; i < n0; ++i) {
             data[i] = static_cast<T *>(SMESH_CALLOC(n1, sizeof(T)));
+            if (n1 > 0 && !data[i]) {
+                SMESH_ERROR("create_host_buffer: failed to allocate SoA row %zu of %zu elements\n", i, n1);
+            }
         }
 
         auto ret = std::make_shared<Buffer<T *>>(

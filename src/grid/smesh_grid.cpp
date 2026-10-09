@@ -32,9 +32,18 @@ namespace smesh {
         ptrdiff_t nglobal[3];
         ptrdiff_t stride[3];
 
-        // Grid geometry
+        // Grid geometry. Host copies stay valid after to_device so scalar
+        // accessors and file output do not read device memory.
         geom_t origin[3];
         geom_t delta[3];
+
+#ifdef SMESH_ENABLE_CUDA
+        std::shared_ptr<Buffer<ptrdiff_t>> nlocal_device;
+        std::shared_ptr<Buffer<ptrdiff_t>> nglobal_device;
+        std::shared_ptr<Buffer<ptrdiff_t>> stride_device;
+        std::shared_ptr<Buffer<geom_t>>    origin_device;
+        std::shared_ptr<Buffer<geom_t>>    delta_device;
+#endif
 
         enum MemorySpace mem_space { MEMORY_SPACE_HOST };
     };
@@ -56,12 +65,12 @@ namespace smesh {
 
     template <typename T>
     void create_xdmf(const Grid<T> &grid, const Path &path_binary_field, std::ostream &os) {
-        const ptrdiff_t *const n              = grid.nglobal();
-        const geom_t *const    o              = grid.origin();
-        const geom_t *const    d              = grid.delta();
-        const int              block_size     = grid.block_size();
-        const char *const      attribute_type = block_size == 1 ? "Scalar" : "Vector";
-        const char *const      number_type    = std::is_floating_point_v<T> ? "Float" : (std::is_unsigned_v<T> ? "UInt" : "Int");
+        const ptrdiff_t   n[3]           = {grid.nglobal(0), grid.nglobal(1), grid.nglobal(2)};
+        const geom_t      o[3]           = {grid.origin(0), grid.origin(1), grid.origin(2)};
+        const geom_t      d[3]           = {grid.delta(0), grid.delta(1), grid.delta(2)};
+        const int         block_size     = grid.block_size();
+        const char *const attribute_type = block_size == 1 ? "Scalar" : "Vector";
+        const char *const number_type    = std::is_floating_point_v<T> ? "Float" : (std::is_unsigned_v<T> ? "UInt" : "Int");
 #if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
         const char *const endianess = "Big";
 #else
@@ -342,16 +351,30 @@ namespace smesh {
 
     template <class T>
     const ptrdiff_t *Grid<T>::nlocal() const {
+#ifdef SMESH_ENABLE_CUDA
+        if (impl_->mem_space == MEMORY_SPACE_DEVICE) return impl_->nlocal_device->data();
+#endif
         return impl_->nlocal;
     }
 
     template <class T>
     const ptrdiff_t *Grid<T>::nglobal() const {
+#ifdef SMESH_ENABLE_CUDA
+        if (impl_->mem_space == MEMORY_SPACE_DEVICE) return impl_->nglobal_device->data();
+#endif
         return impl_->nglobal;
     }
 
     template <class T>
+    ptrdiff_t Grid<T>::nglobal(int dim) const {
+        return impl_->nglobal[dim];
+    }
+
+    template <class T>
     const ptrdiff_t *Grid<T>::stride() const {
+#ifdef SMESH_ENABLE_CUDA
+        if (impl_->mem_space == MEMORY_SPACE_DEVICE) return impl_->stride_device->data();
+#endif
         return impl_->stride;
     }
 
@@ -372,12 +395,28 @@ namespace smesh {
 
     template <class T>
     const geom_t *Grid<T>::origin() const {
+#ifdef SMESH_ENABLE_CUDA
+        if (impl_->mem_space == MEMORY_SPACE_DEVICE) return impl_->origin_device->data();
+#endif
         return impl_->origin;
     }
 
     template <class T>
+    geom_t Grid<T>::origin(int dim) const {
+        return impl_->origin[dim];
+    }
+
+    template <class T>
     const geom_t *Grid<T>::delta() const {
+#ifdef SMESH_ENABLE_CUDA
+        if (impl_->mem_space == MEMORY_SPACE_DEVICE) return impl_->delta_device->data();
+#endif
         return impl_->delta;
+    }
+
+    template <class T>
+    geom_t Grid<T>::delta(int dim) const {
+        return impl_->delta[dim];
     }
 
     template <class T>
@@ -447,6 +486,18 @@ namespace smesh {
             ret->impl_->origin[d]  = impl_->origin[d];
             ret->impl_->delta[d]   = impl_->delta[d];
         }
+
+        auto upload3 = [](const auto *src) {
+            using U  = std::remove_const_t<std::remove_pointer_t<decltype(src)>>;
+            auto dev = create_device_buffer<U>(3);
+            device::host_to_device(static_cast<size_t>(3), src, dev->data());
+            return dev;
+        };
+        ret->impl_->nlocal_device  = upload3(ret->impl_->nlocal);
+        ret->impl_->nglobal_device = upload3(ret->impl_->nglobal);
+        ret->impl_->stride_device  = upload3(ret->impl_->stride);
+        ret->impl_->origin_device  = upload3(ret->impl_->origin);
+        ret->impl_->delta_device   = upload3(ret->impl_->delta);
 
         ret->impl_->mem_space = MEMORY_SPACE_DEVICE;
         return ret;

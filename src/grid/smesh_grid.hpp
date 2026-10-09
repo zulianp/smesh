@@ -41,10 +41,13 @@ public:
 
   const ptrdiff_t *nlocal() const;
   const ptrdiff_t *nglobal() const;
+  ptrdiff_t        nglobal(int dim) const;
   const ptrdiff_t *stride() const;
 
         const geom_t *origin() const;
+        geom_t        origin(int dim) const;
         const geom_t *delta() const;
+        geom_t        delta(int dim) const;
 
         void scale(const geom_t scale);
 
