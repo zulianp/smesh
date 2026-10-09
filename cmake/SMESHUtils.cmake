@@ -32,6 +32,7 @@ macro(smesh_install_python_scripts py_script_dir)
              set(_bindir \"\${_root}/${CMAKE_INSTALL_BINDIR}\")
              set(_pyfile \"\${_root}/${_py_dest}/${py_name}\")
              file(RELATIVE_PATH _rel \"\${_bindir}\" \"\${_pyfile}\")
+             file(MAKE_DIRECTORY \"\${_bindir}\")
              file(CREATE_LINK \"\${_rel}\" \"\${_bindir}/${py_stem}\" SYMBOLIC RESULT _res)
              if(NOT _res STREQUAL \"0\")
                message(FATAL_ERROR

@@ -35,6 +35,7 @@ else()
 endif()
 
 option(SMESH_ENABLE_DEMO "Build the demos" ON)
+option(SMESH_ENABLE_DRIVERS "Build the drivers" ON)
 
 # ##############################################################################
 # Handle xSDK defaults
