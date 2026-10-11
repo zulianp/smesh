@@ -541,9 +541,8 @@ int ssmixed_hex_dominant_generate_elements_blocks(
         }
     }
 
-    ptrdiff_t n_e_total = 0, n_e_hex = 0, n_e_tet = 0, n_e_wedge = 0, n_e_pyr = 0;
+    ptrdiff_t n_e_hex = 0, n_e_tet = 0, n_e_wedge = 0, n_e_pyr = 0;
     for (ptrdiff_t b = 0; b < n_blocks; ++b) {
-        n_e_total += n_elements[b];
         const enum ElemType f = block_types[b];
         if (f == HEX8) {
             n_e_hex += n_elements[b];

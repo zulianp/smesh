@@ -426,7 +426,6 @@ namespace smesh {
                                  ptrdiff_t                                              *interior_start_out) {
         static const enum ElemType m_element_type = HEX8;
         SMESH_ASSERT(L >= 2);
-        static int verbose = 0;
 
         // double tick = time_seconds();
 

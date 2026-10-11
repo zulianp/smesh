@@ -494,11 +494,9 @@ namespace smesh {
             }
         }
 
-        ptrdiff_t n_e_total = 0;
         ptrdiff_t n_e_hex   = 0;
         ptrdiff_t n_e_tet   = 0;
         for (ptrdiff_t b = 0; b < n_blocks; ++b) {
-            n_e_total += n_elements[b];
             if (block_types[b] == HEX8) {
                 n_e_hex += n_elements[b];
                 for (int d = 0; d < 8; d++) {

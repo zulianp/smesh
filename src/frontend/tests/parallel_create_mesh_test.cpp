@@ -371,6 +371,7 @@ static int test_create_remaining_a17_generators() {
 #endif
 }
 
+#ifdef SMESH_ENABLE_MPI
 static double owned_coord_sum(const Mesh &mesh) {
     const auto     *p = mesh.points()->data();
     const ptrdiff_t n =
@@ -384,6 +385,7 @@ static double owned_coord_sum(const Mesh &mesh) {
     }
     return mesh.comm()->sum(s);
 }
+#endif
 
 static int test_create_lshape_and_nozzle() {
 #ifndef SMESH_ENABLE_MPI

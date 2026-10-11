@@ -259,7 +259,7 @@ if(SMESH_ENABLE_MPI)
                 "${_smesh_mpi_sort_dir}/include"
                 "${_smesh_mpi_sort_dir}/lib")
             target_compile_options("${_mpi_sort_obj}" PRIVATE
-                -Wno-error -Wno-unused-variable -Wno-unknown-pragmas)
+                -w) # Vendored third-party code: silence warnings
             target_link_libraries("${_mpi_sort_obj}" PRIVATE MPI::MPI_C MPI::MPI_CXX)
             set_target_properties("${_mpi_sort_obj}" PROPERTIES POSITION_INDEPENDENT_CODE ON)
         endforeach()
@@ -296,11 +296,10 @@ if(SMESH_ENABLE_MPI)
             $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
         target_include_directories(smesh_mpi_sort PRIVATE "${_smesh_mpi_sort_dir}/lib")
         target_compile_options(smesh_mpi_sort PRIVATE
-            -Wno-error -Wno-unused-variable -Wno-unknown-pragmas)
+            -w) # Vendored third-party code: silence warnings
         target_link_libraries(smesh_mpi_sort PUBLIC MPI::MPI_C MPI::MPI_CXX)
         set_target_properties(smesh_mpi_sort PROPERTIES POSITION_INDEPENDENT_CODE ON)
         list(APPEND SMESH_SUBMODULES smesh_mpi_sort)
-        list(APPEND SMESH_TEST_SUBMODULES smesh_mpi_sort)
     endif()
 endif()
 
@@ -390,7 +389,7 @@ if(EXISTS "${_SMESH_MPISORT_DIR}/include/mpi-sort.h")
             "${_SMESH_MPISORT_DIR}/include"
             "${_SMESH_MPISORT_DIR}/lib")
         target_compile_options("${_mpi_sort_obj}" PRIVATE
-            -Wno-error -Wno-unused-variable -Wno-unknown-pragmas)
+            -w) # Vendored third-party code: silence warnings
         target_link_libraries("${_mpi_sort_obj}" PRIVATE MPI::MPI_C MPI::MPI_CXX)
         set_target_properties("${_mpi_sort_obj}" PROPERTIES POSITION_INDEPENDENT_CODE ON)
     endforeach()
@@ -427,7 +426,7 @@ if(EXISTS "${_SMESH_MPISORT_DIR}/include/mpi-sort.h")
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
     target_include_directories(smesh_mpi_sort PRIVATE "${_SMESH_MPISORT_DIR}/lib")
     target_compile_options(smesh_mpi_sort PRIVATE
-        -Wno-error -Wno-unused-variable -Wno-unknown-pragmas)
+        -w) # Vendored third-party code: silence warnings
     target_link_libraries(smesh_mpi_sort PUBLIC MPI::MPI_C MPI::MPI_CXX)
     set_target_properties(smesh_mpi_sort PROPERTIES POSITION_INDEPENDENT_CODE ON)
 else()
