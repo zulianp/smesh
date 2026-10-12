@@ -16,7 +16,8 @@
 
 using namespace smesh;
 
-[[maybe_unused]] static std::vector<std::pair<element_idx_t, i16>>
+#ifdef SMESH_ENABLE_MPI
+static std::vector<std::pair<element_idx_t, i16>>
 sorted_side_keys(const std::shared_ptr<Sideset> &sideset) {
   std::vector<std::pair<element_idx_t, i16>> keys(sideset->size());
   auto parent = sideset->parent()->data();
@@ -29,6 +30,7 @@ sorted_side_keys(const std::shared_ptr<Sideset> &sideset) {
   std::sort(keys.begin(), keys.end());
   return keys;
 }
+#endif
 
 static std::shared_ptr<Mesh> pad_to_3d(const std::shared_ptr<Mesh> &m) {
   if (m->spatial_dimension() >= 3) {

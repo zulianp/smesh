@@ -10,6 +10,7 @@
 
 namespace smesh {
 
+#ifndef SMESH_ENABLE_RYAML
 static std::string trim_copy(const std::string &s) {
   const size_t a = s.find_first_not_of(" \t\r\n");
   if (a == std::string::npos) {
@@ -74,6 +75,7 @@ static bool read_blocks_meta_generated(const Path &meta_file,
 
   return !block_names.empty();
 }
+#endif
 
 bool read_blocks_meta(const Path &path, std::vector<std::string> &block_names,
                       std::vector<enum ElemType> &element_types,

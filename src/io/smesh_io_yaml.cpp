@@ -25,7 +25,7 @@ namespace smesh {
             return false;
         }
 
-        node[key] >> value;
+        node[key].load(&value);
         return true;
     }
 

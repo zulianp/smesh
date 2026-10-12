@@ -51,7 +51,7 @@ endfunction()
 
 if(SMESH_ENABLE_RYAML)
     set(RYML_REPO_URL https://github.com/biojppm/rapidyaml CACHE STRING "")
-    set(RYML_BRANCH_NAME master CACHE STRING "")
+    set(RYML_BRANCH_NAME v0.16.0 CACHE STRING "")
     include(FetchContent)
     SMESH_FETCHCONTENT_USE_LOCAL_OR_DOWNLOAD_if_AVAILABLE(ryml)
     FetchContent_Declare(ryml

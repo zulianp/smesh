@@ -150,7 +150,7 @@ namespace smesh {
                     return false;
                 }
 
-                root[key] >> value;
+                root[key].load(&value);
                 return true;
             };
 
@@ -159,7 +159,7 @@ namespace smesh {
                     return false;
                 }
 
-                root[key] >> value;
+                root[key].load(&value);
                 return true;
             };
 

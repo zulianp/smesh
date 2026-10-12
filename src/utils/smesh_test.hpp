@@ -24,7 +24,7 @@
 #define SMESH_TEST_FAILURE 1
 #define SMESH_TEST_SKIPPED 2
 
-static void smesh_print_test_info() {
+static inline void smesh_print_test_info() {
     int size = 1, rank = 0;
 
 #ifdef SMESH_ENABLE_MPI

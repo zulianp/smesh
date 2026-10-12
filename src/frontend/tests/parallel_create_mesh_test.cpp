@@ -11,10 +11,12 @@
 
 using namespace smesh;
 
-[[maybe_unused]] static ptrdiff_t even_at_least(const ptrdiff_t v) {
+#ifdef SMESH_ENABLE_MPI
+static ptrdiff_t even_at_least(const ptrdiff_t v) {
     const ptrdiff_t a = std::max<ptrdiff_t>(v, 2);
     return a + (a & 1);
 }
+#endif
 
 static int check_unique_node_ids(const Mesh &mesh) {
     const ptrdiff_t n_nodes = mesh.n_nodes();
