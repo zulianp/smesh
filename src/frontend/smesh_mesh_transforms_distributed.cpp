@@ -5,6 +5,7 @@
 #include "smesh_alloc.hpp"
 #include "smesh_alltoallv.impl.hpp"
 #include "smesh_common.hpp"
+#include "smesh_conversion.hpp"
 #include "smesh_decompose.hpp"
 #include "smesh_distributed_base.hpp"
 #include "smesh_elem_type.hpp"
@@ -1162,7 +1163,7 @@ int MeshTransformsDistributed::conversion_factor(const enum ElemType from, const
         return 1;
     }
     if (from == HEX8 && to == TET4) {
-        return 6;
+        return 24;
     }
     if (from == TET15 && to == HEX8) {
         return 4;
@@ -1756,6 +1757,535 @@ MeshTransformsDistributed::derefine(const std::shared_ptr<Mesh>              &me
     SMESH_FREE(ua);
     SMESH_FREE(sh);
     SMESH_FREE(new_local);
+    return ret;
+}
+
+static int tet4_child_factor(const enum ElemType type) {
+    if (type == HEX8) {
+        return 24;
+    }
+    return MeshTransformsDistributed::conversion_factor(type, TET4);
+}
+
+static bool converts_to_tet4_mpi(const enum ElemType type) {
+    return type == HEX8 || type == TET4 || type == WEDGE6 || type == PYRAMID5;
+}
+
+static void sort4_by_gid(large_idx_t *g, idx_t *l) {
+    for (int i = 1; i < 4; ++i) {
+        const large_idx_t xg = g[i];
+        const idx_t       xl = l[i];
+        int               j  = i;
+        while (j > 0 && g[j - 1] > xg) {
+            g[j] = g[j - 1];
+            l[j] = l[j - 1];
+            --j;
+        }
+        g[j] = xg;
+        l[j] = xl;
+    }
+}
+
+std::shared_ptr<Mesh>
+MeshTransformsDistributed::convert_hex8_to_quality_tet4(const std::shared_ptr<Mesh> &mesh) {
+    if (!mesh || !mesh->is_distributed()) {
+        return nullptr;
+    }
+    auto            comm = mesh->comm();
+    auto            dist = mesh->distributed();
+    const int       rank = comm->rank();
+    const int       size = comm->size();
+    const int       sdim = mesh->spatial_dimension();
+    const ptrdiff_t n_blocks = (ptrdiff_t)mesh->n_blocks();
+
+    int bad = (sdim == 3) ? 0 : 1;
+    for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+        if (!converts_to_tet4_mpi(mesh->element_type((block_idx_t)b))) {
+            bad = 1;
+        }
+    }
+    int bad_any = 0;
+    if (MPI_Allreduce(&bad, &bad_any, 1, MPI_INT, MPI_MAX, comm->get()) != MPI_SUCCESS || bad_any) {
+        if (bad) {
+            fprintf(stderr, "HEX8→TET4: unsupported block or spatial dimension\n");
+        }
+        return nullptr;
+    }
+
+    const ptrdiff_t    n_coarse_local  = mesh->n_nodes();
+    const ptrdiff_t    n_coarse_owned  = dist->n_nodes_owned();
+    const ptrdiff_t    n_coarse_ons    = dist->n_nodes_owned_not_shared();
+    const ptrdiff_t    n_coarse_ghosts = dist->n_nodes_ghosts();
+    const ptrdiff_t    n_coarse_global = dist->n_nodes_global();
+    const large_idx_t *coarse_nmap     = dist->node_mapping()->data();
+    const int         *coarse_owner    = dist->node_owner()->data();
+    auto               coarse_p        = mesh->points()->data();
+
+    ptrdiff_t n_face_inc = 0;
+    ptrdiff_t n_cell_inc = 0;
+    ptrdiff_t n_hex_owned = 0;
+    for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+        auto block = mesh->block((size_t)b);
+        if (block->element_type() != HEX8) {
+            continue;
+        }
+        n_face_inc += block->n_elements() * 6;
+        n_cell_inc += block->n_elements();
+        n_hex_owned += block->n_elements_owned();
+    }
+
+    large_idx_t *face_keys = (large_idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_face_inc, 1) * 4 * sizeof(large_idx_t));
+    large_idx_t *face_aux  = (large_idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_face_inc, 1) * sizeof(large_idx_t));
+    idx_t       *face_loc  = (idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_face_inc, 1) * sizeof(idx_t));
+    idx_t       *face_corners =
+        (idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_face_inc, 1) * 4 * sizeof(idx_t));
+    large_idx_t *cell_keys = (large_idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_cell_inc, 1) * 4 * sizeof(large_idx_t));
+    large_idx_t *cell_aux  = (large_idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_cell_inc, 1) * sizeof(large_idx_t));
+    idx_t       *cell_loc  = (idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_cell_inc, 1) * sizeof(idx_t));
+    idx_t       *cell_corners =
+        (idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_cell_inc, 1) * 8 * sizeof(idx_t));
+
+    ptrdiff_t iface = 0;
+    ptrdiff_t icell = 0;
+    for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+        auto block = mesh->block((size_t)b);
+        if (block->element_type() != HEX8) {
+            continue;
+        }
+        const ptrdiff_t n_owned = block->n_elements_owned();
+        auto            soa     = block->elements()->data();
+        for (ptrdiff_t e = 0; e < block->n_elements(); ++e) {
+            const int from_owned = e < n_owned ? 1 : 0;
+            idx_t     corner[8];
+            for (int d = 0; d < 8; ++d) {
+                corner[d] = soa[d][e];
+            }
+            for (int s = 0; s < 6; ++s) {
+                const int  *fn = hex8_outward_face_nodes[s];
+                large_idx_t g[4];
+                idx_t       l[4];
+                for (int k = 0; k < 4; ++k) {
+                    l[k] = corner[fn[k]];
+                    g[k] = coarse_nmap[l[k]];
+                    face_corners[iface * 4 + k] = l[k];
+                }
+                sort4_by_gid(g, l);
+                face_keys[iface * 4 + 0] = g[0];
+                face_keys[iface * 4 + 1] = g[1];
+                face_keys[iface * 4 + 2] = g[2];
+                face_keys[iface * 4 + 3] = g[3];
+                face_aux[iface]          = owned_pref_rank_aux(from_owned, rank, size);
+                face_loc[iface]          = l[0];
+                ++iface;
+            }
+            cell_keys[icell * 4 + 0] = local_elem_gid(*block, e);
+            cell_keys[icell * 4 + 1] = (large_idx_t)b;
+            cell_keys[icell * 4 + 2] = k_key_pad;
+            cell_keys[icell * 4 + 3] = k_key_pad;
+            cell_aux[icell]          = owned_pref_rank_aux(from_owned, rank, size);
+            cell_loc[icell]          = corner[0];
+            for (int d = 0; d < 8; ++d) {
+                cell_corners[icell * 8 + d] = corner[d];
+            }
+            ++icell;
+        }
+    }
+
+    ptrdiff_t    n_face_uniq      = 0;
+    ptrdiff_t   *face_inc_to_uniq = nullptr;
+    large_idx_t *face_gid         = nullptr;
+    int         *face_owner       = nullptr;
+    int         *face_shared      = nullptr;
+    ptrdiff_t    n_faces_global   = 0;
+    if (unique_inc_tuples(comm->get(),
+                          n_coarse_global,
+                          n_face_inc,
+                          face_keys,
+                          face_aux,
+                          face_loc,
+                          std::max<ptrdiff_t>(n_coarse_local, 1),
+                          &n_face_uniq,
+                          &face_inc_to_uniq,
+                          &face_gid,
+                          &face_owner,
+                          &face_shared,
+                          &n_faces_global) != SMESH_SUCCESS) {
+        if (!face_gid) {
+            SMESH_FREE(face_keys);
+            SMESH_FREE(face_aux);
+            SMESH_FREE(face_loc);
+        }
+        SMESH_FREE(face_corners);
+        SMESH_FREE(cell_keys);
+        SMESH_FREE(cell_aux);
+        SMESH_FREE(cell_loc);
+        SMESH_FREE(cell_corners);
+        SMESH_FREE(face_inc_to_uniq);
+        SMESH_FREE(face_gid);
+        SMESH_FREE(face_owner);
+        SMESH_FREE(face_shared);
+        return nullptr;
+    }
+
+    ptrdiff_t    n_cell_uniq      = 0;
+    ptrdiff_t   *cell_inc_to_uniq = nullptr;
+    large_idx_t *cell_gid         = nullptr;
+    int         *cell_owner       = nullptr;
+    int         *cell_shared      = nullptr;
+    ptrdiff_t    n_cells_global   = 0;
+    if (unique_inc_tuples(comm->get(),
+                          dist->n_elements_global(),
+                          n_cell_inc,
+                          cell_keys,
+                          cell_aux,
+                          cell_loc,
+                          std::max<ptrdiff_t>(n_coarse_local, 1),
+                          &n_cell_uniq,
+                          &cell_inc_to_uniq,
+                          &cell_gid,
+                          &cell_owner,
+                          &cell_shared,
+                          &n_cells_global) != SMESH_SUCCESS) {
+        if (!cell_gid) {
+            SMESH_FREE(cell_keys);
+            SMESH_FREE(cell_aux);
+            SMESH_FREE(cell_loc);
+        }
+        SMESH_FREE(face_corners);
+        SMESH_FREE(cell_corners);
+        SMESH_FREE(face_inc_to_uniq);
+        SMESH_FREE(face_gid);
+        SMESH_FREE(face_owner);
+        SMESH_FREE(face_shared);
+        SMESH_FREE(cell_inc_to_uniq);
+        SMESH_FREE(cell_gid);
+        SMESH_FREE(cell_owner);
+        SMESH_FREE(cell_shared);
+        return nullptr;
+    }
+
+    ptrdiff_t n_hex_owned_sum = 0;
+    if (MPI_Allreduce(&n_hex_owned, &n_hex_owned_sum, 1, mpi_type<ptrdiff_t>(), MPI_SUM, comm->get()) !=
+            MPI_SUCCESS ||
+        n_cells_global != n_hex_owned_sum) {
+        fprintf(stderr, "HEX8→TET4: cell-center count %ld != owned hexes %ld\n",
+                (long)n_cells_global, (long)n_hex_owned_sum);
+        SMESH_FREE(face_corners);
+        SMESH_FREE(cell_corners);
+        SMESH_FREE(face_inc_to_uniq);
+        SMESH_FREE(face_gid);
+        SMESH_FREE(face_owner);
+        SMESH_FREE(face_shared);
+        SMESH_FREE(cell_inc_to_uniq);
+        SMESH_FREE(cell_gid);
+        SMESH_FREE(cell_owner);
+        SMESH_FREE(cell_shared);
+        return nullptr;
+    }
+
+    int *face_uo = (int *)SMESH_CALLOC((size_t)std::max<ptrdiff_t>(n_face_uniq, 1), sizeof(int));
+    int *face_ua = (int *)SMESH_CALLOC((size_t)std::max<ptrdiff_t>(n_face_uniq, 1), sizeof(int));
+    int *cell_uo = (int *)SMESH_CALLOC((size_t)std::max<ptrdiff_t>(n_cell_uniq, 1), sizeof(int));
+    int *cell_ua = (int *)SMESH_CALLOC((size_t)std::max<ptrdiff_t>(n_cell_uniq, 1), sizeof(int));
+    idx_t *uniq_face_corners =
+        (idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_face_uniq, 1) * 4 * sizeof(idx_t));
+    idx_t *uniq_cell_corners =
+        (idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_cell_uniq, 1) * 8 * sizeof(idx_t));
+
+    iface = 0;
+    icell = 0;
+    for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+        auto block = mesh->block((size_t)b);
+        if (block->element_type() != HEX8) {
+            continue;
+        }
+        const ptrdiff_t n_owned = block->n_elements_owned();
+        for (ptrdiff_t e = 0; e < block->n_elements(); ++e) {
+            const int from_owned = e < n_owned ? 1 : 0;
+            for (int s = 0; s < 6; ++s) {
+                const ptrdiff_t u = face_inc_to_uniq[iface];
+                for (int k = 0; k < 4; ++k) {
+                    uniq_face_corners[u * 4 + k] = face_corners[iface * 4 + k];
+                }
+                if (from_owned) {
+                    face_uo[u] = 1;
+                } else {
+                    face_ua[u] = 1;
+                }
+                ++iface;
+            }
+            const ptrdiff_t u = cell_inc_to_uniq[icell];
+            for (int d = 0; d < 8; ++d) {
+                uniq_cell_corners[u * 8 + d] = cell_corners[icell * 8 + d];
+            }
+            if (from_owned) {
+                cell_uo[u] = 1;
+            } else {
+                cell_ua[u] = 1;
+            }
+            ++icell;
+        }
+    }
+    SMESH_FREE(face_corners);
+    SMESH_FREE(cell_corners);
+    face_corners = nullptr;
+    cell_corners = nullptr;
+
+    ptrdiff_t n_bkt[4];
+    n_bkt[0] = n_coarse_ons;
+    n_bkt[1] = n_coarse_owned - n_coarse_ons;
+    n_bkt[2] = n_coarse_ghosts;
+    n_bkt[3] = n_coarse_local - n_coarse_owned - n_coarse_ghosts;
+    count_entity_nodes(n_face_uniq, 1, face_owner, face_shared, face_uo, face_ua, rank, n_bkt);
+    count_entity_nodes(n_cell_uniq, 1, cell_owner, cell_shared, cell_uo, cell_ua, rank, n_bkt);
+
+    ptrdiff_t off[5];
+    off[0] = 0;
+    for (int k = 0; k < 4; ++k) {
+        off[k + 1] = off[k] + n_bkt[k];
+    }
+    const ptrdiff_t n_owned  = off[2];
+    const ptrdiff_t n_shared = n_bkt[1];
+    const ptrdiff_t n_ghosts = n_bkt[2];
+    const ptrdiff_t n_aura   = n_bkt[3];
+    const ptrdiff_t n_local  = off[4];
+    int             overflow = n_local > (ptrdiff_t)std::numeric_limits<idx_t>::max() || n_bkt[3] < 0;
+    int             overflow_any = 0;
+    if (MPI_Allreduce(&overflow, &overflow_any, 1, MPI_INT, MPI_MAX, comm->get()) != MPI_SUCCESS ||
+        overflow_any) {
+        fprintf(stderr, "HEX8→TET4: local node count exceeds idx_t\n");
+        SMESH_FREE(face_inc_to_uniq);
+        SMESH_FREE(face_gid);
+        SMESH_FREE(face_owner);
+        SMESH_FREE(face_shared);
+        SMESH_FREE(cell_inc_to_uniq);
+        SMESH_FREE(cell_gid);
+        SMESH_FREE(cell_owner);
+        SMESH_FREE(cell_shared);
+        SMESH_FREE(face_uo);
+        SMESH_FREE(face_ua);
+        SMESH_FREE(cell_uo);
+        SMESH_FREE(cell_ua);
+        SMESH_FREE(uniq_face_corners);
+        SMESH_FREE(uniq_cell_corners);
+        return nullptr;
+    }
+
+    auto         node_mapping = create_host_buffer<large_idx_t>((size_t)n_local);
+    auto         node_owner   = create_host_buffer<int>((size_t)n_local);
+    large_idx_t *nmap         = node_mapping->data();
+    int         *nown         = node_owner->data();
+    auto         points       = create_host_buffer<geom_t>((size_t)sdim, (size_t)n_local);
+    auto         p            = points->data();
+    idx_t       *corner_ss    = (idx_t *)SMESH_ALLOC((size_t)std::max<ptrdiff_t>(n_coarse_local, 1) * sizeof(idx_t));
+    idx_t       *face_ss      = (idx_t *)SMESH_CALLOC((size_t)std::max<ptrdiff_t>(n_face_uniq, 1), sizeof(idx_t));
+    idx_t       *cell_ss      = (idx_t *)SMESH_CALLOC((size_t)std::max<ptrdiff_t>(n_cell_uniq, 1), sizeof(idx_t));
+
+    ptrdiff_t cur[4] = {off[0], off[1], off[2], off[3]};
+    for (ptrdiff_t i = 0; i < n_coarse_local; ++i) {
+        const int b = (i < n_coarse_ons) ? 0 : (i < n_coarse_owned) ? 1 : (i < n_coarse_owned + n_coarse_ghosts) ? 2 : 3;
+        const ptrdiff_t w = cur[b]++;
+        nmap[w]           = coarse_nmap[i];
+        nown[w]           = coarse_owner[i];
+        corner_ss[i]      = (idx_t)w;
+        for (int d = 0; d < sdim; ++d) {
+            p[d][w] = coarse_p[d][i];
+        }
+    }
+
+    const geom_t    inv4 = (geom_t)0.25;
+    const geom_t    inv8 = (geom_t)0.125;
+    large_idx_t    *face_node_gid = alloc_entity_node_gids(n_face_uniq, 1);
+    for (ptrdiff_t u = 0; u < n_face_uniq; ++u) {
+        face_node_gid[u] = (large_idx_t)n_coarse_global + face_gid[u];
+    }
+    pack_entity_nodes(n_face_uniq, 1, face_node_gid, face_owner, face_shared, face_uo, face_ua, rank, cur, nmap, nown, face_ss);
+    for (ptrdiff_t u = 0; u < n_face_uniq; ++u) {
+        if (!face_uo[u] && !face_ua[u]) {
+            continue;
+        }
+        const idx_t w = face_ss[u];
+        for (int d = 0; d < sdim; ++d) {
+            geom_t acc = 0;
+            for (int k = 0; k < 4; ++k) {
+                acc += coarse_p[d][uniq_face_corners[u * 4 + k]];
+            }
+            p[d][w] = acc * inv4;
+        }
+    }
+
+    large_idx_t *cell_node_gid = alloc_entity_node_gids(n_cell_uniq, 1);
+    for (ptrdiff_t u = 0; u < n_cell_uniq; ++u) {
+        cell_node_gid[u] = (large_idx_t)n_coarse_global + (large_idx_t)n_faces_global + cell_gid[u];
+    }
+    pack_entity_nodes(n_cell_uniq, 1, cell_node_gid, cell_owner, cell_shared, cell_uo, cell_ua, rank, cur, nmap, nown, cell_ss);
+    for (ptrdiff_t u = 0; u < n_cell_uniq; ++u) {
+        if (!cell_uo[u] && !cell_ua[u]) {
+            continue;
+        }
+        const idx_t w = cell_ss[u];
+        for (int d = 0; d < sdim; ++d) {
+            geom_t acc = 0;
+            for (int k = 0; k < 8; ++k) {
+                acc += coarse_p[d][uniq_cell_corners[u * 8 + k]];
+            }
+            p[d][w] = acc * inv8;
+        }
+    }
+
+    int local_fmin = 0;
+    int local_fmax = 0;
+    bool any_block = false;
+    ptrdiff_t n_elem_owned  = 0;
+    ptrdiff_t n_elem_shared = 0;
+    ptrdiff_t n_elem_ghosts = 0;
+    for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+        auto      block  = mesh->block((size_t)b);
+        const int factor = tet4_child_factor(block->element_type());
+        if (!any_block) {
+            local_fmin = factor;
+            local_fmax = factor;
+            any_block  = true;
+        } else {
+            local_fmin = std::min(local_fmin, factor);
+            local_fmax = std::max(local_fmax, factor);
+        }
+        n_elem_owned += block->n_elements_owned() * (ptrdiff_t)factor;
+        n_elem_shared += block->n_elements_shared() * (ptrdiff_t)factor;
+        n_elem_ghosts += block->n_elements_ghosts() * (ptrdiff_t)factor;
+    }
+    const int fmin_send = any_block ? local_fmin : std::numeric_limits<int>::max();
+    const int fmax_send = any_block ? local_fmax : 0;
+    int       gmin      = 0;
+    int       gmax      = 0;
+    MPI_Allreduce(&fmin_send, &gmin, 1, MPI_INT, MPI_MIN, comm->get());
+    MPI_Allreduce(&fmax_send, &gmax, 1, MPI_INT, MPI_MAX, comm->get());
+    const bool      uniform = (gmin == gmax);
+    const int       uniform_factor = uniform ? gmin : 0;
+    ptrdiff_t       n_elem_global  = 0;
+    MPI_Allreduce(&n_elem_owned, &n_elem_global, 1, mpi_type<ptrdiff_t>(), MPI_SUM, comm->get());
+
+    std::vector<std::shared_ptr<Mesh::Block>> blocks;
+    blocks.reserve((size_t)n_blocks);
+    iface = 0;
+    icell = 0;
+    for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+        auto            src    = mesh->block((size_t)b);
+        const ptrdiff_t n_e    = src->n_elements();
+        const int       factor = tet4_child_factor(src->element_type());
+        auto            soa    = src->elements()->data();
+        auto            out    = create_host_buffer<idx_t>(4, (size_t)n_e * (size_t)factor);
+        auto            o      = out->data();
+        if (src->element_type() == HEX8) {
+            for (ptrdiff_t e = 0; e < n_e; ++e) {
+                idx_t corner[8];
+                idx_t fc[6];
+                for (int d = 0; d < 8; ++d) {
+                    corner[d] = corner_ss[soa[d][e]];
+                }
+                for (int s = 0; s < 6; ++s) {
+                    fc[s] = face_ss[face_inc_to_uniq[iface++]];
+                }
+                const idx_t cell = cell_ss[cell_inc_to_uniq[icell++]];
+                mesh_hex8_emit_24_tet4<idx_t>(corner, fc, cell, o, e * 24);
+            }
+        } else if (src->element_type() == TET4) {
+            for (int v = 0; v < 4; ++v) {
+                for (ptrdiff_t e = 0; e < n_e; ++e) {
+                    o[v][e] = corner_ss[soa[v][e]];
+                }
+            }
+        } else {
+            const int nxe = src->n_nodes_per_element();
+            auto      mapped = create_host_buffer<idx_t>(nxe, (size_t)n_e);
+            auto      md     = mapped->data();
+            for (int v = 0; v < nxe; ++v) {
+                for (ptrdiff_t e = 0; e < n_e; ++e) {
+                    md[v][e] = corner_ss[soa[v][e]];
+                }
+            }
+            if (src->element_type() == WEDGE6) {
+                mesh_wedge6_to_3x_tet4<idx_t>(n_e, md, o);
+            } else {
+                mesh_pyramid5_to_2x_tet4<idx_t>(n_e, md, o);
+            }
+        }
+        auto new_block = std::make_shared<Mesh::Block>();
+        new_block->set_name(src->name());
+        new_block->set_element_type(TET4);
+        new_block->inherit_geom_map(src->geom_map());
+        new_block->set_elements(out);
+        expand_block_from(*src, *new_block, factor);
+        blocks.push_back(new_block);
+    }
+
+    SharedBuffer<large_idx_t> emap;
+    SharedBuffer<large_idx_t> aura_emap;
+    if (uniform) {
+        emap = expand_mapping(dist->element_mapping(), dist->n_elements_owned(), uniform_factor);
+        aura_emap = expand_mapping(dist->aura_element_mapping(), dist->n_elements_ghosts(), uniform_factor);
+    } else {
+        emap      = create_host_buffer<large_idx_t>((size_t)std::max<ptrdiff_t>(n_elem_owned, 0));
+        aura_emap = create_host_buffer<large_idx_t>((size_t)std::max<ptrdiff_t>(n_elem_ghosts, 0));
+        ptrdiff_t io = 0;
+        ptrdiff_t ia = 0;
+        for (ptrdiff_t b = 0; b < n_blocks; ++b) {
+            auto block = blocks[(size_t)b];
+            if (block->element_mapping() && block->n_elements_owned() > 0) {
+                const ptrdiff_t n = block->n_elements_owned();
+                std::memcpy(emap->data() + io, block->element_mapping()->data(), (size_t)n * sizeof(large_idx_t));
+                io += n;
+            }
+            if (block->aura_element_mapping() && block->n_elements_ghosts() > 0) {
+                const ptrdiff_t n = block->n_elements_ghosts();
+                std::memcpy(aura_emap->data() + ia,
+                            block->aura_element_mapping()->data(),
+                            (size_t)n * sizeof(large_idx_t));
+                ia += n;
+            }
+        }
+    }
+
+    const ptrdiff_t n_global_nodes = n_coarse_global + n_faces_global + n_cells_global;
+    auto            ret            = finish_mesh(comm,
+                           blocks,
+                           points,
+                           n_global_nodes,
+                           n_owned,
+                           n_shared,
+                           n_ghosts,
+                           n_aura,
+                           node_mapping,
+                           node_owner,
+                           n_elem_global,
+                           n_elem_owned,
+                           n_elem_shared,
+                           n_elem_ghosts,
+                           emap,
+                           aura_emap);
+    if (ret && copy_meta_through_convert(mesh, ret, corner_ss, n_coarse_local) != SMESH_SUCCESS) {
+        ret = nullptr;
+    }
+
+    SMESH_FREE(face_inc_to_uniq);
+    SMESH_FREE(face_gid);
+    SMESH_FREE(face_owner);
+    SMESH_FREE(face_shared);
+    SMESH_FREE(cell_inc_to_uniq);
+    SMESH_FREE(cell_gid);
+    SMESH_FREE(cell_owner);
+    SMESH_FREE(cell_shared);
+    SMESH_FREE(face_uo);
+    SMESH_FREE(face_ua);
+    SMESH_FREE(cell_uo);
+    SMESH_FREE(cell_ua);
+    SMESH_FREE(uniq_face_corners);
+    SMESH_FREE(uniq_cell_corners);
+    SMESH_FREE(corner_ss);
+    SMESH_FREE(face_ss);
+    SMESH_FREE(cell_ss);
+    SMESH_FREE(face_node_gid);
+    SMESH_FREE(cell_node_gid);
     return ret;
 }
 

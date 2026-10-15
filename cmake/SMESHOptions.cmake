@@ -12,6 +12,7 @@ option(SMESH_ENABLE_DEV_MODE "Add additional flags for more strict compilation" 
 option(SMESH_ENABLE_GLIBCXX_DEBUG "uses flags -D_GLIBCXX_DEBUG when compiling in debug mode" OFF)
 option(SMESH_ENABLE_LAPACK "Enable Lapck support" OFF)
 option(SMESH_ENABLE_METIS "Enable METIS graph-partitioning" OFF)
+option(SMESH_ENABLE_SSDF "Enable optional SSDF distance queries" OFF)
 option(SMESH_ENABLE_MPI "Enable MPI support" ON)
 option(SMESH_ENABLE_OPENMP "Enable OpenMP support" OFF)
 option(SMESH_ENABLE_MPISORT "Enable MPI sort" OFF)

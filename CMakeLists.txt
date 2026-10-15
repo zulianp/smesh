@@ -195,6 +195,13 @@ if(SMESH_ENABLE_DRIVERS)
             list(APPEND _smesh_driver_targets "${_driver_target}")
         endforeach()
     endforeach()
+
+    if(SMESH_ENABLE_SSDF AND TARGET refine_adaptive_surface)
+        # Build-tree only: ssdf is not part of the smesh export set.
+        target_link_libraries(refine_adaptive_surface PRIVATE "$<BUILD_INTERFACE:${SMESH_SSDF_TARGET}>")
+        target_compile_definitions(refine_adaptive_surface PRIVATE SMESH_HAS_SSDF=1)
+        message(STATUS "refine_adaptive_surface: distance queries via ${SMESH_SSDF_TARGET}")
+    endif()
 endif()
 
 

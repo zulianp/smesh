@@ -1332,12 +1332,20 @@ static int test_mpi_clone_convert() {
     const Path path = make_tmp_path("smesh_mpi_xf_clone_convert", token);
 
     const ptrdiff_t nx = std::max<ptrdiff_t>(2 * comm->size(), 4);
+    ptrdiff_t       serial_nnodes    = 0;
+    ptrdiff_t       serial_nelements = 0;
     if (comm->rank() == 0) {
         std::filesystem::remove_all(path.to_string());
         auto serial = Mesh::create_hex8_cube(Communicator::self(), nx, 2, 2);
         SMESH_TEST_ASSERT(serial != nullptr);
+        auto serial_tet = convert_to(TET4, serial);
+        SMESH_TEST_ASSERT(serial_tet != nullptr);
+        serial_nnodes    = serial_tet->n_nodes();
+        serial_nelements = serial_tet->n_elements();
         SMESH_TEST_ASSERT(serial->write(path) == SMESH_SUCCESS);
     }
+    comm->broadcast(&serial_nnodes, 1, 0);
+    comm->broadcast(&serial_nelements, 1, 0);
     comm->barrier();
 
     auto mesh = Mesh::create_from_file(comm, path);
@@ -1353,14 +1361,31 @@ static int test_mpi_clone_convert() {
     SMESH_TEST_EQ(cloned->block(0)->n_elements_owned(), mesh->block(0)->n_elements_owned());
     SMESH_TEST_EQ(check_owned_gids_unique(*cloned), SMESH_TEST_SUCCESS);
 
+    auto coarse_ss = Sideset::create_from_plane(mesh, 1, 0, 0, 0);
+    SMESH_TEST_ASSERT(!coarse_ss.empty());
+    mesh->add_sideset("left", coarse_ss[0]);
+    auto ns_buf = create_nodeset_from_sideset(mesh, coarse_ss[0]);
+    SMESH_TEST_ASSERT(ns_buf != nullptr);
+    mesh->add_nodeset("left_nodes", Nodeset::create(mesh->comm(), ns_buf));
+    auto coarse_gids = owned_nodeset_gids(*mesh, *mesh->nodesets("left_nodes")[0]);
+    std::sort(coarse_gids.begin(), coarse_gids.end());
+
     auto tet = convert_to(TET4, mesh);
     SMESH_TEST_ASSERT(tet != nullptr);
     SMESH_TEST_ASSERT(tet->is_distributed());
     SMESH_TEST_EQ(tet->element_type(0), TET4);
-    SMESH_TEST_EQ(tet->distributed()->n_nodes_global(), mesh->distributed()->n_nodes_global());
-    SMESH_TEST_EQ(tet->distributed()->n_elements_global(), mesh->distributed()->n_elements_global() * 6);
-    SMESH_TEST_EQ(tet->block(0)->n_elements_owned(), mesh->block(0)->n_elements_owned() * 6);
+    SMESH_TEST_EQ(tet->block(0)->name(), mesh->block(0)->name());
+    SMESH_TEST_EQ(tet->distributed()->n_nodes_global(), serial_nnodes);
+    SMESH_TEST_EQ(tet->distributed()->n_elements_global(), serial_nelements);
+    SMESH_TEST_EQ(tet->distributed()->n_elements_global(), mesh->distributed()->n_elements_global() * 24);
+    SMESH_TEST_EQ(tet->block(0)->n_elements_owned(), mesh->block(0)->n_elements_owned() * 24);
     SMESH_TEST_EQ(check_owned_gids_unique(*tet), SMESH_TEST_SUCCESS);
+    SMESH_TEST_EQ(tet->sidesets("left").size(), static_cast<size_t>(1));
+    SMESH_TEST_EQ(tet->sidesets("left")[0]->size(), coarse_ss[0]->size() * 4);
+    SMESH_TEST_EQ(tet->sidesets("left")[0]->block_id(), coarse_ss[0]->block_id());
+    auto fine_gids = owned_nodeset_gids(*tet, *tet->nodesets("left_nodes")[0]);
+    std::sort(fine_gids.begin(), fine_gids.end());
+    SMESH_TEST_ASSERT(fine_gids == coarse_gids);
 
     if (comm->rank() == 0) {
         std::filesystem::remove_all(path.to_string());

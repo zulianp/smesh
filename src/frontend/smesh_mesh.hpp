@@ -702,6 +702,10 @@ public:
                                        const enum ElemType element_type);
   static void clone_distributed(const Mesh &src, Mesh &dst);
   static int attach_convert_distributed(const Mesh &src, Mesh &dst);
+  /// HEX8 blocks become 24 TET4 each (shared face centers + cell centers).
+  /// Other blocks that convert to TET4 are converted in the same mesh.
+  static std::shared_ptr<Mesh>
+  convert_hex8_to_quality_tet4(const std::shared_ptr<Mesh> &mesh);
   static std::shared_ptr<Mesh>
   attach_sshex_to_hex8(const std::shared_ptr<Mesh> &ss,
                        const std::shared_ptr<Mesh> &hex);
@@ -721,10 +725,41 @@ public:
 
 std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
                                  const std::shared_ptr<Mesh> &mesh);
+
+/// Copy block-aligned sidesets, nodesets, edgesets, and parametrizations from
+/// \p src onto a mesh just built by `convert_to`. \p node_old_to_new remaps
+/// nodeset local ids (length \p n_old_nodes); null leaves those ids unchanged.
+int copy_meta_through_convert(const std::shared_ptr<Mesh> &src,
+                              const std::shared_ptr<Mesh> &dst,
+                              const idx_t *node_old_to_new,
+                              ptrdiff_t n_old_nodes);
 std::shared_ptr<Mesh> promote_to(const enum ElemType element_type,
                                  const std::shared_ptr<Mesh> &mesh);
 std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
                              const int levels = 1);
+
+/// Serial TET4 red-green refinement. Every marked element is red-refined
+/// `level` times. An element at target L raises each face neighbor to at least
+/// L-1, and that repeats, so the grade is one level per element. Unmarked
+/// elements outside that halo are split only along edges that already have a
+/// hanging node: one edge or one face uses a transition tet, and any other
+/// pattern is closed with an interior vertex so the split stays on that
+/// element. Several TET4 blocks are refined as one mesh, so a shared face stays
+/// conforming, then split back into the original blocks. Sidesets, edgesets,
+/// and nodesets are remapped. Mark indices are block-major: block 0, then
+/// block 1, and so on. `level == 0` or an empty mark list returns a clone.
+/// Rejects (nullptr) negative levels, out-of-range marks, MPI, and a block that
+/// is not TET4. Does not change `refine()`.
+std::shared_ptr<Mesh> refine_adaptive(const std::shared_ptr<Mesh> &mesh,
+                                      const element_idx_t         *marked,
+                                      ptrdiff_t                    n_marked,
+                                      int                          level);
+/// Same refinement. \p mark_level[i] is the red depth of \p marked[i]. A zero
+/// depth leaves that element unmarked. The deepest mark sets the closure bound.
+std::shared_ptr<Mesh> refine_adaptive(const std::shared_ptr<Mesh> &mesh,
+                                      const element_idx_t         *marked,
+                                      const int                   *mark_level,
+                                      ptrdiff_t                    n_marked);
 std::shared_ptr<Sideset> skin_sideset(const std::shared_ptr<Mesh> &mesh);
 std::vector<std::shared_ptr<Sideset>>
 skin_sidesets(const std::shared_ptr<Mesh> &mesh);

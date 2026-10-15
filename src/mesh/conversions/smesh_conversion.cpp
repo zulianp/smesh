@@ -7,6 +7,9 @@
       const ptrdiff_t,                                                         \
       const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                 \
       IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT);                      \
+  template void mesh_hex8_emit_24_tet4<IDX_T>(                                 \
+      const IDX_T *, const IDX_T *, const IDX_T,                               \
+      IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, const ptrdiff_t);     \
   template void mesh_tet15_to_4x_hex8<IDX_T>(                                  \
       const ptrdiff_t,                                                         \
       const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,                 \

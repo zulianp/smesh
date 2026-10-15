@@ -17,6 +17,7 @@
 #include "smesh_promotions.hpp"
 #include "smesh_read.hpp"
 #include "smesh_refine.hpp"
+#include "smesh_refine_adaptive.hpp"
 #include "smesh_reorder.hpp"
 #include "smesh_semistructured.hpp"
 #include "smesh_sideset.hpp"
@@ -31,6 +32,8 @@
 #include "smesh_geom_map.hpp"
 #include "smesh_jacobians.hpp"
 #include "smesh_kernel_data.hpp"
+
+#include <limits>
 
 #ifdef SMESH_ENABLE_MPI
 #include "smesh_alltoallv.impl.hpp"
@@ -5100,20 +5103,594 @@ std::shared_ptr<Mesh> Mesh::clone() const {
   return ret;
 }
 
+static bool hex8_face_owned(const block_idx_t block, const ptrdiff_t element,
+                            const element_idx_t neighbor,
+                            const block_idx_t neighbor_block,
+                            const enum ElemType neighbor_type) {
+  if (neighbor == invalid_idx<element_idx_t>() || neighbor_type != HEX8) {
+    return true;
+  }
+  if (block != neighbor_block) {
+    return block < neighbor_block;
+  }
+  return element < static_cast<ptrdiff_t>(neighbor);
+}
+
+static bool converts_to_tet4(const enum ElemType type) {
+  return type == HEX8 || type == TET4 || type == WEDGE6 || type == PYRAMID5;
+}
+
+struct ConvertSideChild {
+  int off;
+  int lfi;
+};
+
+enum ConvertSideKind {
+  kConvertSideClone = 0,
+  kConvertSideHex8Tet4,
+  kConvertSideWedge6Tet4,
+  kConvertSidePyramid5Tet4,
+  kConvertSideQuad4Tri3,
+  kConvertSideUnsupported
+};
+
+static ConvertSideKind convert_side_kind(const enum ElemType from,
+                                        const enum ElemType to) {
+  if (from == to || (from == HEX8 && to == PROTEUS_HEX8)) {
+    return kConvertSideClone;
+  }
+  if (from == HEX8 && to == TET4) {
+    return kConvertSideHex8Tet4;
+  }
+  if (from == WEDGE6 && to == TET4) {
+    return kConvertSideWedge6Tet4;
+  }
+  if (from == PYRAMID5 && to == TET4) {
+    return kConvertSidePyramid5Tet4;
+  }
+  if (from == QUAD4 && to == TRI3) {
+    return kConvertSideQuad4Tri3;
+  }
+  return kConvertSideUnsupported;
+}
+
+static int convert_side_factor(const ConvertSideKind kind) {
+  switch (kind) {
+  case kConvertSideClone:
+    return 1;
+  case kConvertSideHex8Tet4:
+    return 24;
+  case kConvertSideWedge6Tet4:
+    return 3;
+  case kConvertSidePyramid5Tet4:
+    return 2;
+  case kConvertSideQuad4Tri3:
+    return 2;
+  case kConvertSideUnsupported:
+    return 0;
+  }
+  return 0;
+}
+
+static int convert_side_children(const ConvertSideKind kind, const int lfi,
+                                 ConvertSideChild *const out) {
+  switch (kind) {
+  case kConvertSideHex8Tet4: {
+    if (lfi < 0 || lfi > 5) {
+      return -1;
+    }
+    for (int edge = 0; edge < 4; ++edge) {
+      out[edge].off = lfi * 4 + edge;
+      out[edge].lfi = 3;
+    }
+    return 4;
+  }
+  case kConvertSideWedge6Tet4: {
+    static const ConvertSideChild k_child[5][2] = {
+        {{0, 0}, {1, 0}},
+        {{1, 3}, {2, 3}},
+        {{0, 2}, {2, 2}},
+        {{0, 3}, {0, 0}},
+        {{1, 1}, {0, 0}},
+    };
+    static const int k_n[5] = {2, 2, 2, 1, 1};
+    if (lfi < 0 || lfi > 4) {
+      return -1;
+    }
+    const int n = k_n[lfi];
+    for (int i = 0; i < n; ++i) {
+      out[i] = k_child[lfi][i];
+    }
+    return n;
+  }
+  case kConvertSidePyramid5Tet4: {
+    static const ConvertSideChild k_child[5][2] = {
+        {{0, 0}, {0, 0}}, {{0, 1}, {0, 0}}, {{1, 1}, {0, 0}},
+        {{1, 2}, {0, 0}}, {{0, 3}, {1, 3}},
+    };
+    static const int k_n[5] = {1, 1, 1, 1, 2};
+    if (lfi < 0 || lfi > 4) {
+      return -1;
+    }
+    const int n = k_n[lfi];
+    for (int i = 0; i < n; ++i) {
+      out[i] = k_child[lfi][i];
+    }
+    return n;
+  }
+  case kConvertSideQuad4Tri3: {
+    static const ConvertSideChild k_child[4] = {
+        {0, 0},
+        {0, 1},
+        {1, 1},
+        {1, 2},
+    };
+    if (lfi < 0 || lfi > 3) {
+      return -1;
+    }
+    out[0] = k_child[lfi];
+    return 1;
+  }
+  case kConvertSideClone:
+  case kConvertSideUnsupported:
+    return -1;
+  }
+  return -1;
+}
+
+static int fit_converted_element(const ptrdiff_t v, element_idx_t *const out) {
+  if (v < 0) {
+    return 0;
+  }
+  if (sizeof(element_idx_t) < sizeof(ptrdiff_t)) {
+    const uintmax_t mx =
+        ((uintmax_t)1 << (8 * sizeof(element_idx_t) - 1)) - 1;
+    if (static_cast<uintmax_t>(v) > mx) {
+      return 0;
+    }
+  }
+  *out = static_cast<element_idx_t>(v);
+  return 1;
+}
+
+static std::shared_ptr<Sideset>
+expand_sideset_through_convert(const Mesh &dst, const std::shared_ptr<Sideset> &ss,
+                               const ConvertSideKind kind, const int factor,
+                               const ptrdiff_t n_coarse) {
+  const ptrdiff_t n = ss->size();
+  const element_idx_t *parent = ss->parent()->data();
+  const i16 *lfi = ss->lfi()->data();
+  ptrdiff_t n_out = 0;
+  ConvertSideChild child[4];
+  for (ptrdiff_t i = 0; i < n; ++i) {
+    if (parent[i] < 0 || static_cast<ptrdiff_t>(parent[i]) >= n_coarse) {
+      SMESH_ERROR("convert_to: sideset parent out of range\n");
+      return nullptr;
+    }
+    const int n_child = convert_side_children(kind, lfi[i], child);
+    if (n_child < 1) {
+      SMESH_ERROR("convert_to: sideset face %d is invalid\n", (int)lfi[i]);
+      return nullptr;
+    }
+    n_out += n_child;
+  }
+
+  auto out_parent = create_host_buffer<element_idx_t>(static_cast<size_t>(n_out));
+  auto out_lfi = create_host_buffer<i16>(static_cast<size_t>(n_out));
+  element_idx_t *d_parent = out_parent->data();
+  i16 *d_lfi = out_lfi->data();
+  ptrdiff_t w = 0;
+  const ptrdiff_t n_fine = dst.n_elements(ss->block_id());
+  for (ptrdiff_t i = 0; i < n; ++i) {
+    const int n_child = convert_side_children(kind, lfi[i], child);
+    for (int c = 0; c < n_child; ++c) {
+      const ptrdiff_t fine =
+          static_cast<ptrdiff_t>(parent[i]) * factor + child[c].off;
+      element_idx_t stored = 0;
+      if (fine >= n_fine || !fit_converted_element(fine, &stored)) {
+        SMESH_ERROR("convert_to: sideset child element out of range\n");
+        return nullptr;
+      }
+      d_parent[w] = stored;
+      d_lfi[w] = static_cast<i16>(child[c].lfi);
+      ++w;
+    }
+  }
+
+  SharedBuffer<large_idx_t> mapping = nullptr;
+  if (dst.is_distributed()) {
+    auto block = dst.block(ss->block_id());
+    if (block) {
+      mapping = block->element_mapping();
+    }
+  }
+  return Sideset::create(dst.comm(), out_parent, out_lfi, ss->block_id(), mapping);
+}
+
+int copy_meta_through_convert(const std::shared_ptr<Mesh> &src,
+                              const std::shared_ptr<Mesh> &dst,
+                              const idx_t *node_old_to_new,
+                              const ptrdiff_t n_old_nodes) {
+  if (!src || !dst || src.get() == dst.get()) {
+    return SMESH_FAILURE;
+  }
+  if (src->n_blocks() != dst->n_blocks()) {
+    SMESH_ERROR("convert_to: block count changed\n");
+    return SMESH_FAILURE;
+  }
+
+  const auto &sidesets = src->sidesets();
+  for (size_t i = 0; i < sidesets.size(); ++i) {
+    const auto &ss = sidesets[i].second;
+    if (!ss) {
+      SMESH_ERROR("convert_to: null sideset \"%s\"\n", sidesets[i].first.c_str());
+      return SMESH_FAILURE;
+    }
+    const block_idx_t bid = ss->block_id();
+    if (static_cast<size_t>(bid) >= src->n_blocks()) {
+      SMESH_ERROR("convert_to: sideset \"%s\" block %d is out of range\n",
+                  sidesets[i].first.c_str(), static_cast<int>(bid));
+      return SMESH_FAILURE;
+    }
+    std::shared_ptr<Sideset> mapped;
+    if (ss->size() == 0) {
+      mapped = clone_sideset(*dst, ss);
+    } else {
+      const enum ElemType from = src->element_type(bid);
+      const enum ElemType to = dst->element_type(bid);
+      const ConvertSideKind kind = convert_side_kind(from, to);
+      const int factor = convert_side_factor(kind);
+      if (kind == kConvertSideUnsupported || factor < 1 ||
+          dst->n_elements(bid) != src->n_elements(bid) * static_cast<ptrdiff_t>(factor)) {
+        SMESH_ERROR("convert_to: cannot remap sideset \"%s\" from %s to %s\n",
+                    sidesets[i].first.c_str(), type_to_string(from),
+                    type_to_string(to));
+        return SMESH_FAILURE;
+      }
+      mapped = (kind == kConvertSideClone)
+                   ? clone_sideset(*dst, ss)
+                   : expand_sideset_through_convert(*dst, ss, kind, factor,
+                                                    src->n_elements(bid));
+    }
+    if (!mapped) {
+      SMESH_ERROR("convert_to: failed to copy sideset \"%s\"\n",
+                  sidesets[i].first.c_str());
+      return SMESH_FAILURE;
+    }
+    dst->add_sideset(sidesets[i].first, mapped);
+  }
+
+  const auto &edgesets = src->edgesets();
+  for (size_t i = 0; i < edgesets.size(); ++i) {
+    const auto &es = edgesets[i].second;
+    if (!es) {
+      SMESH_ERROR("convert_to: null edgeset \"%s\"\n", edgesets[i].first.c_str());
+      return SMESH_FAILURE;
+    }
+    const block_idx_t bid = es->block_id();
+    if (static_cast<size_t>(bid) >= src->n_blocks()) {
+      SMESH_ERROR("convert_to: edgeset \"%s\" block %d is out of range\n",
+                  edgesets[i].first.c_str(), static_cast<int>(bid));
+      return SMESH_FAILURE;
+    }
+    if (es->size() > 0) {
+      const enum ElemType from = src->element_type(bid);
+      const enum ElemType to = dst->element_type(bid);
+      if (convert_side_kind(from, to) != kConvertSideClone) {
+        SMESH_ERROR("convert_to: cannot remap edgeset \"%s\" from %s to %s\n",
+                    edgesets[i].first.c_str(), type_to_string(from),
+                    type_to_string(to));
+        return SMESH_FAILURE;
+      }
+    }
+    auto mapped = clone_edgeset(*dst, es);
+    if (!mapped) {
+      SMESH_ERROR("convert_to: failed to copy edgeset \"%s\"\n",
+                  edgesets[i].first.c_str());
+      return SMESH_FAILURE;
+    }
+    dst->add_edgeset(edgesets[i].first, mapped);
+  }
+
+  const auto &nodesets = src->nodesets();
+  for (size_t i = 0; i < nodesets.size(); ++i) {
+    const auto &ns = nodesets[i].second;
+    if (!ns) {
+      SMESH_ERROR("convert_to: null nodeset \"%s\"\n", nodesets[i].first.c_str());
+      return SMESH_FAILURE;
+    }
+    auto mapped = clone_nodeset(*dst, ns);
+    if (!mapped) {
+      SMESH_ERROR("convert_to: failed to copy nodeset \"%s\"\n",
+                  nodesets[i].first.c_str());
+      return SMESH_FAILURE;
+    }
+    if (node_old_to_new &&
+        mapped->remap_nodes(node_old_to_new, n_old_nodes) != SMESH_SUCCESS) {
+      SMESH_ERROR("convert_to: failed to remap nodeset \"%s\"\n",
+                  nodesets[i].first.c_str());
+      return SMESH_FAILURE;
+    }
+    dst->add_nodeset(nodesets[i].first, mapped);
+  }
+
+  const auto &params = src->parametrizations();
+  for (size_t i = 0; i < params.size(); ++i) {
+    dst->add_parametrization(params[i].first, params[i].second);
+  }
+  return SMESH_SUCCESS;
+}
+
+static std::shared_ptr<Mesh> convert_hex8_to_quality_tet4_serial(
+    const std::shared_ptr<Mesh> &mesh,
+    const std::map<std::pair<enum ElemType, enum ElemType>,
+                   std::function<void(const Mesh::Block &, Mesh::Block &)>>
+        &cmap) {
+  const int sdim = mesh->spatial_dimension();
+  if (sdim != 3) {
+    SMESH_ERROR("HEX8→TET4 requires a 3D mesh\n");
+    return nullptr;
+  }
+
+  const size_t n_blocks = mesh->n_blocks();
+  const bool multi = n_blocks > 1;
+  ptrdiff_t *hex_off =
+      (ptrdiff_t *)SMESH_ALLOC((n_blocks + 1) * sizeof(ptrdiff_t));
+  ptrdiff_t n_hex = 0;
+  for (size_t b = 0; b < n_blocks; ++b) {
+    const block_idx_t bid = static_cast<block_idx_t>(b);
+    if (mesh->element_type(bid) == HEX8) {
+      hex_off[b] = n_hex;
+      n_hex += mesh->n_elements(bid);
+    } else {
+      hex_off[b] = -1;
+      if (!converts_to_tet4(mesh->element_type(bid))) {
+        SMESH_ERROR("Conversion from %s to TET4 is not supported\n",
+                    type_to_string(mesh->element_type(bid)));
+        SMESH_FREE(hex_off);
+        return nullptr;
+      }
+    }
+  }
+
+  const ptrdiff_t n_old = mesh->n_nodes();
+  ptrdiff_t *face_of = nullptr;
+  if (n_hex > 0) {
+    face_of = (ptrdiff_t *)SMESH_ALLOC(static_cast<size_t>(n_hex) * 6 *
+                                       sizeof(ptrdiff_t));
+    for (ptrdiff_t i = 0; i < n_hex * 6; ++i) {
+      face_of[i] = -1;
+    }
+  }
+
+  std::vector<SharedBuffer<element_idx_t>> hfts(n_blocks);
+  std::vector<SharedBuffer<block_idx_t>> hnbs(n_blocks);
+  for (size_t b = 0; b < n_blocks; ++b) {
+    const block_idx_t bid = static_cast<block_idx_t>(b);
+    if (mesh->element_type(bid) != HEX8) {
+      continue;
+    }
+    hfts[b] = mesh->half_face_table(bid);
+    if (!hfts[b]) {
+      SMESH_ERROR("HEX8→TET4: half-face table missing\n");
+      SMESH_FREE(face_of);
+      SMESH_FREE(hex_off);
+      return nullptr;
+    }
+    if (multi) {
+      hnbs[b] = mesh->half_face_neighbor_block(bid);
+      if (!hnbs[b]) {
+        SMESH_ERROR("HEX8→TET4: half-face neighbor block missing\n");
+        SMESH_FREE(face_of);
+        SMESH_FREE(hex_off);
+        return nullptr;
+      }
+    }
+  }
+
+  ptrdiff_t n_faces = 0;
+  for (size_t b = 0; b < n_blocks; ++b) {
+    const block_idx_t bid = static_cast<block_idx_t>(b);
+    if (mesh->element_type(bid) != HEX8) {
+      continue;
+    }
+    const element_idx_t *ht = hfts[b]->data();
+    const block_idx_t *hn = multi ? hnbs[b]->data() : nullptr;
+    const ptrdiff_t n_e = mesh->n_elements(bid);
+    for (ptrdiff_t e = 0; e < n_e; ++e) {
+      for (int s = 0; s < 6; ++s) {
+        const ptrdiff_t slot = (hex_off[b] + e) * 6 + s;
+        const element_idx_t neigh = ht[e * 6 + s];
+        block_idx_t nb = bid;
+        enum ElemType nt = HEX8;
+        if (neigh != invalid_idx<element_idx_t>() && multi) {
+          nb = hn[e * 6 + s];
+          nt = mesh->element_type(nb);
+        }
+        if (!hex8_face_owned(bid, e, neigh, nb, nt)) {
+          continue;
+        }
+        face_of[slot] = n_faces;
+        ++n_faces;
+      }
+    }
+  }
+
+  for (size_t b = 0; b < n_blocks; ++b) {
+    const block_idx_t bid = static_cast<block_idx_t>(b);
+    if (mesh->element_type(bid) != HEX8) {
+      continue;
+    }
+    const element_idx_t *ht = hfts[b]->data();
+    const block_idx_t *hn = multi ? hnbs[b]->data() : nullptr;
+    const ptrdiff_t n_e = mesh->n_elements(bid);
+    for (ptrdiff_t e = 0; e < n_e; ++e) {
+      for (int s = 0; s < 6; ++s) {
+        const ptrdiff_t slot = (hex_off[b] + e) * 6 + s;
+        if (face_of[slot] >= 0) {
+          continue;
+        }
+        const element_idx_t neigh = ht[e * 6 + s];
+        const block_idx_t nb = multi ? hn[e * 6 + s] : bid;
+        const element_idx_t *nh = hfts[nb]->data();
+        const block_idx_t *nhn = multi ? hnbs[nb]->data() : nullptr;
+        ptrdiff_t id = -1;
+        for (int sf = 0; sf < 6; ++sf) {
+          if (nh[static_cast<ptrdiff_t>(neigh) * 6 + sf] !=
+              static_cast<element_idx_t>(e)) {
+            continue;
+          }
+          if (multi && nhn[static_cast<ptrdiff_t>(neigh) * 6 + sf] != bid) {
+            continue;
+          }
+          id = face_of[(hex_off[nb] + static_cast<ptrdiff_t>(neigh)) * 6 + sf];
+          break;
+        }
+        if (id < 0) {
+          SMESH_ERROR("HEX8→TET4: unmatched face between hexes\n");
+          SMESH_FREE(face_of);
+          SMESH_FREE(hex_off);
+          return nullptr;
+        }
+        face_of[slot] = id;
+      }
+    }
+  }
+
+  const ptrdiff_t n_new = n_old + n_faces + n_hex;
+  if (n_new > static_cast<ptrdiff_t>(std::numeric_limits<idx_t>::max())) {
+    SMESH_ERROR("HEX8→TET4: node count exceeds idx_t\n");
+    SMESH_FREE(face_of);
+    SMESH_FREE(hex_off);
+    return nullptr;
+  }
+
+  SharedBuffer<geom_t *> points = mesh->points();
+  geom_t *const *src_p = mesh->points()->data();
+  geom_t **dst_p = nullptr;
+  if (n_faces + n_hex > 0) {
+    points = create_host_buffer<geom_t>(sdim, static_cast<size_t>(n_new));
+    dst_p = points->data();
+    for (int d = 0; d < sdim; ++d) {
+      std::memcpy(dst_p[d], src_p[d],
+                  static_cast<size_t>(n_old) * sizeof(geom_t));
+    }
+    const geom_t inv4 = static_cast<geom_t>(0.25);
+    const geom_t inv8 = static_cast<geom_t>(0.125);
+    const idx_t face_base = static_cast<idx_t>(n_old);
+    const idx_t cell_base = static_cast<idx_t>(n_old + n_faces);
+    for (size_t b = 0; b < n_blocks; ++b) {
+      const block_idx_t bid = static_cast<block_idx_t>(b);
+      if (mesh->element_type(bid) != HEX8) {
+        continue;
+      }
+      const element_idx_t *ht = hfts[b]->data();
+      const block_idx_t *hn = multi ? hnbs[b]->data() : nullptr;
+      auto soa = mesh->elements(bid)->data();
+      const ptrdiff_t n_e = mesh->n_elements(bid);
+      for (ptrdiff_t e = 0; e < n_e; ++e) {
+        idx_t corner[8];
+        for (int d = 0; d < 8; ++d) {
+          corner[d] = soa[d][e];
+        }
+        for (int s = 0; s < 6; ++s) {
+          const element_idx_t neigh = ht[e * 6 + s];
+          block_idx_t nb = bid;
+          enum ElemType nt = HEX8;
+          if (neigh != invalid_idx<element_idx_t>() && multi) {
+            nb = hn[e * 6 + s];
+            nt = mesh->element_type(nb);
+          }
+          if (!hex8_face_owned(bid, e, neigh, nb, nt)) {
+            continue;
+          }
+          const idx_t id =
+              face_base +
+              static_cast<idx_t>(face_of[(hex_off[b] + e) * 6 + s]);
+          const int *fn = hex8_outward_face_nodes[s];
+          for (int d = 0; d < sdim; ++d) {
+            geom_t acc = 0;
+            for (int k = 0; k < 4; ++k) {
+              acc += src_p[d][corner[fn[k]]];
+            }
+            dst_p[d][id] = acc * inv4;
+          }
+        }
+        const idx_t cell =
+            cell_base + static_cast<idx_t>(hex_off[b] + e);
+        for (int d = 0; d < sdim; ++d) {
+          geom_t acc = 0;
+          for (int k = 0; k < 8; ++k) {
+            acc += src_p[d][corner[k]];
+          }
+          dst_p[d][cell] = acc * inv8;
+        }
+      }
+    }
+  }
+
+  const idx_t face_base = static_cast<idx_t>(n_old);
+  const idx_t cell_base = static_cast<idx_t>(n_old + n_faces);
+  std::vector<std::shared_ptr<Mesh::Block>> blocks;
+  blocks.reserve(n_blocks);
+  for (size_t b = 0; b < n_blocks; ++b) {
+    auto block = mesh->block(b);
+    // const block_idx_t bid = static_cast<block_idx_t>(b);
+    auto new_block = std::make_shared<Mesh::Block>();
+    new_block->set_name(block->name());
+    if (block->element_type() == HEX8) {
+      const ptrdiff_t n_e = block->n_elements();
+      auto tets =
+          create_host_buffer<idx_t>(4, static_cast<size_t>(n_e) * 24);
+      auto soa = block->elements()->data();
+      auto out = tets->data();
+      for (ptrdiff_t e = 0; e < n_e; ++e) {
+        idx_t corner[8];
+        idx_t fc[6];
+        for (int d = 0; d < 8; ++d) {
+          corner[d] = soa[d][e];
+        }
+        for (int s = 0; s < 6; ++s) {
+          fc[s] = face_base +
+                  static_cast<idx_t>(face_of[(hex_off[b] + e) * 6 + s]);
+        }
+        const idx_t cell = cell_base + static_cast<idx_t>(hex_off[b] + e);
+        mesh_hex8_emit_24_tet4<idx_t>(corner, fc, cell, out, e * 24);
+      }
+      new_block->set_element_type(TET4);
+      new_block->set_elements(tets);
+    } else if (block->element_type() == TET4) {
+      new_block->set_element_type(TET4);
+      new_block->set_elements(block->elements());
+    } else {
+      auto it = cmap.find(std::make_pair(block->element_type(), TET4));
+      if (it == cmap.end()) {
+        SMESH_ERROR("Conversion from %s to TET4 is not supported\n",
+                    type_to_string(block->element_type()));
+        SMESH_FREE(face_of);
+        SMESH_FREE(hex_off);
+        return nullptr;
+      }
+      it->second(*block, *new_block);
+    }
+    new_block->inherit_geom_map(block->geom_map());
+    blocks.push_back(new_block);
+  }
+
+  SMESH_FREE(face_of);
+  SMESH_FREE(hex_off);
+  auto out = std::make_shared<Mesh>(mesh->comm(), blocks, points);
+  if (copy_meta_through_convert(mesh, out, nullptr, 0) != SMESH_SUCCESS) {
+    return nullptr;
+  }
+  return out;
+}
+
 std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
                                  const std::shared_ptr<Mesh> &mesh) {
   std::map<std::pair<enum ElemType, enum ElemType>,
            std::function<void(const Mesh::Block &, Mesh::Block &)>>
       cmap;
-
-  cmap[std::make_pair(HEX8, TET4)] = [](const Mesh::Block &block,
-                                        Mesh::Block &new_block) {
-    new_block.set_element_type(TET4);
-    new_block.set_elements(
-        create_host_buffer<idx_t>(4, block.n_elements() * 6));
-    mesh_hex8_to_6x_tet4(block.n_elements(), block.elements()->data(),
-                         new_block.elements()->data());
-  };
 
   cmap[std::make_pair(TET15, HEX8)] = [](const Mesh::Block &block,
                                          Mesh::Block &new_block) {
@@ -5243,6 +5820,24 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
   cmap[std::make_pair(PROTEUS_WEDGE2601, WEDGE6)] =
       sswedge_block_to_wedge6_block;
 
+  bool hex_to_tet = false;
+  if (element_type == TET4) {
+    for (const auto &block : mesh->blocks()) {
+      if (block && block->element_type() == HEX8) {
+        hex_to_tet = true;
+        break;
+      }
+    }
+  }
+#ifdef SMESH_ENABLE_MPI
+  if (hex_to_tet && mesh->is_distributed()) {
+    return MeshTransformsDistributed::convert_hex8_to_quality_tet4(mesh);
+  }
+#endif
+  if (hex_to_tet) {
+    return convert_hex8_to_quality_tet4_serial(mesh, cmap);
+  }
+
   std::vector<std::shared_ptr<Mesh::Block>> blocks;
   for (auto &block : mesh->blocks()) {
     auto new_block = std::make_shared<Mesh::Block>();
@@ -5276,6 +5871,9 @@ std::shared_ptr<Mesh> convert_to(const enum ElemType element_type,
     }
   }
 #endif
+  if (copy_meta_through_convert(mesh, out, nullptr, 0) != SMESH_SUCCESS) {
+    return nullptr;
+  }
   return out;
 }
 
@@ -5876,6 +6474,624 @@ std::shared_ptr<Mesh> refine(const std::shared_ptr<Mesh> &mesh,
 
   const bool crs_nodesets = mesh->element_type(0) != HEX8;
   return finish(out, crs_nodesets);
+}
+
+static int adapt_marks_in_range(const element_idx_t *marked, const ptrdiff_t n_marked, const ptrdiff_t n_elements) {
+    if (n_marked < 0 || (n_marked > 0 && marked == nullptr)) {
+        fprintf(stderr, "refine_adaptive: invalid mark list\n");
+        return 0;
+    }
+    for (ptrdiff_t i = 0; i < n_marked; ++i) {
+        if (marked[i] < 0 || (ptrdiff_t)marked[i] >= n_elements) {
+            fprintf(stderr, "refine_adaptive: marked element out of range\n");
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int adapt_fit_element(const ptrdiff_t v, element_idx_t *out) {
+    if (v < 0) {
+        return 0;
+    }
+    if (sizeof(element_idx_t) < sizeof(ptrdiff_t)) {
+        const uintmax_t mx = ((uintmax_t)1 << (8 * sizeof(element_idx_t) - 1)) - 1;
+        if ((uintmax_t)v > mx) {
+            return 0;
+        }
+    }
+    *out = (element_idx_t)v;
+    return 1;
+}
+
+static int adapt_remap_sidesets(const std::shared_ptr<Mesh> &coarse,
+                                const std::shared_ptr<Mesh> &fine,
+                                const count_t               *face_ptr,
+                                const idx_t                 *face_elem,
+                                const idx_t                 *face_lfi) {
+    const auto &sets = coarse->sidesets();
+    for (size_t s = 0; s < sets.size(); ++s) {
+        const auto &ss = sets[s].second;
+        if (!ss || !ss->parent() || !ss->lfi()) {
+            fprintf(stderr, "refine_adaptive: null sideset\n");
+            return SMESH_FAILURE;
+        }
+        const ptrdiff_t      n      = ss->size();
+        const element_idx_t *parent = ss->parent()->data();
+        const i16           *lfi    = ss->lfi()->data();
+        ptrdiff_t            n_out  = 0;
+        for (ptrdiff_t i = 0; i < n; ++i) {
+            if (parent[i] < 0 || (ptrdiff_t)parent[i] >= coarse->n_elements(0) || lfi[i] < 0 || lfi[i] > 3) {
+                fprintf(stderr, "refine_adaptive: sideset entry out of range\n");
+                return SMESH_FAILURE;
+            }
+            const ptrdiff_t row    = (ptrdiff_t)parent[i] * 4 + (ptrdiff_t)lfi[i];
+            const ptrdiff_t nchild = (ptrdiff_t)face_ptr[row + 1] - (ptrdiff_t)face_ptr[row];
+            if (nchild < 1) {
+                fprintf(stderr, "refine_adaptive: sideset face has no child\n");
+                return SMESH_FAILURE;
+            }
+            n_out += nchild;
+        }
+        auto      out_parent = create_host_buffer<element_idx_t>((size_t)n_out);
+        auto      out_lfi    = create_host_buffer<i16>((size_t)n_out);
+        ptrdiff_t w          = 0;
+        for (ptrdiff_t i = 0; i < n; ++i) {
+            const ptrdiff_t row   = (ptrdiff_t)parent[i] * 4 + (ptrdiff_t)lfi[i];
+            const ptrdiff_t begin = (ptrdiff_t)face_ptr[row];
+            const ptrdiff_t end   = (ptrdiff_t)face_ptr[row + 1];
+            for (ptrdiff_t k = begin; k < end; ++k) {
+                element_idx_t pe = 0;
+                if (!adapt_fit_element((ptrdiff_t)face_elem[k], &pe) || (ptrdiff_t)pe >= fine->n_elements(0) ||
+                    face_lfi[k] < 0 || face_lfi[k] > 3) {
+                    fprintf(stderr, "refine_adaptive: sideset child out of range\n");
+                    return SMESH_FAILURE;
+                }
+                out_parent->data()[w] = pe;
+                out_lfi->data()[w]    = (i16)face_lfi[k];
+                ++w;
+            }
+        }
+        fine->add_sideset(sets[s].first, Sideset::create(coarse->comm(), out_parent, out_lfi, ss->block_id()));
+    }
+    return SMESH_SUCCESS;
+}
+
+static int adapt_remap_edgesets(const std::shared_ptr<Mesh> &coarse,
+                                const std::shared_ptr<Mesh> &fine,
+                                const count_t               *edge_ptr,
+                                const idx_t                 *edge_elem,
+                                const idx_t                 *edge_lei) {
+    const auto &sets = coarse->edgesets();
+    for (size_t s = 0; s < sets.size(); ++s) {
+        const auto &es = sets[s].second;
+        if (!es || !es->parent() || !es->lei()) {
+            fprintf(stderr, "refine_adaptive: null edgeset\n");
+            return SMESH_FAILURE;
+        }
+        const ptrdiff_t      n      = es->size();
+        const element_idx_t *parent = es->parent()->data();
+        const i16           *lei    = es->lei()->data();
+        ptrdiff_t            n_out  = 0;
+        for (ptrdiff_t i = 0; i < n; ++i) {
+            if (parent[i] < 0 || (ptrdiff_t)parent[i] >= coarse->n_elements(0) || lei[i] < 0 || lei[i] > 5) {
+                fprintf(stderr, "refine_adaptive: edgeset entry out of range\n");
+                return SMESH_FAILURE;
+            }
+            const ptrdiff_t row    = (ptrdiff_t)parent[i] * 6 + (ptrdiff_t)lei[i];
+            const ptrdiff_t nchild = (ptrdiff_t)edge_ptr[row + 1] - (ptrdiff_t)edge_ptr[row];
+            if (nchild < 1) {
+                fprintf(stderr, "refine_adaptive: edgeset edge has no child\n");
+                return SMESH_FAILURE;
+            }
+            n_out += nchild;
+        }
+        auto      out_parent = create_host_buffer<element_idx_t>((size_t)n_out);
+        auto      out_lei    = create_host_buffer<i16>((size_t)n_out);
+        ptrdiff_t w          = 0;
+        for (ptrdiff_t i = 0; i < n; ++i) {
+            const ptrdiff_t row   = (ptrdiff_t)parent[i] * 6 + (ptrdiff_t)lei[i];
+            const ptrdiff_t begin = (ptrdiff_t)edge_ptr[row];
+            const ptrdiff_t end   = (ptrdiff_t)edge_ptr[row + 1];
+            for (ptrdiff_t k = begin; k < end; ++k) {
+                element_idx_t pe = 0;
+                if (!adapt_fit_element((ptrdiff_t)edge_elem[k], &pe) || (ptrdiff_t)pe >= fine->n_elements(0) ||
+                    edge_lei[k] < 0 || edge_lei[k] > 5) {
+                    fprintf(stderr, "refine_adaptive: edgeset child out of range\n");
+                    return SMESH_FAILURE;
+                }
+                out_parent->data()[w] = pe;
+                out_lei->data()[w]    = (i16)edge_lei[k];
+                ++w;
+            }
+        }
+        fine->add_edgeset(sets[s].first, Edgeset::create(coarse->comm(), out_parent, out_lei, es->block_id()));
+    }
+    return SMESH_SUCCESS;
+}
+
+static int adapt_remap_nodesets(const std::shared_ptr<Mesh> &coarse,
+                                const std::shared_ptr<Mesh> &fine,
+                                const idx_t                 *mid_lo,
+                                const idx_t                 *mid_hi,
+                                const idx_t                 *mid_id,
+                                const ptrdiff_t              n_mids) {
+    const ptrdiff_t n_out_nodes = fine->n_nodes();
+    const ptrdiff_t n_coarse    = coarse->n_nodes();
+    u8             *in_set      = (u8 *)SMESH_CALLOC((size_t)(n_out_nodes > 0 ? n_out_nodes : 1), sizeof(u8));
+    if (!in_set) {
+        fprintf(stderr, "refine_adaptive: nodeset allocation failed\n");
+        return SMESH_FAILURE;
+    }
+    const auto &sets = coarse->nodesets();
+    for (size_t s = 0; s < sets.size(); ++s) {
+        const auto &ns = sets[s].second;
+        if (!ns || !ns->nodes()) {
+            SMESH_FREE(in_set);
+            fprintf(stderr, "refine_adaptive: null nodeset\n");
+            return SMESH_FAILURE;
+        }
+        memset(in_set, 0, (size_t)n_out_nodes * sizeof(u8));
+        const ptrdiff_t n     = ns->size();
+        const idx_t    *nodes = ns->nodes()->data();
+        ptrdiff_t       n_keep = 0;
+        for (ptrdiff_t i = 0; i < n; ++i) {
+            const idx_t id = nodes[i];
+            if (id < 0 || (ptrdiff_t)id >= n_coarse) {
+                SMESH_FREE(in_set);
+                fprintf(stderr, "refine_adaptive: nodeset node out of range\n");
+                return SMESH_FAILURE;
+            }
+            if (!in_set[id]) {
+                in_set[id] = 1;
+                ++n_keep;
+            }
+        }
+        for (ptrdiff_t m = 0; m < n_mids; ++m) {
+            const idx_t lo = mid_lo[m];
+            const idx_t hi = mid_hi[m];
+            const idx_t id = mid_id[m];
+            if (lo < 0 || hi < 0 || id < 0 || (ptrdiff_t)lo >= n_out_nodes || (ptrdiff_t)hi >= n_out_nodes ||
+                (ptrdiff_t)id >= n_out_nodes) {
+                SMESH_FREE(in_set);
+                fprintf(stderr, "refine_adaptive: midpoint out of range\n");
+                return SMESH_FAILURE;
+            }
+            if (in_set[lo] && in_set[hi] && !in_set[id]) {
+                in_set[id] = 1;
+                ++n_keep;
+            }
+        }
+        auto      out_nodes = create_host_buffer<idx_t>((size_t)n_keep);
+        ptrdiff_t w         = 0;
+        for (ptrdiff_t i = 0; i < n; ++i) {
+            const idx_t id = nodes[i];
+            if (in_set[id] == 1) {
+                in_set[id]           = 2;
+                out_nodes->data()[w] = id;
+                ++w;
+            }
+        }
+        for (ptrdiff_t m = 0; m < n_mids; ++m) {
+            const idx_t id = mid_id[m];
+            if (in_set[id] == 1) {
+                in_set[id]           = 2;
+                out_nodes->data()[w] = id;
+                ++w;
+            }
+        }
+        if (w != n_keep) {
+            SMESH_FREE(in_set);
+            fprintf(stderr, "refine_adaptive: nodeset size mismatch\n");
+            return SMESH_FAILURE;
+        }
+        fine->add_nodeset(sets[s].first, Nodeset::create(coarse->comm(), out_nodes));
+    }
+    SMESH_FREE(in_set);
+    return SMESH_SUCCESS;
+}
+
+static block_idx_t adapt_block_at(const ptrdiff_t *offset, const size_t n_blocks, const ptrdiff_t coarse) {
+    size_t lo = 0;
+    size_t hi = n_blocks;
+    while (lo + 1 < hi) {
+        const size_t mid = lo + (hi - lo) / 2;
+        if (coarse < offset[mid]) {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    return static_cast<block_idx_t>(lo);
+}
+
+static int adapt_shift_parents(const element_idx_t *src, const ptrdiff_t n, const ptrdiff_t begin, const ptrdiff_t end,
+                               element_idx_t *dst) {
+    for (ptrdiff_t i = 0; i < n; ++i) {
+        if (src[i] < 0) {
+            return 0;
+        }
+        const ptrdiff_t global = (ptrdiff_t)src[i] + begin;
+        if (global < begin || global >= end || !adapt_fit_element(global, &dst[i])) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static std::shared_ptr<Mesh> adapt_split_refined(const std::shared_ptr<Mesh>     &src,
+                                                 const std::shared_ptr<Mesh>     &joined,
+                                                 const idx_t                     *root,
+                                                 const ptrdiff_t                 *offset,
+                                                 const std::vector<block_idx_t> &side_block,
+                                                 const std::vector<block_idx_t> &edge_block) {
+    const size_t    n_blocks = src->n_blocks();
+    const ptrdiff_t n_out    = joined->n_elements(0);
+    if (!root || side_block.size() != joined->sidesets().size() || edge_block.size() != joined->edgesets().size()) {
+        fprintf(stderr, "refine_adaptive: missing block map\n");
+        return nullptr;
+    }
+
+    std::vector<ptrdiff_t> counts(n_blocks, 0);
+    for (ptrdiff_t e = 0; e < n_out; ++e) {
+        const idx_t r = root[e];
+        if (r < 0 || (ptrdiff_t)r >= offset[n_blocks]) {
+            fprintf(stderr, "refine_adaptive: refined element has no block\n");
+            return nullptr;
+        }
+        counts[adapt_block_at(offset, n_blocks, (ptrdiff_t)r)] += 1;
+    }
+
+    std::vector<SharedBuffer<idx_t *>> elems(n_blocks);
+    for (size_t b = 0; b < n_blocks; ++b) {
+        elems[b] = create_host_buffer<idx_t>(4, (size_t)counts[b]);
+        if (counts[b] > 0 && (!elems[b] || !elems[b]->data() || !elems[b]->data()[0])) {
+            fprintf(stderr, "refine_adaptive: block allocation failed\n");
+            return nullptr;
+        }
+    }
+
+    auto local = create_host_buffer<element_idx_t>((size_t)n_out);
+    if (!local || (n_out > 0 && !local->data())) {
+        fprintf(stderr, "refine_adaptive: block allocation failed\n");
+        return nullptr;
+    }
+    std::vector<ptrdiff_t> cursor(n_blocks, 0);
+    const idx_t *const    *je = joined->elements(0)->data();
+    for (ptrdiff_t e = 0; e < n_out; ++e) {
+        const size_t  b   = static_cast<size_t>(adapt_block_at(offset, n_blocks, (ptrdiff_t)root[e]));
+        element_idx_t loc = 0;
+        if (!adapt_fit_element(cursor[b], &loc)) {
+            fprintf(stderr, "refine_adaptive: block element index overflow\n");
+            return nullptr;
+        }
+        local->data()[e] = loc;
+        for (int k = 0; k < 4; ++k) {
+            elems[b]->data()[k][loc] = je[k][e];
+        }
+        cursor[b] = (ptrdiff_t)loc + 1;
+    }
+
+    std::vector<std::shared_ptr<Mesh::Block>> blocks;
+    blocks.reserve(n_blocks);
+    for (size_t b = 0; b < n_blocks; ++b) {
+        auto block = std::make_shared<Mesh::Block>();
+        block->set_name(src->block(static_cast<block_idx_t>(b))->name());
+        block->set_element_type(TET4);
+        if (block->inherit_geom_map(src->block(static_cast<block_idx_t>(b))->geom_map()) != SMESH_SUCCESS) {
+            fprintf(stderr, "refine_adaptive: geom map rejected\n");
+            return nullptr;
+        }
+        block->set_elements(elems[b]);
+        blocks.push_back(block);
+    }
+    auto out = std::make_shared<Mesh>(src->comm(), blocks, joined->points());
+
+    const auto &sides = joined->sidesets();
+    for (size_t s = 0; s < sides.size(); ++s) {
+        const auto     &ss  = sides[s].second;
+        const ptrdiff_t n   = ss->size();
+        const block_idx_t bid = side_block[s];
+        auto            parent = create_host_buffer<element_idx_t>((size_t)n);
+        if (!ss || !ss->parent() || !parent || (n > 0 && !parent->data())) {
+            fprintf(stderr, "refine_adaptive: null sideset\n");
+            return nullptr;
+        }
+        const element_idx_t *sp = ss->parent()->data();
+        for (ptrdiff_t i = 0; i < n; ++i) {
+            const element_idx_t je = sp[i];
+            if (je < 0 || (ptrdiff_t)je >= n_out ||
+                adapt_block_at(offset, n_blocks, (ptrdiff_t)root[je]) != bid) {
+                fprintf(stderr, "refine_adaptive: sideset crossed blocks\n");
+                return nullptr;
+            }
+            parent->data()[i] = local->data()[je];
+        }
+        out->add_sideset(sides[s].first, Sideset::create(src->comm(), parent, ss->lfi(), bid));
+    }
+
+    const auto &edges = joined->edgesets();
+    for (size_t s = 0; s < edges.size(); ++s) {
+        const auto     &es  = edges[s].second;
+        const ptrdiff_t n   = es->size();
+        const block_idx_t bid = edge_block[s];
+        auto            parent = create_host_buffer<element_idx_t>((size_t)n);
+        if (!es || !es->parent() || !parent || (n > 0 && !parent->data())) {
+            fprintf(stderr, "refine_adaptive: null edgeset\n");
+            return nullptr;
+        }
+        const element_idx_t *ep = es->parent()->data();
+        for (ptrdiff_t i = 0; i < n; ++i) {
+            const element_idx_t je = ep[i];
+            if (je < 0 || (ptrdiff_t)je >= n_out ||
+                adapt_block_at(offset, n_blocks, (ptrdiff_t)root[je]) != bid) {
+                fprintf(stderr, "refine_adaptive: edgeset crossed blocks\n");
+                return nullptr;
+            }
+            parent->data()[i] = local->data()[je];
+        }
+        out->add_edgeset(edges[s].first, Edgeset::create(src->comm(), parent, es->lei(), bid));
+    }
+
+    const auto &nodes = joined->nodesets();
+    for (size_t s = 0; s < nodes.size(); ++s) {
+        out->add_nodeset(nodes[s].first, nodes[s].second);
+    }
+    return out;
+}
+
+static std::shared_ptr<Mesh> refine_adaptive_impl(const std::shared_ptr<Mesh> &mesh,
+                                                    const element_idx_t         *marked,
+                                                    const ptrdiff_t              n_marked,
+                                                    const int                    level,
+                                                    const int                   *mark_level) {
+    if (!mesh) {
+        fprintf(stderr, "refine_adaptive: null mesh\n");
+        return nullptr;
+    }
+    if (level < 0) {
+        fprintf(stderr, "refine_adaptive: level must be non-negative\n");
+        return nullptr;
+    }
+    if (mesh->is_distributed() || !mesh->comm() || mesh->comm()->size() > 1) {
+        fprintf(stderr, "refine_adaptive: distributed meshes are not supported\n");
+        return nullptr;
+    }
+    if (!mesh->points() || mesh->spatial_dimension() != 3 || mesh->n_blocks() < 1 ||
+        mesh->n_blocks() > static_cast<size_t>(std::numeric_limits<block_idx_t>::max())) {
+        fprintf(stderr, "refine_adaptive: requires one or more TET4 blocks\n");
+        return nullptr;
+    }
+    const size_t           n_blocks = mesh->n_blocks();
+    std::vector<ptrdiff_t> offset(n_blocks + 1, 0);
+    for (size_t b = 0; b < n_blocks; ++b) {
+        if (mesh->element_type(static_cast<block_idx_t>(b)) != TET4 || !mesh->elements(static_cast<block_idx_t>(b))) {
+            fprintf(stderr, "refine_adaptive: requires one or more TET4 blocks\n");
+            return nullptr;
+        }
+        const ptrdiff_t n = mesh->n_elements(static_cast<block_idx_t>(b));
+        if (n < 0 || offset[b] > std::numeric_limits<ptrdiff_t>::max() - n) {
+            fprintf(stderr, "refine_adaptive: element count overflow\n");
+            return nullptr;
+        }
+        offset[b + 1] = offset[b] + n;
+    }
+    const ptrdiff_t n_coarse = offset[n_blocks];
+    if (!adapt_marks_in_range(marked, n_marked, n_coarse)) {
+        return nullptr;
+    }
+    if (level == 0 || n_marked == 0) {
+        return mesh->clone();
+    }
+    if (n_coarse < 1) {
+        fprintf(stderr, "refine_adaptive: mesh has no elements\n");
+        return nullptr;
+    }
+
+    std::shared_ptr<Mesh>      coarse = mesh;
+    SharedBuffer<idx_t *>      cat;
+    std::vector<block_idx_t>   side_block;
+    std::vector<block_idx_t>   edge_block;
+    if (n_blocks > 1) {
+        cat = create_host_buffer<idx_t>(4, (size_t)n_coarse);
+        if (!cat || !cat->data() || !cat->data()[0]) {
+            fprintf(stderr, "refine_adaptive: block allocation failed\n");
+            return nullptr;
+        }
+        for (size_t b = 0; b < n_blocks; ++b) {
+            const ptrdiff_t     n   = offset[b + 1] - offset[b];
+            if (n == 0) {
+                continue;
+            }
+            const idx_t *const *src = mesh->elements(static_cast<block_idx_t>(b))->data();
+            for (int k = 0; k < 4; ++k) {
+                memcpy(cat->data()[k] + offset[b], src[k], (size_t)n * sizeof(idx_t));
+            }
+        }
+        auto joined_block = std::make_shared<Mesh::Block>();
+        joined_block->set_name(mesh->block(0)->name());
+        joined_block->set_element_type(TET4);
+        if (joined_block->inherit_geom_map(mesh->block(0)->geom_map()) != SMESH_SUCCESS) {
+            fprintf(stderr, "refine_adaptive: geom map rejected\n");
+            return nullptr;
+        }
+        joined_block->set_elements(cat);
+        coarse = std::make_shared<Mesh>(mesh->comm(), std::vector<std::shared_ptr<Mesh::Block>>{joined_block},
+                                        mesh->points());
+        const auto &sides = mesh->sidesets();
+        side_block.reserve(sides.size());
+        for (size_t s = 0; s < sides.size(); ++s) {
+            const auto &ss = sides[s].second;
+            if (!ss || !ss->parent() || !ss->lfi()) {
+                fprintf(stderr, "refine_adaptive: null sideset\n");
+                return nullptr;
+            }
+            const block_idx_t bid = ss->block_id();
+            if (static_cast<size_t>(bid) >= n_blocks) {
+                fprintf(stderr, "refine_adaptive: sideset block out of range\n");
+                return nullptr;
+            }
+            const ptrdiff_t n      = ss->size();
+            auto            parent = create_host_buffer<element_idx_t>((size_t)n);
+            if (!parent || (n > 0 && !parent->data()) ||
+                !adapt_shift_parents(ss->parent()->data(), n, offset[bid], offset[bid + 1], parent->data())) {
+                fprintf(stderr, "refine_adaptive: sideset entry out of range\n");
+                return nullptr;
+            }
+            coarse->add_sideset(sides[s].first, Sideset::create(mesh->comm(), parent, ss->lfi(), 0));
+            side_block.push_back(bid);
+        }
+        const auto &edges = mesh->edgesets();
+        edge_block.reserve(edges.size());
+        for (size_t s = 0; s < edges.size(); ++s) {
+            const auto &es = edges[s].second;
+            if (!es || !es->parent() || !es->lei()) {
+                fprintf(stderr, "refine_adaptive: null edgeset\n");
+                return nullptr;
+            }
+            const block_idx_t bid = es->block_id();
+            if (static_cast<size_t>(bid) >= n_blocks) {
+                fprintf(stderr, "refine_adaptive: edgeset block out of range\n");
+                return nullptr;
+            }
+            const ptrdiff_t n      = es->size();
+            auto            parent = create_host_buffer<element_idx_t>((size_t)n);
+            if (!parent || (n > 0 && !parent->data()) ||
+                !adapt_shift_parents(es->parent()->data(), n, offset[bid], offset[bid + 1], parent->data())) {
+                fprintf(stderr, "refine_adaptive: edgeset entry out of range\n");
+                return nullptr;
+            }
+            coarse->add_edgeset(edges[s].first, Edgeset::create(mesh->comm(), parent, es->lei(), 0));
+            edge_block.push_back(bid);
+        }
+        const auto &nodes = mesh->nodesets();
+        for (size_t s = 0; s < nodes.size(); ++s) {
+            if (!nodes[s].second) {
+                fprintf(stderr, "refine_adaptive: null nodeset\n");
+                return nullptr;
+            }
+            coarse->add_nodeset(nodes[s].first, nodes[s].second);
+        }
+    }
+
+    idx_t *marks = (idx_t *)SMESH_ALLOC((size_t)n_marked * sizeof(idx_t));
+    if (!marks) {
+        fprintf(stderr, "refine_adaptive: mark allocation failed\n");
+        return nullptr;
+    }
+    for (ptrdiff_t i = 0; i < n_marked; ++i) {
+        marks[i] = (idx_t)marked[i];
+    }
+
+    idx_t   **out_e    = nullptr;
+    geom_t  **out_p    = nullptr;
+    ptrdiff_t n_out_e  = 0;
+    ptrdiff_t n_out_n  = 0;
+    count_t  *face_ptr = nullptr;
+    idx_t    *face_elem = nullptr;
+    idx_t    *face_lfi  = nullptr;
+    count_t  *edge_ptr  = nullptr;
+    idx_t    *edge_elem = nullptr;
+    idx_t    *edge_lei  = nullptr;
+    idx_t    *mid_lo    = nullptr;
+    idx_t    *mid_hi    = nullptr;
+    idx_t    *mid_id    = nullptr;
+    ptrdiff_t n_mids    = 0;
+    idx_t    *out_root  = nullptr;
+
+    const idx_t *const *in_elems = n_blocks == 1 ? mesh->elements(0)->data() : cat->data();
+    const int rc = mesh_refine_adaptive<idx_t, count_t, geom_t>(
+            n_coarse, in_elems, mesh->spatial_dimension(), mesh->n_nodes(), mesh->points()->data(), marks, n_marked,
+            level, &out_e, &n_out_e, &out_p, &n_out_n, &face_ptr, &face_elem, &face_lfi, &edge_ptr, &edge_elem,
+            &edge_lei, &mid_lo, &mid_hi, &mid_id, &n_mids, n_blocks > 1 ? &out_root : nullptr, mark_level);
+    SMESH_FREE(marks);
+    if (rc != SMESH_SUCCESS || !out_e || !out_p || !face_ptr || !face_elem || !face_lfi || !edge_ptr || !edge_elem ||
+        !edge_lei || (n_blocks > 1 && !out_root)) {
+        return nullptr;
+    }
+    std::shared_ptr<Buffer<idx_t>> root_buf;
+    if (n_blocks > 1) {
+        root_buf = manage_host_buffer<idx_t>((size_t)(n_out_e > 0 ? n_out_e : 1), out_root);
+    }
+
+    const ptrdiff_t n_face_rows = n_coarse * 4;
+    const ptrdiff_t n_edge_rows = n_coarse * 6;
+    const ptrdiff_t n_face_nnz  = (ptrdiff_t)face_ptr[n_face_rows];
+    const ptrdiff_t n_edge_nnz  = (ptrdiff_t)edge_ptr[n_edge_rows];
+
+    auto elems         = manage_host_buffer<idx_t>(4, (size_t)n_out_e, out_e);
+    auto pts           = manage_host_buffer<geom_t>((size_t)mesh->spatial_dimension(), (size_t)n_out_n, out_p);
+    auto face_ptr_buf  = manage_host_buffer<count_t>((size_t)n_face_rows + 1, face_ptr);
+    auto face_elem_buf = manage_host_buffer<idx_t>((size_t)(n_face_nnz > 0 ? n_face_nnz : 1), face_elem);
+    auto face_lfi_buf  = manage_host_buffer<idx_t>((size_t)(n_face_nnz > 0 ? n_face_nnz : 1), face_lfi);
+    auto edge_ptr_buf  = manage_host_buffer<count_t>((size_t)n_edge_rows + 1, edge_ptr);
+    auto edge_elem_buf = manage_host_buffer<idx_t>((size_t)(n_edge_nnz > 0 ? n_edge_nnz : 1), edge_elem);
+    auto edge_lei_buf  = manage_host_buffer<idx_t>((size_t)(n_edge_nnz > 0 ? n_edge_nnz : 1), edge_lei);
+    std::shared_ptr<Buffer<idx_t>> mid_lo_buf;
+    std::shared_ptr<Buffer<idx_t>> mid_hi_buf;
+    std::shared_ptr<Buffer<idx_t>> mid_id_buf;
+    if (n_mids > 0) {
+        if (!mid_lo || !mid_hi || !mid_id) {
+            fprintf(stderr, "refine_adaptive: missing midpoint list\n");
+            return nullptr;
+        }
+        mid_lo_buf = manage_host_buffer<idx_t>((size_t)n_mids, mid_lo);
+        mid_hi_buf = manage_host_buffer<idx_t>((size_t)n_mids, mid_hi);
+        mid_id_buf = manage_host_buffer<idx_t>((size_t)n_mids, mid_id);
+    }
+
+    auto block     = coarse->block(0);
+    auto new_block = std::make_shared<Mesh::Block>();
+    new_block->set_name(block->name());
+    new_block->set_element_type(TET4);
+    if (new_block->inherit_geom_map(block->geom_map()) != SMESH_SUCCESS) {
+        fprintf(stderr, "refine_adaptive: geom map rejected\n");
+        return nullptr;
+    }
+    new_block->set_elements(elems);
+    std::vector<std::shared_ptr<Mesh::Block>> blocks(1, new_block);
+    auto                                      out = std::make_shared<Mesh>(mesh->comm(), blocks, pts);
+    if (adapt_remap_sidesets(coarse, out, face_ptr_buf->data(), face_elem_buf->data(), face_lfi_buf->data()) !=
+                SMESH_SUCCESS ||
+        adapt_remap_edgesets(coarse, out, edge_ptr_buf->data(), edge_elem_buf->data(), edge_lei_buf->data()) !=
+                SMESH_SUCCESS ||
+        adapt_remap_nodesets(coarse, out, n_mids > 0 ? mid_lo_buf->data() : nullptr,
+                             n_mids > 0 ? mid_hi_buf->data() : nullptr, n_mids > 0 ? mid_id_buf->data() : nullptr,
+                             n_mids) != SMESH_SUCCESS) {
+        return nullptr;
+    }
+    if (n_blocks == 1) {
+        return out;
+    }
+    return adapt_split_refined(mesh, out, root_buf->data(), offset.data(), side_block, edge_block);
+}
+
+std::shared_ptr<Mesh> refine_adaptive(const std::shared_ptr<Mesh> &mesh,
+                                      const element_idx_t         *marked,
+                                      const ptrdiff_t              n_marked,
+                                      const int                    level) {
+    return refine_adaptive_impl(mesh, marked, n_marked, level, nullptr);
+}
+
+std::shared_ptr<Mesh> refine_adaptive(const std::shared_ptr<Mesh> &mesh,
+                                      const element_idx_t         *marked,
+                                      const int                   *mark_level,
+                                      const ptrdiff_t              n_marked) {
+    if (n_marked > 0 && !mark_level) {
+        fprintf(stderr, "refine_adaptive: null depth list\n");
+        return nullptr;
+    }
+    int level = 0;
+    for (ptrdiff_t i = 0; i < n_marked; ++i) {
+        if (mark_level[i] < 0) {
+            fprintf(stderr, "refine_adaptive: level must be non-negative\n");
+            return nullptr;
+        }
+        if (mark_level[i] > level) {
+            level = mark_level[i];
+        }
+    }
+    return refine_adaptive_impl(mesh, marked, n_marked, level, mark_level);
 }
 
 #ifdef SMESH_ENABLE_MPI

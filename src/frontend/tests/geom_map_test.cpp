@@ -1,7 +1,10 @@
+#include "smesh_adjacency.hpp"
 #include "smesh_buffer.hpp"
 #include "smesh_mesh.hpp"
+#include "smesh_nodeset.hpp"
 #include "smesh_path.hpp"
 #include "smesh_semistructured.hpp"
+#include "smesh_sideset.hpp"
 #include "smesh_test.hpp"
 
 #include <chrono>
@@ -408,11 +411,254 @@ static int test_mpi_detect_geom_maps() {
 }
 #endif
 
+static geom_t tet_volume(const geom_t *const *p, const idx_t a, const idx_t b, const idx_t c,
+                         const idx_t d) {
+    const geom_t abx = p[0][b] - p[0][a];
+    const geom_t aby = p[1][b] - p[1][a];
+    const geom_t abz = p[2][b] - p[2][a];
+    const geom_t acx = p[0][c] - p[0][a];
+    const geom_t acy = p[1][c] - p[1][a];
+    const geom_t acz = p[2][c] - p[2][a];
+    const geom_t adx = p[0][d] - p[0][a];
+    const geom_t ady = p[1][d] - p[1][a];
+    const geom_t adz = p[2][d] - p[2][a];
+    const geom_t cx  = aby * acz - abz * acy;
+    const geom_t cy  = abz * acx - abx * acz;
+    const geom_t cz  = abx * acy - aby * acx;
+    return (cx * adx + cy * ady + cz * adz) / static_cast<geom_t>(6);
+}
+
+static void sort6(geom_t *v) {
+    for (int i = 1; i < 6; ++i) {
+        const geom_t x = v[i];
+        int          j = i;
+        while (j > 0 && v[j - 1] > x) {
+            v[j] = v[j - 1];
+            --j;
+        }
+        v[j] = x;
+    }
+}
+
+static int test_hex8_quality_tet4() {
+    auto comm = Communicator::self();
+    auto hex  = Mesh::create_hex8_cube(comm, 1, 1, 1);
+    SMESH_TEST_ASSERT(hex != nullptr);
+    auto tet = convert_to(TET4, hex);
+    SMESH_TEST_ASSERT(tet != nullptr);
+    SMESH_TEST_EQ(tet->n_nodes(), static_cast<ptrdiff_t>(15));
+    SMESH_TEST_EQ(tet->n_elements(), static_cast<ptrdiff_t>(24));
+    SMESH_TEST_EQ(tet->geom_map(0), AFFINE);
+    SMESH_TEST_EQ(tet->n_nodes(), hex->n_nodes() + 7);
+
+    auto         p     = tet->points()->data();
+    auto         el    = tet->elements(0)->data();
+    geom_t       vol   = 0;
+    geom_t       edges0[6];
+    const geom_t tol   = static_cast<geom_t>(1e-9);
+    for (ptrdiff_t e = 0; e < tet->n_elements(); ++e) {
+        const idx_t n[4] = {el[0][e], el[1][e], el[2][e], el[3][e]};
+        const geom_t ve  = tet_volume(p, n[0], n[1], n[2], n[3]);
+        SMESH_TEST_ASSERT(ve > 0);
+        vol += ve;
+        geom_t edges[6];
+        int    k = 0;
+        for (int i = 0; i < 4; ++i) {
+            for (int j = i + 1; j < 4; ++j) {
+                const geom_t dx = p[0][n[i]] - p[0][n[j]];
+                const geom_t dy = p[1][n[i]] - p[1][n[j]];
+                const geom_t dz = p[2][n[i]] - p[2][n[j]];
+                edges[k++]      = dx * dx + dy * dy + dz * dz;
+            }
+        }
+        sort6(edges);
+        if (e == 0) {
+            for (int i = 0; i < 6; ++i) {
+                edges0[i] = edges[i];
+            }
+        } else {
+            for (int i = 0; i < 6; ++i) {
+                SMESH_TEST_ASSERT(std::fabs(edges[i] - edges0[i]) < tol);
+            }
+        }
+    }
+    const geom_t vol_tol = static_cast<geom_t>(1e-5);
+    SMESH_TEST_ASSERT(std::fabs(vol - static_cast<geom_t>(1)) < vol_tol);
+
+    auto pair = Mesh::create_hex8_cube(comm, 2, 1, 1, 0, 0, 0, 2, 1, 1);
+    auto pair_tet = convert_to(TET4, pair);
+    SMESH_TEST_ASSERT(pair_tet != nullptr);
+    SMESH_TEST_EQ(pair_tet->n_nodes(), static_cast<ptrdiff_t>(25));
+    SMESH_TEST_EQ(pair_tet->n_elements(), static_cast<ptrdiff_t>(48));
+    auto   pp      = pair_tet->points()->data();
+    auto   pe      = pair_tet->elements(0)->data();
+    int    n_face  = 0;
+    geom_t pair_vol = 0;
+    idx_t  tris[8][3];
+    for (ptrdiff_t i = 0; i < pair_tet->n_nodes(); ++i) {
+        if (std::fabs(pp[0][i] - static_cast<geom_t>(1)) < tol &&
+            std::fabs(pp[1][i] - static_cast<geom_t>(0.5)) < tol &&
+            std::fabs(pp[2][i] - static_cast<geom_t>(0.5)) < tol) {
+            ++n_face;
+        }
+    }
+    SMESH_TEST_EQ(n_face, 1);
+    int ntri = 0;
+    for (ptrdiff_t e = 0; e < pair_tet->n_elements(); ++e) {
+        const idx_t n[4] = {pe[0][e], pe[1][e], pe[2][e], pe[3][e]};
+        const geom_t ve  = tet_volume(pp, n[0], n[1], n[2], n[3]);
+        SMESH_TEST_ASSERT(ve > 0);
+        pair_vol += ve;
+        int on_face = 0;
+        for (int k = 0; k < 3; ++k) {
+            if (std::fabs(pp[0][n[k]] - static_cast<geom_t>(1)) < tol) {
+                ++on_face;
+            }
+        }
+        if (on_face == 3) {
+            SMESH_TEST_ASSERT(ntri < 8);
+            tris[ntri][0] = n[0];
+            tris[ntri][1] = n[1];
+            tris[ntri][2] = n[2];
+            ++ntri;
+        }
+    }
+    SMESH_TEST_EQ(ntri, 8);
+    SMESH_TEST_ASSERT(std::fabs(pair_vol - static_cast<geom_t>(2)) < static_cast<geom_t>(1e-5));
+    for (int i = 0; i < ntri; ++i) {
+        int mates = 0;
+        for (int j = 0; j < ntri; ++j) {
+            if (i == j) {
+                continue;
+            }
+            for (int r = 0; r < 3; ++r) {
+                if (tris[j][0] == tris[i][r] && tris[j][1] == tris[i][(r + 2) % 3] &&
+                    tris[j][2] == tris[i][(r + 1) % 3]) {
+                    ++mates;
+                }
+            }
+        }
+        SMESH_TEST_EQ(mates, 1);
+    }
+
+    auto board = Mesh::create_hex8_checkerboard_cube(comm, 2, 2, 2);
+    auto cube  = Mesh::create_hex8_cube(comm, 2, 2, 2);
+    auto board_tet = convert_to(TET4, board);
+    auto cube_tet  = convert_to(TET4, cube);
+    SMESH_TEST_ASSERT(board_tet != nullptr);
+    SMESH_TEST_ASSERT(cube_tet != nullptr);
+    SMESH_TEST_EQ(board_tet->n_nodes(), cube_tet->n_nodes());
+    SMESH_TEST_EQ(board_tet->n_elements(), cube_tet->n_elements());
+    SMESH_TEST_EQ(cube_tet->n_nodes(), static_cast<ptrdiff_t>(71));
+    SMESH_TEST_EQ(cube_tet->n_elements(), static_cast<ptrdiff_t>(192));
+    return SMESH_TEST_SUCCESS;
+}
+
+static int sides_lie_on_plane(const Mesh &mesh, const Sideset &ss, const geom_t nx, const geom_t ny,
+                              const geom_t nz, const geom_t distance) {
+    auto block = mesh.block(ss.block_id());
+    SMESH_TEST_ASSERT(block != nullptr);
+    LocalSideTable lst;
+    SMESH_TEST_EQ(lst.fill(block->element_type()), SMESH_SUCCESS);
+    const int n_sides = elem_num_sides(block->element_type());
+    auto el = block->elements()->data();
+    auto p = mesh.points()->data();
+    const int dim = mesh.spatial_dimension();
+    const element_idx_t *parent = ss.parent()->data();
+    const i16 *lfi = ss.lfi()->data();
+    const geom_t tol = static_cast<geom_t>(1e-5);
+    for (ptrdiff_t i = 0; i < ss.size(); ++i) {
+        const int side = lfi[i];
+        SMESH_TEST_ASSERT(side >= 0 && side < n_sides);
+        SMESH_TEST_ASSERT(parent[i] >= 0 && static_cast<ptrdiff_t>(parent[i]) < block->n_elements());
+        const int n_nodes = lst.nnxs_side[side];
+        for (int k = 0; k < n_nodes; ++k) {
+            const idx_t node = el[lst(side, k)][parent[i]];
+            const geom_t x = dim > 0 ? p[0][node] : static_cast<geom_t>(0);
+            const geom_t y = dim > 1 ? p[1][node] : static_cast<geom_t>(0);
+            const geom_t z = dim > 2 ? p[2][node] : static_cast<geom_t>(0);
+            SMESH_TEST_ASSERT(std::fabs(nx * x + ny * y + nz * z - distance) < tol);
+        }
+    }
+    return SMESH_TEST_SUCCESS;
+}
+
+static int test_convert_keeps_sets() {
+    auto comm = Communicator::self();
+    auto hex = Mesh::create_hex8_cube(comm, 1, 1, 1);
+    SMESH_TEST_ASSERT(hex != nullptr);
+    auto face = Sideset::create_from_plane(hex, 0, 1, 0, 0);
+    SMESH_TEST_EQ(face.size(), static_cast<size_t>(1));
+    SMESH_TEST_EQ(face[0]->size(), static_cast<ptrdiff_t>(1));
+    hex->add_sideset("bottom", face[0]);
+    auto ns_buf = create_nodeset_from_sideset(hex, face[0]);
+    SMESH_TEST_ASSERT(ns_buf != nullptr);
+    SMESH_TEST_EQ(ns_buf->size(), static_cast<size_t>(4));
+    hex->add_nodeset("bottom_nodes", Nodeset::create(comm, ns_buf));
+
+    auto tet = convert_to(TET4, hex);
+    SMESH_TEST_ASSERT(tet != nullptr);
+    SMESH_TEST_EQ(tet->block(0)->name(), std::string("default"));
+    SMESH_TEST_EQ(tet->sidesets("bottom").size(), static_cast<size_t>(1));
+    SMESH_TEST_EQ(tet->sidesets("bottom")[0]->size(), face[0]->size() * 4);
+    SMESH_TEST_EQ(tet->sidesets("bottom")[0]->block_id(), face[0]->block_id());
+    SMESH_TEST_EQ(sides_lie_on_plane(*tet, *tet->sidesets("bottom")[0], 0, 1, 0, 0), SMESH_TEST_SUCCESS);
+
+    auto kept = tet->nodesets("bottom_nodes");
+    SMESH_TEST_EQ(kept.size(), static_cast<size_t>(1));
+    SMESH_TEST_EQ(static_cast<size_t>(kept[0]->size()), ns_buf->size());
+    auto hp = hex->points()->data();
+    auto tp = tet->points()->data();
+    const idx_t *coarse_ids = ns_buf->data();
+    const idx_t *fine_ids = kept[0]->nodes()->data();
+    const geom_t tol = static_cast<geom_t>(1e-6);
+    for (ptrdiff_t i = 0; i < kept[0]->size(); ++i) {
+        SMESH_TEST_EQ(fine_ids[i], coarse_ids[i]);
+        for (int d = 0; d < 3; ++d) {
+            SMESH_TEST_ASSERT(std::fabs(tp[d][fine_ids[i]] - hp[d][coarse_ids[i]]) < tol);
+        }
+    }
+
+    auto pair = Mesh::create_hex8_bidomain_cube(comm, 2, 1, 1);
+    SMESH_TEST_ASSERT(pair != nullptr);
+    auto right = Sideset::create_from_plane(pair, 1, 0, 0, 1, static_cast<geom_t>(1e-6), {"right"});
+    SMESH_TEST_EQ(right.size(), static_cast<size_t>(1));
+    SMESH_TEST_EQ(right[0]->block_id(), static_cast<block_idx_t>(1));
+    SMESH_TEST_EQ(right[0]->size(), static_cast<ptrdiff_t>(1));
+    pair->add_sideset("xmax", right[0]);
+    auto pair_tet = convert_to(TET4, pair);
+    SMESH_TEST_ASSERT(pair_tet != nullptr);
+    SMESH_TEST_EQ(pair_tet->n_blocks(), static_cast<size_t>(2));
+    SMESH_TEST_EQ(pair_tet->block(0)->name(), std::string("left"));
+    SMESH_TEST_EQ(pair_tet->block(1)->name(), std::string("right"));
+    SMESH_TEST_EQ(pair_tet->sidesets("xmax").size(), static_cast<size_t>(1));
+    SMESH_TEST_EQ(pair_tet->sidesets("xmax")[0]->block_id(), static_cast<block_idx_t>(1));
+    SMESH_TEST_EQ(pair_tet->sidesets("xmax")[0]->size(), right[0]->size() * 4);
+    SMESH_TEST_EQ(sides_lie_on_plane(*pair_tet, *pair_tet->sidesets("xmax")[0], 1, 0, 0, 1), SMESH_TEST_SUCCESS);
+
+    auto quad = Mesh::create_quad4_square(comm, 1, 1);
+    SMESH_TEST_ASSERT(quad != nullptr);
+    auto edge = Sideset::create_from_plane(quad, 1, 0, 0, 0);
+    SMESH_TEST_EQ(edge.size(), static_cast<size_t>(1));
+    SMESH_TEST_EQ(edge[0]->size(), static_cast<ptrdiff_t>(1));
+    quad->add_sideset("xmin", edge[0]);
+    auto tri = convert_to(TRI3, quad);
+    SMESH_TEST_ASSERT(tri != nullptr);
+    SMESH_TEST_EQ(tri->block(0)->name(), std::string("default"));
+    SMESH_TEST_EQ(tri->element_type(0), TRI3);
+    SMESH_TEST_EQ(tri->sidesets("xmin").size(), static_cast<size_t>(1));
+    SMESH_TEST_EQ(tri->sidesets("xmin")[0]->size(), edge[0]->size());
+    SMESH_TEST_EQ(sides_lie_on_plane(*tri, *tri->sidesets("xmin")[0], 1, 0, 0, 0), SMESH_TEST_SUCCESS);
+    return SMESH_TEST_SUCCESS;
+}
+
 int main(int argc, char **argv) {
     SMESH_UNIT_TEST_INIT(argc, argv);
     SMESH_RUN_TEST(test_factory_geom_maps);
     SMESH_RUN_TEST(test_axis_aligned_rejected_on_tet);
     SMESH_RUN_TEST(test_clone_split_convert_promote);
+    SMESH_RUN_TEST(test_hex8_quality_tet4);
+    SMESH_RUN_TEST(test_convert_keeps_sets);
     SMESH_RUN_TEST(test_write_read_roundtrip);
     SMESH_RUN_TEST(test_stale_coord_files_do_not_scramble);
     SMESH_RUN_TEST(test_named_single_block_write);
