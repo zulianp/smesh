@@ -2535,12 +2535,21 @@ int Mesh::initialize_node_to_node_graph() {
   idx_t *colidx{nullptr};
 
   if (impl_->blocks.size() == 1) {
-    if (is_semistructured_type(this->element_type(0))) {
+    const enum ElemType element_type = this->element_type(0);
+    if (is_semistructured_type(element_type) && is_hex_ss_family(element_type)) {
       sshex8_crs_graph<element_idx_t, count_t, idx_t>(
-          proteus_hex_micro_elements_per_dim(this->element_type(0)),
+          proteus_hex_micro_elements_per_dim(element_type),
           this->n_elements(0), this->n_nodes(), this->elements(0)->data(),
           &rowptr, &colidx);
 
+    } else if (is_semistructured_type(element_type)) {
+      // The other semi-structured families have no micro-element graph of
+      // their own; the multi-block builder couples every node of a macro
+      // element, which is the micro graph at level 1 and a superset above.
+      ptrdiff_t n_elements = this->n_elements(0);
+      idx_t **elements = this->elements(0)->data();
+      create_multiblock_crs_graph(1, &element_type, &n_elements, &elements,
+                                  this->n_nodes(), &rowptr, &colidx);
     } else {
       create_crs_graph_for_elem_type(this->element_type(0), this->n_elements(0),
                                      this->n_nodes(), this->elements(0)->data(),

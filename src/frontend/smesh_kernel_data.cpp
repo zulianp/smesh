@@ -4,6 +4,7 @@
 #include "smesh_fff.hpp"
 #include "smesh_jacobians.hpp"
 #include "smesh_mesh.hpp"
+#include "smesh_ssquad4.hpp"
 
 namespace smesh {
     namespace {
@@ -44,6 +45,17 @@ namespace smesh {
                      const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
                      const ptrdiff_t                                          stride,
                      jacobian_t *const SMESH_RESTRICT *const SMESH_RESTRICT   fff) {
+            if (is_semistructured_type(element_type) && is_quad_ss_family(element_type)) {
+                // The macro quadrilateral through its four corner nodes, as
+                // the hex family below does with its eight.
+                const int L = proteus_quad_micro_elements_per_dim(element_type);
+                const idx_t *const SMESH_RESTRICT macro_elements[4] = {elements[ssquad4_lidx(L, 0, 0)],
+                                                                       elements[ssquad4_lidx(L, L, 0)],
+                                                                       elements[ssquad4_lidx(L, L, L)],
+                                                                       elements[ssquad4_lidx(L, 0, L)]};
+                return quad4_fff_fill(nelements, macro_elements, points, 0.5, 0.5, stride, fff);
+            }
+
             if (is_semistructured_type(element_type)) {
                 return sshex8_macro_fff_fill(
                         proteus_hex_micro_elements_per_dim(element_type), nelements, elements, points, stride, fff);
