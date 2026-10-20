@@ -1098,6 +1098,9 @@ namespace smesh {
         return SMESH_SUCCESS;
     }
 
+    static std::shared_ptr<Buffer<idx_t>> synchronize_nodeset_gids(const std::shared_ptr<Mesh>          &mesh,
+                                                                   const std::shared_ptr<Buffer<idx_t>> &local);
+
     std::shared_ptr<Buffer<idx_t>> create_nodeset_from_sidesets(const std::shared_ptr<Mesh>                 &mesh,
                                                                 const std::vector<std::shared_ptr<Sideset>> &sidesets) {
         if (sidesets.empty()) {
@@ -1138,6 +1141,7 @@ namespace smesh {
                 w += (ptrdiff_t)parts[k]->size();
             }
             const ptrdiff_t n = w > 0 ? (ptrdiff_t)sort_and_unique(d_ids, (size_t)w) : 0;
+            // Each part is synchronized already (create_nodeset_from_sideset).
             return n > 0 ? view(ids, 0, (size_t)n) : ids;
         }
 
@@ -1171,7 +1175,9 @@ namespace smesh {
                                       &n_nodes_out,
                                       &nodes_out);
 
-        return manage_host_buffer(n_nodes_out, nodes_out);
+        // As one sideset's: a rank's sides are its own elements', which can miss a node it holds
+        // whose faces in the sets are all another rank's.
+        return synchronize_nodeset_gids(mesh, manage_host_buffer(n_nodes_out, nodes_out));
     }
 
     static int hex_face_child_on(const int L, const int lfi, const int xi, const int yi, const int zi) {

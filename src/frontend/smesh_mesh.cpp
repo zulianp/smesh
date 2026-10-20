@@ -7599,6 +7599,15 @@ skin_sideset_for_block(const std::shared_ptr<Mesh> &mesh,
 
   const enum ElemType et = block->element_type();
   if (block->n_elements() == 0) {
+#ifdef SMESH_ENABLE_MPI
+    // The filter below is collective: a rank holding none of the block takes part with no
+    // sides, or the ranks that hold some wait for it forever.
+    if (mesh->comm()->size() > 1) {
+      ptrdiff_t n_none = 0;
+      filter_distributed_skin_sides(mesh->comm(), 0, 0, 0, 0, nullptr, nullptr, &n_none,
+                                    nullptr, nullptr);
+    }
+#endif
     auto empty_parent = create_host_buffer<element_idx_t>(0);
     auto empty_lfi = create_host_buffer<i16>(0);
     return std::make_shared<Sideset>(
