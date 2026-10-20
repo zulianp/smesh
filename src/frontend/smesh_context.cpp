@@ -4,8 +4,12 @@
 
 #include "smesh_base.hpp"
 
-#ifdef SMESH_ENABLE_CUDA
-// TODO: include CUDA init stuff
+#if defined(SMESH_ENABLE_CUDA) && defined(SMESH_ENABLE_MPI)
+#include <algorithm>
+#include <cstdlib>
+#include <filesystem>
+#include <string>
+#include <vector>
 #endif
 
 #ifdef SMESH_ENABLE_MPI
@@ -17,6 +21,43 @@
 #endif
 
 namespace smesh {
+
+#if defined(SMESH_ENABLE_CUDA) && defined(SMESH_ENABLE_MPI)
+// Each rank to one GPU of its node: its node-local rank modulo the GPUs it may use, made the only
+// one it sees (CUDA_VISIBLE_DEVICES), as CSCS binds ranks to GH200 modules. Nothing touches CUDA
+// here: its start-up costs seconds per rank, which a run on the host never pays.
+static void see_only_the_local_gpu(MPI_Comm comm) {
+  MPI_Comm node;
+  MPI_Comm_split_type(comm, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &node);
+  int local_rank = 0;
+  MPI_Comm_rank(node, &local_rank);
+  MPI_Comm_free(&node);
+
+  std::vector<std::string> gpus;
+  if (const char *visible = std::getenv("CUDA_VISIBLE_DEVICES")) {
+    std::string list(visible);
+    for (size_t begin = 0; begin <= list.size();) {
+      const size_t end = std::min(list.find(',', begin), list.size());
+      if (end > begin) gpus.push_back(list.substr(begin, end - begin));
+      begin = end + 1;
+    }
+  } else {
+    std::error_code error;
+    const std::filesystem::path driver("/proc/driver/nvidia/gpus");
+    if (std::filesystem::is_directory(driver, error)) {
+      ptrdiff_t n = 0;
+      for (const auto &entry : std::filesystem::directory_iterator(driver, error)) {
+        SMESH_UNUSED(entry);
+        n++;
+      }
+      for (ptrdiff_t i = 0; i < n; i++) gpus.push_back(std::to_string(i));
+    }
+  }
+  if (gpus.size() > 1) {
+    setenv("CUDA_VISIBLE_DEVICES", gpus[local_rank % gpus.size()].c_str(), 1);
+  }
+}
+#endif
 
 class Context::Impl {
 public:
@@ -43,6 +84,9 @@ Context::Context(int argc, char *argv[]) : impl_(std::make_unique<Impl>()) {
     MPI_Init(&argc, &argv);
   }
   register_mpi_datatypes();
+#ifdef SMESH_ENABLE_CUDA
+  see_only_the_local_gpu(MPI_COMM_WORLD);
+#endif
 #endif
   SMESH_UNUSED(argc);
   SMESH_UNUSED(argv);
