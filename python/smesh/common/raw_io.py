@@ -229,6 +229,50 @@ def mkdir(path):
         os.makedirs(path)
 
 
+# SFEM's Output: <name>.<component>.<step>.<dtype> (vectors, one file per component) or
+# <name>.<step>.<dtype> (scalars); the step has 9 digits.
+STEP_FIELD_FILE = re.compile(r"^(?P<name>.+?)(?:\.(?P<component>\d))?\.(?P<step>\d{9})\.(?P<dtype>[a-z]+\d+)$")
+VECTOR_SUFFIXES = ("_x", "_y", "_z")
+
+
+def step_field_files(paths):
+    """Splits paths into SFEM step files, {name: {step: {component: path}}} with component None
+    for scalars, and the other paths."""
+    found = OrderedDict()
+    other = []
+    for path in sorted(paths):
+        m = STEP_FIELD_FILE.match(os.path.basename(path))
+        if not m:
+            other.append(path)
+            continue
+        component = m.group("component")
+        component = None if component is None else int(component)
+        found.setdefault(m.group("name"), {}).setdefault(int(m.group("step")), {})[component] = path
+    return found, other
+
+
+def step_field_components(name, step, components):
+    """[(suffix, path)] of one step of a field: [("", path)] for a scalar, the components in order
+    with VECTOR_SUFFIXES for a vector. Raises unless the components are complete."""
+    if None in components:
+        if len(components) != 1:
+            raise RuntimeError(f"{name} step {step} is both a scalar and a vector")
+        return [("", components[None])]
+    if sorted(components) != list(range(len(components))) or len(components) > len(VECTOR_SUFFIXES):
+        raise RuntimeError(f"{name} step {step} has components {sorted(components)}")
+    return [(VECTOR_SUFFIXES[c], components[c]) for c in sorted(components)]
+
+
+def select_steps(name, steps, step=None, all_steps=False):
+    """The steps of a field to write: all of them, the one asked for, or the last."""
+    if all_steps:
+        return sorted(steps)
+    s = max(steps) if step is None else step
+    if s not in steps:
+        raise RuntimeError(f"{name} has no step {s} (steps {min(steps)} to {max(steps)})")
+    return [s]
+
+
 def find_stem_file(folder, stem):
     if not os.path.isdir(folder):
         return None
