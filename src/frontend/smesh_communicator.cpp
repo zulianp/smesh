@@ -4,8 +4,11 @@
 #include "smesh_distributed_base.hpp"
 #endif
 
+#include <algorithm>
 #include <cstring>
+#include <map>
 #include <sstream>
+#include <utility>
 
 namespace smesh {
 
@@ -131,6 +134,60 @@ void Communicator::sum(void *buffer, int count, enum PrimitiveType type) const {
 void Communicator::max(void *buffer, int count, enum PrimitiveType type) const {
 #ifdef SMESH_ENABLE_MPI
   MPI_Allreduce(MPI_IN_PLACE, buffer, count, mpi_type_from_primitive_type(type), MPI_MAX, impl_->comm);
+#else
+  SMESH_UNUSED(buffer);
+  SMESH_UNUSED(count);
+  SMESH_UNUSED(type);
+#endif
+}
+
+#ifdef SMESH_ENABLE_MPI
+namespace {
+// One element is a whole tuple of n values, the first n - 1 summed and the last minimised: MPI
+// applies an operation to whole elements, never to part of one.
+template <typename T>
+void sum_and_min_last_op(void *in, void *inout, int *len, MPI_Datatype *type) {
+  int bytes = 0;
+  MPI_Type_size(*type, &bytes);
+  const int n = bytes / (int)sizeof(T);
+  const T *const a = static_cast<const T *>(in);
+  T *const b = static_cast<T *>(inout);
+  for (int e = 0; e < *len; e++) {
+    for (int i = 0; i < n - 1; i++) b[e * n + i] += a[e * n + i];
+    b[e * n + n - 1] = std::min(b[e * n + n - 1], a[e * n + n - 1]);
+  }
+}
+
+// The operation and the tuple type, made once each and kept for the process.
+void sum_and_min_last_handles(const enum PrimitiveType type, const int count,
+                              MPI_Op *op, MPI_Datatype *tuple) {
+  static std::map<std::pair<int, int>, MPI_Datatype> tuples;
+  static MPI_Op ops[2] = {MPI_OP_NULL, MPI_OP_NULL};
+  const bool is_f64 = type == SMESH_FLOAT64;
+  if (!is_f64 && type != SMESH_FLOAT32) {
+    SMESH_ERROR("Communicator::sum_and_min_last: f32 or f64\n");
+  }
+  MPI_Op &o = ops[is_f64 ? 1 : 0];
+  if (o == MPI_OP_NULL) {
+    MPI_Op_create(is_f64 ? &sum_and_min_last_op<f64> : &sum_and_min_last_op<f32>, 1, &o);
+  }
+  auto &t = tuples[{(int)type, count}];
+  if (!t) {
+    MPI_Type_contiguous(count, mpi_type_from_primitive_type(type), &t);
+    MPI_Type_commit(&t);
+  }
+  *op = o;
+  *tuple = t;
+}
+} // namespace
+#endif
+
+void Communicator::sum_and_min_last(void *buffer, int count, enum PrimitiveType type) const {
+#ifdef SMESH_ENABLE_MPI
+  MPI_Op op;
+  MPI_Datatype tuple;
+  sum_and_min_last_handles(type, count, &op, &tuple);
+  MPI_Allreduce(MPI_IN_PLACE, buffer, 1, tuple, op, impl_->comm);
 #else
   SMESH_UNUSED(buffer);
   SMESH_UNUSED(count);

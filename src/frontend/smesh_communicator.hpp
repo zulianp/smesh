@@ -59,6 +59,10 @@ public:
 
   void max(void *buffer, int count, enum PrimitiveType type) const;
 
+  /// In place over the ranks, in one message: the first count - 1 values summed, the last the
+  /// minimum (a solver's dot products and a step bound together). f32 and f64.
+  void sum_and_min_last(void *buffer, int count, enum PrimitiveType type) const;
+
   /// Every rank contributes @p count elements from @p sendbuf; @p recvbuf receives
   /// size() * count elements, rank-major. Unlike sum/max/broadcast this is NOT in place:
   /// send and receive buffers are distinct, and at one rank -- or in a build without MPI --
