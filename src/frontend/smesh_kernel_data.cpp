@@ -1,4 +1,7 @@
 #include "smesh_kernel_data.hpp"
+
+#include <algorithm>
+
 #include "smesh_device_buffer.hpp"
 #include "smesh_elem_type.hpp"
 #include "smesh_fff.hpp"
@@ -234,6 +237,18 @@ namespace smesh {
 
         ret->jacobian_adjugate_SoA_ = to_memory_space(adjugate, space);
         ret->jacobian_determinant_  = to_memory_space(determinant, space);
+        ret->adjugate_components_.resize(adjugate_size);
+#ifdef SMESH_ENABLE_CUDA
+        if (ret->jacobian_adjugate_SoA_->mem_space() == MEMORY_SPACE_DEVICE) {
+            device::device_to_host(static_cast<size_t>(adjugate_size),
+                                   ret->jacobian_adjugate_SoA_->data(),
+                                   ret->adjugate_components_.data());
+            return ret;
+        }
+#endif
+        std::copy(ret->jacobian_adjugate_SoA_->data(),
+                  ret->jacobian_adjugate_SoA_->data() + adjugate_size,
+                  ret->adjugate_components_.begin());
         return ret;
     }
 

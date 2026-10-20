@@ -5,6 +5,7 @@
 #include "smesh_forward_declarations.hpp"
 
 #include <memory>
+#include <vector>
 
 namespace smesh {
     class Points {
@@ -102,6 +103,14 @@ namespace smesh {
             return jacobian_adjugate_SoA_;
         }
 
+        /// The SoA adjugate's components in an array the host reads, each pointing into the
+        /// buffer's memory space: what a launch hands a kernel component by component. The
+        /// buffer's own pointer array lives where its components do, on the device a device array.
+        inline const jacobian_t *const *adjugate_components() const {
+            SMESH_ASSERT(!adjugate_components_.empty());
+            return adjugate_components_.data();
+        }
+
         inline SharedBuffer<jacobian_t> jacobian_adjugate_AoS() const {
             SMESH_ASSERT(jacobian_adjugate_AoS_);
             return jacobian_adjugate_AoS_;
@@ -114,6 +123,7 @@ namespace smesh {
 
     private:
         SharedBuffer<jacobian_t *> jacobian_adjugate_SoA_;
+        std::vector<jacobian_t *>  adjugate_components_;
         SharedBuffer<jacobian_t>   jacobian_adjugate_AoS_;
         SharedBuffer<geom_t>       jacobian_determinant_;
     };
