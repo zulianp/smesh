@@ -155,7 +155,7 @@ def write_exodus(
     n_elem = int(sum(block.connectivity.shape[0] for block in blocks))
     n_blocks = len(blocks)
 
-    time_whole = np.asarray(time_whole, dtype=np.float32)
+    time_whole = np.asarray(time_whole, dtype=np.float64)
     n_time_steps = len(time_whole)
 
     point_field_names = list(point_fields.keys())
@@ -173,6 +173,10 @@ def write_exodus(
         nc.version = np.float32(5.1)
         nc.api_version = np.float32(5.1)
         nc.floating_point_word_size = np.int64(8)
+        # The large model: one variable per coordinate and per nodal variable (vals_nod_var<i>).
+        # Without file_size = 1 the Exodus library reads nodal variables from one combined
+        # vals_nod_var, and ParaView shows them as zero.
+        nc.file_size = np.int32(1)
 
         nc.createDimension("num_dim", n_dim)
         nc.createDimension("num_nodes", n_nodes)
@@ -188,14 +192,15 @@ def write_exodus(
         if nodesets:
             nc.createDimension("num_node_sets", len(nodesets))
 
-        time_var = nc.createVariable("time_whole", np.float32, ("time_step",))
+        time_var = nc.createVariable("time_whole", np.float64, ("time_step",))
         time_var[:] = time_whole
 
         coor_names = nc.createVariable("coor_names", "S1", ("num_dim", "len_string"))
         coor_names[:, :] = string_matrix(["x", "y", "z"][:n_dim])
 
-        coord = nc.createVariable("coord", coord_dtype, ("num_dim", "num_nodes"))
-        coord[:, :] = points
+        for d, axis in enumerate("xyz"[:n_dim]):
+            coord = nc.createVariable(f"coord{axis}", coord_dtype, ("num_nodes",))
+            coord[:] = points[d]
 
         if n_blocks:
             eb_status = nc.createVariable("eb_status", np.int32, ("num_el_blk",))
@@ -332,7 +337,9 @@ def write_exodus(
                 node_ns[:] = nodes + 1
 
 
-def raw_to_exodusII(input_folder, output_mesh, title=None):
+def raw_to_exodusII(input_folder, output_mesh, title=None, point_fields=None, cell_fields=None, time_whole=None):
+    """The mesh in input_folder with its point_data/ and cell_data/, plus point_fields and
+    cell_fields ({name: {time index: values}}) at time_whole, as an Exodus file."""
     mesh = load_raw_mesh(input_folder)
     for block in mesh.blocks:
         conn, element_type = prepare_exodus_hex27_connectivity(
@@ -357,9 +364,24 @@ def raw_to_exodusII(input_folder, output_mesh, title=None):
         ),
     )
 
+    given_point_fields, given_cell_fields = point_fields or {}, cell_fields or {}
     point_fields = load_field_series(os.path.join(input_folder, "point_data"), mesh.n_nodes)
     cell_fields = load_field_series(os.path.join(input_folder, "cell_data"), mesh.n_elements)
-    time_whole = load_time_whole(input_folder)
+    for given, fields, expected_len in (
+        (given_point_fields, point_fields, mesh.n_nodes),
+        (given_cell_fields, cell_fields, mesh.n_elements),
+    ):
+        for name, values in given.items():
+            if name in fields:
+                raise RuntimeError(f"field '{name}' is given and in {input_folder}")
+            for time_index, data in values.items():
+                if len(data) != expected_len:
+                    raise RuntimeError(
+                        f"field '{name}' has invalid length {len(data)} (expected {expected_len})"
+                    )
+            fields[name] = values
+    if time_whole is None:
+        time_whole = load_time_whole(input_folder)
     time_whole, _ = align_time_series(point_fields, cell_fields, time_whole)
 
     if title is None:
