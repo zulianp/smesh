@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <functional>
 #include <limits>
+#include <vector>
 
 #if defined(SMESH_ENABLE_MPI)
 #include "smesh_alltoallv.impl.hpp"
@@ -32,11 +33,6 @@ public:
   std::shared_ptr<Communicator> comm;
   ptrdiff_t nnodes{0};
   ptrdiff_t n_owned_nodes{0};
-  // The largest transfer any rank makes through this Exchange, in elements: the maximum
-  // over ranks of max(send_total, recv_total). Fixed as soon as the counts are, which is
-  // what lets gather_begin decide the int32 question without communicating. Zero until
-  // Exchange::create fills it, and zero is the answer that fits.
-  i64 max_transfer_count{0};
   SharedBuffer<i64> send_count;
   SharedBuffer<i64> send_displs;
   SharedBuffer<i64> recv_count;
@@ -47,15 +43,19 @@ public:
   SharedBuffer<char> recv_buffer;
 
 #if defined(SMESH_ENABLE_MPI)
+  // A gather is point-to-point with the ranks that take part, nobody else: a collective over
+  // the communicator would touch every rank on every gather. Its messages travel on a
+  // duplicate of the communicator, where no other traffic can match them.
+  struct Peer {
+    int rank;
+    i64 offset; // in nodes, into the packed sends or the received values
+    i64 count;  // nodes
+  };
+  std::vector<Peer> gather_sends;
+  std::vector<Peer> gather_recvs;
+  std::vector<MPI_Request> gather_requests;
+  MPI_Comm gather_comm{MPI_COMM_NULL};
   bool gather_pending{false};
-  bool gather_need_wait{false};
-  MPI_Request gather_request{MPI_REQUEST_NULL};
-  MPI_Datatype gather_dtype{MPI_DATATYPE_NULL};
-  bool gather_owns_dtype{false};
-  SharedBuffer<int> iall_send_count;
-  SharedBuffer<int> iall_recv_count;
-  SharedBuffer<int> iall_send_displs;
-  SharedBuffer<int> iall_recv_displs;
   std::function<int()> gather_finish;
 #endif
 
@@ -66,9 +66,10 @@ public:
     if (gather_pending && gather_finish) {
       (void)gather_finish();
     }
-    if (gather_owns_dtype && gather_dtype != MPI_DATATYPE_NULL) {
-      MPI_Type_free(&gather_dtype);
-      gather_dtype = MPI_DATATYPE_NULL;
+    int finalized = 0;
+    MPI_Finalized(&finalized);
+    if (gather_comm != MPI_COMM_NULL && !finalized) {
+      MPI_Comm_free(&gather_comm);
     }
 #endif
   }
@@ -158,25 +159,21 @@ std::shared_ptr<Exchange> Exchange::create(
     ret->impl_->import_idx = manage_host_buffer<idx_t>(send_total, import_idx);
   }
 
-  // Reduce the int32 fit question once, here, instead of on every gather.
-  //
-  // gather_begin needs to know whether any rank's counts exceed what MPI's int arguments
-  // can hold. That depends only on the counts, and the counts are final at this point, so
-  // the reduction belongs here rather than on the per-apply path -- and it is free in the
-  // sense that matters: this function is already collective, since exchange_create ran an
-  // MPI_Alltoall to build those counts.
-  //
-  // The maximum is reduced rather than the predicate because the two are equivalent and the
-  // maximum is the more useful thing to hold: MIN over ranks of (count <= limit) is 1
-  // exactly when MAX over ranks of count is <= limit.
-  {
-    const i64 local_count =
-        std::max<i64>((i64)send_displs[size], (i64)recv_displs[size]);
-    i64 global_count = 0;
-    SMESH_MPI_CATCH(MPI_Allreduce(&local_count, &global_count, 1, mpi_type<i64>(),
-                                  MPI_MAX, comm->get()));
-    ret->impl_->max_transfer_count = global_count;
+  // A gather sends what the others asked for (recv_count, from sparse_idx) and receives
+  // what this rank asked for (send_count, into ghosts and aura).
+  const i64 *const send_count = ret->impl_->send_count->data();
+  const i64 *const recv_count = ret->impl_->recv_count->data();
+  for (int r = 0; r < size; r++) {
+    if (recv_count[r] > 0) {
+      ret->impl_->gather_sends.push_back({r, recv_displs[r], recv_count[r]});
+    }
+    if (send_count[r] > 0) {
+      ret->impl_->gather_recvs.push_back({r, send_displs[r], send_count[r]});
+    }
   }
+  ret->impl_->gather_requests.reserve(ret->impl_->gather_sends.size() +
+                                      ret->impl_->gather_recvs.size());
+  SMESH_MPI_CATCH(MPI_Comm_dup(comm->get(), &ret->impl_->gather_comm));
 
   return ret;
 }
@@ -253,6 +250,8 @@ int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
       ghosts_only ? nullptr : (T *)impl_->recv_buffer->data();
 
   const idx_t *const gather_idx = impl_->sparse_idx->data();
+  // One thread: a gather packs a few ten thousand values, too few to repay a parallel region
+  // (measured on Grace, 4 ranks x 72 threads and 8 x 36 pack faster serially).
   for (ptrdiff_t i = 0; i < recv_total; i++) {
     const ptrdiff_t src = (ptrdiff_t)gather_idx[i] * block_size;
     const ptrdiff_t dst = i * block_size;
@@ -261,86 +260,48 @@ int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
     }
   }
 
-  const i64 *const large_send_count = impl_->recv_count->data();
-  const i64 *const large_send_displs = impl_->recv_displs->data();
-  const i64 *const large_recv_count = impl_->send_count->data();
-  const i64 *const large_recv_displs = impl_->send_displs->data();
+  T *const recv_ptr =
+      ghosts_only ? &inout[impl_->n_owned_nodes * block_size] : recv_buf;
 
-  // Decided locally. This was a blocking MPI_Allreduce(MPI_MIN) on every gather -- a full
-  // synchronisation placed immediately before the Ialltoallv whose whole purpose is to let
-  // computation proceed while the transfer is in flight. It made the non-blocking path
-  // collective at its start: no rank could enter the overlap window until the slowest had
-  // arrived, which is the cost the overlap exists to avoid.
-  //
-  // Nothing it reduced varies per call. The quantity was max(send_total, recv_total), fixed
-  // when the counts were built in Exchange::create, where the reduction now lives.
-  // block_size is not part of it and never was: the int arrays handed to Ialltoallv below
-  // are ELEMENT counts, with block_size carried by the derived MPI_Type_contiguous datatype
-  // instead, so the int32 ceiling applies to the unscaled counts on both branches.
-  //
-  // Same branch on every rank as before, not merely a safe approximation of it -- see the
-  // equivalence noted at the reduction in Exchange::create.
-  const i64 i32_max = (i64)std::numeric_limits<int>::max();
-  const int global_fits = impl_->max_transfer_count <= i32_max ? 1 : 0;
-
-  void *recv_ptr = ghosts_only
-                       ? (void *)&inout[impl_->n_owned_nodes * block_size]
-                       : (void *)recv_buf;
-
-  if (!global_fits) {
-    const i64 max_chunk_size = i32_max / size;
-    SMESH_MPI_CATCH(all_to_allv_64v(send_buf, large_send_count, large_send_displs,
-                                    (T *)recv_ptr, large_recv_count,
-                                    large_recv_displs, block_size,
-                                    impl_->comm->get(), max_chunk_size));
-    impl_->gather_need_wait = false;
-  } else {
-    if (!impl_->iall_send_count) {
-      impl_->iall_send_count = create_host_buffer<int>(size);
-      impl_->iall_recv_count = create_host_buffer<int>(size);
-      impl_->iall_send_displs = create_host_buffer<int>(size);
-      impl_->iall_recv_displs = create_host_buffer<int>(size);
+  // Counted in elements of T, in messages of at most INT_MAX of them.
+  auto post = [&](const bool send, T *const buf, const i64 n, const int rank) -> int {
+    const i64 chunk = std::numeric_limits<int>::max();
+    for (i64 b = 0; b < n; b += chunk) {
+      const int m = (int)std::min(chunk, n - b);
+      MPI_Request request;
+      if (send) {
+        SMESH_MPI_CATCH(MPI_Isend(buf + b, m, mpi_type<T>(), rank, 0,
+                                  impl_->gather_comm, &request));
+      } else {
+        SMESH_MPI_CATCH(MPI_Irecv(buf + b, m, mpi_type<T>(), rank, 0,
+                                  impl_->gather_comm, &request));
+      }
+      impl_->gather_requests.push_back(request);
     }
-    for (int r = 0; r < size; ++r) {
-      impl_->iall_send_count->data()[r] = (int)large_send_count[r];
-      impl_->iall_recv_count->data()[r] = (int)large_recv_count[r];
-      impl_->iall_send_displs->data()[r] = (int)large_send_displs[r];
-      impl_->iall_recv_displs->data()[r] = (int)large_recv_displs[r];
+    return SMESH_SUCCESS;
+  };
+  impl_->gather_requests.clear();
+  for (const auto &peer : impl_->gather_recvs) {
+    if (post(false, recv_ptr + peer.offset * block_size, peer.count * block_size,
+             peer.rank) != SMESH_SUCCESS) {
+      return SMESH_FAILURE;
     }
-
-    MPI_Datatype dtype = mpi_type<T>();
-    impl_->gather_owns_dtype = false;
-    if (block_size > 1) {
-      SMESH_MPI_CATCH(MPI_Type_contiguous((int)block_size, mpi_type<T>(), &dtype));
-      SMESH_MPI_CATCH(MPI_Type_commit(&dtype));
-      impl_->gather_dtype = dtype;
-      impl_->gather_owns_dtype = true;
-    } else {
-      impl_->gather_dtype = dtype;
+  }
+  for (const auto &peer : impl_->gather_sends) {
+    if (post(true, send_buf + peer.offset * block_size, peer.count * block_size,
+             peer.rank) != SMESH_SUCCESS) {
+      return SMESH_FAILURE;
     }
-
-    SMESH_MPI_CATCH(MPI_Ialltoallv(
-        send_buf, impl_->iall_send_count->data(),
-        impl_->iall_send_displs->data(), dtype, recv_ptr,
-        impl_->iall_recv_count->data(), impl_->iall_recv_displs->data(), dtype,
-        impl_->comm->get(), &impl_->gather_request));
-    impl_->gather_need_wait = true;
   }
 
   impl_->gather_pending = true;
   const ptrdiff_t bs = block_size;
   const bool use_aura = !ghosts_only;
   impl_->gather_finish = [this, inout, bs, use_aura, recv_buf]() -> int {
-    if (impl_->gather_need_wait) {
-      SMESH_MPI_CATCH(MPI_Wait(&impl_->gather_request, MPI_STATUS_IGNORE));
-      impl_->gather_request = MPI_REQUEST_NULL;
-      impl_->gather_need_wait = false;
-    }
-    if (impl_->gather_owns_dtype && impl_->gather_dtype != MPI_DATATYPE_NULL) {
-      SMESH_MPI_CATCH(MPI_Type_free(&impl_->gather_dtype));
-      impl_->gather_dtype = MPI_DATATYPE_NULL;
-      impl_->gather_owns_dtype = false;
-    }
+    SMESH_MPI_CATCH(MPI_Waitall((int)impl_->gather_requests.size(),
+                                impl_->gather_requests.data(),
+                                MPI_STATUSES_IGNORE));
+    impl_->gather_requests.clear();
     if (use_aura) {
       const int size_local = impl_->comm->size();
       const ptrdiff_t n_import = impl_->send_displs->data()[size_local];
