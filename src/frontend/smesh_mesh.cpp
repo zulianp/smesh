@@ -115,6 +115,7 @@ public:
   SharedBuffer<int> node_owner;
   SharedBuffer<ptrdiff_t> node_offsets;
   SharedBuffer<idx_t> ghosts_and_aura;
+  SharedBuffer<idx_t> owned_renumbering;
 
   // Only exists for aura elements (global id)
   SharedBuffer<large_idx_t> aura_element_mapping;
@@ -140,6 +141,9 @@ SharedBuffer<idx_t> Distributed::ghosts() const {
 }
 SharedBuffer<idx_t> Distributed::ghosts_and_aura() const {
   return impl_->ghosts_and_aura;
+}
+SharedBuffer<idx_t> Distributed::owned_renumbering() const {
+  return impl_->owned_renumbering;
 }
 
 Distributed::Distributed() : impl_(std::make_unique<Impl>()) {}
@@ -5150,6 +5154,22 @@ int Mesh::renumber_nodes(const SharedBuffer<idx_t> &node_mapping) {
       for (ptrdiff_t i = 0; i < n_permutable; i++) {
         d_no[d_node_mapping[i]] = d_old[i];
       }
+    }
+
+    // The claim above holds for the ghosts and not for the aura: a neighbour's aura is
+    // this rank's elements at the interface, whose nodes include owned-not-shared ones,
+    // and it addresses them by their position here. Neighbours keep that first position;
+    // this rank records where each node went, and its exchanges read through it.
+    auto &renumbering = dist->impl_->owned_renumbering;
+    if (!renumbering) {
+      renumbering = create_host_buffer<idx_t>(n_permutable);
+      for (ptrdiff_t i = 0; i < n_permutable; i++) {
+        renumbering->data()[i] = static_cast<idx_t>(i);
+      }
+    }
+    auto d_ren = renumbering->data();
+    for (ptrdiff_t i = 0; i < n_permutable; i++) {
+      d_ren[i] = d_node_mapping[d_ren[i]];
     }
   }
 

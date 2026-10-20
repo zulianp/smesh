@@ -90,9 +90,24 @@ Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh,
                                   (with_aura ? dist->n_nodes_aura() : 0);
   const idx_t *const import_idx =
       with_aura ? dist->ghosts_and_aura()->data() : dist->ghosts()->data();
-  return create(mesh->comm(), exchange_scope, n_local_nodes,
-                dist->n_nodes_owned(), dist->node_owner()->data(),
-                dist->node_offsets()->data(), import_idx);
+  auto ret = create(mesh->comm(), exchange_scope, n_local_nodes,
+                    dist->n_nodes_owned(), dist->node_owner()->data(),
+                    dist->node_offsets()->data(), import_idx);
+
+  // The neighbours' requests (sparse_idx: the nodes this rank sends) name its nodes by
+  // the positions they were created at; a renumbering of the owned-not-shared prefix
+  // (packing) moved those, which the aura reaches. Send from where each is now.
+  auto renumbering = dist->owned_renumbering();
+  if (ret && renumbering && ret->impl_->sparse_idx) {
+    const ptrdiff_t n_moved = static_cast<ptrdiff_t>(renumbering->size());
+    const idx_t *const ren = renumbering->data();
+    idx_t *const sends = ret->impl_->sparse_idx->data();
+    const ptrdiff_t n_sends = static_cast<ptrdiff_t>(ret->impl_->sparse_idx->size());
+    for (ptrdiff_t i = 0; i < n_sends; i++) {
+      if (sends[i] < n_moved) sends[i] = ren[sends[i]];
+    }
+  }
+  return ret;
 
 #else
   SMESH_UNUSED(exchange_scope);

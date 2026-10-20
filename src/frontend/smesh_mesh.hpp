@@ -47,6 +47,11 @@ public:
   SharedBuffer<ptrdiff_t> node_offsets() const;
   SharedBuffer<idx_t> ghosts() const;
   SharedBuffer<idx_t> ghosts_and_aura() const;
+  /// Where each owned-not-shared node is now, by the position it was created at: null until
+  /// Mesh::renumber_nodes permutes them. Neighbours address this rank's nodes by that first
+  /// position -- the aura's nodes include owned-not-shared ones -- so an exchange built from
+  /// their requests reads its sends through it.
+  SharedBuffer<idx_t> owned_renumbering() const;
 
   friend class Mesh;
   friend std::shared_ptr<Mesh>
