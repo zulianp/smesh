@@ -6,6 +6,7 @@
 #include "smesh_buffer.hpp"
 #include "smesh_communicator.hpp"
 #include "smesh_forward_declarations.hpp"
+#include "smesh_spaces.hpp"
 #include "smesh_types.hpp"
 
 #include <memory>
@@ -19,9 +20,12 @@ public:
     GhostsAndAura,
   };
 
+  /// The nodal exchange of a distributed mesh. With EXECUTION_SPACE_DEVICE its gathers take
+  /// device buffers: packed and unpacked on the device, sent by GPU-aware MPI, which it requires.
   static std::shared_ptr<Exchange>
   create_nodal(const std::shared_ptr<Mesh> &mesh,
-               const ExchangeScope exchange_scope = ExchangeScope::GhostsOnly);
+               const ExchangeScope exchange_scope = ExchangeScope::GhostsOnly,
+               const ExecutionSpace execution_space = EXECUTION_SPACE_HOST);
 
 #if defined(SMESH_ENABLE_MPI)
   static std::shared_ptr<Exchange>

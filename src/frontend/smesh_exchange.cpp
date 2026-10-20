@@ -6,26 +6,64 @@
 #include "smesh_types.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <functional>
 #include <limits>
+#include <string>
 #include <vector>
 
 #if defined(SMESH_ENABLE_MPI)
 #include "smesh_alltoallv.impl.hpp"
 #include "smesh_distributed_aura.hpp"
 #include <mpi.h>
+#if __has_include(<mpi-ext.h>)
+#include <mpi-ext.h>
+#endif
+#endif
+
+#if defined(SMESH_ENABLE_CUDA)
+#include "smesh_device_buffer.hpp"
+#include "smesh_exchange_kernels.hpp"
 #endif
 
 namespace smesh {
 
 template <typename T>
 static void ensure_exchange_buffer(SharedBuffer<char> &buffer,
-                                   const ptrdiff_t entries) {
+                                   const ptrdiff_t entries,
+                                   const ExecutionSpace es = EXECUTION_SPACE_HOST) {
   const size_t nbytes = (size_t)entries * sizeof(T);
   if (!buffer || buffer->size() < nbytes) {
+#if defined(SMESH_ENABLE_CUDA)
+    if (es == EXECUTION_SPACE_DEVICE) {
+      buffer = create_device_buffer<char>(nbytes);
+      return;
+    }
+#endif
+    SMESH_UNUSED(es);
     buffer = create_host_buffer<char>(nbytes);
   }
 }
+
+#if defined(SMESH_ENABLE_MPI) && defined(SMESH_ENABLE_CUDA)
+// Whether this MPI moves device memory, at run time.
+static bool mpi_takes_device_memory() {
+#if defined(CRAY_MPICH_VERSION)
+  // Cray MPICH's MPIX queries answer 0 whether or not its GPU support is on (8.1.30 on Alps,
+  // where device-to-device messages then arrive intact); the support is its environment's.
+  const char *const enabled = std::getenv("MPICH_GPU_SUPPORT_ENABLED");
+  return enabled && std::string(enabled) == "1";
+#elif defined(MPIX_GPU_SUPPORT_CUDA)
+  int supported = 0;
+  MPIX_GPU_query_support(MPIX_GPU_SUPPORT_CUDA, &supported);
+  return supported != 0;
+#elif defined(MPIX_CUDA_AWARE_SUPPORT) && MPIX_CUDA_AWARE_SUPPORT
+  return MPIX_Query_cuda_support() != 0;
+#else
+  return false;
+#endif
+}
+#endif
 
 class Exchange::Impl {
 public:
@@ -41,6 +79,10 @@ public:
   SharedBuffer<idx_t> import_idx;
   SharedBuffer<char> send_buffer;
   SharedBuffer<char> recv_buffer;
+  // Where gathers' buffers live; on the device, sparse_idx and import_idx copied there.
+  ExecutionSpace execution_space{EXECUTION_SPACE_HOST};
+  SharedBuffer<idx_t> device_sparse_idx;
+  SharedBuffer<idx_t> device_import_idx;
 
 #if defined(SMESH_ENABLE_MPI)
   // A gather is point-to-point with the ranks that take part, nobody else: a collective over
@@ -82,7 +124,8 @@ Exchange::~Exchange() = default;
 
 std::shared_ptr<Exchange>
 Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh,
-                       const ExchangeScope exchange_scope) {
+                       const ExchangeScope exchange_scope,
+                       const ExecutionSpace execution_space) {
 #if defined(SMESH_ENABLE_MPI)
   auto dist = mesh->distributed();
   const bool with_aura = exchange_scope == ExchangeScope::GhostsAndAura;
@@ -108,10 +151,27 @@ Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh,
       if (sends[i] < n_moved) sends[i] = ren[sends[i]];
     }
   }
+
+  if (ret && execution_space == EXECUTION_SPACE_DEVICE) {
+#if defined(SMESH_ENABLE_CUDA)
+    if (!mpi_takes_device_memory()) {
+      SMESH_ERROR("Exchange::create_nodal: a device exchange needs GPU-aware MPI, which this "
+                  "MPI does not provide (with Cray MPICH: MPICH_GPU_SUPPORT_ENABLED=1)\n");
+    }
+    ret->impl_->execution_space = EXECUTION_SPACE_DEVICE;
+    ret->impl_->device_sparse_idx = to_device(ret->impl_->sparse_idx);
+    if (ret->impl_->import_idx) {
+      ret->impl_->device_import_idx = to_device(ret->impl_->import_idx);
+    }
+#else
+    SMESH_ERROR("Exchange::create_nodal: a device exchange in a build without CUDA\n");
+#endif
+  }
   return ret;
 
 #else
   SMESH_UNUSED(exchange_scope);
+  SMESH_UNUSED(execution_space);
   return std::make_shared<Exchange>(mesh->comm());
 #endif
 }
@@ -187,6 +247,9 @@ template <typename T>
 int Exchange::scatter_add(T *const inout, const ptrdiff_t block_size) {
 #if defined(SMESH_ENABLE_MPI)
   SMESH_TRACE_SCOPE("Exchange::scatter_add");
+  if (impl_->execution_space != EXECUTION_SPACE_HOST) {
+    SMESH_ERROR("Exchange::scatter_add: host buffers only\n");
+  }
   const int size = impl_->comm->size();
   const ptrdiff_t send_total = impl_->send_displs->data()[size];
   const ptrdiff_t recv_total = impl_->recv_displs->data()[size];
@@ -239,10 +302,11 @@ int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
   const ptrdiff_t recv_total = impl_->recv_displs->data()[size];
   const bool ghosts_only = impl_->exchange_scope == ExchangeScope::GhostsOnly;
 
+  const ExecutionSpace es = impl_->execution_space;
   // Pack: recv_count/displs are used as send side for gather (see exchange_gather).
-  ensure_exchange_buffer<T>(impl_->send_buffer, recv_total * block_size);
+  ensure_exchange_buffer<T>(impl_->send_buffer, recv_total * block_size, es);
   if (!ghosts_only) {
-    ensure_exchange_buffer<T>(impl_->recv_buffer, send_total * block_size);
+    ensure_exchange_buffer<T>(impl_->recv_buffer, send_total * block_size, es);
   }
 
   T *const send_buf = (T *)impl_->send_buffer->data();
@@ -250,13 +314,26 @@ int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
       ghosts_only ? nullptr : (T *)impl_->recv_buffer->data();
 
   const idx_t *const gather_idx = impl_->sparse_idx->data();
-  // One thread: a gather packs a few ten thousand values, too few to repay a parallel region
-  // (measured on Grace, 4 ranks x 72 threads and 8 x 36 pack faster serially).
-  for (ptrdiff_t i = 0; i < recv_total; i++) {
-    const ptrdiff_t src = (ptrdiff_t)gather_idx[i] * block_size;
-    const ptrdiff_t dst = i * block_size;
-    for (ptrdiff_t c = 0; c < block_size; ++c) {
-      send_buf[dst + c] = inout[src + c];
+#if defined(SMESH_ENABLE_CUDA)
+  if (es == EXECUTION_SPACE_DEVICE) {
+    // Packed on the device, and finished before MPI reads the buffer.
+    if (device::gather_by_index(recv_total, block_size, sizeof(T),
+                                impl_->device_sparse_idx->data(), inout,
+                                send_buf) != SMESH_SUCCESS ||
+        device::synchronize() != SMESH_SUCCESS) {
+      return SMESH_FAILURE;
+    }
+  } else
+#endif
+  {
+    // One thread: a gather packs a few ten thousand values, too few to repay a parallel region
+    // (measured on Grace, 4 ranks x 72 threads and 8 x 36 pack faster serially).
+    for (ptrdiff_t i = 0; i < recv_total; i++) {
+      const ptrdiff_t src = (ptrdiff_t)gather_idx[i] * block_size;
+      const ptrdiff_t dst = i * block_size;
+      for (ptrdiff_t c = 0; c < block_size; ++c) {
+        send_buf[dst + c] = inout[src + c];
+      }
     }
   }
 
@@ -305,6 +382,18 @@ int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
     if (use_aura) {
       const int size_local = impl_->comm->size();
       const ptrdiff_t n_import = impl_->send_displs->data()[size_local];
+#if defined(SMESH_ENABLE_CUDA)
+      if (impl_->execution_space == EXECUTION_SPACE_DEVICE) {
+        if (device::scatter_by_index(n_import, bs, sizeof(T),
+                                     impl_->device_import_idx->data(), recv_buf,
+                                     inout) != SMESH_SUCCESS) {
+          return SMESH_FAILURE;
+        }
+        impl_->gather_pending = false;
+        impl_->gather_finish = nullptr;
+        return SMESH_SUCCESS;
+      }
+#endif
       const idx_t *const import_idx = impl_->import_idx->data();
       for (ptrdiff_t i = 0; i < n_import; ++i) {
         const ptrdiff_t dst = (ptrdiff_t)import_idx[i] * bs;
