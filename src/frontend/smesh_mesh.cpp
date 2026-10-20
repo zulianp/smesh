@@ -598,6 +598,9 @@ public:
       parametrizations;
   SharedBuffer<geom_t *> points;
   SharedBuffer<idx_t> node_mapping;
+  // Block of the mesh per block of the file of the last `read`, -1 where it skipped one; empty
+  // when it read them all.
+  std::vector<int> file_block_to_block;
 
   std::shared_ptr<Distributed> distributed;
   std::shared_ptr<NodeToNodeGraph> crs_graph;
@@ -1341,12 +1344,26 @@ static std::shared_ptr<Mesh> mesh_nonowning_alias(Mesh *mesh) {
 
 static int load_one_sideset(Mesh &mesh, const std::string &name,
                             const Path &folder) {
+  // A set of a block a selective read skipped is not part of this mesh.
+  block_idx_t file_block = 0;
+  block_idx_t block = 0;
+  if (Sideset::block_id_in_folder(folder, 0, &file_block) != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+  if (!mesh.block_from_file_index(file_block, &block)) {
+    return SMESH_SUCCESS;
+  }
+
   auto ss = std::make_shared<Sideset>();
   int err = SMESH_FAILURE;
   if (mesh.comm()->size() > 1) {
     err = ss->read_and_redistibute(mesh_nonowning_alias(&mesh), folder);
   } else {
     err = ss->read(mesh.comm(), folder);
+    if (err == SMESH_SUCCESS && ss->block_id() != block) {
+      ss = Sideset::create(mesh.comm(), ss->parent(), ss->lfi(), block,
+                           ss->element_mapping());
+    }
   }
   if (err != SMESH_SUCCESS) {
     return SMESH_FAILURE;
@@ -1491,18 +1508,59 @@ static int is_nodeset_folder(const Path &folder) {
 
 static int load_one_edgeset(Mesh &mesh, const std::string &name,
                             const Path &folder) {
+  // A set of a block a selective read skipped is not part of this mesh.
+  block_idx_t file_block = 0;
+  block_idx_t block = 0;
+  if (Edgeset::block_id_in_folder(folder, 0, &file_block) != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+  if (!mesh.block_from_file_index(file_block, &block)) {
+    return SMESH_SUCCESS;
+  }
+
   auto es = std::make_shared<Edgeset>();
   int err = SMESH_FAILURE;
   if (mesh.comm()->size() > 1) {
     err = es->read_and_redistibute(mesh_nonowning_alias(&mesh), folder);
   } else {
     err = es->read(mesh.comm(), folder);
+    if (err == SMESH_SUCCESS && es->block_id() != block) {
+      es = Edgeset::create(mesh.comm(), es->parent(), es->lei(), block,
+                           es->element_mapping());
+    }
   }
   if (err != SMESH_SUCCESS) {
     return SMESH_FAILURE;
   }
   mesh.add_edgeset(name, es);
   return SMESH_SUCCESS;
+}
+
+// `ns` (file node ids) restricted to the nodes a block-selective serial read
+// kept, in their numbering.
+static std::shared_ptr<Nodeset>
+nodeset_to_read_nodes(const Mesh &mesh, const std::shared_ptr<Nodeset> &ns) {
+  const auto map = mesh.node_mapping();
+  const idx_t *const file_ids = map->data();
+  const ptrdiff_t n_nodes = map->size();
+  const idx_t *const nodes = ns->nodes()->data();
+  const ptrdiff_t n = ns->size();
+
+  ptrdiff_t n_keep = 0;
+  for (ptrdiff_t i = 0; i < n; ++i) {
+    const idx_t *it = std::lower_bound(file_ids, file_ids + n_nodes, nodes[i]);
+    n_keep += (it != file_ids + n_nodes && *it == nodes[i]);
+  }
+
+  auto kept = create_host_buffer<idx_t>((size_t)n_keep);
+  ptrdiff_t w = 0;
+  for (ptrdiff_t i = 0; i < n; ++i) {
+    const idx_t *it = std::lower_bound(file_ids, file_ids + n_nodes, nodes[i]);
+    if (it != file_ids + n_nodes && *it == nodes[i]) {
+      kept->data()[w++] = static_cast<idx_t>(it - file_ids);
+    }
+  }
+  return Nodeset::create(mesh.comm(), kept, nullptr);
 }
 
 static int load_one_nodeset(Mesh &mesh, const std::string &name,
@@ -1513,6 +1571,11 @@ static int load_one_nodeset(Mesh &mesh, const std::string &name,
     err = ns->read_and_redistibute(mesh_nonowning_alias(&mesh), folder);
   } else {
     err = ns->read(mesh.comm(), folder);
+    if (err == SMESH_SUCCESS && mesh.node_mapping()) {
+      // A block-selective read kept a subset of the file's nodes; node_mapping
+      // lists their file ids in increasing order.
+      ns = nodeset_to_read_nodes(mesh, ns);
+    }
   }
   if (err != SMESH_SUCCESS) {
     return SMESH_FAILURE;
@@ -1848,18 +1911,171 @@ clone_nodeset(const Mesh &dst, const std::shared_ptr<Nodeset> &ns) {
   return Nodeset::create(dst.comm(), nodes, mapping);
 }
 
-int Mesh::read(const Path &path) {
+// A folder without block metadata holds one block, "default".
+static bool reads_legacy_block(const Path &path,
+                               const std::vector<std::string> &requested) {
+  for (const auto &r : requested) {
+    if (r != "default") {
+      SMESH_ERROR("Mesh::read: %s has a single block, \"default\"; no "
+                  "block \"%s\"\n",
+                  path.c_str(), r.c_str());
+      return false;
+    }
+  }
+  return true;
+}
+
+// Keep the file blocks `requested` names, in file order. `file_to_block` gets
+// each file block's index among those kept, -1 for the others; it stays empty
+// when every block is kept (nothing to translate).
+static int select_file_blocks(const Path &path,
+                              const std::vector<std::string> &requested,
+                              std::vector<std::string> &names,
+                              std::vector<enum ElemType> &types,
+                              std::vector<enum GeomMap> &maps,
+                              std::vector<int> *file_to_block) {
+  file_to_block->clear();
+  if (requested.empty()) {
+    return SMESH_SUCCESS;
+  }
+  if (types.size() != names.size() || maps.size() != names.size()) {
+    SMESH_ERROR("Mesh::read: inconsistent block metadata in %s\n", path.c_str());
+    return SMESH_FAILURE;
+  }
+  for (const auto &r : requested) {
+    if (std::find(names.begin(), names.end(), r) == names.end()) {
+      std::string available;
+      for (const auto &n : names) {
+        available += " " + n;
+      }
+      SMESH_ERROR("Mesh::read: %s has no block \"%s\" (its blocks:%s)\n",
+                  path.c_str(), r.c_str(), available.c_str());
+      return SMESH_FAILURE;
+    }
+  }
+
+  std::vector<std::string> kept_names;
+  std::vector<enum ElemType> kept_types;
+  std::vector<enum GeomMap> kept_maps;
+  std::vector<int> map(names.size(), -1);
+  for (size_t b = 0; b < names.size(); ++b) {
+    if (std::find(requested.begin(), requested.end(), names[b]) ==
+        requested.end()) {
+      continue;
+    }
+    map[b] = static_cast<int>(kept_names.size());
+    kept_names.push_back(names[b]);
+    kept_types.push_back(types[b]);
+    kept_maps.push_back(maps[b]);
+  }
+  if (kept_names.size() == names.size()) {
+    return SMESH_SUCCESS;
+  }
+  names.swap(kept_names);
+  types.swap(kept_types);
+  maps.swap(kept_maps);
+  file_to_block->swap(map);
+  return SMESH_SUCCESS;
+}
+
+// Drop the nodes no element references, keeping their order: node i of the
+// result is node node_mapping[i] of the file.
+static void keep_referenced_nodes(Mesh &mesh) {
+  const ptrdiff_t n_file_nodes = mesh.n_nodes();
+  const int dim = mesh.spatial_dimension();
+
+  auto new_id_buffer = create_host_buffer<idx_t>((size_t)n_file_nodes);
+  idx_t *const new_id = new_id_buffer->data();
+  for (ptrdiff_t i = 0; i < n_file_nodes; ++i) {
+    new_id[i] = -1;
+  }
+  for (const auto &block : mesh.blocks()) {
+    idx_t **const elements = block->elements()->data();
+    const ptrdiff_t n_elements = block->n_elements();
+    const int nxe = block->n_nodes_per_element();
+    for (int v = 0; v < nxe; ++v) {
+      for (ptrdiff_t e = 0; e < n_elements; ++e) {
+        new_id[elements[v][e]] = 0;
+      }
+    }
+  }
+
+  ptrdiff_t n_nodes = 0;
+  for (ptrdiff_t i = 0; i < n_file_nodes; ++i) {
+    if (new_id[i] == 0) {
+      new_id[i] = static_cast<idx_t>(n_nodes++);
+    }
+  }
+
+  auto file_ids = create_host_buffer<idx_t>((size_t)n_nodes);
+  auto points = create_host_buffer<geom_t>(dim, n_nodes);
+  geom_t **const old_points = mesh.points()->data();
+  for (ptrdiff_t i = 0; i < n_file_nodes; ++i) {
+    if (new_id[i] < 0) {
+      continue;
+    }
+    file_ids->data()[new_id[i]] = static_cast<idx_t>(i);
+    for (int d = 0; d < dim; ++d) {
+      points->data()[d][new_id[i]] = old_points[d][i];
+    }
+  }
+
+  for (const auto &block : mesh.blocks()) {
+    idx_t **const elements = block->elements()->data();
+    const ptrdiff_t n_elements = block->n_elements();
+    const int nxe = block->n_nodes_per_element();
+    for (int v = 0; v < nxe; ++v) {
+      for (ptrdiff_t e = 0; e < n_elements; ++e) {
+        elements[v][e] = new_id[elements[v][e]];
+      }
+    }
+  }
+
+  mesh.set_points(points);
+  mesh.set_node_mapping(file_ids);
+}
+
+bool Mesh::block_from_file_index(const block_idx_t file_index,
+                                 block_idx_t *block) const {
+  if (impl_->file_block_to_block.empty()) {
+    *block = file_index;
+    return true;
+  }
+  if ((size_t)file_index >= impl_->file_block_to_block.size() ||
+      impl_->file_block_to_block[file_index] < 0) {
+    return false;
+  }
+  *block = static_cast<block_idx_t>(impl_->file_block_to_block[file_index]);
+  return true;
+}
+
+int Mesh::read(const Path &path) { return read(path, {}); }
+
+int Mesh::read(const Path &path, const std::vector<std::string> &block_names) {
   SMESH_TRACE_SCOPE("Mesh::read");
   impl_->sidesets.clear();
   impl_->edgesets.clear();
   impl_->nodesets.clear();
+  impl_->node_mapping = nullptr;
+  impl_->file_block_to_block.clear();
 
   if (impl_->comm->size() == 1) {
-    std::vector<std::string> block_names;
+    std::vector<std::string> file_block_names;
     std::vector<enum ElemType> element_types;
     std::vector<enum GeomMap> geom_maps;
     const bool has_blocks =
-        read_blocks_meta(path, block_names, element_types, geom_maps);
+        read_blocks_meta(path, file_block_names, element_types, geom_maps);
+    if (!has_blocks && !reads_legacy_block(path, block_names)) {
+      return SMESH_FAILURE;
+    }
+    if (has_blocks &&
+        select_file_blocks(path, block_names, file_block_names, element_types,
+                           geom_maps,
+                           &impl_->file_block_to_block) != SMESH_SUCCESS) {
+      return SMESH_FAILURE;
+    }
+    // The blocks to read, in file order.
+    const std::vector<std::string> &block_names_read = file_block_names;
 
     impl_->blocks.clear();
 
@@ -1874,13 +2090,13 @@ int Mesh::read(const Path &path) {
       }
       impl_->points = manage_host_buffer<geom_t>(spatial_dim, nnodes, points);
 
-      const size_t n_blocks = block_names.size();
+      const size_t n_blocks = block_names_read.size();
       for (size_t b = 0; b < n_blocks; ++b) {
         int nnodesxelem = 0;
         ptrdiff_t nelements = 0;
         idx_t **elements = nullptr;
 
-        Path block_folder = Path(path) / "blocks" / block_names[b];
+        Path block_folder = Path(path) / "blocks" / block_names_read[b];
         if (mesh_block_from_folder(block_folder, &nnodesxelem, &elements,
                                    &nelements) != SMESH_SUCCESS) {
           return SMESH_FAILURE;
@@ -1897,13 +2113,16 @@ int Mesh::read(const Path &path) {
         }
 
         auto block = std::make_shared<Block>();
-        block->set_name(block_names[b]);
+        block->set_name(block_names_read[b]);
         block->set_element_type(et);
         if (b < geom_maps.size()) {
           block->set_geom_map(geom_maps[b]);
         }
         block->set_elements(elements_buffer);
         this->add_block(block);
+      }
+      if (!impl_->file_block_to_block.empty()) {
+        keep_referenced_nodes(*this);
       }
     } else {
       // Legacy single-block layout: connectivity and points live directly
@@ -1938,11 +2157,24 @@ int Mesh::read(const Path &path) {
   }
 #ifdef SMESH_ENABLE_MPI
   else {
-    std::vector<std::string> block_names;
+    std::vector<std::string> file_block_names;
     std::vector<enum ElemType> element_types;
     std::vector<enum GeomMap> geom_maps;
     const bool has_blocks =
-        read_blocks_meta(path, block_names, element_types, geom_maps);
+        read_blocks_meta(path, file_block_names, element_types, geom_maps);
+    if (!has_blocks && !reads_legacy_block(path, block_names)) {
+      return SMESH_FAILURE;
+    }
+    if (has_blocks &&
+        select_file_blocks(path, block_names, file_block_names, element_types,
+                           geom_maps,
+                           &impl_->file_block_to_block) != SMESH_SUCCESS) {
+      return SMESH_FAILURE;
+    }
+    // The blocks to read, in file order. Without some of the file's blocks,
+    // the nodes only they reference belong to no rank.
+    const std::vector<std::string> &block_names_read = file_block_names;
+    const bool keep_isolated_nodes = impl_->file_block_to_block.empty();
 
     auto dist = std::make_shared<Distributed>();
     int nnodesxelem;
@@ -2006,7 +2238,7 @@ int Mesh::read(const Path &path) {
       int *nxe_per_block = nullptr;
 
       read_status = mesh_from_folder_multiblock(
-          impl_->comm->get(), path, block_names, element_types,
+          impl_->comm->get(), path, block_names_read, element_types,
           &dist->impl_->n_elements_global, &dist->impl_->n_elements_owned,
           &dist->impl_->n_elements_shared, &dist->impl_->n_elements_ghosts,
           &element_mapping, &aura_element_mapping, &nxe_per_block,
@@ -2016,7 +2248,7 @@ int Mesh::read(const Path &path) {
           &dist->impl_->n_nodes_global, &dist->impl_->n_nodes_owned,
           &dist->impl_->n_nodes_shared, &dist->impl_->n_nodes_ghosts,
           &n_nodes_aura, &node_mapping, &points, &node_owner, &node_offsets,
-          &ghosts, use_sfc, ordering);
+          &ghosts, use_sfc, ordering, keep_isolated_nodes);
 
       if (read_status != SMESH_SUCCESS) {
         SMESH_ERROR("Failed to read multi-block mesh from folder %s\n",
@@ -2043,7 +2275,7 @@ int Mesh::read(const Path &path) {
       dist->impl_->ghosts_and_aura = manage_host_buffer<idx_t>(
           dist->impl_->n_nodes_ghosts + dist->impl_->n_nodes_aura, ghosts);
 
-      const size_t n_blocks = block_names.size();
+      const size_t n_blocks = block_names_read.size();
       ptrdiff_t sum_owned = 0;
       ptrdiff_t sum_shared = 0;
       ptrdiff_t sum_ghosts = 0;
@@ -2060,7 +2292,7 @@ int Mesh::read(const Path &path) {
         auto aura_map = manage_host_buffer<large_idx_t>(
             n_ghosts_per_block[b], aura_element_mapping_per_block[b]);
         auto block = std::make_shared<Block>();
-        block->set_name(block_names[b]);
+        block->set_name(block_names_read[b]);
         block->set_element_type(et);
         if (b < geom_maps.size()) {
           block->set_geom_map(geom_maps[b]);
@@ -2078,7 +2310,7 @@ int Mesh::read(const Path &path) {
           SMESH_ERROR(
               "Mesh::read: block %s local SoA size %ld != owned (%ld) + "
               "ghosts (%ld)\n",
-              block_names[b].c_str(), (long)block->n_elements(),
+              block_names_read[b].c_str(), (long)block->n_elements(),
               (long)n_owned_per_block[b], (long)n_ghosts_per_block[b]);
           return SMESH_FAILURE;
         }

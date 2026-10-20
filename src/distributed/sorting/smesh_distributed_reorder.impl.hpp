@@ -691,7 +691,8 @@ int mesh_from_folder_multiblock(
     ptrdiff_t *n_shared_nodes_out, ptrdiff_t *n_ghost_nodes_out,
     ptrdiff_t *n_aura_nodes_out, large_idx_t **node_mapping_out,
     geom_t ***points_out, int **node_owner_out, ptrdiff_t **node_offsets_out,
-    idx_t **ghosts_out, const bool use_sfc, Ordering ordering) {
+    idx_t **ghosts_out, const bool use_sfc, Ordering ordering,
+    const bool keep_isolated_nodes) {
   (void)element_types;
   const block_idx_t n_blocks = static_cast<block_idx_t>(block_names.size());
   if (n_blocks == 0 || block_names.size() != element_types.size() ||
@@ -790,7 +791,7 @@ int mesh_from_folder_multiblock(
       &out_e2n_ptr, &out_e2n_idx, spatial_dim_out, n_global_nodes_out,
       n_owned_nodes_out, n_shared_nodes_out, n_ghost_nodes_out,
       n_aura_nodes_out, node_mapping_out, points_out, node_owner_out,
-      node_offsets_out, ghosts_out);
+      node_offsets_out, ghosts_out, keep_isolated_nodes);
 
   if (ret != SMESH_SUCCESS) {
     SMESH_FREE(sorted_concat_ids);

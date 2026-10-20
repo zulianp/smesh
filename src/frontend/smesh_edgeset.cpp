@@ -221,6 +221,18 @@ namespace smesh {
         return ret;
     }
 
+    int Edgeset::block_id_in_folder(const Path &path, block_idx_t fallback, block_idx_t *block_id) {
+        bool        has_size      = false;
+        bool        has_block_id  = false;
+        ptrdiff_t   meta_size     = 0;
+        block_idx_t meta_block_id = 0;
+        if (parse_set_meta(path, &has_size, &meta_size, &has_block_id, &meta_block_id) != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+        *block_id = has_block_id ? meta_block_id : fallback;
+        return SMESH_SUCCESS;
+    }
+
     int Edgeset::read_and_redistibute(const std::shared_ptr<Mesh> &mesh, const Path &path, block_idx_t block_id) {
 #ifdef SMESH_ENABLE_MPI
         const int rank = mesh->comm()->rank();
@@ -232,7 +244,13 @@ namespace smesh {
                     n_edges = -1;
                 } else {
                     n_edges  = static_cast<i64>(this->size());
-                    block_id = impl_->block_id;
+                    // The file's block, as the mesh numbers it after a block-selective read.
+                    if (!mesh->block_from_file_index(impl_->block_id, &block_id)) {
+                        SMESH_ERROR("Edgeset::read_and_redistibute: block %d of %s was not read\n",
+                                    (int)impl_->block_id,
+                                    path.c_str());
+                        n_edges = -1;
+                    }
                 }
             }
             mesh->comm()->broadcast(&n_edges, 1, 0);
@@ -263,6 +281,10 @@ namespace smesh {
         }
 #endif
         if (read(mesh->comm(), path, block_id) != SMESH_SUCCESS) {
+            return SMESH_FAILURE;
+        }
+        if (!mesh->block_from_file_index(impl_->block_id, &impl_->block_id)) {
+            SMESH_ERROR("Edgeset::read_and_redistibute: block %d of %s was not read\n", (int)impl_->block_id, path.c_str());
             return SMESH_FAILURE;
         }
         return redistribute(mesh);

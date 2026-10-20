@@ -254,6 +254,15 @@ public:
   // ExecutionSpace space); std::shared_ptr<KernelData> kernel_data() const;
 
   int read(const Path &path);
+  /// `read(path)` restricted to the named blocks of a multi-block folder. Only their elements are
+  /// read, and only the nodes they reference, in file order: `node_mapping()` (serial) and the
+  /// distributed node mapping give each node's id in the file. Sidesets and edgesets keep the sets
+  /// of selected blocks, nodesets their selected nodes. Empty `block_names` reads every block; an
+  /// unknown name is an error.
+  int read(const Path &path, const std::vector<std::string> &block_names);
+  /// The block that file block `file_index` became in the last `read`: false when that read
+  /// skipped it. The identity when every block was read.
+  bool block_from_file_index(const block_idx_t file_index, block_idx_t *block) const;
   int write(const Path &path) const;
   /// `write(path)` plus AoS `connectivity.<idx_t>` and `mesh.xdmf` inside `path`.
   int write_with_xdmf(const Path &path) const;
@@ -368,6 +377,17 @@ public:
                    const Path &path) {
     auto ret = std::make_shared<Mesh>(comm);
     ret->read(path);
+    return ret;
+  }
+
+  /// `read(path, block_names)`; null if it fails.
+  inline static std::shared_ptr<Mesh>
+  create_from_file(const std::shared_ptr<Communicator> &comm, const Path &path,
+                   const std::vector<std::string> &block_names) {
+    auto ret = std::make_shared<Mesh>(comm);
+    if (ret->read(path, block_names) != SMESH_SUCCESS) {
+      return nullptr;
+    }
     return ret;
   }
 

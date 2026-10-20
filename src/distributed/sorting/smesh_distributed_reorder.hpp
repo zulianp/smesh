@@ -101,7 +101,8 @@ int mesh_from_folder_multiblock(
     ptrdiff_t *n_aura_nodes_out, large_idx_t **node_mapping_out,
     geom_t ***points_out, int **node_owner_out, ptrdiff_t **node_offsets_out,
     idx_t **ghosts_out, const bool use_sfc = true,
-    Ordering ordering = encode_hilbert3<geom_t>);
+    Ordering ordering = encode_hilbert3<geom_t>,
+    const bool keep_isolated_nodes = true);
 } // namespace smesh
 
 #endif // SMESH_DISTRIBUTED_REORDER_HPP

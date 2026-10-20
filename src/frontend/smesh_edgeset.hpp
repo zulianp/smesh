@@ -22,6 +22,9 @@ namespace smesh {
 
         int read_and_redistibute(const std::shared_ptr<Mesh> &mesh, const Path &path, block_idx_t block_id = 0);
         int redistribute(const std::shared_ptr<Mesh> &mesh);
+        /// The block id `path`'s meta.yaml gives, `fallback` when it gives none: the block of the
+        /// file a set refers to, before `read` translates it to a block of the mesh.
+        static int block_id_in_folder(const Path &path, block_idx_t fallback, block_idx_t *block_id);
 
         SharedBuffer<element_idx_t>     parent() const;
         SharedBuffer<i16>               lei() const;

@@ -33,7 +33,7 @@
       const ptrdiff_t, const COUNT_T *const SMESH_RESTRICT,                      \
       const ELEM_IDX_T *const SMESH_RESTRICT, ptrdiff_t *const SMESH_RESTRICT,   \
       LARGE_IDX_T **const SMESH_RESTRICT, COUNT_T **const SMESH_RESTRICT,        \
-      ELEM_IDX_T **const SMESH_RESTRICT)
+      ELEM_IDX_T **const SMESH_RESTRICT, const bool)
 
 #define SMESH_EXPLICIT_INSTANTIATE_DECOMPOSE_IDX(IDX_T, L2G_T)                 \
   template int prepare_node_renumbering<IDX_T, L2G_T>(                         \
