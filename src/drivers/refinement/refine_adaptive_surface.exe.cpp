@@ -17,6 +17,8 @@
 
 using namespace smesh;
 
+#ifdef SMESH_HAS_SSDF
+
 static int parse_level(const char *text, int *level) {
   char *end = nullptr;
   const long value = std::strtol(text, &end, 10);
@@ -37,8 +39,6 @@ static int parse_distance(const char *text, geom_t *distance) {
   *distance = static_cast<geom_t>(value);
   return SMESH_SUCCESS;
 }
-
-#ifdef SMESH_HAS_SSDF
 
 static int query_surface_distance(const ptrdiff_t n_query, const geom_t *qx,
                                   const geom_t *qy, const geom_t *qz,
