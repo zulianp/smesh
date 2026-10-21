@@ -21,7 +21,9 @@ public:
   };
 
   /// The nodal exchange of a distributed mesh. With EXECUTION_SPACE_DEVICE its gathers take
-  /// device buffers: packed and unpacked on the device, sent by GPU-aware MPI, which it requires.
+  /// device buffers: packed and unpacked on the device, sent by GPU-aware MPI, or, where the
+  /// communicator's device communication is enabled (Communicator::enable_device), to ranks on
+  /// this node by NCCL, queued on the stream.
   static std::shared_ptr<Exchange>
   create_nodal(const std::shared_ptr<Mesh> &mesh,
                const ExchangeScope exchange_scope = ExchangeScope::GhostsOnly,

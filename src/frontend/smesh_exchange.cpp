@@ -24,6 +24,9 @@
 #if defined(SMESH_ENABLE_CUDA)
 #include "smesh_device_buffer.hpp"
 #include "smesh_exchange_kernels.hpp"
+#if defined(SMESH_ENABLE_MPI)
+#include "smesh_device_communicator.hpp"
+#endif
 #endif
 
 namespace smesh {
@@ -92,12 +95,19 @@ public:
     int rank;
     i64 offset; // in nodes, into the packed sends or the received values
     i64 count;  // nodes
+    bool on_node{false}; // a device exchange's peer on this node: through NCCL
   };
   std::vector<Peer> gather_sends;
   std::vector<Peer> gather_recvs;
   std::vector<MPI_Request> gather_requests;
   MPI_Comm gather_comm{MPI_COMM_NULL};
   bool gather_pending{false};
+#if defined(SMESH_ENABLE_CUDA)
+  // With the communicator's device communication enabled, a device exchange's messages to peers
+  // on this node by NCCL, queued on the stream; to the others (any_remote) by GPU-aware MPI.
+  std::shared_ptr<DeviceCommunicator> device_comm;
+  bool any_remote{true};
+#endif
   std::function<int()> gather_finish;
 #endif
 
@@ -154,9 +164,24 @@ Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh,
 
   if (ret && execution_space == EXECUTION_SPACE_DEVICE) {
 #if defined(SMESH_ENABLE_CUDA)
-    if (!mpi_takes_device_memory()) {
-      SMESH_ERROR("Exchange::create_nodal: a device exchange needs GPU-aware MPI, which this "
-                  "MPI does not provide (with Cray MPICH: MPICH_GPU_SUPPORT_ENABLED=1)\n");
+    // Where the run enabled it, peers on this node through NCCL and the others through
+    // GPU-aware MPI: NCCL is the faster within a node and not to be trusted between nodes
+    // (smesh_device_communicator.hpp).
+    auto &impl = *ret->impl_;
+    impl.device_comm = mesh->comm()->device();
+    if (impl.device_comm) {
+      impl.any_remote = false;
+      for (auto *peers : {&impl.gather_sends, &impl.gather_recvs}) {
+        for (auto &peer : *peers) {
+          peer.on_node = impl.device_comm->node_rank(peer.rank) >= 0;
+          impl.any_remote = impl.any_remote || !peer.on_node;
+        }
+      }
+    }
+    if (impl.any_remote && !mpi_takes_device_memory()) {
+      SMESH_ERROR("Exchange::create_nodal: a device exchange with ranks on other nodes needs "
+                  "GPU-aware MPI, which this MPI does not provide (with Cray MPICH: "
+                  "MPICH_GPU_SUPPORT_ENABLED=1)\n");
     }
     ret->impl_->execution_space = EXECUTION_SPACE_DEVICE;
     ret->impl_->device_sparse_idx = to_device(ret->impl_->sparse_idx);
@@ -316,11 +341,12 @@ int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
   const idx_t *const gather_idx = impl_->sparse_idx->data();
 #if defined(SMESH_ENABLE_CUDA)
   if (es == EXECUTION_SPACE_DEVICE) {
-    // Packed on the device, and finished before MPI reads the buffer.
+    // Packed on the device, and finished before MPI reads the buffer; NCCL's messages follow
+    // the packing on the stream.
     if (device::gather_by_index(recv_total, block_size, sizeof(T),
                                 impl_->device_sparse_idx->data(), inout,
                                 send_buf) != SMESH_SUCCESS ||
-        device::synchronize() != SMESH_SUCCESS) {
+        (impl_->any_remote && device::synchronize() != SMESH_SUCCESS)) {
       return SMESH_FAILURE;
     }
   } else
@@ -357,14 +383,35 @@ int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
     }
     return SMESH_SUCCESS;
   };
+#if defined(SMESH_ENABLE_CUDA)
+  if (impl_->device_comm) {
+    const auto &device = *impl_->device_comm;
+    device.group_begin();
+    for (const auto &peer : impl_->gather_recvs) {
+      if (peer.on_node) {
+        device.recv(recv_ptr + peer.offset * block_size,
+                    (size_t)(peer.count * block_size) * sizeof(T), peer.rank);
+      }
+    }
+    for (const auto &peer : impl_->gather_sends) {
+      if (peer.on_node) {
+        device.send(send_buf + peer.offset * block_size,
+                    (size_t)(peer.count * block_size) * sizeof(T), peer.rank);
+      }
+    }
+    device.group_end();
+  }
+#endif
   impl_->gather_requests.clear();
   for (const auto &peer : impl_->gather_recvs) {
+    if (peer.on_node) continue;
     if (post(false, recv_ptr + peer.offset * block_size, peer.count * block_size,
              peer.rank) != SMESH_SUCCESS) {
       return SMESH_FAILURE;
     }
   }
   for (const auto &peer : impl_->gather_sends) {
+    if (peer.on_node) continue;
     if (post(true, send_buf + peer.offset * block_size, peer.count * block_size,
              peer.rank) != SMESH_SUCCESS) {
       return SMESH_FAILURE;

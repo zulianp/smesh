@@ -1,5 +1,6 @@
 #include "smesh_context.hpp"
 #include "smesh_communicator.hpp"
+#include "smesh_device_communicator.hpp"
 #include "smesh_tracer.hpp"
 
 #include "smesh_base.hpp"
@@ -126,6 +127,7 @@ Context::Context(int argc, char *argv[]) : impl_(std::make_unique<Impl>()) {
 
 Context::~Context() {
 #ifdef SMESH_ENABLE_MPI
+  release_device_communicators();
   unregister_mpi_datatypes();
   if (impl_->owns_mpi_context) {
     MPI_Finalize();

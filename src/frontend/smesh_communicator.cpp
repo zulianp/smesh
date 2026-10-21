@@ -1,4 +1,5 @@
 #include "smesh_communicator.hpp"
+#include "smesh_device_communicator.hpp"
 
 #ifdef SMESH_ENABLE_MPI
 #include "smesh_distributed_base.hpp"
@@ -194,6 +195,17 @@ void Communicator::sum_and_min_last(void *buffer, int count, enum PrimitiveType 
   SMESH_UNUSED(type);
 #endif
 }
+
+#if !(defined(SMESH_ENABLE_MPI) && defined(SMESH_ENABLE_NCCL))
+// With MPI and NCCL these are defined in cuda/smesh_device_communicator.cu.
+void Communicator::enable_device() const {
+  SMESH_ERROR("Communicator::enable_device: a build without MPI and NCCL\n");
+}
+
+std::shared_ptr<DeviceCommunicator> Communicator::device() const { return nullptr; }
+
+void release_device_communicators() {}
+#endif
 
 void Communicator::allgather(const void *sendbuf, void *recvbuf, int count,
                              enum PrimitiveType type) const {
