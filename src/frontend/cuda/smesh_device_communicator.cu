@@ -5,6 +5,7 @@
 #if defined(SMESH_ENABLE_MPI) && defined(SMESH_ENABLE_NCCL)
 
 #include "smesh_cuda_base.cuh"
+#include "smesh_tracer.hpp"
 
 #include <mpi.h>
 #include <nccl.h>
@@ -37,6 +38,7 @@ public:
   // the first in a process takes about 3 s on Alps, which the caller's set-up then hides.
   std::thread init;
   ncclResult_t init_result{ncclSuccess};
+  double init_seconds{0};
   int rank{0};
   int size{1};
   bool whole{true};
@@ -54,13 +56,18 @@ DeviceCommunicator::~DeviceCommunicator() {
 
 namespace {
 // The communicator once its set-up has ended, connected for reductions: NCCL connects the ranks
-// at the first one (up to 0.5 s on Alps), here rather than in the first solve.
+// at the first one (up to 0.5 s on Alps), here rather than in the first solve. Traced: the wait
+// (DeviceCommunicator::ready) and the set-up's own time (DeviceCommunicator::init).
 ncclComm_t ready(DeviceCommunicator::Impl &impl) {
   if (impl.init.joinable()) {
+    SMESH_TRACE_SCOPE("DeviceCommunicator::ready");
     impl.init.join();
     if (impl.init_result != ncclSuccess) {
       SMESH_ERROR("ncclCommInitRank: %s\n", ncclGetErrorString(impl.init_result));
     }
+#ifdef SMESH_ENABLE_TRACE
+    Tracer::instance().record_event("DeviceCommunicator::init", impl.init_seconds);
+#endif
     double *warm = nullptr;
     SMESH_CUDA_CHECK(cudaMalloc(&warm, sizeof(double)));
     SMESH_CUDA_CHECK(cudaMemset(warm, 0, sizeof(double)));
@@ -246,9 +253,11 @@ void Communicator::enable_device() const {
   cpu_set_t cpus;
   const bool near = cpus_near(device, &cpus);
   impl.init = std::thread([p, id, device, near, cpus]() {
+    const double start = time_seconds();
     if (near) pthread_setaffinity_np(pthread_self(), sizeof(cpus), &cpus);
     cudaSetDevice(device);
     p->init_result = ncclCommInitRank(&p->comm, p->size, id, p->rank);
+    p->init_seconds = time_seconds() - start;
   });
 
   communicators[comm] = ret;
