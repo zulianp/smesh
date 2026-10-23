@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Map nodal fields computed on part of a mesh back onto the whole mesh.
 
-usage: raw_point_data_to_parent.py <fields> <part_mesh> <parent_mesh> <output> [--step=N] [--fields=a,b]
+usage: raw_point_data_to_parent.py <fields> <part_mesh> <parent_mesh> <output> [--step=N | --all-steps]
+                                   [--fields=a,b]
 
   <fields>       folder of field files: `<name>.<component>.<step>.<dtype>` (vectors, one file per
                  component) or `<name>.<step>.<dtype>` (scalars), as SFEM's Output writes them
@@ -14,6 +15,8 @@ usage: raw_point_data_to_parent.py <fields> <part_mesh> <parent_mesh> <output> [
                  are named <name>_x, _y, _z, which ParaView reads as one vector.
 
   --step=N       the step to map; the last one by default
+  --all-steps    every step, as a time series: <name>_x.<k> for step k, and time_whole from the
+                 fields folder's time.txt, which raw_to_exodusII.py writes as the file's times
   --fields=a,b   only these fields
 
 Then `raw_to_exodusII.py <output> out.e` writes the Exodus file.
@@ -60,15 +63,18 @@ def main(argv):
         sys.exit(1)
     fields_folder, part, parent, output = argv[1:5]
     step = None
+    all_steps = False
     wanted = None
     try:
-        opts, _ = getopt.getopt(argv[5:], "", ["step=", "fields="])
+        opts, _ = getopt.getopt(argv[5:], "", ["step=", "all-steps", "fields="])
     except getopt.GetoptError as err:
         print(err)
         sys.exit(1)
     for opt, arg in opts:
         if opt == "--step":
             step = int(arg)
+        elif opt == "--all-steps":
+            all_steps = True
         elif opt == "--fields":
             wanted = set(arg.split(","))
 
@@ -93,20 +99,38 @@ def main(argv):
     link_parent(parent, output)
     point_data = os.path.join(output, "point_data")
     mkdir(point_data)
+    series = None
     for name, steps in sorted(found.items()):
         try:
-            (s,) = select_steps(name, steps, step)
-            components = step_field_components(name, s, steps[s])
+            selected = select_steps(name, steps, step, all_steps)
+            if all_steps and selected != list(range(len(selected))):
+                raise RuntimeError(f"{name} has steps {selected[0]} to {selected[-1]} with gaps")
+            if series is not None and all_steps and selected != series:
+                raise RuntimeError(f"{name} has other steps than the fields before it")
+            series = selected
+            for s in selected:
+                components = step_field_components(name, s, steps[s])
+                # A time series names each step; a single step keeps the plain name.
+                tag = f".{s}" if all_steps else ""
+                for suffix, path in components:
+                    values = read_array(path)
+                    if len(values) != n_part:
+                        sys.exit(f"raw_point_data_to_parent: {path} has {len(values)} values for {n_part} nodes")
+                    whole = np.zeros(n_parent, dtype=values.dtype)
+                    whole[mapping] = values
+                    write_array(os.path.join(point_data, name + suffix + tag), whole, values.dtype)
         except RuntimeError as err:
             sys.exit(f"raw_point_data_to_parent: {err}")
-        for suffix, path in components:
-            values = read_array(path)
-            if len(values) != n_part:
-                sys.exit(f"raw_point_data_to_parent: {path} has {len(values)} values for {n_part} nodes")
-            whole = np.zeros(n_parent, dtype=values.dtype)
-            whole[mapping] = values
-            write_array(os.path.join(point_data, name + suffix), whole, values.dtype)
-        print(f"{name}: step {s}, {len(components)} component(s), {n_part} of {n_parent} nodes")
+        what = f"steps 0 to {selected[-1]}" if all_steps else f"step {selected[0]}"
+        print(f"{name}: {what}, {len(components)} component(s), {n_part} of {n_parent} nodes")
+    if all_steps:
+        times_path = os.path.join(fields_folder, "time.txt")
+        if not os.path.isfile(times_path):
+            sys.exit(f"raw_point_data_to_parent: --all-steps needs {times_path}")
+        times = np.loadtxt(times_path, dtype=np.float64).reshape(-1)
+        if len(times) < len(series):
+            sys.exit(f"raw_point_data_to_parent: {times_path} has {len(times)} times for {len(series)} steps")
+        write_array(os.path.join(output, "time_whole"), times[: len(series)], np.float64)
 
 
 if __name__ == "__main__":
