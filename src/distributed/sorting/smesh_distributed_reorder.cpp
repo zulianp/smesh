@@ -59,7 +59,7 @@ namespace smesh {
       ptrdiff_t *n_aura_nodes_out, LARGE_IDX_T **node_mapping_out,             \
       GEOM_T ***points_out, int **node_owner_out,                              \
       ptrdiff_t **node_offsets_out, IDX_T **ghosts_out, const bool use_sfc,    \
-      OrderEncoder<GEOM_T> ordering)
+      OrderEncoder<GEOM_T> ordering, const bool keep_isolated_nodes)
 
 SMESH_EXPLICIT_INSTANTIATE_DISTRIBUTED_REORDER(i32, f32);
 SMESH_EXPLICIT_INSTANTIATE_DISTRIBUTED_REORDER(i64, f32);

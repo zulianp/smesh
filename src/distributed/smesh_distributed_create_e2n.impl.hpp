@@ -760,7 +760,7 @@ static int mesh_create_parallel_e2n(
     ptrdiff_t *n_shared_nodes_out, ptrdiff_t *n_ghost_nodes_out,
     ptrdiff_t *n_aura_nodes_out, large_idx_t **node_mapping_out,
     geom_t ***points_out, int **node_owner_out, ptrdiff_t **node_offsets_out,
-    idx_t **ghosts_out) {
+    idx_t **ghosts_out, const bool keep_isolated_nodes) {
   large_idx_t *n2eptr = nullptr;
   idx_t *n2e_idx = nullptr;
   if (create_n2e_from_e2n<idx_t, large_idx_t, idx_t>(
@@ -776,7 +776,8 @@ static int mesh_create_parallel_e2n(
   idx_t *local_n2e_idx = nullptr;
   redistribute_n2e(comm, comm_size, comm_rank, n_local2global, n_global_nodes,
                    n_global_elements, n2eptr, n2e_idx, &local2global_size,
-                   &local2global, &local_n2e_ptr, &local_n2e_idx);
+                   &local2global, &local_n2e_ptr, &local_n2e_idx,
+                   keep_isolated_nodes);
   SMESH_FREE(n2eptr);
   SMESH_FREE(n2e_idx);
 

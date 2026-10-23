@@ -48,7 +48,7 @@ Same element count, extra nodes. Same-type blocks only. Sidesets keep `(parent, 
 
 | From | To |
 |------|-----|
-| HEX8 | TET4 (6 tets) |
+| HEX8 | TET4 (24 tets, shared face centers and a cell center) |
 | WEDGE6 | TET4 (3 tets) |
 | PYRAMID5 | TET4 (2 tets) |
 | QUAD4 | TRI3 (2 tris) |
@@ -59,6 +59,8 @@ Same element count, extra nodes. Same-type blocks only. Sidesets keep `(parent, 
 | PROTEUS_QUAD* / QUADSHELL* | linear QUAD (not `*289`) |
 | PROTEUS_WEDGE* | WEDGE6 |
 | PROTEUS_PYRAMID* | — (use `ss_to_linear` / `derefine`) |
+
+`mesh_hex8_to_6x_tet4` remains the split that adds no nodes. `convert_to` from HEX8 to TET4 uses the 24-tet split. It keeps block names, remaps sidesets onto the four child triangles of each coarse face, and keeps the original nodeset ids.
 
 ## Higher-order and lattice types
 

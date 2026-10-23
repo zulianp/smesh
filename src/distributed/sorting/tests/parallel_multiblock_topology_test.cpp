@@ -275,7 +275,10 @@ static int test_serial_transforms() {
   auto tet_mesh = convert_to(TET4, mesh);
   SMESH_TEST_ASSERT(tet_mesh != nullptr);
   SMESH_TEST_EQ(static_cast<int>(tet_mesh->n_blocks()), 2);
-  SMESH_TEST_EQ(tet_mesh->n_nodes(), mesh->n_nodes());
+  auto one_block = convert_to(TET4, Mesh::create_hex8_cube(comm, 2, 2, 2));
+  SMESH_TEST_ASSERT(one_block != nullptr);
+  SMESH_TEST_EQ(tet_mesh->n_nodes(), one_block->n_nodes());
+  SMESH_TEST_EQ(tet_mesh->n_elements(), one_block->n_elements());
 
   auto cloned = mesh->clone();
   SMESH_TEST_ASSERT(cloned != nullptr);

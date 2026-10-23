@@ -6,25 +6,67 @@
 #include "smesh_types.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <functional>
 #include <limits>
+#include <string>
+#include <vector>
 
 #if defined(SMESH_ENABLE_MPI)
 #include "smesh_alltoallv.impl.hpp"
 #include "smesh_distributed_aura.hpp"
 #include <mpi.h>
+#if __has_include(<mpi-ext.h>)
+#include <mpi-ext.h>
+#endif
+#endif
+
+#if defined(SMESH_ENABLE_CUDA)
+#include "smesh_device_buffer.hpp"
+#include "smesh_exchange_kernels.hpp"
+#if defined(SMESH_ENABLE_MPI)
+#include "smesh_device_communicator.hpp"
+#endif
 #endif
 
 namespace smesh {
 
 template <typename T>
 static void ensure_exchange_buffer(SharedBuffer<char> &buffer,
-                                   const ptrdiff_t entries) {
+                                   const ptrdiff_t entries,
+                                   const ExecutionSpace es = EXECUTION_SPACE_HOST) {
   const size_t nbytes = (size_t)entries * sizeof(T);
   if (!buffer || buffer->size() < nbytes) {
+#if defined(SMESH_ENABLE_CUDA)
+    if (es == EXECUTION_SPACE_DEVICE) {
+      buffer = create_device_buffer<char>(nbytes);
+      return;
+    }
+#endif
+    SMESH_UNUSED(es);
     buffer = create_host_buffer<char>(nbytes);
   }
 }
+
+#if defined(SMESH_ENABLE_MPI) && defined(SMESH_ENABLE_CUDA)
+// Whether this MPI moves device memory, at run time.
+static bool mpi_takes_device_memory() {
+#if defined(CRAY_MPICH_VERSION)
+  // Cray MPICH's MPIX queries answer 0 whether or not its GPU support is on (8.1.30 on Alps,
+  // where device-to-device messages then arrive intact); the support is its environment's.
+  const char *const enabled = std::getenv("MPICH_GPU_SUPPORT_ENABLED");
+  return enabled && std::string(enabled) == "1";
+#elif defined(MPIX_GPU_SUPPORT_CUDA)
+  int supported = 0;
+  MPIX_GPU_query_support(MPIX_GPU_SUPPORT_CUDA, &supported);
+  return supported != 0;
+#elif defined(MPIX_CUDA_AWARE_SUPPORT) && MPIX_CUDA_AWARE_SUPPORT
+  return MPIX_Query_cuda_support() != 0;
+#else
+  return false;
+#endif
+}
+#endif
 
 class Exchange::Impl {
 public:
@@ -32,11 +74,6 @@ public:
   std::shared_ptr<Communicator> comm;
   ptrdiff_t nnodes{0};
   ptrdiff_t n_owned_nodes{0};
-  // The largest transfer any rank makes through this Exchange, in elements: the maximum
-  // over ranks of max(send_total, recv_total). Fixed as soon as the counts are, which is
-  // what lets gather_begin decide the int32 question without communicating. Zero until
-  // Exchange::create fills it, and zero is the answer that fits.
-  i64 max_transfer_count{0};
   SharedBuffer<i64> send_count;
   SharedBuffer<i64> send_displs;
   SharedBuffer<i64> recv_count;
@@ -45,17 +82,32 @@ public:
   SharedBuffer<idx_t> import_idx;
   SharedBuffer<char> send_buffer;
   SharedBuffer<char> recv_buffer;
+  // Where gathers' buffers live; on the device, sparse_idx and import_idx copied there.
+  ExecutionSpace execution_space{EXECUTION_SPACE_HOST};
+  SharedBuffer<idx_t> device_sparse_idx;
+  SharedBuffer<idx_t> device_import_idx;
 
 #if defined(SMESH_ENABLE_MPI)
+  // A gather is point-to-point with the ranks that take part, nobody else: a collective over
+  // the communicator would touch every rank on every gather. Its messages travel on a
+  // duplicate of the communicator, where no other traffic can match them.
+  struct Peer {
+    int rank;
+    i64 offset; // in nodes, into the packed sends or the received values
+    i64 count;  // nodes
+    bool on_node{false}; // a device exchange's peer on this node: through NCCL
+  };
+  std::vector<Peer> gather_sends;
+  std::vector<Peer> gather_recvs;
+  std::vector<MPI_Request> gather_requests;
+  MPI_Comm gather_comm{MPI_COMM_NULL};
   bool gather_pending{false};
-  bool gather_need_wait{false};
-  MPI_Request gather_request{MPI_REQUEST_NULL};
-  MPI_Datatype gather_dtype{MPI_DATATYPE_NULL};
-  bool gather_owns_dtype{false};
-  SharedBuffer<int> iall_send_count;
-  SharedBuffer<int> iall_recv_count;
-  SharedBuffer<int> iall_send_displs;
-  SharedBuffer<int> iall_recv_displs;
+#if defined(SMESH_ENABLE_CUDA)
+  // With the communicator's device communication enabled, a device exchange's messages to peers
+  // on this node by NCCL, queued on the stream; to the others (any_remote) by GPU-aware MPI.
+  std::shared_ptr<DeviceCommunicator> device_comm;
+  bool any_remote{true};
+#endif
   std::function<int()> gather_finish;
 #endif
 
@@ -66,9 +118,10 @@ public:
     if (gather_pending && gather_finish) {
       (void)gather_finish();
     }
-    if (gather_owns_dtype && gather_dtype != MPI_DATATYPE_NULL) {
-      MPI_Type_free(&gather_dtype);
-      gather_dtype = MPI_DATATYPE_NULL;
+    int finalized = 0;
+    MPI_Finalized(&finalized);
+    if (gather_comm != MPI_COMM_NULL && !finalized) {
+      MPI_Comm_free(&gather_comm);
     }
 #endif
   }
@@ -81,7 +134,8 @@ Exchange::~Exchange() = default;
 
 std::shared_ptr<Exchange>
 Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh,
-                       const ExchangeScope exchange_scope) {
+                       const ExchangeScope exchange_scope,
+                       const ExecutionSpace execution_space) {
 #if defined(SMESH_ENABLE_MPI)
   auto dist = mesh->distributed();
   const bool with_aura = exchange_scope == ExchangeScope::GhostsAndAura;
@@ -90,12 +144,59 @@ Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh,
                                   (with_aura ? dist->n_nodes_aura() : 0);
   const idx_t *const import_idx =
       with_aura ? dist->ghosts_and_aura()->data() : dist->ghosts()->data();
-  return create(mesh->comm(), exchange_scope, n_local_nodes,
-                dist->n_nodes_owned(), dist->node_owner()->data(),
-                dist->node_offsets()->data(), import_idx);
+  auto ret = create(mesh->comm(), exchange_scope, n_local_nodes,
+                    dist->n_nodes_owned(), dist->node_owner()->data(),
+                    dist->node_offsets()->data(), import_idx);
+
+  // The neighbours' requests (sparse_idx: the nodes this rank sends) name its nodes by
+  // the positions they were created at; a renumbering of the owned-not-shared prefix
+  // (packing) moved those, which the aura reaches. Send from where each is now.
+  auto renumbering = dist->owned_renumbering();
+  if (ret && renumbering && ret->impl_->sparse_idx) {
+    const ptrdiff_t n_moved = static_cast<ptrdiff_t>(renumbering->size());
+    const idx_t *const ren = renumbering->data();
+    idx_t *const sends = ret->impl_->sparse_idx->data();
+    const ptrdiff_t n_sends = static_cast<ptrdiff_t>(ret->impl_->sparse_idx->size());
+    for (ptrdiff_t i = 0; i < n_sends; i++) {
+      if (sends[i] < n_moved) sends[i] = ren[sends[i]];
+    }
+  }
+
+  if (ret && execution_space == EXECUTION_SPACE_DEVICE) {
+#if defined(SMESH_ENABLE_CUDA)
+    // Where the run enabled it, peers on this node through NCCL and the others through
+    // GPU-aware MPI: NCCL is the faster within a node and not to be trusted between nodes
+    // (smesh_device_communicator.hpp).
+    auto &impl = *ret->impl_;
+    impl.device_comm = mesh->comm()->device();
+    if (impl.device_comm) {
+      impl.any_remote = false;
+      for (auto *peers : {&impl.gather_sends, &impl.gather_recvs}) {
+        for (auto &peer : *peers) {
+          peer.on_node = impl.device_comm->node_rank(peer.rank) >= 0;
+          impl.any_remote = impl.any_remote || !peer.on_node;
+        }
+      }
+    }
+    if (impl.any_remote && !mpi_takes_device_memory()) {
+      SMESH_ERROR("Exchange::create_nodal: a device exchange with ranks on other nodes needs "
+                  "GPU-aware MPI, which this MPI does not provide (with Cray MPICH: "
+                  "MPICH_GPU_SUPPORT_ENABLED=1)\n");
+    }
+    ret->impl_->execution_space = EXECUTION_SPACE_DEVICE;
+    ret->impl_->device_sparse_idx = to_device(ret->impl_->sparse_idx);
+    if (ret->impl_->import_idx) {
+      ret->impl_->device_import_idx = to_device(ret->impl_->import_idx);
+    }
+#else
+    SMESH_ERROR("Exchange::create_nodal: a device exchange in a build without CUDA\n");
+#endif
+  }
+  return ret;
 
 #else
   SMESH_UNUSED(exchange_scope);
+  SMESH_UNUSED(execution_space);
   return std::make_shared<Exchange>(mesh->comm());
 #endif
 }
@@ -143,25 +244,21 @@ std::shared_ptr<Exchange> Exchange::create(
     ret->impl_->import_idx = manage_host_buffer<idx_t>(send_total, import_idx);
   }
 
-  // Reduce the int32 fit question once, here, instead of on every gather.
-  //
-  // gather_begin needs to know whether any rank's counts exceed what MPI's int arguments
-  // can hold. That depends only on the counts, and the counts are final at this point, so
-  // the reduction belongs here rather than on the per-apply path -- and it is free in the
-  // sense that matters: this function is already collective, since exchange_create ran an
-  // MPI_Alltoall to build those counts.
-  //
-  // The maximum is reduced rather than the predicate because the two are equivalent and the
-  // maximum is the more useful thing to hold: MIN over ranks of (count <= limit) is 1
-  // exactly when MAX over ranks of count is <= limit.
-  {
-    const i64 local_count =
-        std::max<i64>((i64)send_displs[size], (i64)recv_displs[size]);
-    i64 global_count = 0;
-    SMESH_MPI_CATCH(MPI_Allreduce(&local_count, &global_count, 1, mpi_type<i64>(),
-                                  MPI_MAX, comm->get()));
-    ret->impl_->max_transfer_count = global_count;
+  // A gather sends what the others asked for (recv_count, from sparse_idx) and receives
+  // what this rank asked for (send_count, into ghosts and aura).
+  const i64 *const send_count = ret->impl_->send_count->data();
+  const i64 *const recv_count = ret->impl_->recv_count->data();
+  for (int r = 0; r < size; r++) {
+    if (recv_count[r] > 0) {
+      ret->impl_->gather_sends.push_back({r, recv_displs[r], recv_count[r]});
+    }
+    if (send_count[r] > 0) {
+      ret->impl_->gather_recvs.push_back({r, send_displs[r], send_count[r]});
+    }
   }
+  ret->impl_->gather_requests.reserve(ret->impl_->gather_sends.size() +
+                                      ret->impl_->gather_recvs.size());
+  SMESH_MPI_CATCH(MPI_Comm_dup(comm->get(), &ret->impl_->gather_comm));
 
   return ret;
 }
@@ -175,6 +272,9 @@ template <typename T>
 int Exchange::scatter_add(T *const inout, const ptrdiff_t block_size) {
 #if defined(SMESH_ENABLE_MPI)
   SMESH_TRACE_SCOPE("Exchange::scatter_add");
+  if (impl_->execution_space != EXECUTION_SPACE_HOST) {
+    SMESH_ERROR("Exchange::scatter_add: host buffers only\n");
+  }
   const int size = impl_->comm->size();
   const ptrdiff_t send_total = impl_->send_displs->data()[size];
   const ptrdiff_t recv_total = impl_->recv_displs->data()[size];
@@ -227,10 +327,11 @@ int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
   const ptrdiff_t recv_total = impl_->recv_displs->data()[size];
   const bool ghosts_only = impl_->exchange_scope == ExchangeScope::GhostsOnly;
 
+  const ExecutionSpace es = impl_->execution_space;
   // Pack: recv_count/displs are used as send side for gather (see exchange_gather).
-  ensure_exchange_buffer<T>(impl_->send_buffer, recv_total * block_size);
+  ensure_exchange_buffer<T>(impl_->send_buffer, recv_total * block_size, es);
   if (!ghosts_only) {
-    ensure_exchange_buffer<T>(impl_->recv_buffer, send_total * block_size);
+    ensure_exchange_buffer<T>(impl_->recv_buffer, send_total * block_size, es);
   }
 
   T *const send_buf = (T *)impl_->send_buffer->data();
@@ -238,97 +339,108 @@ int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
       ghosts_only ? nullptr : (T *)impl_->recv_buffer->data();
 
   const idx_t *const gather_idx = impl_->sparse_idx->data();
-  for (ptrdiff_t i = 0; i < recv_total; i++) {
-    const ptrdiff_t src = (ptrdiff_t)gather_idx[i] * block_size;
-    const ptrdiff_t dst = i * block_size;
-    for (ptrdiff_t c = 0; c < block_size; ++c) {
-      send_buf[dst + c] = inout[src + c];
+#if defined(SMESH_ENABLE_CUDA)
+  if (es == EXECUTION_SPACE_DEVICE) {
+    // Packed on the device, and finished before MPI reads the buffer; NCCL's messages follow
+    // the packing on the stream.
+    if (device::gather_by_index(recv_total, block_size, sizeof(T),
+                                impl_->device_sparse_idx->data(), inout,
+                                send_buf) != SMESH_SUCCESS ||
+        (impl_->any_remote && device::synchronize() != SMESH_SUCCESS)) {
+      return SMESH_FAILURE;
+    }
+  } else
+#endif
+  {
+    // One thread: a gather packs a few ten thousand values, too few to repay a parallel region
+    // (measured on Grace, 4 ranks x 72 threads and 8 x 36 pack faster serially).
+    for (ptrdiff_t i = 0; i < recv_total; i++) {
+      const ptrdiff_t src = (ptrdiff_t)gather_idx[i] * block_size;
+      const ptrdiff_t dst = i * block_size;
+      for (ptrdiff_t c = 0; c < block_size; ++c) {
+        send_buf[dst + c] = inout[src + c];
+      }
     }
   }
 
-  const i64 *const large_send_count = impl_->recv_count->data();
-  const i64 *const large_send_displs = impl_->recv_displs->data();
-  const i64 *const large_recv_count = impl_->send_count->data();
-  const i64 *const large_recv_displs = impl_->send_displs->data();
+  T *const recv_ptr =
+      ghosts_only ? &inout[impl_->n_owned_nodes * block_size] : recv_buf;
 
-  // Decided locally. This was a blocking MPI_Allreduce(MPI_MIN) on every gather -- a full
-  // synchronisation placed immediately before the Ialltoallv whose whole purpose is to let
-  // computation proceed while the transfer is in flight. It made the non-blocking path
-  // collective at its start: no rank could enter the overlap window until the slowest had
-  // arrived, which is the cost the overlap exists to avoid.
-  //
-  // Nothing it reduced varies per call. The quantity was max(send_total, recv_total), fixed
-  // when the counts were built in Exchange::create, where the reduction now lives.
-  // block_size is not part of it and never was: the int arrays handed to Ialltoallv below
-  // are ELEMENT counts, with block_size carried by the derived MPI_Type_contiguous datatype
-  // instead, so the int32 ceiling applies to the unscaled counts on both branches.
-  //
-  // Same branch on every rank as before, not merely a safe approximation of it -- see the
-  // equivalence noted at the reduction in Exchange::create.
-  const i64 i32_max = (i64)std::numeric_limits<int>::max();
-  const int global_fits = impl_->max_transfer_count <= i32_max ? 1 : 0;
-
-  void *recv_ptr = ghosts_only
-                       ? (void *)&inout[impl_->n_owned_nodes * block_size]
-                       : (void *)recv_buf;
-
-  if (!global_fits) {
-    const i64 max_chunk_size = i32_max / size;
-    SMESH_MPI_CATCH(all_to_allv_64v(send_buf, large_send_count, large_send_displs,
-                                    (T *)recv_ptr, large_recv_count,
-                                    large_recv_displs, block_size,
-                                    impl_->comm->get(), max_chunk_size));
-    impl_->gather_need_wait = false;
-  } else {
-    if (!impl_->iall_send_count) {
-      impl_->iall_send_count = create_host_buffer<int>(size);
-      impl_->iall_recv_count = create_host_buffer<int>(size);
-      impl_->iall_send_displs = create_host_buffer<int>(size);
-      impl_->iall_recv_displs = create_host_buffer<int>(size);
+  // Counted in elements of T, in messages of at most INT_MAX of them.
+  auto post = [&](const bool send, T *const buf, const i64 n, const int rank) -> int {
+    const i64 chunk = std::numeric_limits<int>::max();
+    for (i64 b = 0; b < n; b += chunk) {
+      const int m = (int)std::min(chunk, n - b);
+      MPI_Request request;
+      if (send) {
+        SMESH_MPI_CATCH(MPI_Isend(buf + b, m, mpi_type<T>(), rank, 0,
+                                  impl_->gather_comm, &request));
+      } else {
+        SMESH_MPI_CATCH(MPI_Irecv(buf + b, m, mpi_type<T>(), rank, 0,
+                                  impl_->gather_comm, &request));
+      }
+      impl_->gather_requests.push_back(request);
     }
-    for (int r = 0; r < size; ++r) {
-      impl_->iall_send_count->data()[r] = (int)large_send_count[r];
-      impl_->iall_recv_count->data()[r] = (int)large_recv_count[r];
-      impl_->iall_send_displs->data()[r] = (int)large_send_displs[r];
-      impl_->iall_recv_displs->data()[r] = (int)large_recv_displs[r];
+    return SMESH_SUCCESS;
+  };
+#if defined(SMESH_ENABLE_CUDA)
+  if (impl_->device_comm) {
+    const auto &device = *impl_->device_comm;
+    device.group_begin();
+    for (const auto &peer : impl_->gather_recvs) {
+      if (peer.on_node) {
+        device.recv(recv_ptr + peer.offset * block_size,
+                    (size_t)(peer.count * block_size) * sizeof(T), peer.rank);
+      }
     }
-
-    MPI_Datatype dtype = mpi_type<T>();
-    impl_->gather_owns_dtype = false;
-    if (block_size > 1) {
-      SMESH_MPI_CATCH(MPI_Type_contiguous((int)block_size, mpi_type<T>(), &dtype));
-      SMESH_MPI_CATCH(MPI_Type_commit(&dtype));
-      impl_->gather_dtype = dtype;
-      impl_->gather_owns_dtype = true;
-    } else {
-      impl_->gather_dtype = dtype;
+    for (const auto &peer : impl_->gather_sends) {
+      if (peer.on_node) {
+        device.send(send_buf + peer.offset * block_size,
+                    (size_t)(peer.count * block_size) * sizeof(T), peer.rank);
+      }
     }
-
-    SMESH_MPI_CATCH(MPI_Ialltoallv(
-        send_buf, impl_->iall_send_count->data(),
-        impl_->iall_send_displs->data(), dtype, recv_ptr,
-        impl_->iall_recv_count->data(), impl_->iall_recv_displs->data(), dtype,
-        impl_->comm->get(), &impl_->gather_request));
-    impl_->gather_need_wait = true;
+    device.group_end();
+  }
+#endif
+  impl_->gather_requests.clear();
+  for (const auto &peer : impl_->gather_recvs) {
+    if (peer.on_node) continue;
+    if (post(false, recv_ptr + peer.offset * block_size, peer.count * block_size,
+             peer.rank) != SMESH_SUCCESS) {
+      return SMESH_FAILURE;
+    }
+  }
+  for (const auto &peer : impl_->gather_sends) {
+    if (peer.on_node) continue;
+    if (post(true, send_buf + peer.offset * block_size, peer.count * block_size,
+             peer.rank) != SMESH_SUCCESS) {
+      return SMESH_FAILURE;
+    }
   }
 
   impl_->gather_pending = true;
   const ptrdiff_t bs = block_size;
   const bool use_aura = !ghosts_only;
   impl_->gather_finish = [this, inout, bs, use_aura, recv_buf]() -> int {
-    if (impl_->gather_need_wait) {
-      SMESH_MPI_CATCH(MPI_Wait(&impl_->gather_request, MPI_STATUS_IGNORE));
-      impl_->gather_request = MPI_REQUEST_NULL;
-      impl_->gather_need_wait = false;
-    }
-    if (impl_->gather_owns_dtype && impl_->gather_dtype != MPI_DATATYPE_NULL) {
-      SMESH_MPI_CATCH(MPI_Type_free(&impl_->gather_dtype));
-      impl_->gather_dtype = MPI_DATATYPE_NULL;
-      impl_->gather_owns_dtype = false;
-    }
+    SMESH_MPI_CATCH(MPI_Waitall((int)impl_->gather_requests.size(),
+                                impl_->gather_requests.data(),
+                                MPI_STATUSES_IGNORE));
+    impl_->gather_requests.clear();
     if (use_aura) {
       const int size_local = impl_->comm->size();
       const ptrdiff_t n_import = impl_->send_displs->data()[size_local];
+#if defined(SMESH_ENABLE_CUDA)
+      if (impl_->execution_space == EXECUTION_SPACE_DEVICE) {
+        if (device::scatter_by_index(n_import, bs, sizeof(T),
+                                     impl_->device_import_idx->data(), recv_buf,
+                                     inout) != SMESH_SUCCESS) {
+          return SMESH_FAILURE;
+        }
+        impl_->gather_pending = false;
+        impl_->gather_finish = nullptr;
+        return SMESH_SUCCESS;
+      }
+#endif
       const idx_t *const import_idx = impl_->import_idx->data();
       for (ptrdiff_t i = 0; i < n_import; ++i) {
         const ptrdiff_t dst = (ptrdiff_t)import_idx[i] * bs;

@@ -39,7 +39,8 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
                      ptrdiff_t *const SMESH_RESTRICT out_local2global_size,
                      large_idx_t **const SMESH_RESTRICT out_local2global,
                      count_t **const SMESH_RESTRICT out_local_n2e_ptr,
-                     element_idx_t **const SMESH_RESTRICT out_local_n2e_idx) {
+                     element_idx_t **const SMESH_RESTRICT out_local_n2e_idx,
+                     const bool keep_isolated_nodes) {
   SMESH_TRACE_SCOPE("redistribute_n2e");
   i64 *send_elements_displs = (i64 *)SMESH_CALLOC((size_t)comm_size + 1, sizeof(i64));
   i64 *send_elements_count = (i64 *)SMESH_CALLOC((size_t)comm_size, sizeof(i64));
@@ -63,9 +64,12 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
     const count_t e_begin = n2eptr[i];
     const count_t e_end = n2eptr[i + 1];
     if (e_end == e_begin) {
-      // Keep isolated nodes in the distributed node map.
-      const int owner = rank_owner(n_global_nodes, node_start + i, comm_size);
-      send_nodes_displs[owner + 1]++;
+      // Keep isolated nodes in the distributed node map, unless the caller
+      // read only some blocks: then they are the nodes of the others.
+      if (keep_isolated_nodes) {
+        const int owner = rank_owner(n_global_nodes, node_start + i, comm_size);
+        send_nodes_displs[owner + 1]++;
+      }
       continue;
     }
     for (ptrdiff_t e = e_begin; e < e_end; ++e) {
@@ -108,6 +112,9 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
     const count_t e_begin = n2eptr[i];
     const count_t e_end = n2eptr[i + 1];
     if (e_end == e_begin) {
+      if (!keep_isolated_nodes) {
+        continue;
+      }
       // FIXME is there a better way to handle this instead of sending everything?
       const int owner = rank_owner(n_global_nodes, node_start + i, comm_size);
       const i64 node_pos = send_nodes_displs[owner] + send_nodes_count[owner];

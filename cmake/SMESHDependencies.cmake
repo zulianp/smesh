@@ -303,6 +303,28 @@ if(SMESH_ENABLE_MPI)
     endif()
 endif()
 
+# ##############################################################################
+# NCCL, optional: communication of device buffers within a node (DeviceCommunicator), queued on
+# the stream instead of passing through the host, for runs that enable it
+# (Communicator::enable_device). Found with SMESH_ENABLE_MPI and SMESH_ENABLE_CUDA.
+
+if(SMESH_ENABLE_MPI AND SMESH_ENABLE_CUDA)
+    find_path(SMESH_NCCL_INCLUDE_DIR nccl.h
+        HINTS ENV NCCL_HOME ENV NCCL_ROOT ${CUDAToolkit_INCLUDE_DIRS}
+        PATH_SUFFIXES include)
+    find_library(SMESH_NCCL_LIBRARY nccl
+        HINTS ENV NCCL_HOME ENV NCCL_ROOT ${CUDAToolkit_LIBRARY_DIR}
+        PATH_SUFFIXES lib lib64)
+    if(SMESH_NCCL_INCLUDE_DIR AND SMESH_NCCL_LIBRARY)
+        set(SMESH_ENABLE_NCCL ON)
+        message(STATUS "NCCL: ${SMESH_NCCL_LIBRARY}")
+        list(APPEND SMESH_DEP_INCLUDES "${SMESH_NCCL_INCLUDE_DIR}")
+        list(APPEND SMESH_DEP_LIBRARIES "${SMESH_NCCL_LIBRARY}")
+    else()
+        message(STATUS "NCCL not found (set NCCL_HOME): device communication within a node unavailable")
+    endif()
+endif()
+
 
 # ##############################################################################
 
@@ -441,4 +463,23 @@ endif()
 
 list(APPEND SMESH_SUBMODULES smesh_mpi_sort)
 
+endif()
+
+# ##############################################################################
+
+# Optional. An in-tree or previously imported target wins; otherwise the
+# standard config search (ssdf_DIR / CMAKE_PREFIX_PATH) is required.
+set(SMESH_SSDF_TARGET "")
+if(SMESH_ENABLE_SSDF)
+    if(NOT TARGET ssdf::ssdf AND NOT TARGET ssdf)
+        find_package(ssdf CONFIG REQUIRED)
+    endif()
+
+    if(TARGET ssdf::ssdf)
+        set(SMESH_SSDF_TARGET ssdf::ssdf)
+    elseif(TARGET ssdf)
+        set(SMESH_SSDF_TARGET ssdf)
+    else()
+        message(FATAL_ERROR "SMESH_ENABLE_SSDF is ON, but no ssdf target is available")
+    endif()
 endif()

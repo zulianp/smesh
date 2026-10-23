@@ -20,8 +20,8 @@ public:
   // How much of the block the packs actually cover. On a serial mesh this is every
   // element and every node, and everything below behaves exactly as it always has.
   //
-  // On a distributed mesh it is the owned-not-shared prefix of each, and the reason is
-  // an ownership coupling that is invisible from this file. A rank's ghost entries name
+  // On a distributed mesh the packs cover every element, and the nodes they renumber are
+  // the owned-not-shared prefix, for an ownership coupling that is invisible from this file. A rank's ghost entries name
   // nodes by GLOBAL owned index -- exchange_create turns them into local ones by
   // subtracting node_offsets[rank] -- so the position a node holds inside its owner's
   // owned block is a number other ranks have already recorded. Renumbering a node that
@@ -33,7 +33,8 @@ public:
   // not shared has every incident element here and appears in nobody's ghost list.
   // Permuting that prefix is invisible off-rank, which is what keeps packing a local
   // operation needing no collective and no rebuilt Exchange. Shared, ghost and aura
-  // nodes -- and the shared and aura elements -- keep their positions.
+  // nodes keep their positions; the shared and aura elements are packed with them as
+  // pack ghosts.
   ptrdiff_t n_packed_elements{0};
   ptrdiff_t n_packable_nodes{0};
 
@@ -214,6 +215,9 @@ public:
         smesh::create_host_buffer<mask_t>(mask_count(nnodes));
     auto d_selected = selected->data();
 
+    // The packs' owned ranges are mesh node ids: a later block's start where the
+    // earlier blocks' owned nodes end, not at zero.
+    d_owned_nodes_ptr[0] = global_next_id;
     ptrdiff_t next_id = global_next_id;
     for (ptrdiff_t p = 0; p < n_packs; p++) {
       const ptrdiff_t start = p * elements_per_pack;
@@ -447,14 +451,12 @@ public:
       packed_block->block = block;
       packed_block->n_packable_nodes = n_packable_nodes;
 
-      // Shared and aura elements keep their positions and are covered by no pack. The
-      // fallback matches reorder_distributed: a block carrying no distributed element
-      // counts is treated as entirely owned.
-      ptrdiff_t n_packed = block->n_elements();
-      if (distributed &&
-          (block->n_elements_owned() != 0 || block->n_elements_ghosts() != 0)) {
-        n_packed = block->n_elements_owned_not_shared();
-      }
+      // Every element, the shared and aura ones too: a kernel walking the packs computes
+      // the whole block, as one over the element arrays does, so every owned row is complete
+      // without a reduction across ranks. Only the nodes are restricted (n_packable_nodes):
+      // the shared, ghost and aura nodes of these elements are pack ghosts and keep their
+      // positions.
+      const ptrdiff_t n_packed = block->n_elements();
       packed_block->n_packed_elements = n_packed;
 
       if (n_packed == 0) {

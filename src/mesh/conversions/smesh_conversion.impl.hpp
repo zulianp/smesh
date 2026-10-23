@@ -31,6 +31,24 @@ void mesh_hex8_to_6x_tet4(
 }
 
 template <typename idx_t>
+void mesh_hex8_emit_24_tet4(
+    const idx_t *corner, const idx_t *face_center, const idx_t cell_center,
+    idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT tet4_elements,
+    const ptrdiff_t tet_begin) {
+  for (int face = 0; face < 6; ++face) {
+    const int *fn = hex8_outward_face_nodes[face];
+    const idx_t fc = face_center[face];
+    for (int edge = 0; edge < 4; ++edge) {
+      const ptrdiff_t t = tet_begin + face * 4 + edge;
+      tet4_elements[0][t] = corner[fn[(edge + 1) & 3]];
+      tet4_elements[1][t] = corner[fn[edge]];
+      tet4_elements[2][t] = fc;
+      tet4_elements[3][t] = cell_center;
+    }
+  }
+}
+
+template <typename idx_t>
 void mesh_tet15_to_4x_hex8(
     const ptrdiff_t n_elements,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT tet15_elements,

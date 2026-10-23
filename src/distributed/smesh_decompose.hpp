@@ -144,7 +144,8 @@ int redistribute_n2e(MPI_Comm comm, const int comm_size, const int comm_rank,
                      ptrdiff_t *const SMESH_RESTRICT out_local2global_size,
                      local2global_t **const SMESH_RESTRICT out_local2global,
                      count_t **const SMESH_RESTRICT out_local_n2e_ptr,
-                     element_idx_t **const SMESH_RESTRICT out_local_n2e_idx);
+                     element_idx_t **const SMESH_RESTRICT out_local_n2e_idx,
+                     const bool keep_isolated_nodes = true);
 
 template <typename idx_t, typename count_t, typename element_idx_t,
           typename local2global_t = idx_t>

@@ -14,6 +14,8 @@
 
 namespace smesh {
 
+class DeviceCommunicator;
+
 class Communicator {
 public:
   Communicator();
@@ -58,6 +60,18 @@ public:
   }
 
   void max(void *buffer, int count, enum PrimitiveType type) const;
+
+  /// In place over the ranks, in one message: the first count - 1 values summed, the last the
+  /// minimum (a solver's dot products and a step bound together). f32 and f64.
+  void sum_and_min_last(void *buffer, int count, enum PrimitiveType type) const;
+
+  /// Communication of device buffers among this communicator's ranks on this rank's node by NCCL
+  /// (smesh_device_communicator.hpp), for a run that wants it: its set-up starts here, in the
+  /// background, and the users of device() take it up. Collective; a build with MPI and NCCL.
+  void enable_device() const;
+
+  /// That communication, null unless enable_device() was called for this MPI communicator.
+  std::shared_ptr<DeviceCommunicator> device() const;
 
   /// Every rank contributes @p count elements from @p sendbuf; @p recvbuf receives
   /// size() * count elements, rank-major. Unlike sum/max/broadcast this is NOT in place:

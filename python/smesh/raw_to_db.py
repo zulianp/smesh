@@ -15,7 +15,11 @@ from common.raw_io import (
     is_exodus_path,
     load_points,
     load_raw_mesh,
+    select_steps,
+    step_field_components,
+    step_field_files,
 )
+from collections import OrderedDict
 
 import inspect
 
@@ -409,20 +413,82 @@ def write_transient_data(
                 )
 
 
-def add_fields(field_data, storage, check_len):
-    if field_data:
-        paths = field_data.split(",")
+def expand_patterns(patterns):
+    """The files the comma-separated glob patterns match."""
+    files = []
+    if patterns:
+        for p in patterns.split(","):
+            files.extend(glob.glob(p, recursive=False))
+    return sorted(set(files))
 
-        n_paths = len(paths)
-        for i in range(0, n_paths):
-            p = paths[i]
-            files = glob.glob(p, recursive=False)
-            files.sort()
 
-            for f in files:
-                field = Field(f)
+def collect_fields(patterns, step=None, all_steps=False):
+    """The fields the patterns match, {name: {step: [(suffix, path)]}}, and the steps to write.
+    SFEM's step files (<name>[.<component>].<step>.<dtype>) give one field per name, its
+    components joined, at the steps select_steps picks: the last unless asked otherwise. Any
+    other file is a field of its own, named by its file, the same at every step (step None)."""
+    found, other = step_field_files(expand_patterns(patterns))
+    chosen = None
+    fields = OrderedDict()
+    for name, steps in found.items():
+        selected = select_steps(name, steps, step, all_steps)
+        if chosen is not None and selected != chosen:
+            raise RuntimeError(f"{name} has steps {selected}, the other fields {chosen}")
+        chosen = selected
+        fields[name] = {s: step_field_components(name, s, steps[s]) for s in selected}
+    for path in other:
+        fields[os.path.splitext(os.path.basename(path))[0]] = {None: [("", path)]}
+    return fields, chosen if chosen is not None else [None]
+
+
+def load_field(parts, check_len):
+    """One field at one step: a scalar, or its components side by side."""
+    data = []
+    for _, path in parts:
+        field = Field(path)
+        field.check_len(check_len)
+        data.append(field.data)
+    return data[0] if len(parts) == 1 and parts[0][0] == "" else np.stack(data, axis=1)
+
+
+def field_at(by_step, step):
+    return by_step[step] if step in by_step else by_step[None]
+
+
+def add_fields(field_data, storage, check_len, step=None):
+    fields, steps = collect_fields(field_data, step)
+    for name, by_step in fields.items():
+        if steps != [None]:
+            print(f"{name}: step {steps[0]}")
+        storage[name] = load_field(field_at(by_step, steps[0]), check_len)
+
+
+def write_step_series(output_path, points, cells, point_fields, cell_fields, steps, time_whole):
+    """SFEM's step files as a time series, one time per step: the step numbers, or time_whole."""
+    if len(time_whole) == 0:
+        time_whole = np.asarray(steps, dtype=np.float32)
+    elif len(time_whole) != len(steps):
+        raise RuntimeError(f"time_whole has {len(time_whole)} entries for {len(steps)} steps")
+    n_points = len(points)
+    n_cells = sum(block[1].shape[0] for block in cells)
+    with meshio.xdmf.TimeSeriesWriter(output_path) as writer:
+        writer.write_points_cells(points, cells)
+        for t, s in zip(time_whole, steps):
+            point_data = {name: load_field(field_at(by_step, s), n_points) for name, by_step in point_fields.items()}
+            cell_data = {name: [load_field(field_at(by_step, s), n_cells)] for name, by_step in cell_fields.items()}
+            writer.write_data(t, point_data=point_data or None, cell_data=cell_data or None)
+
+
+def exodus_fields(fields, steps, check_len):
+    """fields as raw_to_exodusII takes them: {name + suffix: {time index: values}}."""
+    ret = OrderedDict()
+    for name, by_step in fields.items():
+        for index, s in enumerate(steps):
+            for suffix, path in field_at(by_step, s):
+                field = Field(path)
                 field.check_len(check_len)
-                storage[field.name] = field.data
+                ret.setdefault(name + suffix, {})[index] = field.data
+    return ret
 
 
 def merge_cells_by_type(cell_blocks, cell_data):
@@ -464,7 +530,12 @@ def write_paraview_mesh(mesh, output_path):
 
 
 def raw_to_db(argv):
-    usage = f"usage: {argv[0]} <input_folder> <output_mesh>"
+    usage = (
+        f"usage: {argv[0]} <input_folder> <output_mesh> [-p point_data] [-c cell_data] [--step=N] [--transient]\n"
+        "  -p/-c take comma-separated glob patterns. SFEM's output files (<name>[.<component>].<step>.<dtype>)\n"
+        "  are one field per name, components joined, at the last step (--step=N for another, --transient\n"
+        "  for all of them, as a time series); any other file is a field named by the file."
+    )
 
     if len(argv) < 3:
         print(usage)
@@ -486,6 +557,7 @@ def raw_to_db(argv):
     verbose = False
     ssref = 0
     merge_cells = False
+    step = None
 
     try:
         opts, args = getopt.getopt(
@@ -505,6 +577,7 @@ def raw_to_db(argv):
                 "verbose",
                 "ssref",
                 "merge-cells",
+                "step=",
             ],
         )
 
@@ -543,13 +616,32 @@ def raw_to_db(argv):
             ssref = int(arg)
         elif opt == "--merge-cells":
             merge_cells = True
+        elif opt == "--step":
+            step = int(arg)
+
+    # As given: transient mode below fills in steps 0, 1, ... when none are.
+    time_whole_given = time_whole
 
     if is_exodus_output(output_path):
         from raw_to_exodusII import raw_to_exodusII
 
         if verbose:
             print(f"Writing Exodus via raw_to_exodusII -> {output_path}")
-        raw_to_exodusII(raw_mesh_folder, output_path)
+        mesh_data = load_raw_mesh(raw_mesh_folder)
+        point_fields, point_steps = collect_fields(point_data, step, transient)
+        cell_fields, cell_steps = collect_fields(cell_data, step, transient)
+        steps = point_steps if point_steps != [None] else cell_steps
+        if cell_steps != [None] and cell_steps != steps:
+            raise RuntimeError(f"point data at steps {point_steps}, cell data at {cell_steps}")
+        if len(time_whole) == 0 and steps != [None]:
+            time_whole = np.asarray(steps, dtype=np.float32)
+        raw_to_exodusII(
+            raw_mesh_folder,
+            output_path,
+            point_fields=exodus_fields(point_fields, steps, mesh_data.n_nodes),
+            cell_fields=exodus_fields(cell_fields, steps, mesh_data.n_elements),
+            time_whole=time_whole if len(time_whole) else None,
+        )
         return
 
     mesh_data = load_raw_mesh(raw_mesh_folder)
@@ -601,6 +693,17 @@ def raw_to_db(argv):
     if transient:
         print("Transient mode!")
 
+        point_fields, point_steps = collect_fields(point_data, all_steps=True)
+        cell_fields, cell_steps = collect_fields(cell_data, all_steps=True)
+        if point_steps != [None] or cell_steps != [None]:
+            steps = point_steps if point_steps != [None] else cell_steps
+            if cell_steps != [None] and cell_steps != steps:
+                raise RuntimeError(f"point data at steps {point_steps}, cell data at {cell_steps}")
+            if len(block_sizes) > 1 and cell_fields:
+                raise RuntimeError("cell data of a multi-block mesh is not written as a time series")
+            write_step_series(output_path, points, cells, point_fields, cell_fields, steps, time_whole_given)
+            return
+
         write_transient_data(
             output_path,
             points,
@@ -630,12 +733,12 @@ def raw_to_db(argv):
         point_sets=point_sets,
     )
 
-    add_fields(point_data, mesh.point_data, n_points)
+    add_fields(point_data, mesh.point_data, n_points, step)
     if len(block_sizes) == 1:
-        add_fields(cell_data, mesh.cell_data, n_cells)
+        add_fields(cell_data, mesh.cell_data, n_cells, step)
     elif cell_data:
         raw_cell = {}
-        add_fields(cell_data, raw_cell, n_cells)
+        add_fields(cell_data, raw_cell, n_cells, step)
         for name, data in raw_cell.items():
             split = []
             offset = 0
