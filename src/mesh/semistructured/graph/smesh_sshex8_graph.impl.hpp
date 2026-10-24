@@ -307,7 +307,7 @@ namespace smesh {
         ptrdiff_t ret = 0;
         for (int i = 0; i < nxe; i++) {
             for (ptrdiff_t e = 0; e < nelements; e++) {
-                ret = std::max(ret, elements[i][e]);
+                ret = std::max(ret, static_cast<ptrdiff_t>(elements[i][e]));
             }
         }
         return ret;

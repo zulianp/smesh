@@ -47,7 +47,8 @@ namespace smesh {
                                                        const ptrdiff_t,                                    \
                                                        IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT,  \
                                                        IDX_T **,                                           \
-                                                       ptrdiff_t *)
+                                                       ptrdiff_t *);                                       \
+    template ptrdiff_t nxe_max_node_id<IDX_T>(const ptrdiff_t, const int, IDX_T **const SMESH_RESTRICT)
 
 #define SMESH_EXPLICIT_INSTANTIATE_SSHEX8_GRAPH(IDX_T, ELEM_IDX_T, COUNT_T)                                            \
     template int sshex8_crs_graph<ELEM_IDX_T, COUNT_T, IDX_T>(const int,                                               \
