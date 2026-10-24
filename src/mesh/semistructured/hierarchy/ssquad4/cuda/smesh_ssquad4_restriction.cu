@@ -95,19 +95,8 @@ static int cu_ssquad4_hierarchical_restriction_tpl(
   ptrdiff_t n_blocks =
       MAX(ptrdiff_t(1), (nelements + block_size - 1) / block_size);
 
-  if (stream) {
-    cudaStream_t s = *static_cast<cudaStream_t *>(stream);
-
-    cu_ssquad4_hierarchical_restriction_kernel<From, To>
-        <<<n_blocks, block_size, 0, s>>>(
-            level, nelements, stride, elements, element_to_node_incidence_count,
-            vec_size, from_stride, from, to_stride, to);
-  } else {
-    cu_ssquad4_hierarchical_restriction_kernel<From, To>
-        <<<n_blocks, block_size, 0>>>(level, nelements, stride, elements,
-                                      element_to_node_incidence_count, vec_size,
-                                      from_stride, from, to_stride, to);
-  }
+  cu_ssquad4_hierarchical_restriction_kernel<From, To><<<n_blocks, block_size, 0, (cudaStream_t)stream>>>(
+          level, nelements, stride, elements, element_to_node_incidence_count, vec_size, from_stride, from, to_stride, to);
 
   SMESH_DEBUG_SYNCHRONIZE();
   return SMESH_SUCCESS;
@@ -240,19 +229,8 @@ static int cu_ssquad4_hierarchical_restriction_SoA_tpl(
   ptrdiff_t n_blocks =
       MAX(ptrdiff_t(1), (nelements + block_size - 1) / block_size);
 
-  if (stream) {
-    cudaStream_t s = *static_cast<cudaStream_t *>(stream);
-
-    cu_ssquad4_hierarchical_restriction_SoA_kernel<From, To>
-        <<<n_blocks, block_size, 0, s>>>(
-            level, nelements, elements, element_to_node_incidence_count,
-            vec_size, from_stride, from, to_stride, to);
-  } else {
-    cu_ssquad4_hierarchical_restriction_SoA_kernel<From, To>
-        <<<n_blocks, block_size, 0>>>(level, nelements, elements,
-                                      element_to_node_incidence_count, vec_size,
-                                      from_stride, from, to_stride, to);
-  }
+  cu_ssquad4_hierarchical_restriction_SoA_kernel<From, To><<<n_blocks, block_size, 0, (cudaStream_t)stream>>>(
+          level, nelements, elements, element_to_node_incidence_count, vec_size, from_stride, from, to_stride, to);
 
   SMESH_DEBUG_SYNCHRONIZE();
   return SMESH_SUCCESS;
@@ -571,25 +549,22 @@ int cu_ssquad4_restrict_tpl(
 
   size_t shared_mem_size = block_size * sizeof(From);
 
-  if (stream) {
-    cudaStream_t s = *static_cast<cudaStream_t *>(stream);
-
-    cu_ssquad4_restrict_kernel<From, To>
-        <<<n_blocks, block_size, shared_mem_size, s>>>(
-            nelements,
-            // stride,
-            from_level, from_level_stride, from_elements,
-            from_element_to_node_incidence_count, to_level, to_level_stride,
-            to_elements, S->data, vec_size, from_stride, from, to_stride, to);
-  } else {
-    cu_ssquad4_restrict_kernel<From, To>
-        <<<n_blocks, block_size, shared_mem_size>>>(
-            nelements,
-            // stride,
-            from_level, from_level_stride, from_elements,
-            from_element_to_node_incidence_count, to_level, to_level_stride,
-            to_elements, S->data, vec_size, from_stride, from, to_stride, to);
-  }
+  cu_ssquad4_restrict_kernel<From, To>
+          <<<n_blocks, block_size, shared_mem_size, (cudaStream_t)stream>>>(nelements,
+                                                                            // stride,
+                                                                            from_level,
+                                                                            from_level_stride,
+                                                                            from_elements,
+                                                                            from_element_to_node_incidence_count,
+                                                                            to_level,
+                                                                            to_level_stride,
+                                                                            to_elements,
+                                                                            S->data,
+                                                                            vec_size,
+                                                                            from_stride,
+                                                                            from,
+                                                                            to_stride,
+                                                                            to);
 
   SMESH_DEBUG_SYNCHRONIZE();
   return SMESH_SUCCESS;

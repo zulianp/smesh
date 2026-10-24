@@ -342,27 +342,23 @@ int cu_sshex8_prolongate_tpl(
   ShapeInterpolation<To> S(to_level / from_level);
 #endif
 
-  if (stream) {
-    cudaStream_t s = *static_cast<cudaStream_t *>(stream);
-
-    cu_sshex8_prolongate_kernel<From, To>
-        <<<n_blocks, block_size, shared_mem_size, s>>>(
-            nelements, from_level, from_level_stride, from_elements, to_level,
-            to_level_stride, to_elements,
+  cu_sshex8_prolongate_kernel<From, To><<<n_blocks, block_size, shared_mem_size, (cudaStream_t)stream>>>(nelements,
+                                                                                                         from_level,
+                                                                                                         from_level_stride,
+                                                                                                         from_elements,
+                                                                                                         to_level,
+                                                                                                         to_level_stride,
+                                                                                                         to_elements,
 #ifndef PROLONGATE_IN_KERNEL_BASIS_VERSION
-            S.data,
+                                                                                                         S.data,
 #endif
-            vec_size, from_type, from_stride, from, to_type, to_stride, to);
-  } else {
-    cu_sshex8_prolongate_kernel<From, To>
-        <<<n_blocks, block_size, shared_mem_size>>>(
-            nelements, from_level, from_level_stride, from_elements, to_level,
-            to_level_stride, to_elements,
-#ifndef PROLONGATE_IN_KERNEL_BASIS_VERSION
-            S.data,
-#endif
-            vec_size, from_type, from_stride, from, to_type, to_stride, to);
-  }
+                                                                                                         vec_size,
+                                                                                                         from_type,
+                                                                                                         from_stride,
+                                                                                                         from,
+                                                                                                         to_type,
+                                                                                                         to_stride,
+                                                                                                         to);
 
   SMESH_DEBUG_SYNCHRONIZE();
   return SMESH_SUCCESS;

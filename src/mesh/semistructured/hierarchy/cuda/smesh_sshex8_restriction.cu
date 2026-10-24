@@ -218,15 +218,8 @@ namespace smesh {
 
         ptrdiff_t n_blocks = MAX(ptrdiff_t(1), (nelements + block_size - 1) / block_size);
 
-        if (stream) {
-            cudaStream_t s = *static_cast<cudaStream_t *>(stream);
-
-            cu_sshex8_hierarchical_prolongation_kernel<From, To>
-                    <<<n_blocks, block_size, 0, s>>>(level, nelements, elements, vec_size, from_stride, from, to_stride, to);
-        } else {
-            cu_sshex8_hierarchical_prolongation_kernel<From, To>
-                    <<<n_blocks, block_size, 0>>>(level, nelements, elements, vec_size, from_stride, from, to_stride, to);
-        }
+        cu_sshex8_hierarchical_prolongation_kernel<From, To><<<n_blocks, block_size, 0, (cudaStream_t)stream>>>(
+                level, nelements, elements, vec_size, from_stride, from, to_stride, to);
 
         SMESH_DEBUG_SYNCHRONIZE();
         return SMESH_SUCCESS;
@@ -374,15 +367,8 @@ namespace smesh {
 
         ptrdiff_t n_blocks = MAX(ptrdiff_t(1), (nelements + block_size - 1) / block_size);
 
-        if (stream) {
-            cudaStream_t s = *static_cast<cudaStream_t *>(stream);
-
-            cu_sshex8_hierarchical_restriction_kernel<From, To, idx_t><<<n_blocks, block_size, 0, s>>>(
-                    level, nelements, elements, element_to_node_incidence_count, vec_size, from_stride, from, to_stride, to);
-        } else {
-            cu_sshex8_hierarchical_restriction_kernel<From, To, idx_t><<<n_blocks, block_size, 0>>>(
-                    level, nelements, elements, element_to_node_incidence_count, vec_size, from_stride, from, to_stride, to);
-        }
+        cu_sshex8_hierarchical_restriction_kernel<From, To, idx_t><<<n_blocks, block_size, 0, (cudaStream_t)stream>>>(
+                level, nelements, elements, element_to_node_incidence_count, vec_size, from_stride, from, to_stride, to);
 
         SMESH_DEBUG_SYNCHRONIZE();
         return SMESH_SUCCESS;
@@ -643,45 +629,23 @@ namespace smesh {
 
         size_t shared_mem_size = block_size * sizeof(From);
 
-        if (stream) {
-            cudaStream_t s = *static_cast<cudaStream_t *>(stream);
-
-            sshex8_hierarchical_restriction_kernel<From, To>
-                    <<<n_blocks, block_size, shared_mem_size, s>>>(nelements,
-                                                                   from_level,
-                                                                   from_level_stride,
-                                                                   from_elements,
-                                                                   from_element_to_node_incidence_count,
-                                                                   to_level,
-                                                                   to_level_stride,
-                                                                   to_elements,
-                                                                   S->data,
-                                                                   vec_size,
-                                                                   from_type,
-                                                                   from_stride,
-                                                                   from,
-                                                                   to_type,
-                                                                   to_stride,
-                                                                   to);
-        } else {
-            sshex8_hierarchical_restriction_kernel<From, To>
-                    <<<n_blocks, block_size, shared_mem_size>>>(nelements,
-                                                                from_level,
-                                                                from_level_stride,
-                                                                from_elements,
-                                                                from_element_to_node_incidence_count,
-                                                                to_level,
-                                                                to_level_stride,
-                                                                to_elements,
-                                                                S->data,
-                                                                vec_size,
-                                                                from_type,
-                                                                from_stride,
-                                                                from,
-                                                                to_type,
-                                                                to_stride,
-                                                                to);
-        }
+        sshex8_hierarchical_restriction_kernel<From, To>
+                <<<n_blocks, block_size, shared_mem_size, (cudaStream_t)stream>>>(nelements,
+                                                                                  from_level,
+                                                                                  from_level_stride,
+                                                                                  from_elements,
+                                                                                  from_element_to_node_incidence_count,
+                                                                                  to_level,
+                                                                                  to_level_stride,
+                                                                                  to_elements,
+                                                                                  S->data,
+                                                                                  vec_size,
+                                                                                  from_type,
+                                                                                  from_stride,
+                                                                                  from,
+                                                                                  to_type,
+                                                                                  to_stride,
+                                                                                  to);
 
         SMESH_DEBUG_SYNCHRONIZE();
         return SMESH_SUCCESS;
