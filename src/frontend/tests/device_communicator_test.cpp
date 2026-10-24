@@ -39,9 +39,9 @@ template <typename T> int check(const std::shared_ptr<Communicator> &comm) {
       if (min_last) v[count - 1] = T(1000 - (rank + rep) % size);
       cudaMemcpy(d, v.data(), count * sizeof(T), cudaMemcpyHostToDevice);
       if (min_last) {
-        device->sum_and_min_last(d, count, TypeToEnum<T>::value());
+        device->sum_and_min_last(d, count, TypeToEnum<T>::value(), nullptr);
       } else {
-        device->sum(d, count, TypeToEnum<T>::value());
+        device->sum(d, count, TypeToEnum<T>::value(), nullptr);
       }
       cudaMemcpy(v.data(), d, count * sizeof(T), cudaMemcpyDeviceToHost);
       const int sums = min_last ? count - 1 : count;
@@ -109,8 +109,8 @@ int test_messages() {
     cudaMemcpy(send, h.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
     device->group_begin();
     for (int p = 0; p < m; p++) {
-      device->recv(recv + p * n, n * sizeof(double), peers[p]);
-      device->send(send + p * n, n * sizeof(double), peers[p]);
+      device->recv(recv + p * n, n * sizeof(double), peers[p], nullptr);
+      device->send(send + p * n, n * sizeof(double), peers[p], nullptr);
     }
     device->group_end();
     cudaMemcpy(h.data(), recv, m * n * sizeof(double), cudaMemcpyDeviceToHost);

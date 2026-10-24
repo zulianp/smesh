@@ -47,8 +47,12 @@ public:
   template <typename T> int gather(T *const inout, const ptrdiff_t block_size);
 
   /// Pack and post non-blocking gather (or complete synchronously if counts do not fit Ialltoallv).
-  template <typename T> int gather_begin(T *const inout, const ptrdiff_t block_size = 1);
-  /// Wait for a pending gather_begin and unpack into ghost/aura slots.
+  /// On the device the pack, NCCL's messages and the unpack at gather_wait are queued on `stream`
+  /// (a cudaStream_t; null: the legacy default stream), and only that stream is waited for before
+  /// MPI reads the packed buffer.
+  template <typename T>
+  int gather_begin(T *const inout, const ptrdiff_t block_size = 1, void *const stream = nullptr);
+  /// Wait for a pending gather_begin and unpack into ghost/aura slots, on gather_begin's stream.
   int gather_wait();
 
   class Impl;
