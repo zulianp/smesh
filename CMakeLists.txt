@@ -157,10 +157,11 @@ target_include_directories(smesh
 
 set(_smesh_driver_targets "")
 if(SMESH_ENABLE_DRIVERS)
-    set(_smesh_driver_scan_dirs
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/benchmark/drivers"
-    )
+    set(_smesh_driver_scan_dirs "${CMAKE_CURRENT_SOURCE_DIR}/src/drivers")
+    # The benchmarks measure MPI: exchange, I/O, and the distributed mesh.
+    if(SMESH_ENABLE_MPI)
+        list(APPEND _smesh_driver_scan_dirs "${CMAKE_CURRENT_SOURCE_DIR}/src/benchmark/drivers")
+    endif()
     foreach(_smesh_driver_scan_dir IN LISTS _smesh_driver_scan_dirs)
         if(NOT EXISTS "${_smesh_driver_scan_dir}")
             continue()
