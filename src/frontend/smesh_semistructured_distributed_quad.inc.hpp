@@ -526,9 +526,17 @@ std::shared_ptr<Mesh> to_semistructured_distributed_quad(const int              
         SMESH_FREE(global2owned);
     }
 
+    // fill_points reads each element's corners and writes every node of it; its point arguments are
+    // restrict, so the corners are read from a copy rather than from the points being written.
+    auto macro_points = create_host_buffer<geom_t>((size_t)sdim, (size_t)n_local);
+    for (int d = 0; d < sdim; ++d) {
+        std::memcpy(macro_points->data()[d], p[d], (size_t)n_local * sizeof(geom_t));
+    }
+    const geom_t *const *const macro_p = macro_points->data();
+
     for (ptrdiff_t b = 0; b < n_blocks; ++b) {
         idx_t **el = ss_blocks[(size_t)b]->elements()->data();
-        ssquad4_fill_points(level, n_e[b], sdim, el, p, p);
+        ssquad4_fill_points(level, n_e[b], sdim, el, macro_p, p);
     }
 
     SMESH_FREE(n_owned_b);
