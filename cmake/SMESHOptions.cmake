@@ -16,6 +16,7 @@ option(SMESH_ENABLE_SSDF "Enable optional SSDF distance queries" OFF)
 option(SMESH_ENABLE_MPI "Enable MPI support" ON)
 option(SMESH_ENABLE_OPENMP "Enable OpenMP support" OFF)
 option(SMESH_ENABLE_MPISORT "Enable MPI sort" OFF)
+option(SMESH_ENABLE_NCCL "NCCL for device buffers within a node, in builds with MPI and CUDA (off when not found)" ON)
 
 # option(SMESH_ENABLE_PYTHON "Enable python bindings for SMESH" OFF)
 option(SMESH_ENABLE_RYAML "Enable YAML input files with RapidYAML" OFF)

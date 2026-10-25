@@ -205,6 +205,37 @@ void Communicator::enable_device() const {
 std::shared_ptr<DeviceCommunicator> Communicator::device() const { return nullptr; }
 
 void release_device_communicators() {}
+
+// Callers (Exchange, the solvers' reductions) reach these only through device(), which is null
+// here, but they are still linked.
+class DeviceCommunicator::Impl {};
+DeviceCommunicator::DeviceCommunicator() = default;
+DeviceCommunicator::~DeviceCommunicator() = default;
+
+#define SMESH_NO_DEVICE_COMMUNICATOR() \
+  SMESH_ERROR("DeviceCommunicator: a build without MPI and NCCL\n")
+
+int DeviceCommunicator::rank() const { SMESH_NO_DEVICE_COMMUNICATOR(); return 0; }
+int DeviceCommunicator::size() const { SMESH_NO_DEVICE_COMMUNICATOR(); return 1; }
+bool DeviceCommunicator::whole() const { SMESH_NO_DEVICE_COMMUNICATOR(); return false; }
+int DeviceCommunicator::node_rank(const int) const { SMESH_NO_DEVICE_COMMUNICATOR(); return -1; }
+void DeviceCommunicator::sum(void *const, const int, const enum PrimitiveType, void *const) const {
+  SMESH_NO_DEVICE_COMMUNICATOR();
+}
+void DeviceCommunicator::sum_and_min_last(void *const, const int, const enum PrimitiveType,
+                                          void *const) const {
+  SMESH_NO_DEVICE_COMMUNICATOR();
+}
+void DeviceCommunicator::group_begin() const { SMESH_NO_DEVICE_COMMUNICATOR(); }
+void DeviceCommunicator::group_end() const { SMESH_NO_DEVICE_COMMUNICATOR(); }
+void DeviceCommunicator::send(const void *const, const std::size_t, const int, void *const) const {
+  SMESH_NO_DEVICE_COMMUNICATOR();
+}
+void DeviceCommunicator::recv(void *const, const std::size_t, const int, void *const) const {
+  SMESH_NO_DEVICE_COMMUNICATOR();
+}
+
+#undef SMESH_NO_DEVICE_COMMUNICATOR
 #endif
 
 void Communicator::allgather(const void *sendbuf, void *recvbuf, int count,
