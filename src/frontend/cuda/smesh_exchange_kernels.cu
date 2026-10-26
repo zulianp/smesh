@@ -43,16 +43,16 @@ __global__ void scatter_kernel(const ptrdiff_t n, const ptrdiff_t block_size,
 
 template <typename W> struct Gather {
   static void launch(const ptrdiff_t n, const ptrdiff_t bs, const idx_t *idx,
-                     const void *in, void *out) {
-    gather_kernel<W><<<n_blocks(n * bs), N_THREADS>>>(
+                     const void *in, void *out, cudaStream_t stream) {
+    gather_kernel<W><<<n_blocks(n * bs), N_THREADS, 0, stream>>>(
         n, bs, idx, static_cast<const W *>(in), static_cast<W *>(out));
   }
 };
 
 template <typename W> struct Scatter {
   static void launch(const ptrdiff_t n, const ptrdiff_t bs, const idx_t *idx,
-                     const void *in, void *out) {
-    scatter_kernel<W><<<n_blocks(n * bs), N_THREADS>>>(
+                     const void *in, void *out, cudaStream_t stream) {
+    scatter_kernel<W><<<n_blocks(n * bs), N_THREADS, 0, stream>>>(
         n, bs, idx, static_cast<const W *>(in), static_cast<W *>(out));
   }
 };
@@ -61,20 +61,21 @@ template <typename W> struct Scatter {
 template <template <typename> class Copy>
 int copy(const ptrdiff_t n, const ptrdiff_t block_size,
          const size_t element_size, const idx_t *const idx,
-         const void *const in, void *const out) {
+         const void *const in, void *const out, void *const stream) {
   if (n <= 0) return SMESH_SUCCESS;
+  const cudaStream_t s = static_cast<cudaStream_t>(stream);
   switch (element_size) {
   case 1:
-    Copy<std::uint8_t>::launch(n, block_size, idx, in, out);
+    Copy<std::uint8_t>::launch(n, block_size, idx, in, out, s);
     break;
   case 2:
-    Copy<std::uint16_t>::launch(n, block_size, idx, in, out);
+    Copy<std::uint16_t>::launch(n, block_size, idx, in, out, s);
     break;
   case 4:
-    Copy<std::uint32_t>::launch(n, block_size, idx, in, out);
+    Copy<std::uint32_t>::launch(n, block_size, idx, in, out, s);
     break;
   case 8:
-    Copy<std::uint64_t>::launch(n, block_size, idx, in, out);
+    Copy<std::uint64_t>::launch(n, block_size, idx, in, out, s);
     break;
   default:
     SMESH_ERROR("device copy by index: elements of %zu bytes\n", element_size);
@@ -88,18 +89,18 @@ int copy(const ptrdiff_t n, const ptrdiff_t block_size,
 
 int gather_by_index(const ptrdiff_t n, const ptrdiff_t block_size,
                     const size_t element_size, const idx_t *const idx,
-                    const void *const in, void *const out) {
-  return copy<Gather>(n, block_size, element_size, idx, in, out);
+                    const void *const in, void *const out, void *const stream) {
+  return copy<Gather>(n, block_size, element_size, idx, in, out, stream);
 }
 
 int scatter_by_index(const ptrdiff_t n, const ptrdiff_t block_size,
                      const size_t element_size, const idx_t *const idx,
-                     const void *const in, void *const out) {
-  return copy<Scatter>(n, block_size, element_size, idx, in, out);
+                     const void *const in, void *const out, void *const stream) {
+  return copy<Scatter>(n, block_size, element_size, idx, in, out, stream);
 }
 
-int synchronize() {
-  SMESH_CUDA_CHECK(cudaDeviceSynchronize());
+int synchronize(void *const stream) {
+  SMESH_CUDA_CHECK(cudaStreamSynchronize(static_cast<cudaStream_t>(stream)));
   return SMESH_SUCCESS;
 }
 

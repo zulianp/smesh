@@ -307,8 +307,9 @@ endif()
 # NCCL, optional: communication of device buffers within a node (DeviceCommunicator), queued on
 # the stream instead of passing through the host, for runs that enable it
 # (Communicator::enable_device). Found with SMESH_ENABLE_MPI and SMESH_ENABLE_CUDA.
+# SMESH_ENABLE_NCCL=OFF leaves it out; ON uses it when found, and is turned off otherwise.
 
-if(SMESH_ENABLE_MPI AND SMESH_ENABLE_CUDA)
+if(SMESH_ENABLE_NCCL AND SMESH_ENABLE_MPI AND SMESH_ENABLE_CUDA)
     find_path(SMESH_NCCL_INCLUDE_DIR nccl.h
         HINTS ENV NCCL_HOME ENV NCCL_ROOT ${CUDAToolkit_INCLUDE_DIRS}
         PATH_SUFFIXES include)
@@ -322,7 +323,10 @@ if(SMESH_ENABLE_MPI AND SMESH_ENABLE_CUDA)
         list(APPEND SMESH_DEP_LIBRARIES "${SMESH_NCCL_LIBRARY}")
     else()
         message(STATUS "NCCL not found (set NCCL_HOME): device communication within a node unavailable")
+        set(SMESH_ENABLE_NCCL OFF)
     endif()
+else()
+    set(SMESH_ENABLE_NCCL OFF)
 endif()
 
 

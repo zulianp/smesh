@@ -240,6 +240,11 @@ void Communicator::enable_device() const {
   // The communicator spans one node, so NCCL's network plugin is never used; loading the
   // Slingshot one (aws-ofi-nccl) costs set-up time and crashed a probe at ncclCommDestroy.
   setenv("NCCL_NET_PLUGIN", "none", 0);
+  // Without graph mixing NCCL records no external events in a stream capture, which a graph's
+  // conditional body cannot hold (instantiation fails: "invalid argument"), so a captured loop of
+  // CG steps can complete its sums by NCCL. Its condition holds here: a graph launch that calls
+  // NCCL is waited for before any NCCL call outside it, and graphs are not launched in parallel.
+  setenv("NCCL_GRAPH_MIXING_SUPPORT", "0", 0);
   ncclUniqueId id;
   if (impl.rank == 0) SMESH_NCCL_CHECK(ncclGetUniqueId(&id));
   MPI_Bcast(&id, (int)sizeof(id), MPI_BYTE, 0, node);

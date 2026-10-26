@@ -87,19 +87,8 @@ static int cu_ssquad4_hierarchical_prolongation_tpl(
   ptrdiff_t n_blocks =
       MAX(ptrdiff_t(1), (nelements + block_size - 1) / block_size);
 
-  if (stream) {
-    cudaStream_t s = *static_cast<cudaStream_t *>(stream);
-
-    cu_ssquad4_hierarchical_prolongation_kernel<From, To>
-        <<<n_blocks, block_size, 0, s>>>(level, nelements, stride, elements,
-                                         vec_size, from_stride, from, to_stride,
-                                         to);
-  } else {
-    cu_ssquad4_hierarchical_prolongation_kernel<From, To>
-        <<<n_blocks, block_size, 0>>>(level, nelements, stride, elements,
-                                      vec_size, from_stride, from, to_stride,
-                                      to);
-  }
+  cu_ssquad4_hierarchical_prolongation_kernel<From, To><<<n_blocks, block_size, 0, (cudaStream_t)stream>>>(
+          level, nelements, stride, elements, vec_size, from_stride, from, to_stride, to);
 
   SMESH_DEBUG_SYNCHRONIZE();
   return SMESH_SUCCESS;
@@ -302,21 +291,19 @@ int cu_ssquad4_prolongate_tpl(const ptrdiff_t nelements, const ptrdiff_t stride,
           (nelements + block_size / TILE_SIZE - 1) / (block_size / TILE_SIZE));
   size_t shared_mem_size = block_size * sizeof(From);
 
-  if (stream) {
-    cudaStream_t s = *static_cast<cudaStream_t *>(stream);
-
-    cu_ssquad4_prolongate_kernel<From, To>
-        <<<n_blocks, block_size, shared_mem_size, s>>>(
-            nelements, stride, from_level, from_level_stride, from_elements,
-            to_level, to_level_stride, to_elements, vec_size, from_stride, from,
-            to_stride, to);
-  } else {
-    cu_ssquad4_prolongate_kernel<From, To>
-        <<<n_blocks, block_size, shared_mem_size>>>(
-            nelements, stride, from_level, from_level_stride, from_elements,
-            to_level, to_level_stride, to_elements, vec_size, from_stride, from,
-            to_stride, to);
-  }
+  cu_ssquad4_prolongate_kernel<From, To><<<n_blocks, block_size, shared_mem_size, (cudaStream_t)stream>>>(nelements,
+                                                                                                          stride,
+                                                                                                          from_level,
+                                                                                                          from_level_stride,
+                                                                                                          from_elements,
+                                                                                                          to_level,
+                                                                                                          to_level_stride,
+                                                                                                          to_elements,
+                                                                                                          vec_size,
+                                                                                                          from_stride,
+                                                                                                          from,
+                                                                                                          to_stride,
+                                                                                                          to);
 
   SMESH_DEBUG_SYNCHRONIZE();
   return SMESH_SUCCESS;

@@ -1436,6 +1436,124 @@ namespace smesh {
         return std::make_shared<Mesh>(mesh->comm(), blocks, points);
     }
 
+    int ss_family_nxe(const enum ElemType family, const int L) {
+        switch (family) {
+            case HEX8:
+                return sshex8_nxe(L);
+            case TET4:
+                return sstet4_nxe(L);
+            case WEDGE6:
+                return sswedge_nxe(L);
+            case PYRAMID5:
+                return sspyramid_nxe(L);
+            case QUAD4:
+                return ssquad4_nxe(L);
+            case TRI3:
+                return sstri_nxe(L);
+            case EDGE2:
+                return ssedge_nxe(L);
+            default:
+                return 0;
+        }
+    }
+
+    int derefine_element_rows(const enum ElemType family,
+                              const int           from_level,
+                              const int           to_level,
+                              idx_t *const *const fine_rows,
+                              idx_t **const       coarse_rows) {
+        if (to_level <= 0 || from_level < to_level || (from_level % to_level) != 0) {
+            return SMESH_FAILURE;
+        }
+
+        const int s = from_level / to_level;
+        const int L = to_level;
+        switch (family) {
+            case HEX8:
+                for (int z = 0; z <= L; z++) {
+                    for (int y = 0; y <= L; y++) {
+                        for (int x = 0; x <= L; x++) {
+                            coarse_rows[sshex8_lidx(L, x, y, z)] = fine_rows[sshex8_lidx(from_level, x * s, y * s, z * s)];
+                        }
+                    }
+                }
+                return SMESH_SUCCESS;
+            case TET4:
+                for (int z = 0; z <= L; ++z) {
+                    for (int y = 0; y <= L - z; ++y) {
+                        for (int x = 0; x <= L - z - y; ++x) {
+                            coarse_rows[sstet4_lidx(L, x, y, z)] = fine_rows[sstet4_lidx(from_level, x * s, y * s, z * s)];
+                        }
+                    }
+                }
+                return SMESH_SUCCESS;
+            case WEDGE6:
+                for (int z = 0; z <= L; ++z) {
+                    for (int y = 0; y <= L; ++y) {
+                        for (int x = 0; x <= L - y; ++x) {
+                            coarse_rows[sswedge_lidx(L, x, y, z)] = fine_rows[sswedge_lidx(from_level, x * s, y * s, z * s)];
+                        }
+                    }
+                }
+                return SMESH_SUCCESS;
+            case PYRAMID5:
+                for (int k = 0; k <= L; ++k) {
+                    for (int j = 0; j <= L - k; ++j) {
+                        for (int i = 0; i <= L - k; ++i) {
+                            coarse_rows[sspyramid_lidx(L, i, j, k)] = fine_rows[sspyramid_lidx(from_level, i * s, j * s, k * s)];
+                        }
+                    }
+                }
+                return SMESH_SUCCESS;
+            case QUAD4:
+                for (int y = 0; y <= L; ++y) {
+                    for (int x = 0; x <= L; ++x) {
+                        coarse_rows[ssquad4_lidx(L, x, y)] = fine_rows[ssquad4_lidx(from_level, x * s, y * s)];
+                    }
+                }
+                return SMESH_SUCCESS;
+            case TRI3:
+                for (int y = 0; y <= L; y++) {
+                    for (int x = 0; x <= L - y; x++) {
+                        coarse_rows[sstri_lidx(L, x, y)] = fine_rows[sstri_lidx(from_level, x * s, y * s)];
+                    }
+                }
+                return SMESH_SUCCESS;
+            case EDGE2:
+                for (int x = 0; x <= L; x++) {
+                    coarse_rows[ssedge_lidx(L, x)] = fine_rows[ssedge_lidx(from_level, x * s)];
+                }
+                return SMESH_SUCCESS;
+            default:
+                return SMESH_FAILURE;
+        }
+    }
+
+    SharedBuffer<idx_t *> derefine_elements(const enum ElemType          family,
+                                            const int                    from_level,
+                                            const int                    to_level,
+                                            const SharedBuffer<idx_t *> &elements) {
+        const int nxe = ss_family_nxe(family, to_level);
+        if (!elements || nxe == 0) {
+            return nullptr;
+        }
+
+        auto view = std::make_shared<Buffer<idx_t *>>(
+                nxe,
+                elements->extent(1),
+                (idx_t **)SMESH_ALLOC(nxe * sizeof(idx_t *)),
+                [keep_alive = elements](int, void **v) {
+                    (void)keep_alive;
+                    SMESH_FREE(v);
+                },
+                elements->mem_space());
+
+        if (derefine_element_rows(family, from_level, to_level, elements->data(), view->data()) != SMESH_SUCCESS) {
+            return nullptr;
+        }
+        return view;
+    }
+
     std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh, const int to_level) {
         if (mesh->n_blocks() == 0) {
             fprintf(stderr, "derefine: empty mesh\n");
@@ -1450,380 +1568,38 @@ namespace smesh {
             }
         }
 
-        if (mixed) {
-            std::vector<std::shared_ptr<Mesh::Block>> blocks;
-            ptrdiff_t                                 n_unique_nodes{-1};
-            for (auto &block : mesh->blocks()) {
-                const enum ElemType bf = ss_source_family(block->element_type());
-                if (!is_semistructured_type(block->element_type()) ||
-                    (bf != HEX8 && bf != TET4 && bf != WEDGE6 && bf != PYRAMID5)) {
-                    fprintf(stderr, "derefine: mixed-family SS supports HEX, TET, WEDGE, and PYRAMID blocks only\n");
-                    return nullptr;
-                }
-
-                const int from_level = semistructured_level(block->element_type());
-                if (to_level <= 0 || from_level < to_level || (from_level % to_level) != 0) {
-                    fprintf(stderr, "derefine: invalid levels from=%d to=%d\n", from_level, to_level);
-                    return nullptr;
-                }
-                const int step_factor = from_level / to_level;
-                int       nxe         = sstet4_nxe(to_level);
-                if (bf == HEX8) {
-                    nxe = (to_level + 1) * (to_level + 1) * (to_level + 1);
-                } else if (bf == WEDGE6) {
-                    nxe = sswedge_nxe(to_level);
-                } else if (bf == PYRAMID5) {
-                    nxe = sspyramid_nxe(to_level);
-                }
-
-                auto elements = block->elements();
-                auto view     = std::make_shared<Buffer<idx_t *>>(
-                        nxe,
-                        block->n_elements(),
-                        (idx_t **)SMESH_ALLOC(nxe * sizeof(idx_t *)),
-                        [keep_alive = elements](int, void **v) {
-                            (void)keep_alive;
-                            SMESH_FREE(v);
-                        },
-                        elements->mem_space());
-
-                if (bf == HEX8) {
-                    for (int zi = 0; zi <= to_level; zi++) {
-                        for (int yi = 0; yi <= to_level; yi++) {
-                            for (int xi = 0; xi <= to_level; xi++) {
-                                const int from_lidx = sshex8_lidx(from_level, xi * step_factor, yi * step_factor, zi * step_factor);
-                                const int to_lidx   = sshex8_lidx(to_level, xi, yi, zi);
-                                view->data()[to_lidx] = elements->data()[from_lidx];
-                            }
-                        }
-                    }
-                } else if (bf == TET4) {
-                    for (int z = 0; z <= to_level; ++z) {
-                        for (int y = 0; y <= to_level - z; ++y) {
-                            for (int x = 0; x <= to_level - z - y; ++x) {
-                                const int from_lidx = sstet4_lidx(from_level, x * step_factor, y * step_factor, z * step_factor);
-                                const int to_lidx   = sstet4_lidx(to_level, x, y, z);
-                                view->data()[to_lidx] = elements->data()[from_lidx];
-                            }
-                        }
-                    }
-                } else if (bf == WEDGE6) {
-                    for (int z = 0; z <= to_level; ++z) {
-                        for (int y = 0; y <= to_level; ++y) {
-                            for (int x = 0; x <= to_level - y; ++x) {
-                                const int from_lidx =
-                                        sswedge_lidx(from_level, x * step_factor, y * step_factor, z * step_factor);
-                                const int to_lidx     = sswedge_lidx(to_level, x, y, z);
-                                view->data()[to_lidx] = elements->data()[from_lidx];
-                            }
-                        }
-                    }
-                } else {
-                    for (int k = 0; k <= to_level; ++k) {
-                        for (int j = 0; j <= to_level - k; ++j) {
-                            for (int i = 0; i <= to_level - k; ++i) {
-                                const int from_lidx =
-                                        sspyramid_lidx(from_level, i * step_factor, j * step_factor, k * step_factor);
-                                const int to_lidx     = sspyramid_lidx(to_level, i, j, k);
-                                view->data()[to_lidx] = elements->data()[from_lidx];
-                            }
-                        }
-                    }
-                }
-
-                auto derefined_block = std::make_shared<Mesh::Block>();
-                derefined_block->set_name(block->name());
-                derefined_block->set_element_type(semistructured_type(bf, to_level));
-                derefined_block->inherit_geom_map(block->geom_map());
-                derefined_block->set_elements(view);
-                blocks.push_back(derefined_block);
-
-                auto            vv        = view->data();
-                const ptrdiff_t nelements = block->n_elements();
-                for (size_t v = 0; v < view->extent(0); v++) {
-                    for (ptrdiff_t e = 0; e < nelements; e++) {
-                        n_unique_nodes = std::max(static_cast<ptrdiff_t>(vv[v][e]), n_unique_nodes);
-                    }
-                }
-            }
-
-            n_unique_nodes += 1;
-            return finish_derefine(mesh, blocks, n_unique_nodes);
-        }
-
-        if (family == TET4) {
-            std::vector<std::shared_ptr<Mesh::Block>> blocks;
-            ptrdiff_t                                 n_unique_nodes{-1};
-            for (auto &block : mesh->blocks()) {
-                if (!is_semistructured_type(block->element_type()) || !is_tet_ss_family(block->element_type())) {
-                    fprintf(stderr, "derefine: only TET-family semistructured blocks are implemented\n");
-                    return nullptr;
-                }
-
-                const int from_level  = semistructured_level(block->element_type());
-                if (to_level <= 0 || from_level < to_level || (from_level % to_level) != 0) {
-                    fprintf(stderr, "derefine: invalid levels from=%d to=%d\n", from_level, to_level);
-                    return nullptr;
-                }
-                const int step_factor = from_level / to_level;
-                const int nxe         = sstet4_nxe(to_level);
-
-                auto elements = block->elements();
-                auto view     = std::make_shared<Buffer<idx_t *>>(
-                        nxe,
-                        block->n_elements(),
-                        (idx_t **)SMESH_ALLOC(nxe * sizeof(idx_t *)),
-                        [keep_alive = elements](int, void **v) {
-                            (void)keep_alive;
-                            SMESH_FREE(v);
-                        },
-                        elements->mem_space());
-
-                for (int z = 0; z <= to_level; ++z) {
-                    for (int y = 0; y <= to_level - z; ++y) {
-                        for (int x = 0; x <= to_level - z - y; ++x) {
-                            const int from_lidx   = sstet4_lidx(from_level, x * step_factor, y * step_factor, z * step_factor);
-                            const int to_lidx     = sstet4_lidx(to_level, x, y, z);
-                            view->data()[to_lidx] = elements->data()[from_lidx];
-                        }
-                    }
-                }
-
-                auto derefined_block = std::make_shared<Mesh::Block>();
-                derefined_block->set_name(block->name());
-                derefined_block->set_element_type(semistructured_type(TET4, to_level));
-                derefined_block->inherit_geom_map(block->geom_map());
-                derefined_block->set_elements(view);
-                blocks.push_back(derefined_block);
-
-                auto            vv        = view->data();
-                const ptrdiff_t nelements = block->n_elements();
-                for (size_t v = 0; v < view->extent(0); v++) {
-                    for (ptrdiff_t e = 0; e < nelements; e++) {
-                        n_unique_nodes = std::max(static_cast<ptrdiff_t>(vv[v][e]), n_unique_nodes);
-                    }
-                }
-            }
-
-            n_unique_nodes += 1;
-            return finish_derefine(mesh, blocks, n_unique_nodes);
-        }
-
-        if (family == QUAD4) {
-            std::vector<std::shared_ptr<Mesh::Block>> blocks;
-            ptrdiff_t                                 n_unique_nodes{-1};
-            for (auto &block : mesh->blocks()) {
-                if (!is_semistructured_type(block->element_type()) || !is_quad_ss_family(block->element_type())) {
-                    fprintf(stderr, "derefine: only QUAD-family semistructured blocks are implemented\n");
-                    return nullptr;
-                }
-
-                const int from_level  = semistructured_level(block->element_type());
-                if (to_level <= 0 || from_level < to_level || (from_level % to_level) != 0) {
-                    fprintf(stderr, "derefine: invalid levels from=%d to=%d\n", from_level, to_level);
-                    return nullptr;
-                }
-                const int step_factor = from_level / to_level;
-                const int nxe         = ssquad4_nxe(to_level);
-
-                auto elements = block->elements();
-                auto view     = std::make_shared<Buffer<idx_t *>>(
-                        nxe,
-                        block->n_elements(),
-                        (idx_t **)SMESH_ALLOC(nxe * sizeof(idx_t *)),
-                        [keep_alive = elements](int, void **v) {
-                            (void)keep_alive;
-                            SMESH_FREE(v);
-                        },
-                        elements->mem_space());
-
-                for (int yi = 0; yi <= to_level; ++yi) {
-                    for (int xi = 0; xi <= to_level; ++xi) {
-                        const int from_lidx   = ssquad4_lidx(from_level, xi * step_factor, yi * step_factor);
-                        const int to_lidx     = ssquad4_lidx(to_level, xi, yi);
-                        view->data()[to_lidx] = elements->data()[from_lidx];
-                    }
-                }
-
-                auto derefined_block = std::make_shared<Mesh::Block>();
-                derefined_block->set_name(block->name());
-                const enum ElemType src =
-                        (shell_type(block->element_type()) == block->element_type()) ? QUADSHELL4 : QUAD4;
-                derefined_block->set_element_type(semistructured_type(src, to_level));
-                derefined_block->inherit_geom_map(block->geom_map());
-                derefined_block->set_elements(view);
-                blocks.push_back(derefined_block);
-
-                auto            vv        = view->data();
-                const ptrdiff_t nelements = block->n_elements();
-                for (size_t v = 0; v < view->extent(0); v++) {
-                    for (ptrdiff_t e = 0; e < nelements; e++) {
-                        n_unique_nodes = std::max(static_cast<ptrdiff_t>(vv[v][e]), n_unique_nodes);
-                    }
-                }
-            }
-
-            n_unique_nodes += 1;
-            return finish_derefine(mesh, blocks, n_unique_nodes);
-        }
-
-        if (family == WEDGE6) {
-            std::vector<std::shared_ptr<Mesh::Block>> blocks;
-            ptrdiff_t                                 n_unique_nodes{-1};
-            for (auto &block : mesh->blocks()) {
-                if (!is_semistructured_type(block->element_type()) || !is_wedge_ss_family(block->element_type())) {
-                    fprintf(stderr, "derefine: only WEDGE-family semistructured blocks are implemented\n");
-                    return nullptr;
-                }
-                const int from_level = semistructured_level(block->element_type());
-                if (to_level <= 0 || from_level < to_level || (from_level % to_level) != 0) {
-                    fprintf(stderr, "derefine: invalid levels from=%d to=%d\n", from_level, to_level);
-                    return nullptr;
-                }
-                const int step_factor = from_level / to_level;
-                const int nxe         = sswedge_nxe(to_level);
-                auto      elements    = block->elements();
-                auto      view        = std::make_shared<Buffer<idx_t *>>(
-                        nxe,
-                        block->n_elements(),
-                        (idx_t **)SMESH_ALLOC(nxe * sizeof(idx_t *)),
-                        [keep_alive = elements](int, void **v) {
-                            (void)keep_alive;
-                            SMESH_FREE(v);
-                        },
-                        elements->mem_space());
-                for (int z = 0; z <= to_level; ++z) {
-                    for (int y = 0; y <= to_level; ++y) {
-                        for (int x = 0; x <= to_level - y; ++x) {
-                            const int from_lidx =
-                                    sswedge_lidx(from_level, x * step_factor, y * step_factor, z * step_factor);
-                            const int to_lidx     = sswedge_lidx(to_level, x, y, z);
-                            view->data()[to_lidx] = elements->data()[from_lidx];
-                        }
-                    }
-                }
-                auto derefined_block = std::make_shared<Mesh::Block>();
-                derefined_block->set_name(block->name());
-                derefined_block->set_element_type(semistructured_type(WEDGE6, to_level));
-                derefined_block->inherit_geom_map(block->geom_map());
-                derefined_block->set_elements(view);
-                blocks.push_back(derefined_block);
-                auto            vv        = view->data();
-                const ptrdiff_t nelements = block->n_elements();
-                for (size_t v = 0; v < view->extent(0); v++) {
-                    for (ptrdiff_t e = 0; e < nelements; e++) {
-                        n_unique_nodes = std::max(static_cast<ptrdiff_t>(vv[v][e]), n_unique_nodes);
-                    }
-                }
-            }
-            n_unique_nodes += 1;
-            return finish_derefine(mesh, blocks, n_unique_nodes);
-        }
-
-        if (family == PYRAMID5) {
-            std::vector<std::shared_ptr<Mesh::Block>> blocks;
-            ptrdiff_t                                 n_unique_nodes{-1};
-            for (auto &block : mesh->blocks()) {
-                if (!is_semistructured_type(block->element_type()) || !is_pyramid_ss_family(block->element_type())) {
-                    fprintf(stderr, "derefine: only PYRAMID-family semistructured blocks are implemented\n");
-                    return nullptr;
-                }
-                const int from_level = semistructured_level(block->element_type());
-                if (to_level <= 0 || from_level < to_level || (from_level % to_level) != 0) {
-                    fprintf(stderr, "derefine: invalid levels from=%d to=%d\n", from_level, to_level);
-                    return nullptr;
-                }
-                const int step_factor = from_level / to_level;
-                const int nxe         = sspyramid_nxe(to_level);
-                auto      elements    = block->elements();
-                auto      view        = std::make_shared<Buffer<idx_t *>>(
-                        nxe,
-                        block->n_elements(),
-                        (idx_t **)SMESH_ALLOC(nxe * sizeof(idx_t *)),
-                        [keep_alive = elements](int, void **v) {
-                            (void)keep_alive;
-                            SMESH_FREE(v);
-                        },
-                        elements->mem_space());
-                for (int k = 0; k <= to_level; ++k) {
-                    for (int j = 0; j <= to_level - k; ++j) {
-                        for (int i = 0; i <= to_level - k; ++i) {
-                            const int from_lidx =
-                                    sspyramid_lidx(from_level, i * step_factor, j * step_factor, k * step_factor);
-                            const int to_lidx     = sspyramid_lidx(to_level, i, j, k);
-                            view->data()[to_lidx] = elements->data()[from_lidx];
-                        }
-                    }
-                }
-                auto derefined_block = std::make_shared<Mesh::Block>();
-                derefined_block->set_name(block->name());
-                derefined_block->set_element_type(semistructured_type(PYRAMID5, to_level));
-                derefined_block->inherit_geom_map(block->geom_map());
-                derefined_block->set_elements(view);
-                blocks.push_back(derefined_block);
-                auto            vv        = view->data();
-                const ptrdiff_t nelements = block->n_elements();
-                for (size_t v = 0; v < view->extent(0); v++) {
-                    for (ptrdiff_t e = 0; e < nelements; e++) {
-                        n_unique_nodes = std::max(static_cast<ptrdiff_t>(vv[v][e]), n_unique_nodes);
-                    }
-                }
-            }
-            n_unique_nodes += 1;
-            return finish_derefine(mesh, blocks, n_unique_nodes);
-        }
-
         std::vector<std::shared_ptr<Mesh::Block>> blocks;
         ptrdiff_t                                 n_unique_nodes{-1};
         for (auto &block : mesh->blocks()) {
-            if (!is_semistructured_type(block->element_type()) || !is_hex_ss_family(block->element_type())) {
-                fprintf(stderr, "derefine: only HEX-family semistructured blocks are implemented\n");
+            const enum ElemType type   = block->element_type();
+            const enum ElemType bf     = ss_source_family(type);
+            const bool          volume = bf == HEX8 || bf == TET4 || bf == WEDGE6 || bf == PYRAMID5;
+            if (!is_semistructured_type(type) || !(volume || (!mixed && bf == QUAD4))) {
+                if (mixed) {
+                    fprintf(stderr, "derefine: mixed-family SS supports HEX, TET, WEDGE, and PYRAMID blocks only\n");
+                } else {
+                    fprintf(stderr, "derefine: SS family of %s is not implemented\n", type_to_string(type));
+                }
                 return nullptr;
             }
 
-            const int from_level  = semistructured_level(block->element_type());
-            const int step_factor = from_level / to_level;
-            const int nxe         = (to_level + 1) * (to_level + 1) * (to_level + 1);
-
-            auto elements = block->elements();
-            auto view     = std::make_shared<Buffer<idx_t *>>(
-                    nxe,
-                    block->n_elements(),
-                    (idx_t **)SMESH_ALLOC(nxe * sizeof(idx_t *)),
-                    [keep_alive = elements](int, void **v) {
-                        (void)keep_alive;
-                        SMESH_FREE(v);
-                    },
-                    elements->mem_space());
-
-            for (int zi = 0; zi <= to_level; zi++) {
-                for (int yi = 0; yi <= to_level; yi++) {
-                    for (int xi = 0; xi <= to_level; xi++) {
-                        const int from_lidx   = sshex8_lidx(from_level, xi * step_factor, yi * step_factor, zi * step_factor);
-                        const int to_lidx     = sshex8_lidx(to_level, xi, yi, zi);
-                        view->data()[to_lidx] = elements->data()[from_lidx];
-                    }
-                }
+            const int from_level = semistructured_level(type);
+            auto      view       = derefine_elements(bf, from_level, to_level, block->elements());
+            if (!view) {
+                fprintf(stderr, "derefine: invalid levels from=%d to=%d\n", from_level, to_level);
+                return nullptr;
             }
-
-            enum ElemType element_type = semistructured_type(HEX8, to_level);
 
             auto derefined_block = std::make_shared<Mesh::Block>();
             derefined_block->set_name(block->name());
-            derefined_block->set_element_type(element_type);
+            derefined_block->set_element_type(semistructured_type(bf == QUAD4 ? ssquad_linear_type(type) : bf, to_level));
             derefined_block->inherit_geom_map(block->geom_map());
             derefined_block->set_elements(view);
             blocks.push_back(derefined_block);
 
-            // Find max node id
-            {
-                auto            vv        = view->data();
-                const ptrdiff_t nelements = block->n_elements();
-                for (size_t v = 0; v < view->extent(0); v++) {
-                    for (ptrdiff_t e = 0; e < nelements; e++) {
-                        n_unique_nodes = std::max(static_cast<ptrdiff_t>(vv[v][e]), n_unique_nodes);
-                    }
-                }
+            const ptrdiff_t nelements = block->n_elements();
+            if (nelements > 0) {
+                n_unique_nodes = std::max(n_unique_nodes, nxe_max_node_id(nelements, (int)view->extent(0), view->data()));
             }
         }
 
@@ -1844,30 +1620,16 @@ namespace smesh {
             return nullptr;
         }
 
-        const int       step_factor = from_level / to_level;
-        const int       nxe        = (to_level + 1) * (to_level + 1) * (to_level + 1);
-        const ptrdiff_t n_elements = fine_device_soa->extent(1);
-
-        auto fill_host_view = [&](idx_t **host_fine_ptrs, idx_t **host_coarse_ptrs) {
-            for (int zi = 0; zi <= to_level; zi++) {
-                for (int yi = 0; yi <= to_level; yi++) {
-                    for (int xi = 0; xi <= to_level; xi++) {
-                        const int from_lidx           = sshex8_lidx(from_level, xi * step_factor, yi * step_factor, zi * step_factor);
-                        const int to_lidx             = sshex8_lidx(to_level, xi, yi, zi);
-                        host_coarse_ptrs[to_lidx] = host_fine_ptrs[from_lidx];
-                    }
-                }
-            }
-        };
-
 #ifdef SMESH_ENABLE_CUDA
         if (fine_device_soa->mem_space() == MEMORY_SPACE_DEVICE) {
-            const ptrdiff_t        n0_fine = fine_device_soa->extent(0);
+            const int            nxe        = sshex8_nxe(to_level);
+            const ptrdiff_t      n_elements = fine_device_soa->extent(1);
+            const ptrdiff_t      n0_fine    = fine_device_soa->extent(0);
             std::vector<idx_t *> fine_host_ptrs(n0_fine);
             device::device_to_host(static_cast<size_t>(n0_fine), fine_device_soa->data(), fine_host_ptrs.data());
 
             std::vector<idx_t *> coarse_host_ptrs(static_cast<size_t>(nxe));
-            fill_host_view(fine_host_ptrs.data(), coarse_host_ptrs.data());
+            derefine_element_rows(HEX8, from_level, to_level, fine_host_ptrs.data(), coarse_host_ptrs.data());
 
             idx_t **dev_ptrs = device::alloc<idx_t *>(static_cast<size_t>(nxe));
             device::host_to_device(static_cast<size_t>(nxe), coarse_host_ptrs.data(), dev_ptrs);
@@ -1884,18 +1646,7 @@ namespace smesh {
         }
 #endif
 
-        auto view = Buffer<idx_t *>::own(
-                static_cast<size_t>(nxe),
-                static_cast<size_t>(n_elements),
-                (idx_t **)SMESH_ALLOC(static_cast<size_t>(nxe) * sizeof(idx_t *)),
-                [keep_alive = fine_device_soa](int /*n*/, void **v) {
-                    (void)keep_alive;
-                    SMESH_FREE(v);
-                },
-                fine_device_soa->mem_space());
-
-        fill_host_view(fine_device_soa->data(), view->data());
-        return view;
+        return derefine_elements(HEX8, from_level, to_level, fine_device_soa);
     }
 
     SharedBuffer<idx_t *> sshex8_to_hex8_device_elements_view(const SharedBuffer<idx_t *> &fine_device_soa,

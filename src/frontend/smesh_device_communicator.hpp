@@ -12,7 +12,7 @@ namespace smesh {
 class Communicator;
 
 /// Communication of device buffers among the ranks of a Communicator that share this rank's node,
-/// queued on a CUDA stream (null: the legacy default stream) like a kernel: a call returns at once
+/// queued on the caller's CUDA stream (null: the legacy default stream; always named) like a kernel: a call returns at once
 /// and its result is there for the work queued after it, without a pass through the host. NCCL,
 /// in a build with MPI and NCCL; one per MPI communicator, for a run that enables it
 /// (Communicator::enable_device(), which starts NCCL's set-up and returns; the first use waits).
@@ -44,22 +44,22 @@ public:
 
   /// In place, the sum over the ranks. f32 and f64; whole() communicators only.
   void sum(void *const buffer, const int count, const enum PrimitiveType type,
-           void *const stream = nullptr) const;
+           void *const stream) const;
 
   /// In place, the first count - 1 values summed and the last the minimum over the ranks
   /// (Communicator::sum_and_min_last). f32 and f64; whole() communicators only.
   void sum_and_min_last(void *const buffer, const int count,
                         const enum PrimitiveType type,
-                        void *const stream = nullptr) const;
+                        void *const stream) const;
 
   /// Messages to and from the communicator's rank `comm_rank`, on this node, posted together
   /// between group_begin() and group_end(): a send matches the peer's receive of the same size.
   void group_begin() const;
   void group_end() const;
   void send(const void *const buffer, const std::size_t bytes, const int comm_rank,
-            void *const stream = nullptr) const;
+            void *const stream) const;
   void recv(void *const buffer, const std::size_t bytes, const int comm_rank,
-            void *const stream = nullptr) const;
+            void *const stream) const;
 
   class Impl;
 

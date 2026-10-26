@@ -70,6 +70,27 @@ namespace smesh {
     }
     std::shared_ptr<Mesh> derefine(const std::shared_ptr<Mesh> &mesh, const int to_level);
 
+    /// Rows per element of a level-L SS connectivity of a source family: HEX8, TET4, WEDGE6,
+    /// PYRAMID5, QUAD4, TRI3 or EDGE2 (0 for another family).
+    int ss_family_nxe(const enum ElemType family, const int L);
+
+    /// Points the rows of the level-to_level connectivity at the matching rows of a level-from_level
+    /// SS connectivity of a source family (see ss_family_nxe); from_level is a multiple of to_level.
+    /// Returns SMESH_SUCCESS, or SMESH_FAILURE for another family or invalid levels.
+    int derefine_element_rows(const enum ElemType family,
+                              const int           from_level,
+                              const int           to_level,
+                              idx_t *const *const fine_rows,
+                              idx_t **const       coarse_rows);
+
+    /// View of the level-to_level connectivity inside a level-from_level SS connectivity of a source
+    /// family (see derefine_element_rows): a new table of row pointers into \p elements, which the
+    /// view keeps alive. The table is read and written on the host; null on failure.
+    SharedBuffer<idx_t *> derefine_elements(const enum ElemType          family,
+                                            const int                    from_level,
+                                            const int                    to_level,
+                                            const SharedBuffer<idx_t *> &elements);
+
     /// Device SoA view into a finer SSHEX8 connectivity: uploads only a pointer table
     /// (nxe device row pointers), keeping row data owned by \p fine_device_soa.
     SharedBuffer<idx_t *> sshex8_device_elements_view(const SharedBuffer<idx_t *> &fine_device_soa,

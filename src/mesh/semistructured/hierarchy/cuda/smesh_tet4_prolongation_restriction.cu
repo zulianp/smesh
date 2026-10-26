@@ -73,19 +73,8 @@ static int cu_tet4_to_macrotet4_prolongation_tpl(
   ptrdiff_t n_blocks =
       MAX(ptrdiff_t(1), (coarse_nnodes + block_size - 1) / block_size);
 
-  if (stream) {
-    cudaStream_t s = *static_cast<cudaStream_t *>(stream);
-
-    cu_tet4_to_macrotet4_prolongation_kernel<From, To>
-        <<<n_blocks, block_size, 0, s>>>(coarse_nnodes, coarse_rowptr,
-                                         coarse_colidx, fine_node_map, vec_size,
-                                         from, to);
-  } else {
-    cu_tet4_to_macrotet4_prolongation_kernel<From, To>
-        <<<n_blocks, block_size, 0>>>(coarse_nnodes, coarse_rowptr,
-                                      coarse_colidx, fine_node_map, vec_size,
-                                      from, to);
-  }
+  cu_tet4_to_macrotet4_prolongation_kernel<From, To><<<n_blocks, block_size, 0, (cudaStream_t)stream>>>(
+          coarse_nnodes, coarse_rowptr, coarse_colidx, fine_node_map, vec_size, from, to);
 
   SMESH_DEBUG_SYNCHRONIZE();
   return SMESH_SUCCESS;
@@ -191,19 +180,8 @@ static int cu_macrotet4_to_tet4_restriction_tpl(
   ptrdiff_t n_blocks =
       MAX(ptrdiff_t(1), (coarse_nnodes + block_size - 1) / block_size);
 
-  if (stream) {
-    cudaStream_t s = *static_cast<cudaStream_t *>(stream);
-
-    cu_macrotet4_to_tet4_restriction_kernel<From, To>
-        <<<n_blocks, block_size, 0, s>>>(coarse_nnodes, coarse_rowptr,
-                                         coarse_colidx, fine_node_map, vec_size,
-                                         from, to);
-  } else {
-    cu_macrotet4_to_tet4_restriction_kernel<From, To>
-        <<<n_blocks, block_size, 0>>>(coarse_nnodes, coarse_rowptr,
-                                      coarse_colidx, fine_node_map, vec_size,
-                                      from, to);
-  }
+  cu_macrotet4_to_tet4_restriction_kernel<From, To><<<n_blocks, block_size, 0, (cudaStream_t)stream>>>(
+          coarse_nnodes, coarse_rowptr, coarse_colidx, fine_node_map, vec_size, from, to);
 
   SMESH_DEBUG_SYNCHRONIZE();
   return SMESH_SUCCESS;
@@ -339,17 +317,8 @@ static int cu_macrotet4_to_tet4_prolongation_element_based_tpl(
   ptrdiff_t n_blocks =
       MAX(ptrdiff_t(1), (nelements + block_size - 1) / block_size);
 
-  if (stream) {
-    cudaStream_t s = *static_cast<cudaStream_t *>(stream);
-
-    cu_macrotet4_to_tet4_prolongation_element_based_kernel<From, To>
-        <<<n_blocks, block_size, 0, s>>>(nelements, elements, vec_size,
-                                         from_stride, from, to_stride, to);
-  } else {
-    cu_macrotet4_to_tet4_prolongation_element_based_kernel<From, To>
-        <<<n_blocks, block_size, 0>>>(nelements, elements, vec_size,
-                                      from_stride, from, to_stride, to);
-  }
+  cu_macrotet4_to_tet4_prolongation_element_based_kernel<From, To>
+          <<<n_blocks, block_size, 0, (cudaStream_t)stream>>>(nelements, elements, vec_size, from_stride, from, to_stride, to);
 
   SMESH_DEBUG_SYNCHRONIZE();
   return SMESH_SUCCESS;
@@ -486,19 +455,8 @@ static int cu_macrotet4_to_tet4_restriction_element_based_tpl(
   ptrdiff_t n_blocks =
       MAX(ptrdiff_t(1), (nelements + block_size - 1) / block_size);
 
-  if (stream) {
-    cudaStream_t s = *static_cast<cudaStream_t *>(stream);
-
-    cu_macrotet4_to_tet4_restriction_element_based_kernel<From, To>
-        <<<n_blocks, block_size, 0, s>>>(
-            nelements, elements, element_to_node_incidence_count, vec_size,
-            from_stride, from, to_stride, to);
-  } else {
-    cu_macrotet4_to_tet4_restriction_element_based_kernel<From, To>
-        <<<n_blocks, block_size, 0>>>(nelements, elements,
-                                      element_to_node_incidence_count, vec_size,
-                                      from_stride, from, to_stride, to);
-  }
+  cu_macrotet4_to_tet4_restriction_element_based_kernel<From, To><<<n_blocks, block_size, 0, (cudaStream_t)stream>>>(
+          nelements, elements, element_to_node_incidence_count, vec_size, from_stride, from, to_stride, to);
 
   SMESH_DEBUG_SYNCHRONIZE();
   return SMESH_SUCCESS;

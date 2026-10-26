@@ -158,7 +158,7 @@ static inline int smesh_assert_array_approx_eq(const ptrdiff_t i,
 #define SMESH_ASSERT_ARRAY_APPROX_EQ(n__, a__, b__, tol__)                                                                    \
     do {                                                                                                                      \
         ptrdiff_t nfails = 0;                                                                                                 \
-        for (ptrdiff_t i__ = 0; i__ < (n__); i__++) {                                                                         \
+        for (ptrdiff_t i__ = 0; i__ < (ptrdiff_t)(n__); i__++) {                                                              \
             if (smesh_assert_array_approx_eq(i__, (a__)[i__], (b__)[i__], tol__, __FILE__, __LINE__) == SMESH_TEST_FAILURE) { \
                 nfails++;                                                                                                     \
             }                                                                                                                 \
@@ -182,9 +182,9 @@ int smesh_test_assert_equal(T a, T b, const char *file, const int line) {
         return SMESH_TEST_FAILURE;                                                 \
     }
 
-#define SMESH_ASSERT_ARRAY_EQ(n__, a__, b__)    \
-    for (ptrdiff_t i__ = 0; i__ < n__; i__++) { \
-        SMESH_TEST_EQ(a__[i__], b__[i__]);      \
+#define SMESH_ASSERT_ARRAY_EQ(n__, a__, b__)                \
+    for (ptrdiff_t i__ = 0; i__ < (ptrdiff_t)(n__); i__++) { \
+        SMESH_TEST_EQ(a__[i__], b__[i__]);                  \
     }
 
 #endif  // SMESH_TEST

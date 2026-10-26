@@ -314,7 +314,7 @@ int Exchange::gather(T *const inout, const ptrdiff_t block_size) {
 }
 
 template <typename T>
-int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
+int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size, void *const stream) {
 #if defined(SMESH_ENABLE_MPI)
   SMESH_TRACE_SCOPE("Exchange::gather_begin");
   if (impl_->gather_pending) {
@@ -345,8 +345,8 @@ int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
     // the packing on the stream.
     if (device::gather_by_index(recv_total, block_size, sizeof(T),
                                 impl_->device_sparse_idx->data(), inout,
-                                send_buf) != SMESH_SUCCESS ||
-        (impl_->any_remote && device::synchronize() != SMESH_SUCCESS)) {
+                                send_buf, stream) != SMESH_SUCCESS ||
+        (impl_->any_remote && device::synchronize(stream) != SMESH_SUCCESS)) {
       return SMESH_FAILURE;
     }
   } else
@@ -390,13 +390,13 @@ int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
     for (const auto &peer : impl_->gather_recvs) {
       if (peer.on_node) {
         device.recv(recv_ptr + peer.offset * block_size,
-                    (size_t)(peer.count * block_size) * sizeof(T), peer.rank);
+                    (size_t)(peer.count * block_size) * sizeof(T), peer.rank, stream);
       }
     }
     for (const auto &peer : impl_->gather_sends) {
       if (peer.on_node) {
         device.send(send_buf + peer.offset * block_size,
-                    (size_t)(peer.count * block_size) * sizeof(T), peer.rank);
+                    (size_t)(peer.count * block_size) * sizeof(T), peer.rank, stream);
       }
     }
     device.group_end();
@@ -421,7 +421,8 @@ int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
   impl_->gather_pending = true;
   const ptrdiff_t bs = block_size;
   const bool use_aura = !ghosts_only;
-  impl_->gather_finish = [this, inout, bs, use_aura, recv_buf]() -> int {
+  impl_->gather_finish = [this, inout, bs, use_aura, recv_buf, stream]() -> int {
+    SMESH_UNUSED(stream);  // the device unpack's
     SMESH_MPI_CATCH(MPI_Waitall((int)impl_->gather_requests.size(),
                                 impl_->gather_requests.data(),
                                 MPI_STATUSES_IGNORE));
@@ -433,7 +434,7 @@ int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
       if (impl_->execution_space == EXECUTION_SPACE_DEVICE) {
         if (device::scatter_by_index(n_import, bs, sizeof(T),
                                      impl_->device_import_idx->data(), recv_buf,
-                                     inout) != SMESH_SUCCESS) {
+                                     inout, stream) != SMESH_SUCCESS) {
           return SMESH_FAILURE;
         }
         impl_->gather_pending = false;
@@ -459,6 +460,7 @@ int Exchange::gather_begin(T *const inout, const ptrdiff_t block_size) {
 #else
   SMESH_UNUSED(inout);
   SMESH_UNUSED(block_size);
+  SMESH_UNUSED(stream);
   return SMESH_SUCCESS;
 #endif
 }
@@ -480,32 +482,45 @@ int Exchange::gather_wait() {
 }
 
 template int Exchange::gather_begin<f16>(f16 *const inout,
-                                         const ptrdiff_t block_size);
+                                         const ptrdiff_t block_size,
+                                         void *const stream);
 template int Exchange::gather_begin<f32>(f32 *const inout,
-                                         const ptrdiff_t block_size);
+                                         const ptrdiff_t block_size,
+                                         void *const stream);
 template int Exchange::gather_begin<f64>(f64 *const inout,
-                                         const ptrdiff_t block_size);
+                                         const ptrdiff_t block_size,
+                                         void *const stream);
 template int Exchange::gather_begin<i8>(i8 *const inout,
-                                        const ptrdiff_t block_size);
+                                        const ptrdiff_t block_size,
+                                        void *const stream);
 template int Exchange::gather_begin<i16>(i16 *const inout,
-                                         const ptrdiff_t block_size);
+                                         const ptrdiff_t block_size,
+                                         void *const stream);
 template int Exchange::gather_begin<i32>(i32 *const inout,
-                                         const ptrdiff_t block_size);
+                                         const ptrdiff_t block_size,
+                                         void *const stream);
 template int Exchange::gather_begin<i64>(i64 *const inout,
-                                         const ptrdiff_t block_size);
+                                         const ptrdiff_t block_size,
+                                         void *const stream);
 template int Exchange::gather_begin<u8>(u8 *const inout,
-                                        const ptrdiff_t block_size);
+                                        const ptrdiff_t block_size,
+                                        void *const stream);
 template int Exchange::gather_begin<u16>(u16 *const inout,
-                                         const ptrdiff_t block_size);
+                                         const ptrdiff_t block_size,
+                                         void *const stream);
 template int Exchange::gather_begin<u32>(u32 *const inout,
-                                         const ptrdiff_t block_size);
+                                         const ptrdiff_t block_size,
+                                         void *const stream);
 template int Exchange::gather_begin<u64>(u64 *const inout,
-                                         const ptrdiff_t block_size);
+                                         const ptrdiff_t block_size,
+                                         void *const stream);
 template int Exchange::gather_begin<char>(char *const inout,
-                                          const ptrdiff_t block_size);
+                                          const ptrdiff_t block_size,
+                                          void *const stream);
 #if defined(__clang__)
 template int Exchange::gather_begin<long>(long *const inout,
-                                          const ptrdiff_t block_size);
+                                          const ptrdiff_t block_size,
+                                          void *const stream);
 #endif
 
 template int Exchange::gather<f16>(f16 *const inout);

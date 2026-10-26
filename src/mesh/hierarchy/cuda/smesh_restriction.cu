@@ -90,19 +90,8 @@ static int cu_macrotet4_to_tet4_restriction_elemental(
 
   const ptrdiff_t n_blocks = div_round_up(nelements, (ptrdiff_t)block_size);
 
-  if (stream) {
-    cudaStream_t s = *static_cast<cudaStream_t *>(stream);
-
-    cu_macrotet4_to_tet4_restriction_elemental_kernel<From, To, idx_t>
-        <<<n_blocks, block_size, 0, s>>>(
-            nelements, elements, element_to_node_incidence_count, vec_size,
-            from_stride, from, to_stride, to);
-  } else {
-    cu_macrotet4_to_tet4_restriction_elemental_kernel<From, To, idx_t>
-        <<<n_blocks, block_size, 0>>>(nelements, elements,
-                                      element_to_node_incidence_count, vec_size,
-                                      from_stride, from, to_stride, to);
-  }
+  cu_macrotet4_to_tet4_restriction_elemental_kernel<From, To, idx_t><<<n_blocks, block_size, 0, (cudaStream_t)stream>>>(
+          nelements, elements, element_to_node_incidence_count, vec_size, from_stride, from, to_stride, to);
 
   SMESH_DEBUG_SYNCHRONIZE();
   return SMESH_SUCCESS;
