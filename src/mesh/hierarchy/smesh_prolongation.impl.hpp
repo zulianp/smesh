@@ -8,7 +8,7 @@
 
 namespace smesh {
 template <typename idx_t, typename T>
-int hierarchical_prolongation(
+int hierarchical_prolongation_team(
     const enum ElemType from_element, const enum ElemType to_element,
     const ptrdiff_t nelements,
     const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
@@ -16,7 +16,7 @@ int hierarchical_prolongation(
     T *const SMESH_RESTRICT to) {
   if (from_element == TET4 &&
       (to_element == TET10 || to_element == MACRO_TET4)) {
-#pragma omp parallel for
+#pragma omp for
     for (ptrdiff_t e = 0; e < nelements; e++) {
       // P1
       const idx_t i0 = elements[0][e];
@@ -56,7 +56,7 @@ int hierarchical_prolongation(
     }
   } else if (from_element == TRI3 &&
              (to_element == TRI6 || to_element == MACRO_TRI3)) {
-#pragma omp parallel for
+#pragma omp for
     for (ptrdiff_t e = 0; e < nelements; e++) {
       // P1
       const idx_t i0 = elements[0][e];
@@ -90,6 +90,27 @@ int hierarchical_prolongation(
 
   return SMESH_SUCCESS;
 }
+
+    // The plain entry point: one region around hierarchical_prolongation_team.
+    template <typename idx_t, typename T>
+    int hierarchical_prolongation(
+    const enum ElemType from_element, const enum ElemType to_element,
+    const ptrdiff_t nelements,
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    const int vec_size, const T *const SMESH_RESTRICT from,
+    T *const SMESH_RESTRICT to) {
+        int ret = SMESH_SUCCESS;
+#pragma omp parallel
+        {
+            const int err = hierarchical_prolongation_team(from_element, to_element, nelements, elements, vec_size, from, to);
+            if (err != SMESH_SUCCESS) {
+#pragma omp atomic write
+                ret = err;
+            }
+        }
+        return ret;
+    }
+
 
 } // namespace smesh
 

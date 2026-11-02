@@ -374,7 +374,6 @@ namespace smesh {
                     if (!to_ss) {
                         if (is_mpi_distributed(from_mesh) || is_mpi_distributed(to_mesh)) {
                             actual_op = [=](const T *const from, T *const to) -> int {
-                                SMESH_TRACE_SCOPE("mpi_ss_hierarchical_restriction");
                                 const int from_level = semistructured_level(*from_mesh);
                                 auto      count      = element_to_node_incidence_count->data();
                                 int       err        = SMESH_SUCCESS;
@@ -389,7 +388,7 @@ namespace smesh {
                                         auto   to_b = to_mesh->block(b);
                                         idx_t *to_sshex[8];
                                         hex8_elements_as_sshex8_level1(to_b->elements()->data(), to_sshex);
-                                        err |= sshex8_restrict(ne,
+                                        err |= sshex8_restrict_team(ne,
                                                                from_level,
                                                                1,
                                                                from_b->elements()->data(),
@@ -401,10 +400,10 @@ namespace smesh {
                                                                from,
                                                                to);
                                     } else if (fam == QUAD4) {
-                                        err |= ssquad4_hierarchical_restriction(
+                                        err |= ssquad4_hierarchical_restriction_team(
                                                 from_level, ne, from_b->elements()->data(), count, block_size, from, to);
                                     } else {
-                                        err |= sstet4_hierarchical_restriction(
+                                        err |= sstet4_hierarchical_restriction_team(
                                                 from_level, ne, from_b->elements()->data(), count, block_size, from, to);
                                     }
                                 }
@@ -414,7 +413,6 @@ namespace smesh {
                         }
 
                         actual_op = [=](const T *const from, T *const to) -> int {
-                            SMESH_TRACE_SCOPE("ss_hierarchical_restriction");
                             const int from_level = semistructured_level(*from_mesh);
                             auto      count      = element_to_node_incidence_count->data();
                             int       err        = SMESH_SUCCESS;
@@ -426,13 +424,13 @@ namespace smesh {
                                 }
                                 const auto fam = ss_block_family(*from_mesh, b);
                                 if (fam == HEX8) {
-                                    err |= sshex8_hierarchical_restriction(
+                                    err |= sshex8_hierarchical_restriction_team(
                                             from_level, ne, from_b->elements()->data(), count, block_size, from, to);
                                 } else if (fam == QUAD4) {
-                                    err |= ssquad4_hierarchical_restriction(
+                                    err |= ssquad4_hierarchical_restriction_team(
                                             from_level, ne, from_b->elements()->data(), count, block_size, from, to);
                                 } else {
-                                    err |= sstet4_hierarchical_restriction(
+                                    err |= sstet4_hierarchical_restriction_team(
                                             from_level, ne, from_b->elements()->data(), count, block_size, from, to);
                                 }
                             }
@@ -442,7 +440,6 @@ namespace smesh {
                     }
 
                     actual_op = [=](const T *const from, T *const to) -> int {
-                        SMESH_TRACE_SCOPE("ss_restrict");
                         const int from_level = semistructured_level(*from_mesh);
                         const int to_level   = semistructured_level(*to_mesh);
                         const int bs         = block_size;
@@ -461,7 +458,7 @@ namespace smesh {
                                     continue;
                                 }
                                 if (family == HEX8) {
-                                    err |= sshex8_restrict(ne,
+                                    err |= sshex8_restrict_team(ne,
                                                            from_level,
                                                            1,
                                                            from_b->elements()->data(),
@@ -473,7 +470,7 @@ namespace smesh {
                                                            from,
                                                            out);
                                 } else {
-                                    err |= sstet4_restrict(ne,
+                                    err |= sstet4_restrict_team(ne,
                                                            from_level,
                                                            1,
                                                            from_b->elements()->data(),
@@ -492,9 +489,14 @@ namespace smesh {
                         if (mixed_hex_tet) {
                             auto            tet_out = tet_to_work->data();
                             const ptrdiff_t nn      = to_mesh->n_nodes();
-                            std::memset(tet_out, 0, (size_t)nn * (size_t)bs * sizeof(T));
+                            const ptrdiff_t n_out   = nn * (ptrdiff_t)bs;
+#pragma omp for schedule(static)
+                            for (ptrdiff_t i = 0; i < n_out; ++i) {
+                                tet_out[i] = 0;
+                            }
                             int err = restrict_family(HEX8, hex_incidence->data(), to);
                             err |= restrict_family(TET4, tet_incidence->data(), tet_out);
+#pragma omp for schedule(static)
                             for (ptrdiff_t i = 0; i < nn; ++i) {
                                 const bool hx = hex_nodes_coarse[(size_t)i] != 0;
                                 const bool te = tet_nodes_coarse[(size_t)i] != 0;
@@ -522,7 +524,7 @@ namespace smesh {
                             }
                             const auto fam = ss_block_family(*from_mesh, b);
                             if (fam == HEX8) {
-                                err |= sshex8_restrict(ne,
+                                err |= sshex8_restrict_team(ne,
                                                        from_level,
                                                        1,
                                                        from_b->elements()->data(),
@@ -534,7 +536,7 @@ namespace smesh {
                                                        from,
                                                        to);
                             } else if (fam == QUAD4) {
-                                err |= ssquad4_restrict(ne,
+                                err |= ssquad4_restrict_team(ne,
                                                         from_level,
                                                         1,
                                                         from_b->elements()->data(),
@@ -546,7 +548,7 @@ namespace smesh {
                                                         from,
                                                         to);
                             } else {
-                                err |= sstet4_restrict(ne,
+                                err |= sstet4_restrict_team(ne,
                                                        from_level,
                                                        1,
                                                        from_b->elements()->data(),
@@ -565,9 +567,8 @@ namespace smesh {
                 }
 
                 actual_op = [=](const T *const from, T *const to) -> int {
-                    SMESH_TRACE_SCOPE("hierarchical_restriction_with_counting");
 
-                    return hierarchical_restriction(from_element,
+                    return hierarchical_restriction_team(from_element,
                                                     to_element,
                                                     from_mesh->n_elements(),
                                                     from_mesh->elements(0)->data(),
@@ -585,32 +586,49 @@ namespace smesh {
         }
 
         int apply(const T *const x, T *const y) {
-            if ((from_exchange || to_exchange) && es == EXECUTION_SPACE_DEVICE) {
-                SMESH_ERROR("Restrict: distributed DEVICE apply is not implemented\n");
-                return SMESH_FAILURE;
-            }
-
-            T *const x_mut = const_cast<T *>(x);
-            if (from_exchange) {
-                if (from_exchange->gather(x_mut, block_size) != SMESH_SUCCESS) {
+            if (es == EXECUTION_SPACE_DEVICE) {
+                if (from_exchange || to_exchange) {
+                    SMESH_ERROR("Restrict: distributed DEVICE apply is not implemented\n");
                     return SMESH_FAILURE;
                 }
+                return actual_op(x, y);
+            }
+
+            SMESH_TRACE_SCOPE("Restrict::apply");
+            int ret = SMESH_SUCCESS;
+#pragma omp parallel
+            {
+                const int err = team_apply(x, y);
+                if (err != SMESH_SUCCESS) {
+#pragma omp atomic write
+                    ret = err;
+                }
+            }
+            return ret;
+        }
+
+        // The host kernels run inside the caller's region (actual_op calls their _team forms, each
+        // ending on its loop's barrier); the exchanges are the master thread's, and so is the
+        // report of their failure.
+        int team_apply(const T *const x, T *const y) {
+            int status = SMESH_SUCCESS;
+            if (from_exchange) {
+#pragma omp master
+                status = from_exchange->gather(const_cast<T *>(x), block_size);
+#pragma omp barrier
             }
 
             const int err = actual_op(x, y);
-            if (err != SMESH_SUCCESS) {
-                return err;
-            }
 
             if (to_exchange) {
-                if (to_exchange->scatter_add(y, block_size) != SMESH_SUCCESS) {
-                    return SMESH_FAILURE;
+#pragma omp master
+                {
+                    if (status == SMESH_SUCCESS) status = to_exchange->scatter_add(y, block_size);
+                    if (status == SMESH_SUCCESS) status = to_exchange->gather(y, block_size);
                 }
-                if (to_exchange->gather(y, block_size) != SMESH_SUCCESS) {
-                    return SMESH_FAILURE;
-                }
+#pragma omp barrier
             }
-            return SMESH_SUCCESS;
+            return err != SMESH_SUCCESS ? err : status;
         }
     };
 
@@ -635,6 +653,12 @@ namespace smesh {
     template <typename T>
     int Restrict<T>::apply(const T *const x, T *const y) {
         return impl_->apply(x, y);
+    }
+
+    template <typename T>
+    int Restrict<T>::team_apply(const T *const x, T *const y) {
+        SMESH_ASSERT(impl_->es != EXECUTION_SPACE_DEVICE);
+        return impl_->team_apply(x, y);
     }
 
     template <typename T>

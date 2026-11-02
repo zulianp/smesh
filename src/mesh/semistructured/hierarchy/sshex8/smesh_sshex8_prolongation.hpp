@@ -7,6 +7,15 @@
 
 namespace smesh {
 
+    /// sshex8_hierarchical_prolongation from inside a parallel region, by every thread of it (orphaned worksharing).
+    template <typename idx_t, typename T>
+    int sshex8_hierarchical_prolongation_team(int                                                     level,
+                                         const ptrdiff_t                                         nelements,
+                                         const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                         const int                                               vec_size,
+                                         const T *const SMESH_RESTRICT                           from,
+                                         T *const SMESH_RESTRICT                                 to);
+
     template <typename idx_t, typename T>
     int sshex8_hierarchical_prolongation(int                                                     level,
                                          const ptrdiff_t                                         nelements,
@@ -14,6 +23,19 @@ namespace smesh {
                                          const int                                               vec_size,
                                          const T *const SMESH_RESTRICT                           from,
                                          T *const SMESH_RESTRICT                                 to);
+
+    /// sshex8_prolongate from inside a parallel region, by every thread of it (orphaned worksharing).
+    template <typename idx_t, typename T>
+    int sshex8_prolongate_team(const ptrdiff_t                                         nelements,
+                          const int                                               from_level,
+                          const int                                               from_level_stride,
+                          const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT from_elements,
+                          const int                                               to_level,
+                          const int                                               to_level_stride,
+                          const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT to_elements,
+                          const int                                               vec_size,
+                          const T *const SMESH_RESTRICT                           from,
+                          T *const SMESH_RESTRICT                                 to);
 
     template <typename idx_t, typename T>
     int sshex8_prolongate(const ptrdiff_t                                         nelements,

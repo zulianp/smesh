@@ -8,7 +8,7 @@
 namespace smesh {
 
     template <typename idx_t, typename T>
-    int sstet4_hierarchical_prolongation(int                                                     level,
+    int sstet4_hierarchical_prolongation_team(int                                                     level,
                                          const ptrdiff_t                                         nelements,
                                          const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
                                          const int                                               vec_size,
@@ -19,7 +19,7 @@ namespace smesh {
                                 sstet4_lidx(level, 0, level, 0),
                                 sstet4_lidx(level, 0, 0, level)};
 
-#pragma omp parallel for schedule(static)
+#pragma omp for schedule(static)
         for (ptrdiff_t e = 0; e < nelements; ++e) {
             for (int z = 0; z <= level; ++z) {
                 for (int y = 0; y <= level - z; ++y) {
@@ -44,8 +44,29 @@ namespace smesh {
         return SMESH_SUCCESS;
     }
 
+    // The plain entry point: one region around sstet4_hierarchical_prolongation_team.
     template <typename idx_t, typename T>
-    int sstet4_prolongate(const ptrdiff_t                                         nelements,
+    int sstet4_hierarchical_prolongation(int                                                     level,
+                                         const ptrdiff_t                                         nelements,
+                                         const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                         const int                                               vec_size,
+                                         const T *const SMESH_RESTRICT                           from,
+                                         T *const SMESH_RESTRICT                                 to) {
+        int ret = SMESH_SUCCESS;
+#pragma omp parallel
+        {
+            const int err = sstet4_hierarchical_prolongation_team(level, nelements, elements, vec_size, from, to);
+            if (err != SMESH_SUCCESS) {
+#pragma omp atomic write
+                ret = err;
+            }
+        }
+        return ret;
+    }
+
+
+    template <typename idx_t, typename T>
+    int sstet4_prolongate_team(const ptrdiff_t                                         nelements,
                           const int                                               from_level,
                           const int                                               from_level_stride,
                           const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT from_elements,
@@ -64,7 +85,6 @@ namespace smesh {
         const int from_nxe = sstet4_nxe(from_level);
         int       invalid  = 0;
 
-#pragma omp parallel reduction(| : invalid)
         {
             int *const cx = (int *)SMESH_ALLOC(static_cast<size_t>(from_nxe) * sizeof(int));
             int *const cy = (int *)SMESH_ALLOC(static_cast<size_t>(from_nxe) * sizeof(int));
@@ -119,6 +139,31 @@ namespace smesh {
 
         return invalid ? SMESH_FAILURE : SMESH_SUCCESS;
     }
+
+    // The plain entry point: one region around sstet4_prolongate_team.
+    template <typename idx_t, typename T>
+    int sstet4_prolongate(const ptrdiff_t                                         nelements,
+                          const int                                               from_level,
+                          const int                                               from_level_stride,
+                          const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT from_elements,
+                          const int                                               to_level,
+                          const int                                               to_level_stride,
+                          const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT to_elements,
+                          const int                                               vec_size,
+                          const T *const SMESH_RESTRICT                           from,
+                          T *const SMESH_RESTRICT                                 to) {
+        int ret = SMESH_SUCCESS;
+#pragma omp parallel
+        {
+            const int err = sstet4_prolongate_team(nelements, from_level, from_level_stride, from_elements, to_level, to_level_stride, to_elements, vec_size, from, to);
+            if (err != SMESH_SUCCESS) {
+#pragma omp atomic write
+                ret = err;
+            }
+        }
+        return ret;
+    }
+
 
 }  // namespace smesh
 

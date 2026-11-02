@@ -135,6 +135,17 @@ namespace smesh {
         return SMESH_SUCCESS;
     }
 
+    /// hierarchical_restriction from inside a parallel region, by every thread of it (orphaned worksharing).
+    template <typename idx_t, typename T>
+    int hierarchical_restriction_team(const enum ElemType                                     from_element,
+                                 const enum ElemType                                     to_element,
+                                 const ptrdiff_t                                         nelements,
+                                 const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                 const u16 *const SMESH_RESTRICT                         e2n_count,
+                                 const int                                               vec_size,
+                                 const T *const SMESH_RESTRICT                           from,
+                                 T *const SMESH_RESTRICT                                 to);
+
     template <typename idx_t, typename T>
     int hierarchical_restriction(const enum ElemType                                     from_element,
                                  const enum ElemType                                     to_element,

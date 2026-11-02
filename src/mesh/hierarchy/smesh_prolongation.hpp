@@ -6,6 +6,16 @@
 #include "smesh_elem_type.hpp"
 
 namespace smesh {
+    /// hierarchical_prolongation from inside a parallel region, by every thread of it (orphaned worksharing).
+    template <typename idx_t, typename T>
+    int hierarchical_prolongation_team(const enum smesh::ElemType                                     from_element,
+                                  const enum smesh::ElemType                                     to_element,
+                                  const ptrdiff_t                                         nelements,
+                                  const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                  const int                                               vec_size,
+                                  const T *const SMESH_RESTRICT                           from,
+                                  T *const SMESH_RESTRICT                                 to);
+
     template <typename idx_t, typename T>
     int hierarchical_prolongation(const enum smesh::ElemType                                     from_element,
                                   const enum smesh::ElemType                                     to_element,

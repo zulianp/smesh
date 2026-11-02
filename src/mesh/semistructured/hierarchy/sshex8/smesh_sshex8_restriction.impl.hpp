@@ -12,14 +12,13 @@
 namespace smesh {
 
     template <typename idx_t, typename real_t>
-    int sshex8_hierarchical_restriction(int                                                     level,
+    int sshex8_hierarchical_restriction_team(int                                                     level,
                                         const ptrdiff_t                                         nelements,
                                         const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
                                         const u16 *const SMESH_RESTRICT                         element_to_node_incidence_count,
                                         const int                                               vec_size,
                                         const real_t *const SMESH_RESTRICT                      from,
                                         real_t *const SMESH_RESTRICT                            to) {
-#pragma omp parallel
         {
             const int nxe    = sshex8_nxe(level);
             real_t  **e_from = (real_t **)SMESH_ALLOC(vec_size * sizeof(real_t *));
@@ -129,6 +128,28 @@ namespace smesh {
         return SMESH_SUCCESS;
     }
 
+    // The plain entry point: one region around sshex8_hierarchical_restriction_team.
+    template <typename idx_t, typename real_t>
+    int sshex8_hierarchical_restriction(int                                                     level,
+                                        const ptrdiff_t                                         nelements,
+                                        const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                        const u16 *const SMESH_RESTRICT                         element_to_node_incidence_count,
+                                        const int                                               vec_size,
+                                        const real_t *const SMESH_RESTRICT                      from,
+                                        real_t *const SMESH_RESTRICT                            to) {
+        int ret = SMESH_SUCCESS;
+#pragma omp parallel
+        {
+            const int err = sshex8_hierarchical_restriction_team(level, nelements, elements, element_to_node_incidence_count, vec_size, from, to);
+            if (err != SMESH_SUCCESS) {
+#pragma omp atomic write
+                ret = err;
+            }
+        }
+        return ret;
+    }
+
+
     // OpenMP nested parallelization? https://docs.oracle.com/cd/E19205-01/819-5270/aewbc/index.html
     // https://ppc.cs.aalto.fi/ch3/nested/
 
@@ -154,7 +175,7 @@ namespace smesh {
     }
 
     template <typename idx_t, typename real_t>
-    int sshex8_restrict(const ptrdiff_t                                         nelements,
+    int sshex8_restrict_team(const ptrdiff_t                                         nelements,
                         const int                                               from_level,
                         const int                                               from_level_stride,
                         const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT from_elements,
@@ -172,7 +193,6 @@ namespace smesh {
             return SMESH_FAILURE;
         }
 
-#pragma omp parallel
         {
             const int from_nxe    = sshex8_nxe(from_level);
             const int to_nxe      = sshex8_nxe(to_level);
@@ -296,6 +316,32 @@ namespace smesh {
 
         return SMESH_SUCCESS;
     }
+
+    // The plain entry point: one region around sshex8_restrict_team.
+    template <typename idx_t, typename real_t>
+    int sshex8_restrict(const ptrdiff_t                                         nelements,
+                        const int                                               from_level,
+                        const int                                               from_level_stride,
+                        const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT from_elements,
+                        const uint16_t *const SMESH_RESTRICT                    from_element_to_node_incidence_count,
+                        const int                                               to_level,
+                        const int                                               to_level_stride,
+                        const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT to_elements,
+                        const int                                               vec_size,
+                        const real_t *const SMESH_RESTRICT                      from,
+                        real_t *const SMESH_RESTRICT                            to) {
+        int ret = SMESH_SUCCESS;
+#pragma omp parallel
+        {
+            const int err = sshex8_restrict_team(nelements, from_level, from_level_stride, from_elements, from_element_to_node_incidence_count, to_level, to_level_stride, to_elements, vec_size, from, to);
+            if (err != SMESH_SUCCESS) {
+#pragma omp atomic write
+                ret = err;
+            }
+        }
+        return ret;
+    }
+
 
 }  // namespace smesh
 
