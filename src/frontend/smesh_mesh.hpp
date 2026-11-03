@@ -349,8 +349,8 @@ public:
   ptrdiff_t n_elements(block_idx_t block_id) const;
   enum ElemType element_type(block_idx_t block_id) const;
   enum GeomMap geom_map(block_idx_t block_id) const;
-  SharedBuffer<idx_t *> elements(block_idx_t block_id);
-  SharedBuffer<idx_t *> elements(block_idx_t block_id) const;
+  const SharedBuffer<idx_t *> &elements(block_idx_t block_id);
+  const SharedBuffer<idx_t *> &elements(block_idx_t block_id) const;
 
   std::shared_ptr<NodeToNodeGraph> node_to_node_graph();
   std::shared_ptr<NodeToNodeGraph> node_to_node_graph_upper_triangular();
@@ -370,12 +370,12 @@ public:
   SharedBuffer<int> node_owner() const;
   SharedBuffer<idx_t> node_mapping() const;
 
-  SharedBuffer<geom_t *> points();
-  SharedBuffer<geom_t *> points() const;
+  const SharedBuffer<geom_t *> &points();
+  const SharedBuffer<geom_t *> &points() const;
 
   void set_points(const SharedBuffer<geom_t *> &points);
 
-  std::shared_ptr<Communicator> comm() const;
+  const std::shared_ptr<Communicator> &comm() const;
 
   inline static std::shared_ptr<Mesh>
   create_from_file(const std::shared_ptr<Communicator> &comm,

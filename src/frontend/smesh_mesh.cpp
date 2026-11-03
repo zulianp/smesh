@@ -595,6 +595,15 @@ class Mesh::Impl {
 public:
   std::shared_ptr<Communicator> comm;
   std::vector<std::shared_ptr<Block>> blocks;
+
+  // The block by reference: the accessors below copy no reference count, so threads may call
+  // them together without contending on one.
+  const std::shared_ptr<Block> &checked_block(size_t index) const {
+    if (index >= blocks.size() || !blocks[index]) {
+      SMESH_ERROR("Block index out of range");
+    }
+    return blocks[index];
+  }
   std::vector<std::pair<std::string, std::shared_ptr<Sideset>>> sidesets;
   std::vector<std::pair<std::string, std::shared_ptr<Edgeset>>> edgesets;
   std::vector<std::pair<std::string, std::shared_ptr<Nodeset>>> nodesets;
@@ -825,7 +834,7 @@ public:
 //     return impl_->kernel_data;
 // }
 
-std::shared_ptr<Communicator> Mesh::comm() const { return impl_->comm; }
+const std::shared_ptr<Communicator> &Mesh::comm() const { return impl_->comm; }
 
 std::shared_ptr<Distributed> Mesh::distributed() const {
   SMESH_ASSERT(impl_->distributed);
@@ -1023,17 +1032,11 @@ Mesh::~Mesh() = default;
 size_t Mesh::n_blocks() const { return impl_->blocks.size(); }
 
 std::shared_ptr<const Mesh::Block> Mesh::block(size_t index) const {
-  if (index >= impl_->blocks.size() || !impl_->blocks[index]) {
-    SMESH_ERROR("Block index out of range");
-  }
-  return impl_->blocks[index];
+  return impl_->checked_block(index);
 }
 
 std::shared_ptr<Mesh::Block> Mesh::block(size_t index) {
-  if (index >= impl_->blocks.size() || !impl_->blocks[index]) {
-    SMESH_ERROR("Block index out of range");
-  }
-  return impl_->blocks[index];
+  return impl_->checked_block(index);
 }
 
 void Mesh::add_block(const std::string &name, enum ElemType element_type,
@@ -4509,44 +4512,44 @@ ptrdiff_t Mesh::n_nodes() const { return points()->extent(1); }
 ptrdiff_t Mesh::n_elements() const { return impl_->total_elements(); }
 
 int Mesh::n_nodes_per_element(block_idx_t block_id) const {
-  auto blk = this->block(block_id);
+  const auto &blk = impl_->checked_block(block_id);
   SMESH_ASSERT(blk);
   return blk->n_nodes_per_element();
 }
 
 ptrdiff_t Mesh::n_elements(block_idx_t block_id) const {
-  auto blk = this->block(block_id);
+  const auto &blk = impl_->checked_block(block_id);
   SMESH_ASSERT(blk);
   return blk->n_elements();
 }
 
 enum ElemType Mesh::element_type(block_idx_t block_id) const {
-  auto blk = this->block(block_id);
+  const auto &blk = impl_->checked_block(block_id);
   SMESH_ASSERT(blk);
   return blk->element_type();
 }
 
 enum GeomMap Mesh::geom_map(block_idx_t block_id) const {
-  auto blk = this->block(block_id);
+  const auto &blk = impl_->checked_block(block_id);
   SMESH_ASSERT(blk);
   return blk->geom_map();
 }
 
-SharedBuffer<geom_t *> Mesh::points() { return impl_->points; }
-SharedBuffer<geom_t *> Mesh::points() const { return impl_->points; }
+const SharedBuffer<geom_t *> &Mesh::points() { return impl_->points; }
+const SharedBuffer<geom_t *> &Mesh::points() const { return impl_->points; }
 
 void Mesh::set_points(const SharedBuffer<geom_t *> &points) {
   impl_->points = points;
 }
 
-SharedBuffer<idx_t *> Mesh::elements(block_idx_t block_id) {
-  auto blk = this->block(block_id);
+const SharedBuffer<idx_t *> &Mesh::elements(block_idx_t block_id) {
+  const auto &blk = impl_->checked_block(block_id);
   SMESH_ASSERT(blk);
   return blk->elements();
 }
 
-SharedBuffer<idx_t *> Mesh::elements(block_idx_t block_id) const {
-  auto blk = this->block(block_id);
+const SharedBuffer<idx_t *> &Mesh::elements(block_idx_t block_id) const {
+  const auto &blk = impl_->checked_block(block_id);
   SMESH_ASSERT(blk);
   return blk->elements();
 }
@@ -4561,14 +4564,14 @@ void Mesh::set_comm(const std::shared_ptr<Communicator> &comm) {
 
 void Mesh::set_element_type(const block_idx_t block_id,
                             const enum ElemType element_type) {
-  auto blk = this->block(block_id);
+  const auto &blk = impl_->checked_block(block_id);
   SMESH_ASSERT(blk);
   blk->set_element_type(element_type);
 }
 
 int Mesh::set_geom_map(const block_idx_t block_id,
                        const enum GeomMap geom_map) {
-  auto blk = this->block(block_id);
+  const auto &blk = impl_->checked_block(block_id);
   SMESH_ASSERT(blk);
   return blk->set_geom_map(geom_map);
 }
@@ -4578,7 +4581,7 @@ enum GeomMap Mesh::detect_geom_map(block_idx_t block_id) const {
 }
 
 enum GeomMap Mesh::detect_geom_map(block_idx_t block_id, geom_t rel_tol) const {
-  auto blk = this->block(block_id);
+  const auto &blk = impl_->checked_block(block_id);
   SMESH_ASSERT(blk);
   const ptrdiff_t ne = blk->elements() ? blk->n_elements() : 0;
   const int has = ne > 0 ? 1 : 0;
