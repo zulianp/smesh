@@ -12,8 +12,24 @@
                                               const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT to_elements,              \
                                               const int                                               vec_size,                 \
                                               const T *const SMESH_RESTRICT                           from,                     \
+                                              T *const SMESH_RESTRICT                                 to); \
+  template int ssquad4_prolongate_team<IDX_T, T>(const ptrdiff_t                                         nelements,                \
+                                              const int                                               from_level,               \
+                                              const int                                               from_level_stride,        \
+                                              const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT from_elements,            \
+                                              const int                                               to_level,                 \
+                                              const int                                               to_level_stride,          \
+                                              const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT to_elements,              \
+                                              const int                                               vec_size,                 \
+                                              const T *const SMESH_RESTRICT                           from,                     \
                                               T *const SMESH_RESTRICT                                 to);                                                      \
     template int ssquad4_hierarchical_prolongation<IDX_T, T>(int                                                     level,     \
+                                                             const ptrdiff_t                                         nelements, \
+                                                             const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT elements,  \
+                                                             const int                                               vec_size,  \
+                                                             const T *const SMESH_RESTRICT                           from,      \
+                                                             T *const SMESH_RESTRICT                                 to); \
+  template int ssquad4_hierarchical_prolongation_team<IDX_T, T>(int                                                     level,     \
                                                              const ptrdiff_t                                         nelements, \
                                                              const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT elements,  \
                                                              const int                                               vec_size,  \

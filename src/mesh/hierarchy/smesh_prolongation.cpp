@@ -6,6 +6,10 @@
   template int hierarchical_prolongation<IDX_T, T>(                              \
       const enum smesh::ElemType, const enum smesh::ElemType, const ptrdiff_t,                 \
       const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, const int,        \
+      const T *const SMESH_RESTRICT, T *const SMESH_RESTRICT); \
+  template int hierarchical_prolongation_team<IDX_T, T>(                              \
+      const enum smesh::ElemType, const enum smesh::ElemType, const ptrdiff_t,                 \
+      const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, const int,        \
       const T *const SMESH_RESTRICT, T *const SMESH_RESTRICT);
 
 namespace smesh {

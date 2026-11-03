@@ -35,6 +35,11 @@ public:
 
   ~Restrict();
   int apply(const T *const x, T *const y) override;
+
+  /// y += R x from inside a parallel region, by every thread of it (host): the kernels are shared
+  /// by the region's threads, the halo exchanges are its master thread's, and it ends on a
+  /// barrier. apply() is one region around it.
+  int team_apply(const T *const x, T *const y);
   ptrdiff_t rows() const override;
   ptrdiff_t cols() const override;
   ExecutionSpace execution_space() const override;

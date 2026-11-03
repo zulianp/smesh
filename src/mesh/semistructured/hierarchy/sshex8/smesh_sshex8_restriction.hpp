@@ -8,6 +8,16 @@
 
 namespace smesh {
 
+    /// sshex8_hierarchical_restriction from inside a parallel region, by every thread of it (orphaned worksharing).
+    template <typename idx_t, typename real_t>
+    int sshex8_hierarchical_restriction_team(int                                                     level,
+                                        const ptrdiff_t                                         nelements,
+                                        const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                        const u16 *const SMESH_RESTRICT                         element_to_node_incidence_count,
+                                        const int                                               vec_size,
+                                        const real_t *const SMESH_RESTRICT                      from,
+                                        real_t *const SMESH_RESTRICT                            to);
+
     template <typename idx_t, typename real_t>
     int sshex8_hierarchical_restriction(int                                                     level,
                                         const ptrdiff_t                                         nelements,
@@ -23,6 +33,20 @@ namespace smesh {
                                             const ptrdiff_t               nelements,
                                             const idx_t *const SMESH_RESTRICT*const SMESH_RESTRICT   elements,
                                             uint16_t *const SMESH_RESTRICT count);
+
+    /// sshex8_restrict from inside a parallel region, by every thread of it (orphaned worksharing).
+    template <typename idx_t, typename real_t>
+    int sshex8_restrict_team(const ptrdiff_t                     nelements,
+                        const int                           from_level,
+                        const int                           from_level_stride,
+                        const idx_t *const SMESH_RESTRICT*const SMESH_RESTRICT         from_elements,
+                        const uint16_t *const SMESH_RESTRICT from_element_to_node_incidence_count,
+                        const int                           to_level,
+                        const int                           to_level_stride,
+                        const idx_t *const SMESH_RESTRICT*const SMESH_RESTRICT         to_elements,
+                        const int                           vec_size,
+                        const real_t *const SMESH_RESTRICT   from,
+                        real_t *const SMESH_RESTRICT         to);
 
     template <typename idx_t, typename real_t>
     int sshex8_restrict(const ptrdiff_t                     nelements,

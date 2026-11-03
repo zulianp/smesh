@@ -6,7 +6,7 @@
 namespace smesh {
 
     template <typename idx_t, typename T>
-    int hierarchical_restriction(const enum ElemType                                     from_element,
+    int hierarchical_restriction_team(const enum ElemType                                     from_element,
                                  const enum ElemType                                     to_element,
                                  const ptrdiff_t                                         nelements,
                                  const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
@@ -15,7 +15,7 @@ namespace smesh {
                                  const T *const SMESH_RESTRICT                           from,
                                  T *const SMESH_RESTRICT                                 to) {
         if (to_element == TET4 && (from_element == TET10 || from_element == MACRO_TET4)) {
-#pragma omp parallel for
+#pragma omp for
             for (ptrdiff_t e = 0; e < nelements; e++) {
                 // P1
                 const ptrdiff_t i0 = elements[0][e];
@@ -69,7 +69,7 @@ namespace smesh {
                 }
             }
         } else if (to_element == TRI3 && (from_element == TRI6 || from_element == MACRO_TRI3)) {
-#pragma omp parallel for
+#pragma omp for
             for (ptrdiff_t e = 0; e < nelements; e++) {
                 // P1
                 const idx_t i0 = elements[0][e];
@@ -114,6 +114,29 @@ namespace smesh {
 
         return SMESH_SUCCESS;
     }
+
+    // The plain entry point: one region around hierarchical_restriction_team.
+    template <typename idx_t, typename T>
+    int hierarchical_restriction(const enum ElemType                                     from_element,
+                                 const enum ElemType                                     to_element,
+                                 const ptrdiff_t                                         nelements,
+                                 const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                 const u16 *const SMESH_RESTRICT                         e2n_count,
+                                 const int                                               vec_size,
+                                 const T *const SMESH_RESTRICT                           from,
+                                 T *const SMESH_RESTRICT                                 to) {
+        int ret = SMESH_SUCCESS;
+#pragma omp parallel
+        {
+            const int err = hierarchical_restriction_team(from_element, to_element, nelements, elements, e2n_count, vec_size, from, to);
+            if (err != SMESH_SUCCESS) {
+#pragma omp atomic write
+                ret = err;
+            }
+        }
+        return ret;
+    }
+
 
     template <typename count_t, typename idx_t, typename T>
     int hierarchical_restriction(

@@ -142,13 +142,12 @@ namespace smesh {
     }
 
     template <typename idx_t, typename T>
-    int ssquad4_hierarchical_prolongation(int                                                     level,
+    int ssquad4_hierarchical_prolongation_team(int                                                     level,
                                           const ptrdiff_t                                         nelements,
                                           const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
                                           const int                                               vec_size,
                                           const T *const SMESH_RESTRICT                           from,
                                           T *const SMESH_RESTRICT                                 to) {
-#pragma omp parallel
         {
             const int nxe    = ssquad4_nxe(level);
             T       **e_from = (T **)SMESH_ALLOC(vec_size * sizeof(T *));
@@ -236,8 +235,29 @@ namespace smesh {
         return SMESH_SUCCESS;
     }
 
+    // The plain entry point: one region around ssquad4_hierarchical_prolongation_team.
     template <typename idx_t, typename T>
-    int ssquad4_prolongate(const ptrdiff_t                                         nelements,
+    int ssquad4_hierarchical_prolongation(int                                                     level,
+                                          const ptrdiff_t                                         nelements,
+                                          const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+                                          const int                                               vec_size,
+                                          const T *const SMESH_RESTRICT                           from,
+                                          T *const SMESH_RESTRICT                                 to) {
+        int ret = SMESH_SUCCESS;
+#pragma omp parallel
+        {
+            const int err = ssquad4_hierarchical_prolongation_team(level, nelements, elements, vec_size, from, to);
+            if (err != SMESH_SUCCESS) {
+#pragma omp atomic write
+                ret = err;
+            }
+        }
+        return ret;
+    }
+
+
+    template <typename idx_t, typename T>
+    int ssquad4_prolongate_team(const ptrdiff_t                                         nelements,
                            const int                                               from_level,
                            const int                                               from_level_stride,
                            const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT from_elements,
@@ -259,7 +279,6 @@ namespace smesh {
             return SMESH_FAILURE;
         }
 
-#pragma omp parallel
         {
             const int to_nxe       = ssquad4_nxe(to_level);
             const int from_to_step = to_level / from_level;
@@ -409,6 +428,31 @@ namespace smesh {
 
         return SMESH_SUCCESS;
     }
+
+    // The plain entry point: one region around ssquad4_prolongate_team.
+    template <typename idx_t, typename T>
+    int ssquad4_prolongate(const ptrdiff_t                                         nelements,
+                           const int                                               from_level,
+                           const int                                               from_level_stride,
+                           const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT from_elements,
+                           const int                                               to_level,
+                           const int                                               to_level_stride,
+                           const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT to_elements,
+                           const int                                               vec_size,
+                           const T *const SMESH_RESTRICT                           from,
+                           T *const SMESH_RESTRICT                                 to) {
+        int ret = SMESH_SUCCESS;
+#pragma omp parallel
+        {
+            const int err = ssquad4_prolongate_team(nelements, from_level, from_level_stride, from_elements, to_level, to_level_stride, to_elements, vec_size, from, to);
+            if (err != SMESH_SUCCESS) {
+#pragma omp atomic write
+                ret = err;
+            }
+        }
+        return ret;
+    }
+
 
     template <typename idx_t, typename count_t>
     int ssquad4_prolongation_crs_nnz(const int                                               level,
