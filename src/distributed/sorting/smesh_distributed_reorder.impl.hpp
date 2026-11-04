@@ -149,6 +149,8 @@ int distributed_reorder_elements(
                                 MPI_MIN, comm));
   SMESH_MPI_CATCH(MPI_Allreduce(local_max, global_max, 3, mpi_type<geom_t>(),
                                 MPI_MAX, comm));
+  // A cube: the curve keeps the geometry's proportions (sfc_cubic_box).
+  sfc_cubic_box(spatial_dim, global_min, global_max);
 
   std::vector<u32> send_keys((size_t)n_local_elements);
   if (ordering(n_local_elements, cx.data(), cy.data(), cz.data(), global_min[0],
@@ -307,6 +309,8 @@ int distributed_assign_elements_sfc_multiblock(
                                   MPI_MIN, comm));
     SMESH_MPI_CATCH(MPI_Allreduce(local_max, global_max, 3, mpi_type<geom_t>(),
                                   MPI_MAX, comm));
+    // A cube: the curve keeps the geometry's proportions (sfc_cubic_box).
+    sfc_cubic_box(spatial_dim, global_min, global_max);
     if (n_send > 0) {
       if (ordering(n_send, cx.data(), cy.data(), cz.data(), global_min[0],
                    global_max[0], global_min[1], global_max[1], global_min[2],

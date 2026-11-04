@@ -342,6 +342,8 @@ static int test_mpi_multiblock_checkerboard_read() {
                   comm->get());
     MPI_Allreduce(local_max, global_max, 3, mpi_type<geom_t>(), MPI_MAX,
                   comm->get());
+    // The read's box (sfc_cubic_box).
+    sfc_cubic_box(3, global_min, global_max);
 
     std::vector<u32> keys((size_t)std::max<ptrdiff_t>(n_owned, 1));
     u32 local_key_min = std::numeric_limits<u32>::max();
@@ -657,6 +659,8 @@ static int test_mpi_multiblock_hex8_tet4_read() {
                   comm->get());
     MPI_Allreduce(local_max, global_max, 3, mpi_type<geom_t>(), MPI_MAX,
                   comm->get());
+    // The read's box (sfc_cubic_box).
+    sfc_cubic_box(3, global_min, global_max);
 
     std::vector<u32> keys((size_t)std::max<ptrdiff_t>(n_owned, 1));
     u32 local_key_min = std::numeric_limits<u32>::max();

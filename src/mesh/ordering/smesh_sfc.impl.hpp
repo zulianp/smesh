@@ -94,13 +94,15 @@ int encode_morton3(const ptrdiff_t n_points,
   if (!x || !y || !z || !encoding)
     return SMESH_FAILURE;
 
-  geom_t x_min, x_max, y_min, y_max, z_min, z_max;
-  minmax(n_points, x, &x_min, &x_max);
-  minmax(n_points, y, &y_min, &y_max);
-  minmax(n_points, z, &z_min, &z_max);
+  geom_t box_min[3], box_max[3];
+  minmax(n_points, x, &box_min[0], &box_max[0]);
+  minmax(n_points, y, &box_min[1], &box_max[1]);
+  minmax(n_points, z, &box_min[2], &box_max[2]);
+  // A cube, as the distributed read's (sfc_cubic_box): the same order serially and in parallel.
+  sfc_cubic_box(3, box_min, box_max);
 
-  return encode_morton3(n_points, x, y, z, x_min, x_max, y_min, y_max, z_min,
-                        z_max, encoding);
+  return encode_morton3(n_points, x, y, z, box_min[0], box_max[0], box_min[1],
+                        box_max[1], box_min[2], box_max[2], encoding);
 }
 
 // Convert 3D axes -> Hilbert transpose (in-place).
@@ -213,13 +215,15 @@ int encode_hilbert3(const ptrdiff_t n_points,
   if (!x || !y || !z || !encoding)
     return SMESH_FAILURE;
 
-  geom_t x_min, x_max, y_min, y_max, z_min, z_max;
-  minmax(n_points, x, &x_min, &x_max);
-  minmax(n_points, y, &y_min, &y_max);
-  minmax(n_points, z, &z_min, &z_max);
+  geom_t box_min[3], box_max[3];
+  minmax(n_points, x, &box_min[0], &box_max[0]);
+  minmax(n_points, y, &box_min[1], &box_max[1]);
+  minmax(n_points, z, &box_min[2], &box_max[2]);
+  // A cube, as the distributed read's (sfc_cubic_box): the same order serially and in parallel.
+  sfc_cubic_box(3, box_min, box_max);
 
-  return encode_hilbert3(n_points, x, y, z, x_min, x_max, y_min, y_max, z_min,
-                         z_max, encoding);
+  return encode_hilbert3(n_points, x, y, z, box_min[0], box_max[0], box_min[1],
+                         box_max[1], box_min[2], box_max[2], encoding);
 }
 
 static inline bool valid_perm3(int a, int b, int c) {
