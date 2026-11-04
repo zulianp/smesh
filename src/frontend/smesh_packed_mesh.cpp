@@ -614,60 +614,60 @@ template <typename pack_idx_t> ptrdiff_t PackedMesh<pack_idx_t>::n_blocks() cons
   return impl_->blocks.size();
 }
 template <typename pack_idx_t>
-SharedBuffer<pack_idx_t *>
+const SharedBuffer<pack_idx_t *> &
 PackedMesh<pack_idx_t>::elements(const int block_idx) const {
   return impl_->blocks[block_idx]->packed_elements;
 }
 
 template <typename pack_idx_t>
-SharedBuffer<ptrdiff_t>
+const SharedBuffer<ptrdiff_t> &
 PackedMesh<pack_idx_t>::owned_nodes_ptr(const int block_idx) const {
   return impl_->blocks[block_idx]->owned_nodes_ptr;
 }
 
 template <typename pack_idx_t>
-SharedBuffer<ptrdiff_t>
+const SharedBuffer<ptrdiff_t> &
 PackedMesh<pack_idx_t>::n_shared(const int block_idx) const {
   return impl_->blocks[block_idx]->n_shared;
 }
 
 template <typename pack_idx_t>
-SharedBuffer<ptrdiff_t>
+const SharedBuffer<ptrdiff_t> &
 PackedMesh<pack_idx_t>::ghost_ptr(const int block_idx) const {
   return impl_->blocks[block_idx]->ghost_ptr;
 }
 template <typename pack_idx_t>
-SharedBuffer<idx_t> PackedMesh<pack_idx_t>::ghost_idx(const int block_idx) const {
+const SharedBuffer<idx_t> & PackedMesh<pack_idx_t>::ghost_idx(const int block_idx) const {
   return impl_->blocks[block_idx]->ghost_idx;
 }
 
 template <typename pack_idx_t>
-SharedBuffer<ptrdiff_t>
+const SharedBuffer<ptrdiff_t> &
 PackedMesh<pack_idx_t>::ghost_reduce_ptr(const int block_idx) const {
   return impl_->blocks[block_idx]->ghost_reduce_ptr;
 }
 
 template <typename pack_idx_t>
-SharedBuffer<ptrdiff_t>
+const SharedBuffer<ptrdiff_t> &
 PackedMesh<pack_idx_t>::ghost_reduce_idx(const int block_idx) const {
   return impl_->blocks[block_idx]->ghost_reduce_idx;
 }
 
 template <typename pack_idx_t>
-SharedBuffer<idx_t>
+const SharedBuffer<idx_t> &
 PackedMesh<pack_idx_t>::ghost_reduce_dest(const int block_idx) const {
   return impl_->blocks[block_idx]->ghost_reduce_dest;
 }
 
 template <typename pack_idx_t>
 ptrdiff_t PackedMesh<pack_idx_t>::n_ghost_entries(const int block_idx) const {
-  auto gp = impl_->blocks[block_idx]->ghost_ptr;
+  const auto &gp = impl_->blocks[block_idx]->ghost_ptr;
   return gp->data()[impl_->blocks[block_idx]->n_packs];
 }
 
 template <typename pack_idx_t>
 ptrdiff_t PackedMesh<pack_idx_t>::n_ghost_reduce_rows(const int block_idx) const {
-  auto dest = impl_->blocks[block_idx]->ghost_reduce_dest;
+  const auto &dest = impl_->blocks[block_idx]->ghost_reduce_dest;
   return dest ? (ptrdiff_t)dest->size() : 0;
 }
 
