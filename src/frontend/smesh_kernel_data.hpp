@@ -16,12 +16,12 @@ namespace smesh {
         int init_AoS(const SharedBuffer<geom_t *> &points, const MemorySpace space);
         int init_SoA(const SharedBuffer<geom_t *> &points, const MemorySpace space);
 
-        inline SharedBuffer<geom_t *> points_SoA() const {
+        inline const SharedBuffer<geom_t *> &points_SoA() const {
             SMESH_ASSERT(points_SoA_);
             return points_SoA_;
         }
 
-        inline SharedBuffer<geom_t> points_AoS() const {
+        inline const SharedBuffer<geom_t> &points_AoS() const {
             SMESH_ASSERT(points_AoS_);
             return points_AoS_;
         }
@@ -45,12 +45,12 @@ namespace smesh {
 
         void adopt_SoA(const SharedBuffer<idx_t *> &elements) { elements_SoA_ = elements; }
 
-        inline SharedBuffer<idx_t *> elements_SoA() const {
+        inline const SharedBuffer<idx_t *> &elements_SoA() const {
             SMESH_ASSERT(elements_SoA_);
             return elements_SoA_;
         }
 
-        inline SharedBuffer<idx_t> elements_AoS() const {
+        inline const SharedBuffer<idx_t> &elements_AoS() const {
             SMESH_ASSERT(elements_AoS_);
             return elements_AoS_;
         }
@@ -73,12 +73,12 @@ namespace smesh {
                                                     const MemorySpace            space,
                                                     const block_idx_t            block_id);
 
-        inline SharedBuffer<jacobian_t *> jacobians_SoA() const {
+        inline const SharedBuffer<jacobian_t *> &jacobians_SoA() const {
             SMESH_ASSERT(jacobians_SoA_);
             return jacobians_SoA_;
         }
 
-        inline SharedBuffer<jacobian_t> jacobians_AoS() const {
+        inline const SharedBuffer<jacobian_t> &jacobians_AoS() const {
             SMESH_ASSERT(jacobians_AoS_);
             return jacobians_AoS_;
         }
@@ -98,7 +98,7 @@ namespace smesh {
                                                                           const MemorySpace            space,
                                                                           const block_idx_t            block_id);
 
-        inline SharedBuffer<jacobian_t *> jacobian_adjugate_SoA() const {
+        inline const SharedBuffer<jacobian_t *> &jacobian_adjugate_SoA() const {
             SMESH_ASSERT(jacobian_adjugate_SoA_);
             return jacobian_adjugate_SoA_;
         }
@@ -111,12 +111,12 @@ namespace smesh {
             return adjugate_components_.data();
         }
 
-        inline SharedBuffer<jacobian_t> jacobian_adjugate_AoS() const {
+        inline const SharedBuffer<jacobian_t> &jacobian_adjugate_AoS() const {
             SMESH_ASSERT(jacobian_adjugate_AoS_);
             return jacobian_adjugate_AoS_;
         }
 
-        inline SharedBuffer<geom_t> jacobian_determinant() const {
+        inline const SharedBuffer<geom_t> &jacobian_determinant() const {
             SMESH_ASSERT(jacobian_determinant_);
             return jacobian_determinant_;
         }
@@ -138,12 +138,12 @@ namespace smesh {
                                                const MemorySpace            space,
                                                const block_idx_t            block_id);
 
-        inline SharedBuffer<jacobian_t *> fff_SoA() const {
+        inline const SharedBuffer<jacobian_t *> &fff_SoA() const {
             SMESH_ASSERT(fff_SoA_);
             return fff_SoA_;
         }
 
-        inline SharedBuffer<jacobian_t> fff_AoS() const {
+        inline const SharedBuffer<jacobian_t> &fff_AoS() const {
             SMESH_ASSERT(fff_AoS_);
             return fff_AoS_;
         }
