@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <fstream>
 #include <map>
+#include <mutex>
 
 #ifdef SMESH_ENABLE_CUDA
 #include <cuda_runtime.h>
@@ -18,6 +19,8 @@ namespace smesh {
 class Tracer::Impl {
 public:
   std::map<std::string, std::pair<int, double>> events;
+  // Scopes close on any thread (a writer thread's I/O, say).
+  std::mutex mutex;
   int rank{0};
   bool log_mode{false};
 
@@ -45,6 +48,7 @@ public:
   }
 
   void record_event(const std::string &name, const double duration) {
+    std::lock_guard<std::mutex> lock(mutex);
     auto &e = events[name];
     e.first++;
     e.second += duration;
