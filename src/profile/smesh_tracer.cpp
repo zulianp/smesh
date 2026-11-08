@@ -6,6 +6,9 @@
 #include <cstdio>
 #include <fstream>
 #include <map>
+#ifdef SMESH_ENABLE_TRACE_MUTEX
+#include <mutex>
+#endif
 
 #ifdef SMESH_ENABLE_CUDA
 #include <cuda_runtime.h>
@@ -18,6 +21,10 @@ namespace smesh {
 class Tracer::Impl {
 public:
   std::map<std::string, std::pair<int, double>> events;
+#ifdef SMESH_ENABLE_TRACE_MUTEX
+  // The scopes marked concurrent (SMESH_TRACE_SCOPE_MUTEX) close on threads of their own.
+  std::mutex mutex;
+#endif
   int rank{0};
   bool log_mode{false};
 
@@ -45,6 +52,9 @@ public:
   }
 
   void record_event(const std::string &name, const double duration) {
+#ifdef SMESH_ENABLE_TRACE_MUTEX
+    std::lock_guard<std::mutex> lock(mutex);
+#endif
     auto &e = events[name];
     e.first++;
     e.second += duration;
@@ -71,6 +81,15 @@ public:
 
   Impl() {}
 };
+
+namespace {
+// Concurrent scopes open on this thread (ScopedTraceSuppression): its events are not recorded.
+thread_local int suppressed_scopes = 0;
+} // namespace
+
+ScopedTraceSuppression::ScopedTraceSuppression() { ++suppressed_scopes; }
+
+ScopedTraceSuppression::~ScopedTraceSuppression() { --suppressed_scopes; }
 
 Tracer &Tracer::instance() {
   static Tracer instance_;
@@ -99,6 +118,10 @@ Tracer::~Tracer() {
 }
 
 ScopedEvent::ScopedEvent(const char *format, int num) {
+  if (suppressed_scopes) {
+    active = false;
+    return;
+  }
   char str[1024];
   int err = snprintf(str, 1024, format, num);
   if (err < 0)
@@ -115,7 +138,12 @@ ScopedEvent::ScopedEvent(const char *format, int num) {
   elapsed = time_seconds();
 }
 
-ScopedEvent::ScopedEvent(const char *name) : name(name) {
+ScopedEvent::ScopedEvent(const char *name) {
+  if (suppressed_scopes) {
+    active = false;
+    return;
+  }
+  this->name = name;
 #ifdef SMESH_ENABLE_BLOCK_KERNELS
   smesh::device_synchronize();
 #endif
@@ -126,6 +154,8 @@ ScopedEvent::ScopedEvent(const char *name) : name(name) {
 }
 
 ScopedEvent::~ScopedEvent() {
+  if (!active)
+    return;
 #ifdef SMESH_ENABLE_BLOCK_KERNELS
   smesh::device_synchronize();
 #endif

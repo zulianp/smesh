@@ -29,9 +29,21 @@ namespace smesh {
         // const char *name{nullptr};
         std::string name;
         double      elapsed{0};
+        bool        active{true};  // false inside a suppressed concurrent scope
         ScopedEvent(const char *name);
         ScopedEvent(const char *format, int num);
         ~ScopedEvent();
+    };
+
+    /// A scope run concurrently with the rest of the program (a thread of its own), traced only
+    /// with SMESH_ENABLE_TRACE_MUTEX (SMESH_TRACE_SCOPE_MUTEX): without it, the scope and every
+    /// scope it opens on its thread record nothing, so no event needs a mutex.
+    class ScopedTraceSuppression {
+    public:
+        ScopedTraceSuppression();
+        ~ScopedTraceSuppression();
+        ScopedTraceSuppression(const ScopedTraceSuppression &)            = delete;
+        ScopedTraceSuppression &operator=(const ScopedTraceSuppression &) = delete;
     };
 
     class ScopedTimeTracer {
@@ -77,10 +89,18 @@ namespace smesh {
 #define SMESH_TRACE_SCOPE(name) smesh::ScopedEvent smesh_scoped_trace_event_(name);
 #define SMESH_TRACE_SCOPE_VARIANT(format__, num__) smesh::ScopedEvent smesh_scoped_trace_event_(format__, num__);
 #define SMESH_TRACE_PERF(name, flops) ScopedPerfTracer _scoped_perf_tracer_##__LINE__(name, flops)
+// A scope that runs on a thread of its own: traced, every event under a mutex, with
+// SMESH_ENABLE_TRACE_MUTEX; otherwise it and the scopes it opens are not traced.
+#ifdef SMESH_ENABLE_TRACE_MUTEX
+#define SMESH_TRACE_SCOPE_MUTEX(name) smesh::ScopedEvent smesh_scoped_trace_event_(name);
+#else
+#define SMESH_TRACE_SCOPE_MUTEX(name) smesh::ScopedTraceSuppression smesh_scoped_trace_suppression_;
+#endif
 #else
 #define SMESH_TRACE_SCOPE(...)
 #define SMESH_TRACE_SCOPE_VARIANT(...)
 #define SMESH_TRACE_PERF(...)
+#define SMESH_TRACE_SCOPE_MUTEX(...)
 #endif
 
 }  // namespace smesh
