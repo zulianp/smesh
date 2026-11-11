@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import meshio
+from common.smz import load as load_array
 import numpy as np
 import sys, getopt
 import os
@@ -148,7 +149,7 @@ def load_idx_from_folder(folder, verbose=False):
         if os.path.exists(path):
             if verbose:
                 print(f"Reading {path}")
-            idx.append(np.fromfile(path, dtype=dtype))
+            idx.append(load_array(path, dtype))
     return idx
 
 
@@ -246,7 +247,7 @@ class Field:
     def __init__(self, path):
         self.path = path
         self.type = extension_to_dtype(extension(path))
-        self.data = np.fromfile(path, dtype=self.type)
+        self.data = load_array(path, self.type)
 
         if self.type == np.int32 or self.type == np.uint8:
             print(
@@ -297,7 +298,7 @@ def write_transient_data(
     time_step_format,
 ):
     def read_transient_field(path, center_size):
-        data = np.fromfile(path, dtype=extension_to_dtype(extension(path)))
+        data = load_array(path, extension_to_dtype(extension(path)))
         if ".vec3." in os.path.basename(path):
             if len(data) != 3 * center_size:
                 print(

@@ -42,6 +42,11 @@ set readers, serial and distributed, recognise `<stem>.<dtype>.smz` and decode i
 mix raw and compressed files. If both exist for one array, the one named in `meta.yaml` is read,
 otherwise the raw one.
 
+Python: the converters in `python/smesh` (`common/raw_io.py`, `raw_to_db.py`) read `.smz` files
+too; `common/smz.py` parses headers in pure Python and decodes through the `smz` tool (on `PATH`,
+or `SMESH_SMZ=/path/to/smz`). `Mesh::write_with_xdmf` always writes raw files, since XDMF points
+readers at raw binary arrays.
+
 ## Specs
 
 `off | lossless | abs:E | range:E | pwrel:E | h:E` followed by options

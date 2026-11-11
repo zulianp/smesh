@@ -19,6 +19,7 @@ from typing import List, Optional
 
 import numpy as np
 
+from common.smz import load as load_array
 from common.utils import detect_files, dtype_to_extension
 
 EXODUS_OUTPUT_EXTENSIONS = (".e", ".exo", ".ex2")
@@ -185,6 +186,8 @@ def strip_typed_suffix(filename):
 
 def dtype_from_path(path, default_dtype=None):
     name = os.path.basename(path)
+    if name.endswith(".smz"):  # compressed: <stem>.<dtype>.smz
+        name = name[: -len(".smz")]
     parts = name.split(".")
     if len(parts) >= 3 and parts[-1] == "raw" and is_dtype_token(parts[-2]):
         return np.dtype(parts[-2])
@@ -214,7 +217,7 @@ def read_array(path, default_dtype=None, count=None):
                     raise RuntimeError(f"unable to infer dtype for {path}")
         else:
             dtype = np.dtype(default_dtype if default_dtype is not None else np.float32)
-    return np.fromfile(path, dtype=dtype)
+    return load_array(path, dtype)
 
 
 def write_array(path_stem, data, dtype):
@@ -616,7 +619,7 @@ def load_points(folder):
         if path is None:
             break
         dtype = dtype_from_path(path, DEFAULT_GEOM_DTYPE)
-        axis_data = np.fromfile(path, dtype=dtype)
+        axis_data = load_array(path, dtype)
         points.append(axis_data)
         geom_dtype = dtype
     if not points:
@@ -664,7 +667,7 @@ def load_connectivity(folder):
         if path is None:
             path = sorted(paths)[0]
         dtype = dtype_from_path(path, DEFAULT_IDX_DTYPE)
-        arrays.append(np.fromfile(path, dtype=dtype))
+        arrays.append(load_array(path, dtype))
         idx_dtype = dtype
     n_elements = len(arrays[0])
     for array in arrays:
