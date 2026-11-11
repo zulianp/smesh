@@ -138,15 +138,41 @@ global grid, so shared nodes decode identically in every pack.
 found); set `ZSTD_ROOT` / `LZ4_ROOT` if they are not in a standard place. Without them, everything
 but the byte stages works.
 
-## Measured (Mac M1 Max, 8 threads; small arrays from page cache)
+## Measured
+
+### CSCS Alps, one GH200 node (4 ranks x 72 threads), sfem's graded cubes
+
+Folders of `Mesh::write` (connectivity int32, coordinates float32); `lossless|h:1e-3` means lossless
+connectivity, coordinates within 1e-3 of the element height.
+
+| mesh | raw | `lossless` | `lossless,zstd` | `lossless\|h:1e-3` | `lossless,zstd\|h:1e-3,zstd` |
+|---|---:|---:|---:|---:|---:|
+| HEX8 512^3 (134 M elements) | 5.92 GB | 1.07 GB (5.5x) | 0.54 GB (11x) | 0.65 GB (9.2x) | 0.31 GB (19x) |
+| TET4 256^3 (201 M elements) | 3.63 GB | 1.47 GB (2.5x) | 0.13 GB (28x) | 1.38 GB (2.6x) | 0.11 GB (33x) |
+
+Per array: HEX8 connectivity 34x lossless (215x with zstd); TET4 connectivity 2.9x lossless but
+118x with zstd (the cube repeats one cell pattern, which zstd finds and frame-of-reference does
+not), so `lossless,zstd` is the setting to use for connectivity. Coordinates: 1.3-1.8x lossless,
+2.4-7.6x with zstd, 2.0-3.3x with `h:1e-3` (5-6x with zstd); 0.5-1.6% of the nodes are stored
+exactly (elements too small for the 2^30-step grid), every bound holds.
+
+Speed: encoding is 0.01-0.09 s per array and rank, writing a compressed array 0.04-0.2 s (Lustre).
+At 72 threads, connectivity decodes at 56 GB/s, float32 coordinates (`range:1e-4`) encode at
+16 GB/s and decode at 8 GB/s. A cold `Mesh::create_from_file` takes 12.2 s raw and 10.5-10.9 s
+compressed for HEX8 512^3 (TET4 256^3: 7.5 s vs 6.9-7.2 s): the file IO shrinks from about 2 s
+to 0.5 s, but most of the time is spent building the distributed mesh (partitioning, ghosts), so
+the whole read is only ~1.1x faster at this scale. Compression pays where IO dominates: many
+nodes on a shared file system, time series output, checkpoints, storage.
+
+### Mac M1 Max, 8 threads (small arrays from the page cache)
 
 | data | spec | ratio | encode / decode GB/s |
 |---|---|---|---|
 | float64 field (smooth) | `lossless,shuffle,zstd` | 3.9x | 2.8 / 6.0 |
 | float64 field | `range:1e-5,zstd` | 28.7x | 2.7 / 15.6 |
-| int32 connectivity, structured HEX8 | `lossless` / `lossless,zstd` | 23x / 234x | 3.5 / 17.6 |
-| HEX8 64^3 folder (smesh cube) | `lossless` / `lossless,zstd` | 3.3x / 34x | |
-| TET4 40^3 folder | `lossless` / `lossless,zstd` | 2.9x / 6.1x | |
-| graded HEX8 / TET4 coordinates (h ratio 1e5) | `h:1e-3` | 1.9x / 1.7x | |
+| strongly graded HEX8 / TET4 coordinates (h ratio 1e5) | `h:1e-3` | 1.9x / 1.7x | |
 
 Decode of the packed integer codec: 11.5 GB/s per core (`smz_lossless_kernels_test`).
+
+Reproduce: `srun -n 4 -c 72 smz mesh <raw> <out> <conn_spec> <coords_spec>` for each variant, then
+`srun -n 4 -c 72 smz_bench read <folders...>` in a separate job (cold page cache).
