@@ -10,7 +10,11 @@ def extension_to_dtype(extension):
     return np.dtype(extension)
 
 def extension(path):
-    return path.split('.')[-1]
+    """The type extension: 'float32' for x.float32 and for compressed x.float32.smz."""
+    parts = path.split('.')
+    if len(parts) >= 3 and parts[-1] == 'smz':
+        return parts[-2]
+    return parts[-1]
 
 def detect_files(pattern, extensions):
     files = glob.glob(pattern)

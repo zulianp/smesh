@@ -1,3 +1,4 @@
+#include "smesh_compression_options.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_adjacency.hpp"
 #include "smesh_elem_type.hpp"
@@ -720,7 +721,9 @@ static int write_xdmf_sideset_surfaces(const Mesh                &mesh,
 int Mesh::write_with_xdmf(const Path &path) const {
     SMESH_TRACE_SCOPE("Mesh::write_with_xdmf");
 
-    if (write(path) != SMESH_SUCCESS) {
+    // XDMF points readers at raw binary arrays: always write raw files here, whatever
+    // SMESH_COMPRESS says.
+    if (write(path, compression::MeshWriteOptions()) != SMESH_SUCCESS) {
         return SMESH_FAILURE;
     }
 

@@ -4,6 +4,7 @@
 #include "smesh_base.hpp"
 #include "smesh_alloc.hpp"
 #include "smesh_file_extensions.hpp"
+#include "smesh_smz_io.hpp"
 
 #include <map>
 #include <string_view>
@@ -91,6 +92,15 @@ int array_read_convert(const Path &path, TargetType **data,
 template <typename T>
 int array_read_convert_from_extension(const Path &path, T **data,
                                       ptrdiff_t *n_elements) {
+  if (is_compressed_path(path)) {
+    if constexpr (compression::is_smz_type_v<T>) {
+      return compression::smz_read_convert<T>(path, data, n_elements);
+    } else {
+      SMESH_ERROR("Compressed file %s cannot be read into this value type\n",
+                  path.c_str());
+      return SMESH_FAILURE;
+    }
+  }
   auto ext = path.extension();
   if (ext == "raw") {
     // We trust the user that the raw file is of the correct type.
@@ -125,7 +135,7 @@ int mesh_block_from_folder(const Path &folder, int *nnodesxelem_out,
   std::map<int, std::vector<Path>> by_index;
   int max_ii = -1;
   for (const auto &i_path : i_files) {
-    const std::string stem = i_path.file_name();
+    const std::string stem = typed_stem(i_path);
     int ii = 0;
     if (!parse_soa_index_stem(stem, &ii)) {
       continue;

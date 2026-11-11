@@ -11,6 +11,12 @@
 #include <vector>
 
 namespace smesh {
+namespace compression {
+struct CompressionOptions;
+}
+}  // namespace smesh
+
+namespace smesh {
 
     /// Lightweight `(block_id, parent[], lfi[])` side set.
     /// Semistructured level changes keep the same `(parent, lfi)` valid (macro
@@ -37,6 +43,8 @@ namespace smesh {
         ptrdiff_t                     size() const;
         std::shared_ptr<Communicator> comm() const;
         int                           write(const Path &path) const;
+        /// `opts` (may be null) compresses the arrays into `<name>.<dtype>.smz` (lossless).
+        int                           write(const Path &path, const compression::CompressionOptions *opts) const;
 
         Sideset(const std::shared_ptr<Communicator> &comm,
                 const SharedBuffer<element_idx_t>   &parent,

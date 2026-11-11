@@ -29,15 +29,31 @@ int array_write_convert_from_extension(const Path &path,
                                        const T *const SMESH_RESTRICT data,
                                        const ptrdiff_t n_elements);
 
+namespace compression {
+struct CompressionOptions;
+struct MeshWriteOptions;
+}
+
+/// As above; a compressed path (`<stem>.<dtype>.smz`) is written with `opts`.
+template <typename T>
+int array_write_convert_from_extension(
+    const Path &path, const T *const SMESH_RESTRICT data,
+    const ptrdiff_t n_elements, const compression::CompressionOptions &opts);
+
+/// `opts` (may be null: raw files) compresses the arrays into `<name>.<dtype>.smz`.
 template <typename idx_t>
 int mesh_block_to_folder(
     const Path &folder, int nnodesxelem, const ptrdiff_t nelements,
-    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements);
+    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
+    const compression::CompressionOptions *opts = nullptr);
 
+/// `bound` (with opts in bound mode h): per-node absolute bounds, eb * h_n.
 template <typename geom_t>
 int mesh_coordinates_to_folder(
     const Path &folder, int spatial_dim, const ptrdiff_t n_nodes,
-    const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points);
+    const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
+    const compression::CompressionOptions *opts = nullptr,
+    const double *bound = nullptr);
 
 /// `idx_type` / `geom_type` name the types actually written to disk (as
 /// produced by `TypeToString`). They are separate arguments because the writers
@@ -48,7 +64,9 @@ int mesh_write_yaml_basic(const Path &path, enum ElemType element_type,
                           const ptrdiff_t n_nodes,
                           const std::string_view idx_type,
                           const std::string_view geom_type,
-                          enum GeomMap geom_map = ISOPARAMETRIC);
+                          enum GeomMap geom_map = ISOPARAMETRIC,
+                          const std::string_view idx_suffix = {},
+                          const std::string_view geom_suffix = {});
 
 /// Overload for writers that use the compiled `idx_t`/`geom_t`.
 inline int mesh_write_yaml_basic(const Path &path, enum ElemType element_type,
@@ -67,7 +85,8 @@ int mesh_to_folder(const Path &path, enum ElemType element_type,
                    const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT elements,
                    const int spatial_dim, const ptrdiff_t n_nodes,
                    const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT points,
-                   enum GeomMap geom_map = ISOPARAMETRIC);
+                   enum GeomMap geom_map = ISOPARAMETRIC,
+                   const compression::MeshWriteOptions *opts = nullptr);
 
 int mesh_multiblock_write_yaml(const Path &path, const uint16_t n_blocks,
                                const std::vector<std::string> &block_names,
@@ -76,7 +95,9 @@ int mesh_multiblock_write_yaml(const Path &path, const uint16_t n_blocks,
                                const int spatial_dim, const ptrdiff_t n_nodes,
                                const std::string_view idx_type,
                                const std::string_view geom_type,
-                               const std::vector<enum GeomMap> &geom_maps = {});
+                               const std::vector<enum GeomMap> &geom_maps = {},
+                               const std::string_view idx_suffix = {},
+                               const std::string_view geom_suffix = {});
 
 /// Overload for writers that use the compiled `idx_t`/`geom_t`.
 inline int mesh_multiblock_write_yaml(
@@ -110,7 +131,8 @@ int mesh_multiblock_to_folder(const Path &path,
                               const int spatial_dim, const ptrdiff_t n_nodes,
                               const geom_t *const SMESH_RESTRICT *const SMESH_RESTRICT
                                   points,
-                              const std::vector<enum GeomMap> &geom_maps = {});
+                              const std::vector<enum GeomMap> &geom_maps = {},
+                              const compression::MeshWriteOptions *opts = nullptr);
 
 } // namespace smesh
 

@@ -11,6 +11,10 @@
   template int array_write_convert_from_extension<TYPE>(                       \
       MPI_Comm comm, const Path &path, const TYPE *const SMESH_RESTRICT data,  \
       const ptrdiff_t n_local_elements, const ptrdiff_t n_global_elements);    \
+  template int array_write_convert_from_extension<TYPE>(                       \
+      MPI_Comm comm, const Path &path, const TYPE *const SMESH_RESTRICT data,  \
+      const ptrdiff_t n_local_elements, const ptrdiff_t n_global_elements,     \
+      const compression::CompressionOptions &opts);                            \
   template int write_mapped_field<TYPE>(                                       \
       MPI_Comm comm, const Path &output_path, const ptrdiff_t n_local,         \
       const ptrdiff_t n_global, const TYPE *const mapping,                     \

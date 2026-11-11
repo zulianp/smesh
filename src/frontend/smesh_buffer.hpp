@@ -62,6 +62,9 @@ namespace smesh {
         static std::shared_ptr<Buffer<T>> make_empty();
 
         int                               to_file(const Path &path) const;
+        /// With compression enabled the file is `path` + ".smz" (unless path already ends in
+        /// .smz), compressed with `opts`; otherwise as to_file(path). from_file reads both.
+        int                               to_file(const Path &path, const compression::CompressionOptions &opts) const;
         static std::shared_ptr<Buffer<T>> from_file(const Path &path);
     };
 

@@ -8,6 +8,12 @@
 #include <vector>
 
 namespace smesh {
+namespace compression {
+struct CompressionOptions;
+}
+}  // namespace smesh
+
+namespace smesh {
 
     /// Mesh-global node ids. Optional `node_mapping` is used for MPI write /
     /// redistribute (serial GIDs on disk). `refine()` / `promote_to` insert
@@ -28,6 +34,8 @@ namespace smesh {
         ptrdiff_t                     size() const;
         std::shared_ptr<Communicator> comm() const;
         int                           write(const Path &path) const;
+        /// `opts` (may be null) compresses the arrays into `<name>.<dtype>.smz` (lossless).
+        int                           write(const Path &path, const compression::CompressionOptions *opts) const;
 
         Nodeset(const std::shared_ptr<Communicator> &comm,
                 const SharedBuffer<idx_t>           &nodes,

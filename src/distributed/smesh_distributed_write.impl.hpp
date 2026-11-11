@@ -1,5 +1,8 @@
 #define SMESH_DISTRIBUTED_WRITE_IMPL_HPP
 
+#include "smesh_file_extensions.hpp"
+#include "smesh_smz_mpi.hpp"
+#include "smesh_compression_options.hpp"
 #include "matrixio_array.h"
 #include "smesh_alloc.hpp"
 #include "smesh_alltoallv.impl.hpp"
@@ -316,6 +319,24 @@ int array_write_convert_from_extension(MPI_Comm comm, const Path &path,
                                        const T *const SMESH_RESTRICT data,
                                        const ptrdiff_t n_local_elements,
                                        const ptrdiff_t n_global_elements) {
+  if (is_compressed_path(path)) {  // lossless; Mesh::write passes options itself
+    using namespace compression;
+    const CompressionOptions opts = CompressionOptions::lossless();
+    const std::string ext = typed_extension(path);
+    if (ext == "float16") return smz_write_contiguous_convert<f16, T>(comm, path, data, n_local_elements, n_global_elements, opts);
+    if (ext == "float32") return smz_write_contiguous_convert<f32, T>(comm, path, data, n_local_elements, n_global_elements, opts);
+    if (ext == "float64") return smz_write_contiguous_convert<f64, T>(comm, path, data, n_local_elements, n_global_elements, opts);
+    if (ext == "int16") return smz_write_contiguous_convert<i16, T>(comm, path, data, n_local_elements, n_global_elements, opts);
+    if (ext == "int32") return smz_write_contiguous_convert<i32, T>(comm, path, data, n_local_elements, n_global_elements, opts);
+    if (ext == "int64") return smz_write_contiguous_convert<i64, T>(comm, path, data, n_local_elements, n_global_elements, opts);
+    if (ext == "raw") {
+      if constexpr (is_smz_type_v<T>) {
+        return smz_write_contiguous<T>(comm, path, data, n_local_elements, n_global_elements, opts);
+      }
+    }
+    SMESH_ERROR("Unsupported file extension %s for file %s\n", ext.c_str(), path.c_str());
+    return SMESH_FAILURE;
+  }
   auto ext = path.extension();
   if (ext == "raw") {
     return array_write(comm, path.c_str(), smesh::mpi_type<T>(), data,
@@ -349,11 +370,40 @@ int array_write_convert_from_extension(MPI_Comm comm, const Path &path,
   }
 }
 
+template <typename T>
+int array_write_convert_from_extension(MPI_Comm comm, const Path &path,
+                                       const T *const SMESH_RESTRICT data,
+                                       const ptrdiff_t n_local_elements,
+                                       const ptrdiff_t n_global_elements,
+                                       const compression::CompressionOptions &opts) {
+  using namespace compression;
+  if (!is_compressed_path(path) || !opts.enabled) {
+    return array_write_convert_from_extension<T>(comm, path, data, n_local_elements,
+                                                 n_global_elements);
+  }
+  const std::string ext = typed_extension(path);
+  if (ext == "float16") return smz_write_contiguous_convert<f16, T>(comm, path, data, n_local_elements, n_global_elements, opts);
+  if (ext == "float32") return smz_write_contiguous_convert<f32, T>(comm, path, data, n_local_elements, n_global_elements, opts);
+  if (ext == "float64") return smz_write_contiguous_convert<f64, T>(comm, path, data, n_local_elements, n_global_elements, opts);
+  if (ext == "int16") return smz_write_contiguous_convert<i16, T>(comm, path, data, n_local_elements, n_global_elements, opts);
+  if (ext == "int32") return smz_write_contiguous_convert<i32, T>(comm, path, data, n_local_elements, n_global_elements, opts);
+  if (ext == "int64") return smz_write_contiguous_convert<i64, T>(comm, path, data, n_local_elements, n_global_elements, opts);
+  SMESH_ERROR("Unsupported file extension %s for file %s\n", ext.c_str(), path.c_str());
+  return SMESH_FAILURE;
+}
+
 template <typename large_idx_t>
 int write_mapped_field(MPI_Comm comm, const Path &output_path,
                        const ptrdiff_t n_local, const ptrdiff_t n_global,
                        const large_idx_t *const mapping, MPI_Datatype data_type,
                        const void *const data_in) {
+  if (is_compressed_path(output_path)) {
+    if constexpr (std::is_same_v<large_idx_t, i32> || std::is_same_v<large_idx_t, i64>) {
+      return compression::smz_write_mapped_mpi_type<large_idx_t>(
+          comm, output_path, n_local, n_global, mapping, data_type, data_in,
+          compression::CompressionOptions::lossless());
+    }
+  }
   using byte_t = uint8_t;
   int rank, size;
   MPI_Comm_rank(comm, &rank);
@@ -480,8 +530,8 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
            (void *)&recv_data[i * type_size], type_size);
   }
 
-  array_write(comm, output_path.c_str(), data_type, (void *)send_data_and_final_storage,
-              local_output_size, n_global);
+  const int write_err = array_write(comm, output_path.c_str(), data_type,
+                                    (void *)send_data_and_final_storage, local_output_size, n_global);
 
   ///////////////////////////////////
   // Clean-up
@@ -495,24 +545,35 @@ int write_mapped_field(MPI_Comm comm, const Path &output_path,
   SMESH_FREE(recv_list);
   SMESH_FREE(recv_data);
   SMESH_FREE(send_data_and_final_storage);
-  return 0;
+  return write_err ? SMESH_FAILURE : SMESH_SUCCESS;
 }
 
 int write_distributed_mesh_coordinates(
     MPI_Comm comm, const Path &path, int spatial_dim, ptrdiff_t n_global_nodes,
     ptrdiff_t n_owned_nodes, const large_idx_t *node_mapping,
-    geom_t **local_points) {
+    geom_t **local_points, const compression::CompressionOptions *opts,
+    ptrdiff_t n_bound_contrib, const double *bound_contrib) {
+  // bound_contrib[i]: bound mode h, an absolute bound for local node i (node_mapping[i], ghosts
+  // included); each node's bound is the minimum over all ranks.
   SMESH_TRACE_SCOPE("write_distributed_mesh_coordinates");
 
   int err = SMESH_SUCCESS;
   static constexpr char xyz[3] = {'x', 'y', 'z'};
   for (int d = 0; d < spatial_dim; ++d) {
-    std::string fname =
-        std::string(1, xyz[d]) + "." + std::string(TypeToString<geom_t>::value());
+    std::string fname = std::string(1, xyz[d]) + "." +
+                        std::string(TypeToString<geom_t>::value()) +
+                        compression::compressed_suffix(opts);
     Path coord_path = path / fname;
-    err |= write_mapped_field(comm, coord_path, n_owned_nodes, n_global_nodes,
-                              node_mapping, smesh::mpi_type<geom_t>(),
-                              local_points[d]);
+    if (opts && opts->enabled) {
+      err |= compression::smz_write_mapped<geom_t, large_idx_t>(
+          comm, coord_path, n_owned_nodes, n_global_nodes, node_mapping,
+          local_points[d], *opts, bound_contrib ? n_bound_contrib : 0,
+          bound_contrib ? node_mapping : nullptr, bound_contrib);
+    } else {
+      err |= write_mapped_field(comm, coord_path, n_owned_nodes, n_global_nodes,
+                                node_mapping, smesh::mpi_type<geom_t>(),
+                                local_points[d]);
+    }
   }
   return err == SMESH_SUCCESS ? SMESH_SUCCESS : SMESH_FAILURE;
 }
@@ -520,7 +581,8 @@ int write_distributed_mesh_coordinates(
 int write_distributed_block_connectivity(
     MPI_Comm comm, const Path &path, ptrdiff_t n_global_elements,
     ptrdiff_t n_owned_elements, const large_idx_t *element_mapping,
-    int nnodesxelem, idx_t **local_elements, const large_idx_t *node_mapping) {
+    int nnodesxelem, idx_t **local_elements, const large_idx_t *node_mapping,
+    const compression::CompressionOptions *opts) {
   SMESH_TRACE_SCOPE("write_distributed_block_connectivity");
 
   large_idx_t *file_idx = nullptr;
@@ -541,8 +603,9 @@ int write_distributed_block_connectivity(
 
   int err = SMESH_SUCCESS;
   for (int v = 0; v < nnodesxelem; ++v) {
-    std::string fname =
-        "i" + std::to_string(v) + "." + std::string(TypeToString<idx_t>::value());
+    std::string fname = "i" + std::to_string(v) + "." +
+                        std::string(TypeToString<idx_t>::value()) +
+                        compression::compressed_suffix(opts);
     Path conn_path = path / fname;
 
     idx_t *buffer =
@@ -558,9 +621,15 @@ int write_distributed_block_connectivity(
       buffer[e] = static_cast<idx_t>(node_mapping[local_node]);
     }
 
-    err |= write_mapped_field(comm, conn_path, n_owned_elements,
-                              n_global_elements, file_idx,
-                              smesh::mpi_type<idx_t>(), buffer);
+    if (opts && opts->enabled) {
+      err |= compression::smz_write_mapped<idx_t, large_idx_t>(
+          comm, conn_path, n_owned_elements, n_global_elements, file_idx,
+          buffer, *opts);
+    } else {
+      err |= write_mapped_field(comm, conn_path, n_owned_elements,
+                                n_global_elements, file_idx,
+                                smesh::mpi_type<idx_t>(), buffer);
+    }
 
     SMESH_FREE(buffer);
   }
@@ -574,19 +643,21 @@ int write_distributed_mesh_topology(
     int spatial_dim, ptrdiff_t n_global_elements, ptrdiff_t n_owned_elements,
     const large_idx_t *element_mapping, int nnodesxelem, idx_t **local_elements,
     ptrdiff_t n_global_nodes, ptrdiff_t n_owned_nodes,
-    const large_idx_t *node_mapping, geom_t **local_points) {
+    const large_idx_t *node_mapping, geom_t **local_points,
+    const compression::MeshWriteOptions *opts) {
   SMESH_TRACE_SCOPE("write_distributed_mesh_topology");
 
   int err = write_distributed_mesh_coordinates(
       comm, path, spatial_dim, n_global_nodes, n_owned_nodes, node_mapping,
-      local_points);
+      local_points, opts ? &opts->coordinates : nullptr);
   if (err != SMESH_SUCCESS) {
     return SMESH_FAILURE;
   }
 
   err = write_distributed_block_connectivity(
       comm, path, n_global_elements, n_owned_elements, element_mapping,
-      nnodesxelem, local_elements, node_mapping);
+      nnodesxelem, local_elements, node_mapping,
+      opts ? &opts->connectivity : nullptr);
 
   return err == SMESH_SUCCESS ? SMESH_SUCCESS : SMESH_FAILURE;
 }

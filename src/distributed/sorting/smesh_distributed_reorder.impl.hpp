@@ -1,6 +1,7 @@
 #ifndef SMESH_DISTRIBUTED_REORDER_IMPL_HPP
 #define SMESH_DISTRIBUTED_REORDER_IMPL_HPP
 
+#include "smesh_array_count.hpp"
 #include "smesh_distributed_reorder.hpp"
 
 #include "smesh_decompose.hpp"
@@ -588,10 +589,14 @@ int mesh_from_folder_reordered(
       return SMESH_FAILURE;
     }
 
-    const size_t num_e_idx = file_size(i_files[0]) /
-                             num_bytes(to_integer_type(i_files[0].extension()));
-    const size_t num_nodes =
-        file_size(x_files[0]) / num_bytes(to_real_type(x_files[0].extension()));
+    const ptrdiff_t num_e_idx_ = array_count_from_file(i_files[0], sizeof(idx_t));
+    const ptrdiff_t num_nodes_ = array_count_from_file(x_files[0], sizeof(geom_t));
+    if (num_e_idx_ < 0 || num_nodes_ < 0) {
+      SMESH_ERROR("Cannot size the mesh arrays in folder %s\n", folder.c_str());
+      return SMESH_FAILURE;
+    }
+    const size_t num_e_idx = static_cast<size_t>(num_e_idx_);
+    const size_t num_nodes = static_cast<size_t>(num_nodes_);
     const size_t max_idx = std::max(num_e_idx, num_nodes);
 
     if (max_idx < std::numeric_limits<idx_t>::max()) {
