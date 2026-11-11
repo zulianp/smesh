@@ -9,6 +9,7 @@
 #include "smesh_node_height.hpp"
 #include "smesh_write.hpp"
 
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <string_view>

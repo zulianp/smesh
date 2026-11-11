@@ -35,6 +35,7 @@
 #include "smesh_jacobians.hpp"
 #include "smesh_kernel_data.hpp"
 
+#include <cmath>
 #include <limits>
 
 #ifdef SMESH_ENABLE_MPI
