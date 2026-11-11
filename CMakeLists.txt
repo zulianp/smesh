@@ -17,6 +17,7 @@ endif()
 
 set(SMESH_LIBRARY_SCAN_DIRS
     "src/base"
+    "src/compression"
     "src/drivers"
     "src/frontend"
     "src/graph"
@@ -352,6 +353,19 @@ if(SMESH_ENABLE_TESTING)
 
         add_executable("${_test_target}" "${_test_source}")
         target_link_libraries("${_test_target}" PRIVATE smesh ${SMESH_DEP_LIBRARIES} ${SMESH_SUBMODULES} ${SMESH_TEST_SUBMODULES})
-        add_test(NAME "${_test_target}" COMMAND "${_test_target}")
+        if(SMESH_ENABLE_MPI AND _test_target MATCHES "_mpi_test$")
+            # Run once per rank count (SMESH_MPI_TEST_NPROCS), e.g. smz_roundtrip_mpi_test_np3.
+            foreach(_np IN LISTS SMESH_MPI_TEST_NPROCS)
+                add_test(NAME "${_test_target}_np${_np}"
+                    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${_np} ${MPIEXEC_PREFLAGS}
+                            $<TARGET_FILE:${_test_target}> ${MPIEXEC_POSTFLAGS})
+                set_tests_properties("${_test_target}_np${_np}" PROPERTIES LABELS "mpi" PROCESSORS ${_np})
+            endforeach()
+        else()
+            add_test(NAME "${_test_target}" COMMAND "${_test_target}")
+            if(_test_source MATCHES "/src/compression/")
+                set_property(TEST "${_test_target}" APPEND PROPERTY LABELS "smz")
+            endif()
+        endif()
     endforeach()
 endif()

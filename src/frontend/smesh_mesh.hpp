@@ -15,6 +15,12 @@
 #include <vector>
 
 namespace smesh {
+namespace compression {
+struct MeshWriteOptions;
+}
+}  // namespace smesh
+
+namespace smesh {
 
 class MeshTransformsDistributed;
 
@@ -268,7 +274,11 @@ public:
   /// The block that file block `file_index` became in the last `read`: false when that read
   /// skipped it. The identity when every block was read.
   bool block_from_file_index(const block_idx_t file_index, block_idx_t *block) const;
+  /// Writes the mesh folder; compression from MeshWriteOptions::from_env() (SMESH_COMPRESS*, off by
+  /// default).
   int write(const Path &path) const;
+  /// Writes the mesh folder with explicit compression of connectivity, coordinates and sets.
+  int write(const Path &path, const compression::MeshWriteOptions &opts) const;
   /// `write(path)` plus AoS `connectivity.<idx_t>` and `mesh.xdmf` inside `path`.
   int write_with_xdmf(const Path &path) const;
   int initialize_node_to_node_graph();

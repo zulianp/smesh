@@ -1,6 +1,8 @@
 #ifndef SMESH_DISTRIBUTED_READ_IMPL_HPP
 #define SMESH_DISTRIBUTED_READ_IMPL_HPP
 
+#include "smesh_array_count.hpp"
+#include "smesh_smz_mpi.hpp"
 #include "smesh_decompose.hpp"
 #include "smesh_distributed_aura.hpp"
 #include "smesh_distributed_read.hpp"
@@ -123,6 +125,16 @@ int array_create_from_file_convert_from_extension(
     MPI_Comm comm, const Path &path, T **data, ptrdiff_t *n_local_elements,
     ptrdiff_t *n_global_elements) {
   // SMESH_TRACE_SCOPE("array_create_from_file_convert_from_extension");
+  if (is_compressed_path(path)) {
+    if constexpr (compression::is_smz_type_v<T>) {
+      return compression::smz_read_uniform<T>(comm, path, data, n_local_elements,
+                                              n_global_elements);
+    } else {
+      SMESH_ERROR("Compressed file %s cannot be read into this value type\n",
+                  path.c_str());
+      return SMESH_FAILURE;
+    }
+  }
   auto ext = path.extension();
   if (ext == "raw") {
     // We trust the user that the raw file is of the correct type.
@@ -383,7 +395,7 @@ int mesh_block_from_folder(MPI_Comm comm, const Path &folder,
   std::map<int, std::vector<Path>> by_index;
   int max_ii = -1;
   for (const auto &i_path : i_files) {
-    const std::string stem = i_path.file_name();
+    const std::string stem = typed_stem(i_path);
     int ii = 0;
     if (!parse_soa_index_stem(stem, &ii)) {
       continue;
@@ -838,10 +850,14 @@ int mesh_from_folder(
       return SMESH_FAILURE;
     }
 
-    const size_t num_e_idx = file_size(i_files[0]) /
-                             num_bytes(to_integer_type(i_files[0].extension()));
-    const size_t num_nodes =
-        file_size(x_files[0]) / num_bytes(to_real_type(x_files[0].extension()));
+    const ptrdiff_t num_e_idx_ = array_count_from_file(i_files[0], sizeof(idx_t));
+    const ptrdiff_t num_nodes_ = array_count_from_file(x_files[0], sizeof(geom_t));
+    if (num_e_idx_ < 0 || num_nodes_ < 0) {
+      SMESH_ERROR("Cannot size the mesh arrays in folder %s\n", folder.c_str());
+      return SMESH_FAILURE;
+    }
+    const size_t num_e_idx = static_cast<size_t>(num_e_idx_);
+    const size_t num_nodes = static_cast<size_t>(num_nodes_);
     const size_t max_idx = std::max(num_e_idx, num_nodes);
 
     // printf("max_idx: %ld\n", max_idx);

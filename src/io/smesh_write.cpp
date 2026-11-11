@@ -31,7 +31,9 @@ namespace smesh {
                               const ptrdiff_t        n_nodes,
                               const std::string_view idx_type,
                               const std::string_view geom_type,
-                              enum GeomMap           geom_map) {
+                              enum GeomMap           geom_map,
+                              const std::string_view idx_suffix,
+                              const std::string_view geom_suffix) {
         if (smesh::create_directory(path.to_string()) != SMESH_SUCCESS) {
             return SMESH_FAILURE;
         }
@@ -57,12 +59,14 @@ namespace smesh {
 
         fprintf(meta_file, "elements:\n");
         for (int d = 0; d < nxe; ++d) {
-            fprintf(meta_file, "- i%d: i%d.%.*s\n", d, d, (int)idx_type.size(), idx_type.data());
+            fprintf(meta_file, "- i%d: i%d.%.*s%.*s\n", d, d, (int)idx_type.size(), idx_type.data(),
+                    (int)idx_suffix.size(), idx_suffix.data());
         }
 
         fprintf(meta_file, "points:\n");
         for (int d = 0; d < spatial_dim; d++) {
-            fprintf(meta_file, "- %c: %c.%.*s\n", xyz[d], xyz[d], (int)geom_type.size(), geom_type.data());
+            fprintf(meta_file, "- %c: %c.%.*s%.*s\n", xyz[d], xyz[d], (int)geom_type.size(), geom_type.data(),
+                    (int)geom_suffix.size(), geom_suffix.data());
         }
 
         fprintf(meta_file, "rpath: true\n");
@@ -79,7 +83,9 @@ namespace smesh {
                                    const ptrdiff_t                   n_nodes,
                                    const std::string_view            idx_type,
                                    const std::string_view            geom_type,
-                                   const std::vector<enum GeomMap>  &geom_maps) {
+                                   const std::vector<enum GeomMap>  &geom_maps,
+                                   const std::string_view            idx_suffix,
+                                   const std::string_view            geom_suffix) {
         if (smesh::create_directory(path.to_string()) != SMESH_SUCCESS) {
             return SMESH_FAILURE;
         }
@@ -110,19 +116,22 @@ namespace smesh {
             fprintf(meta_file, "  elements:\n");
             for (int d = 0; d < nxe; ++d) {
                 fprintf(meta_file,
-                        "  - i%d: blocks/%s/i%d.%.*s\n",
+                        "  - i%d: blocks/%s/i%d.%.*s%.*s\n",
                         d,
                         block_names[b].data(),
                         d,
                         (int)idx_type.size(),
-                        idx_type.data());
+                        idx_type.data(),
+                        (int)idx_suffix.size(),
+                        idx_suffix.data());
             }
         }
 
         fprintf(meta_file, "n_nodes: %ld\n", (long)n_nodes);
         fprintf(meta_file, "points:\n");
         for (int d = 0; d < spatial_dim; d++) {
-            fprintf(meta_file, "- %c: %c.%.*s\n", xyz[d], xyz[d], (int)geom_type.size(), geom_type.data());
+            fprintf(meta_file, "- %c: %c.%.*s%.*s\n", xyz[d], xyz[d], (int)geom_type.size(), geom_type.data(),
+                    (int)geom_suffix.size(), geom_suffix.data());
         }
 
         fprintf(meta_file, "rpath: true\n");
@@ -313,11 +322,13 @@ namespace smesh {
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_BLOCK_TO_FOLDER(IDX_T) \
     template int mesh_block_to_folder<IDX_T>(                  \
-            const Path &, int, const ptrdiff_t, const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
+            const Path &, int, const ptrdiff_t, const IDX_T *const SMESH_RESTRICT *const SMESH_RESTRICT, \
+            const compression::CompressionOptions *)
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_COORDINATES_TO_FOLDER(GEOM_T) \
     template int mesh_coordinates_to_folder<GEOM_T>(                  \
-            const Path &, int, const ptrdiff_t, const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT)
+            const Path &, int, const ptrdiff_t, const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT, \
+            const compression::CompressionOptions *, const double *)
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_TO_FOLDER(IDX_T, GEOM_T)                                        \
     template int mesh_to_folder<IDX_T, GEOM_T>(const Path &,                                            \
@@ -327,7 +338,8 @@ namespace smesh {
                                                const int,                                               \
                                                const ptrdiff_t,                                         \
                                                const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT, \
-                                               enum GeomMap)
+                                               enum GeomMap,                                            \
+                                               const compression::MeshWriteOptions *)
 
 #define SMESH_EXPLICIT_INSTANTIATE_MESH_MULTIBLOCK_TO_FOLDER(IDX_T, GEOM_T)                                          \
     template int mesh_multiblock_to_folder<IDX_T, GEOM_T>(const Path &,                                              \
@@ -338,11 +350,15 @@ namespace smesh {
                                                           const int,                                                 \
                                                           const ptrdiff_t,                                           \
                                                           const GEOM_T *const SMESH_RESTRICT *const SMESH_RESTRICT,  \
-                                                          const std::vector<enum GeomMap> &)
+                                                          const std::vector<enum GeomMap> &,                         \
+                                                          const compression::MeshWriteOptions *)
 
 #define SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT_FROM_EXTENSION(TYPE) \
     template int array_write_convert_from_extension<TYPE>(                  \
-            const Path &, const TYPE *const SMESH_RESTRICT data, const ptrdiff_t n_elements)
+            const Path &, const TYPE *const SMESH_RESTRICT data, const ptrdiff_t n_elements); \
+    template int array_write_convert_from_extension<TYPE>(                  \
+            const Path &, const TYPE *const SMESH_RESTRICT data, const ptrdiff_t n_elements, \
+            const compression::CompressionOptions &)
 
 #define SMESH_EXPLICIT_INSTANTIATE_ARRAY_WRITE_CONVERT(FILE_TYPE, TYPE) \
     template int array_write_convert<FILE_TYPE, TYPE>(                  \

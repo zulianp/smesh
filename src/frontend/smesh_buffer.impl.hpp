@@ -7,6 +7,8 @@
 #include <type_traits>
 
 #include "smesh_buffer.hpp"
+#include "smesh_compression_options.hpp"
+#include "smesh_file_extensions.hpp"
 #include "smesh_alloc.hpp"
 
 namespace smesh {
@@ -70,6 +72,15 @@ namespace smesh {
     template <typename T>
     int Buffer<T>::to_file(const Path &path) const {
         return array_write_convert_from_extension<typename std::remove_const_t<T>>(path, data(), this->n_);
+    }
+
+    template <typename T>
+    int Buffer<T>::to_file(const Path &path, const compression::CompressionOptions &opts) const {
+        if (!opts.enabled) {
+            return to_file(path);
+        }
+        const Path target = is_compressed_path(path) ? path : Path(path.to_string() + ".smz");
+        return array_write_convert_from_extension<typename std::remove_const_t<T>>(target, data(), this->n_, opts);
     }
 
     template <typename T>

@@ -329,6 +329,31 @@ else()
     set(SMESH_ENABLE_NCCL OFF)
 endif()
 
+# zstd and lz4, optional: byte stages of the compressed array files (src/compression). ON uses
+# the library when found and turns the option off otherwise. Headers are only included by
+# src/compression/smesh_byte_codec.cpp; consumers just link the library.
+foreach(_smesh_bytelib IN ITEMS ZSTD LZ4)
+    if(SMESH_ENABLE_${_smesh_bytelib})
+        string(TOLOWER ${_smesh_bytelib} _smesh_bytelib_lc)
+        find_path(SMESH_${_smesh_bytelib}_INCLUDE_DIR ${_smesh_bytelib_lc}.h
+            HINTS ENV ${_smesh_bytelib}_ROOT ENV ${_smesh_bytelib}_HOME
+            PATHS /opt/homebrew /usr/local
+            PATH_SUFFIXES include)
+        find_library(SMESH_${_smesh_bytelib}_LIBRARY ${_smesh_bytelib_lc}
+            HINTS ENV ${_smesh_bytelib}_ROOT ENV ${_smesh_bytelib}_HOME
+            PATHS /opt/homebrew /usr/local
+            PATH_SUFFIXES lib lib64)
+        if(SMESH_${_smesh_bytelib}_INCLUDE_DIR AND SMESH_${_smesh_bytelib}_LIBRARY)
+            message(STATUS "${_smesh_bytelib}: ${SMESH_${_smesh_bytelib}_LIBRARY}")
+            list(APPEND SMESH_DEP_INCLUDES "${SMESH_${_smesh_bytelib}_INCLUDE_DIR}")
+            list(APPEND SMESH_DEP_LIBRARIES "${SMESH_${_smesh_bytelib}_LIBRARY}")
+        else()
+            message(STATUS "${_smesh_bytelib} not found (set ${_smesh_bytelib}_ROOT): compressed files cannot use it")
+            set(SMESH_ENABLE_${_smesh_bytelib} OFF)
+        endif()
+    endif()
+endforeach()
+
 
 # ##############################################################################
 

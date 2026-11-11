@@ -16,14 +16,54 @@
 
 namespace smesh {
 
+/// Compressed array files are named `<stem>.<dtype>.smz` (e.g. `x.float32.smz`, `i0.int32.smz`):
+/// the dtype extension stays, and `.smz` is appended (see src/compression).
+static constexpr std::string_view kCompressedExtension = "smz";
+
+/// The extension that names the value type, for raw and compressed files alike:
+/// "float32" for `x.float32` and for `x.float32.smz`.
+static inline std::string_view typed_extension(std::string_view file) {
+  const size_t slash = file.find_last_of("/\\");
+  std::string_view name = slash == std::string_view::npos ? file : file.substr(slash + 1);
+  size_t dot = name.find_last_of('.');
+  if (dot == std::string_view::npos) {
+    return {};
+  }
+  if (name.substr(dot + 1) == kCompressedExtension) {
+    name = name.substr(0, dot);
+    dot = name.find_last_of('.');
+    if (dot == std::string_view::npos) {
+      return {};
+    }
+  }
+  return name.substr(dot + 1);
+}
+
+static inline bool is_compressed_path(std::string_view file) {
+  const size_t dot = file.find_last_of('.');
+  return dot != std::string_view::npos && file.substr(dot + 1) == kCompressedExtension;
+}
+
+static inline bool is_compressed_path(const Path &path) { return is_compressed_path(std::string_view(path.to_string())); }
+
+static inline std::string typed_extension(const Path &path) {
+  return std::string(typed_extension(std::string_view(path.to_string())));
+}
+
+/// The file name without its type extension(s): "x" for `x.float32` and for `x.float32.smz`.
+static inline std::string typed_stem(const Path &path) {
+  return is_compressed_path(path) ? path.without_extension().file_name() : path.file_name();
+}
+
+/// Files matching `pattern` whose type extension is one of `extensions`, raw or compressed.
 static inline std::vector<Path>
 detect_files(const Path &pattern,
              const std::initializer_list<std::string_view> extensions) {
 
   std::vector<std::string> files = find_files(pattern.to_string());
   std::vector<Path> paths;
-  for (auto file : files) {
-    if (std::find(extensions.begin(), extensions.end(), file.substr(file.find_last_of('.') + 1)) !=
+  for (const auto &file : files) {
+    if (std::find(extensions.begin(), extensions.end(), typed_extension(std::string_view(file))) !=
         extensions.end()) {
       paths.push_back(Path(file));
     }
@@ -32,13 +72,11 @@ detect_files(const Path &pattern,
 }
 
 static inline PrimitiveType detect_real_type(std::string_view file) {
-  std::string_view extension = file.substr(file.find_last_of('.') + 1);
-  return to_real_type(extension);
+  return to_real_type(typed_extension(file));
 }
 
 static inline PrimitiveType detect_integer_type(std::string_view file) {
-  std::string_view extension = file.substr(file.find_last_of('.') + 1);
-  return to_integer_type(extension);
+  return to_integer_type(typed_extension(file));
 }
 
 static inline std::string trim(std::string_view str) {
@@ -83,23 +121,33 @@ static inline int typed_file_rank(std::string_view ext) {
   return 3;
 }
 
+/// One file out of several that share a stem (`x.float32`, `x.float64`, `x.float32.smz`, ...):
+/// `preferred_basename` if present (raw first, then compressed), otherwise the widest type, raw
+/// before compressed.
 static inline Path select_one_typed_file(std::vector<Path> files,
                                          const std::string &preferred_basename) {
   if (files.empty()) {
     return Path();
   }
   if (!preferred_basename.empty()) {
-    for (const auto &p : files) {
-      if (path_basename(p) == preferred_basename) {
-        return p;
+    const std::string compressed = preferred_basename + "." + std::string(kCompressedExtension);
+    for (const std::string *name : {&preferred_basename, &compressed}) {
+      for (const auto &p : files) {
+        if (path_basename(p) == *name) {
+          return p;
+        }
       }
     }
   }
   std::sort(files.begin(), files.end(), [](const Path &a, const Path &b) {
-    const int ra = typed_file_rank(a.extension());
-    const int rb = typed_file_rank(b.extension());
+    const int ra = typed_file_rank(typed_extension(std::string_view(a.to_string())));
+    const int rb = typed_file_rank(typed_extension(std::string_view(b.to_string())));
     if (ra != rb) {
       return ra < rb;
+    }
+    const bool ca = is_compressed_path(a), cb = is_compressed_path(b);
+    if (ca != cb) {
+      return !ca;
     }
     return a.to_string() < b.to_string();
   });

@@ -1,3 +1,5 @@
+#include "smesh_compression_options.hpp"
+#include "smesh_node_height.hpp"
 #include "smesh_mesh.hpp"
 #include "smesh_adjacency.hpp"
 #include "smesh_alloc.hpp"
@@ -1414,7 +1416,8 @@ static int read_registered_sidesets(Mesh &mesh, const Path &path) {
   return SMESH_SUCCESS;
 }
 
-static int write_registered_sidesets(const Mesh &mesh, const Path &path) {
+static int write_registered_sidesets(const Mesh &mesh, const Path &path,
+                                     const compression::CompressionOptions *opts) {
   const auto &reg = mesh.sidesets();
   if (reg.empty()) {
     return SMESH_SUCCESS;
@@ -1477,7 +1480,7 @@ static int write_registered_sidesets(const Mesh &mesh, const Path &path) {
       if (!groups[g][0]) {
         continue;
       }
-      if (groups[g][0]->write(name_dir) != SMESH_SUCCESS) {
+      if (groups[g][0]->write(name_dir, opts) != SMESH_SUCCESS) {
         return SMESH_FAILURE;
       }
       continue;
@@ -1489,7 +1492,7 @@ static int write_registered_sidesets(const Mesh &mesh, const Path &path) {
       const Path leaf =
           name_dir /
           std::to_string(static_cast<long long>(groups[g][k]->block_id()));
-      if (groups[g][k]->write(leaf) != SMESH_SUCCESS) {
+      if (groups[g][k]->write(leaf, opts) != SMESH_SUCCESS) {
         return SMESH_FAILURE;
       }
     }
@@ -1659,7 +1662,8 @@ static int read_registered_nodesets(Mesh &mesh, const Path &path) {
   return SMESH_SUCCESS;
 }
 
-static int write_registered_edgesets(const Mesh &mesh, const Path &path) {
+static int write_registered_edgesets(const Mesh &mesh, const Path &path,
+                                     const compression::CompressionOptions *opts) {
   const auto &reg = mesh.edgesets();
   if (reg.empty()) {
     return SMESH_SUCCESS;
@@ -1722,7 +1726,7 @@ static int write_registered_edgesets(const Mesh &mesh, const Path &path) {
       if (!groups[g][0]) {
         continue;
       }
-      if (groups[g][0]->write(name_dir) != SMESH_SUCCESS) {
+      if (groups[g][0]->write(name_dir, opts) != SMESH_SUCCESS) {
         return SMESH_FAILURE;
       }
       continue;
@@ -1734,7 +1738,7 @@ static int write_registered_edgesets(const Mesh &mesh, const Path &path) {
       const Path leaf =
           name_dir /
           std::to_string(static_cast<long long>(groups[g][k]->block_id()));
-      if (groups[g][k]->write(leaf) != SMESH_SUCCESS) {
+      if (groups[g][k]->write(leaf, opts) != SMESH_SUCCESS) {
         return SMESH_FAILURE;
       }
     }
@@ -1742,7 +1746,8 @@ static int write_registered_edgesets(const Mesh &mesh, const Path &path) {
   return SMESH_SUCCESS;
 }
 
-static int write_registered_nodesets(const Mesh &mesh, const Path &path) {
+static int write_registered_nodesets(const Mesh &mesh, const Path &path,
+                                     const compression::CompressionOptions *opts) {
   const auto &reg = mesh.nodesets();
   if (reg.empty()) {
     return SMESH_SUCCESS;
@@ -1800,7 +1805,7 @@ static int write_registered_nodesets(const Mesh &mesh, const Path &path) {
       if (!groups[g][0]) {
         continue;
       }
-      if (groups[g][0]->write(name_dir) != SMESH_SUCCESS) {
+      if (groups[g][0]->write(name_dir, opts) != SMESH_SUCCESS) {
         return SMESH_FAILURE;
       }
       continue;
@@ -1810,7 +1815,7 @@ static int write_registered_nodesets(const Mesh &mesh, const Path &path) {
         continue;
       }
       const Path leaf = name_dir / std::to_string(static_cast<long long>(k));
-      if (groups[g][k]->write(leaf) != SMESH_SUCCESS) {
+      if (groups[g][k]->write(leaf, opts) != SMESH_SUCCESS) {
         return SMESH_FAILURE;
       }
     }
@@ -1819,17 +1824,18 @@ static int write_registered_nodesets(const Mesh &mesh, const Path &path) {
 }
 
 static int write_topology_then_sidesets(const Mesh &mesh, const Path &path,
-                                        const int topology_err) {
+                                        const int topology_err,
+                                        const compression::CompressionOptions *sets = nullptr) {
   if (topology_err != SMESH_SUCCESS) {
     return topology_err;
   }
-  if (write_registered_sidesets(mesh, path) != SMESH_SUCCESS) {
+  if (write_registered_sidesets(mesh, path, sets) != SMESH_SUCCESS) {
     return SMESH_FAILURE;
   }
-  if (write_registered_edgesets(mesh, path) != SMESH_SUCCESS) {
+  if (write_registered_edgesets(mesh, path, sets) != SMESH_SUCCESS) {
     return SMESH_FAILURE;
   }
-  return write_registered_nodesets(mesh, path);
+  return write_registered_nodesets(mesh, path, sets);
 }
 
 static std::shared_ptr<Sideset>
@@ -2464,7 +2470,18 @@ const std::vector<std::shared_ptr<Mesh::Block>> &Mesh::blocks() const {
 }
 
 int Mesh::write(const Path &path) const {
+  return write(path, compression::MeshWriteOptions::from_env());
+}
+
+int Mesh::write(const Path &path,
+                const compression::MeshWriteOptions &opts) const {
   SMESH_TRACE_SCOPE("Mesh::write");
+  if (opts.validate() != SMESH_SUCCESS) {
+    return SMESH_FAILURE;
+  }
+  const compression::CompressionOptions *sets_opts = &opts.sets;
+  const std::string idx_suffix = compression::compressed_suffix(&opts.connectivity);
+  const std::string geom_suffix = compression::compressed_suffix(&opts.coordinates);
 
   create_directory(path);
 
@@ -2472,7 +2489,7 @@ int Mesh::write(const Path &path) const {
     if (impl_->node_mapping) {
       Path path_node_mapping =
           path / ("node_mapping." + std::string(TypeToString<idx_t>::value()));
-      impl_->node_mapping->to_file(path_node_mapping);
+      impl_->node_mapping->to_file(path_node_mapping, opts.sets);
     }
 
     // Write the default block (block 0)
@@ -2490,7 +2507,9 @@ int Mesh::write(const Path &path) const {
                          impl_->blocks[0]->elements()->extent(1),
                          impl_->blocks[0]->elements()->data(),
                          this->spatial_dimension(), this->n_nodes(),
-                         this->points()->data(), impl_->blocks[0]->geom_map()));
+                         this->points()->data(), impl_->blocks[0]->geom_map(),
+                         &opts),
+          sets_opts);
     } else {
       std::vector<ptrdiff_t> n_elements;
       std::vector<enum ElemType> element_types;
@@ -2510,7 +2529,8 @@ int Mesh::write(const Path &path) const {
           mesh_multiblock_to_folder(path, block_names, element_types,
                                     n_elements, elements.data(),
                                     this->spatial_dimension(), this->n_nodes(),
-                                    this->points()->data(), geom_maps));
+                                    this->points()->data(), geom_maps, &opts),
+          sets_opts);
     }
   }
 #ifdef SMESH_ENABLE_MPI
@@ -2529,22 +2549,62 @@ int Mesh::write(const Path &path) const {
     MPI_Comm comm = impl_->comm->get();
     const auto *node_mapping = dist->impl_->node_mapping->data();
 
+    // Bound mode h: heights from the local elements of every block for every local node (ghosts
+    // included); the writer takes the minimum over ranks.
+    compression::CompressionOptions xyz_opts = opts.coordinates;
+    std::vector<double> bound;
+    if (xyz_opts.enabled && xyz_opts.mode == compression::BoundMode::NodeHeight) {
+      const ptrdiff_t n_local = std::min<ptrdiff_t>(
+          this->n_nodes(), static_cast<ptrdiff_t>(dist->impl_->node_mapping->size()));
+      bound.assign(static_cast<size_t>(this->n_nodes()), INFINITY);
+      int ok = 1;
+      for (auto &block : impl_->blocks) {
+        ok &= accumulate_node_heights<idx_t, geom_t>(
+                  block->element_type(), block->elements()->extent(1),
+                  block->elements()->data(), this->spatial_dimension(),
+                  impl_->points->data(), bound.data()) == SMESH_SUCCESS;
+      }
+      int all_ok = 0;
+      MPI_Allreduce(&ok, &all_ok, 1, MPI_INT, MPI_MIN, comm);
+      if (!all_ok) {
+        if (!impl_->comm->rank()) {
+          fprintf(stderr, "compression: no element height for this element type: "
+                          "coordinates are written losslessly\n");
+        }
+        bound.clear();
+        xyz_opts.mode = compression::BoundMode::Lossless;
+      } else {
+        bound.resize(static_cast<size_t>(n_local));
+        for (double &v : bound) v *= xyz_opts.eb;
+      }
+    }
+    const ptrdiff_t n_bound = static_cast<ptrdiff_t>(bound.size());
+    const double *bound_ptr = bound.empty() ? nullptr : bound.data();
+
     if (impl_->blocks.size() == 1 && impl_->blocks[0]) {
       const enum ElemType et = impl_->blocks[0]->element_type();
       const int nxe = elem_num_nodes(et);
 
-      int err = write_distributed_mesh_topology(
-          comm, path, et, this->spatial_dimension(), dist->n_elements_global(),
-          dist->n_elements_owned(), dist->impl_->element_mapping->data(), nxe,
-          impl_->blocks[0]->elements()->data(), dist->n_nodes_global(),
-          dist->n_nodes_owned(), node_mapping, impl_->points->data());
+      int err = write_distributed_mesh_coordinates(
+          comm, path, this->spatial_dimension(), dist->n_nodes_global(),
+          dist->n_nodes_owned(), node_mapping, impl_->points->data(), &xyz_opts,
+          n_bound, bound_ptr);
+      if (err == SMESH_SUCCESS) {
+        err = write_distributed_block_connectivity(
+            comm, path, dist->n_elements_global(), dist->n_elements_owned(),
+            dist->impl_->element_mapping->data(), nxe,
+            impl_->blocks[0]->elements()->data(), node_mapping,
+            &opts.connectivity);
+      }
       if (err == SMESH_SUCCESS && impl_->comm->rank() == 0) {
         err = mesh_write_yaml_basic(
             path, et, dist->n_elements_global(), this->spatial_dimension(),
-            dist->n_nodes_global(), impl_->blocks[0]->geom_map());
+            dist->n_nodes_global(), TypeToString<idx_t>::value(),
+            TypeToString<geom_t>::value(), impl_->blocks[0]->geom_map(),
+            idx_suffix, geom_suffix);
       }
       impl_->comm->barrier();
-      return write_topology_then_sidesets(*this, path, err);
+      return write_topology_then_sidesets(*this, path, err, sets_opts);
     }
 
     const size_t n_blocks = impl_->blocks.size();
@@ -2566,7 +2626,8 @@ int Mesh::write(const Path &path) const {
 
     int err = write_distributed_mesh_coordinates(
         comm, path, this->spatial_dimension(), dist->n_nodes_global(),
-        dist->n_nodes_owned(), node_mapping, impl_->points->data());
+        dist->n_nodes_owned(), node_mapping, impl_->points->data(), &xyz_opts,
+        n_bound, bound_ptr);
     if (err != SMESH_SUCCESS) {
       return err;
     }
@@ -2607,7 +2668,7 @@ int Mesh::write(const Path &path) const {
           comm, block_path, n_global_per_block[b], n_owned,
           n_owned > 0 ? elem_map->data() : nullptr,
           block->n_nodes_per_element(), block->elements()->data(),
-          node_mapping);
+          node_mapping, &opts.connectivity);
     }
 
     if (err != SMESH_SUCCESS) {
@@ -2618,12 +2679,14 @@ int Mesh::write(const Path &path) const {
       err = mesh_multiblock_write_yaml(
           path, static_cast<uint16_t>(n_blocks), block_names, element_types,
           n_global_per_block, this->spatial_dimension(), dist->n_nodes_global(),
-          geom_maps);
+          TypeToString<idx_t>::value(), TypeToString<geom_t>::value(),
+          geom_maps, idx_suffix, geom_suffix);
     }
     impl_->comm->barrier();
 
     return write_topology_then_sidesets(
-        *this, path, err == SMESH_SUCCESS ? SMESH_SUCCESS : SMESH_FAILURE);
+        *this, path, err == SMESH_SUCCESS ? SMESH_SUCCESS : SMESH_FAILURE,
+        sets_opts);
   }
 #endif
 
