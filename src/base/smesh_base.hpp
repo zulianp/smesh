@@ -15,8 +15,7 @@
 #include <sys/time.h>
 #endif
 #if defined(__HIPCC__)
-#include <hip/driver_types.h>
-#include <hip/hip_runtime.h>
+#include "smesh_gpu_runtime.cuh"
 #elif defined(__CUDACC__)
 #include <cuda_runtime.h>
 #endif

@@ -8,6 +8,10 @@ option(SMESH_ENABLE_AVX512_SORT "Enable AVX512 sort" OFF)
 option(SMESH_ENABLE_BLAS "Enable BLAS" OFF)
 option(SMESH_ENABLE_CUDA "Enable CUDA support" OFF)
 option(SMESH_ENABLE_CUDA_LINEINFO "Enable cuda line info for profiling" OFF)
+# With SMESH_ENABLE_CUDA=ON, which turns the device path on, SMESH_ENABLE_HIP=ON
+# compiles the same device sources with HIP instead of CUDA. gfx942 is MI300A.
+option(SMESH_ENABLE_HIP "Build the device path with HIP, for AMD GPUs" OFF)
+set(SMESH_HIP_ARCHITECTURES "gfx942" CACHE STRING "HIP (AMD GPU) architectures to build for")
 option(SMESH_ENABLE_DEV_MODE "Add additional flags for more strict compilation" ON)
 option(SMESH_ENABLE_GLIBCXX_DEBUG "uses flags -D_GLIBCXX_DEBUG when compiling in debug mode" OFF)
 option(SMESH_ENABLE_LAPACK "Enable Lapck support" OFF)

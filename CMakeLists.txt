@@ -121,6 +121,12 @@ list(REMOVE_DUPLICATES _smesh_library_files)
 set(_smesh_public_headers ${_smesh_library_files})
 list(FILTER _smesh_public_headers INCLUDE REGEX "\\.(h|hh|hpp|hxx|inl|cuh)$")
 
+if(SMESH_ENABLE_HIP)
+    set(_smesh_device_sources ${_smesh_library_files})
+    list(FILTER _smesh_device_sources INCLUDE REGEX "\\.cu$")
+    set_source_files_properties(${_smesh_device_sources} PROPERTIES LANGUAGE HIP)
+endif()
+
 add_library(smesh ${_smesh_library_files})
 target_link_libraries(smesh
     PUBLIC

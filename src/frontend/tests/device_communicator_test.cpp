@@ -11,7 +11,7 @@
 #if defined(SMESH_ENABLE_MPI) && defined(SMESH_ENABLE_NCCL)
 #include "smesh_device_communicator.hpp"
 
-#include <cuda_runtime.h>
+#include "smesh_gpu_runtime.cuh"
 #include <mpi.h>
 
 #include <algorithm>

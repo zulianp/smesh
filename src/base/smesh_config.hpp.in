@@ -16,6 +16,7 @@
 #cmakedefine SMESH_ENABLE_BLAS
 #cmakedefine SMESH_ENABLE_CUDA
 #cmakedefine SMESH_ENABLE_CUDA_LINEINFO
+#cmakedefine SMESH_ENABLE_HIP
 #cmakedefine SMESH_ENABLE_DEV_MODE
 #cmakedefine SMESH_ENABLE_GLIBCXX_DEBUG
 #cmakedefine SMESH_ENABLE_LAPACK

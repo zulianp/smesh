@@ -11,7 +11,11 @@
 #endif
 
 #ifdef SMESH_ENABLE_CUDA
-#include <cuda_runtime.h>
+#include "smesh_gpu_runtime.cuh"
+#endif
+// NVTX ranges are NVIDIA's; a HIP build traces nothing on the device timeline.
+#if defined(SMESH_ENABLE_CUDA) && !defined(SMESH_ENABLE_HIP)
+#define SMESH_TRACER_NVTX
 #include <nvToolsExt.h>
 #endif
 
@@ -132,7 +136,7 @@ ScopedEvent::ScopedEvent(const char *format, int num) {
 #ifdef SMESH_ENABLE_BLOCK_KERNELS
   smesh::device_synchronize();
 #endif
-#ifdef SMESH_ENABLE_CUDA
+#ifdef SMESH_TRACER_NVTX
   nvtxRangePushA(name.c_str());
 #endif
   elapsed = time_seconds();
@@ -147,7 +151,7 @@ ScopedEvent::ScopedEvent(const char *name) {
 #ifdef SMESH_ENABLE_BLOCK_KERNELS
   smesh::device_synchronize();
 #endif
-#ifdef SMESH_ENABLE_CUDA
+#ifdef SMESH_TRACER_NVTX
   nvtxRangePushA(this->name.c_str());
 #endif
   elapsed = time_seconds();
@@ -162,7 +166,7 @@ ScopedEvent::~ScopedEvent() {
 
   elapsed = time_seconds() - elapsed;
 
-#ifdef SMESH_ENABLE_CUDA
+#ifdef SMESH_TRACER_NVTX
   nvtxRangePop();
 #endif
   Tracer::instance().record_event(std::move(name), elapsed);
