@@ -16,7 +16,13 @@
 // NVTX ranges are NVIDIA's; a HIP build traces nothing on the device timeline.
 #if defined(SMESH_ENABLE_CUDA) && !defined(SMESH_ENABLE_HIP)
 #define SMESH_TRACER_NVTX
+// NVTX v3, header-only; CUDA 12.9 removed the v2 header (nvToolsExt.h), which
+// earlier toolkits also ship.
+#if __has_include(<nvtx3/nvToolsExt.h>)
+#include <nvtx3/nvToolsExt.h>
+#else
 #include <nvToolsExt.h>
+#endif
 #endif
 
 // #define SMESH_ENABLE_BLOCK_KERNELS

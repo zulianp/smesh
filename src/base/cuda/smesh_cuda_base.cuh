@@ -39,7 +39,13 @@ inline void sfem_cuda_check(cudaError_t code, const char* file, int line, bool a
 #endif
 
 #ifdef SMESH_ENABLE_NVTX
-#include "nvToolsExt.h"
+// NVTX v3, header-only; CUDA 12.9 removed the v2 header (nvToolsExt.h), which
+// earlier toolkits also ship.
+#if __has_include(<nvtx3/nvToolsExt.h>)
+#include <nvtx3/nvToolsExt.h>
+#else
+#include <nvToolsExt.h>
+#endif
 namespace sfem {
     namespace details {
         class Tracer {
