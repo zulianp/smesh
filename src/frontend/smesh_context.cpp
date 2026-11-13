@@ -26,10 +26,12 @@ namespace smesh {
 #if defined(SMESH_ENABLE_CUDA) && defined(SMESH_ENABLE_MPI)
 // The node-local rank the launcher gives the process, or -1. It is read before MPI_Init because
 // Cray MPICH starts CUDA there when the job spans nodes, after which CUDA_VISIBLE_DEVICES is
-// ignored and every rank of a node shares its first GPU.
+// ignored and every rank of a node shares its first GPU. An MPI launcher's own variable is read
+// before SLURM_LOCALID: processes that mpiexec starts inside a batch job inherit the batch step's
+// SLURM_LOCALID, 0 for every rank, while the launcher sets its own per process.
 static int launcher_local_rank() {
-  for (const char *name : {"SLURM_LOCALID", "PALS_LOCAL_RANKID", "OMPI_COMM_WORLD_LOCAL_RANK",
-                           "MPI_LOCALRANKID", "PMI_LOCAL_RANK", "MV2_COMM_WORLD_LOCAL_RANK"}) {
+  for (const char *name : {"PALS_LOCAL_RANKID", "OMPI_COMM_WORLD_LOCAL_RANK", "MPI_LOCALRANKID",
+                           "PMI_LOCAL_RANK", "MV2_COMM_WORLD_LOCAL_RANK", "SLURM_LOCALID"}) {
     if (const char *value = std::getenv(name)) return std::atoi(value);
   }
   return -1;
