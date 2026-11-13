@@ -2,6 +2,16 @@
 
 include(CMakeFindDependencyMacro)
 
+# The device backend this install was built with. SMESH_ENABLE_CUDA turns the
+# device path on; SMESH_ENABLE_HIP means it was compiled with HIP for AMD GPUs.
+set(smesh_ENABLE_CUDA @SMESH_ENABLE_CUDA@)
+set(smesh_ENABLE_HIP @SMESH_ENABLE_HIP@)
+
+# A HIP build links hip::host publicly.
+if(@SMESH_ENABLE_HIP@)
+    find_dependency(hip)
+endif()
+
 if(@SMESH_ENABLE_MPI@)
     if(NOT CMAKE_C_COMPILER_LOADED)
         include(CheckLanguage)

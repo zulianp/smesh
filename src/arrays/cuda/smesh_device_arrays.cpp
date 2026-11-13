@@ -18,7 +18,7 @@ bool is_ptr_device(const void *ptr) {
                 cudaGetErrorString(err));
   }
 
-#if CUDART_VERSION >= 10000
+#if defined(SMESH_ENABLE_HIP) || CUDART_VERSION >= 10000
   // CUDA 10.0 and newer
   return attributes.type == cudaMemoryTypeDevice;
 #else

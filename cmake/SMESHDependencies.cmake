@@ -119,7 +119,39 @@ endif()
 # endif()
 
 
-if(SMESH_ENABLE_CUDA)
+if(SMESH_ENABLE_HIP AND NOT SMESH_ENABLE_CUDA)
+    message(FATAL_ERROR "SMESH_ENABLE_HIP=ON selects the backend of the device path, "
+                        "which SMESH_ENABLE_CUDA=ON turns on: set both.")
+endif()
+
+if(SMESH_ENABLE_HIP)
+    # The .cu sources are compiled as HIP (see CMakeLists.txt). The architectures
+    # must be set before enable_language.
+    if(NOT DEFINED CMAKE_HIP_ARCHITECTURES)
+        set(CMAKE_HIP_ARCHITECTURES "${SMESH_HIP_ARCHITECTURES}" CACHE STRING "HIP architectures")
+    endif()
+
+    enable_language(HIP)
+    message(STATUS "smesh: building the device path with HIP for ${CMAKE_HIP_ARCHITECTURES}")
+
+    if(NOT DEFINED CMAKE_HIP_STANDARD)
+      set(CMAKE_HIP_STANDARD 17)
+      set(CMAKE_HIP_STANDARD_REQUIRED ON)
+    endif()
+
+    find_package(hip REQUIRED)
+
+    # Executables made of C++ sources are linked by the C++ compiler, as SCCD's
+    # are. By default the HIP objects in the static library would hand every
+    # executable that links it to the HIP compiler, whose linker produces
+    # position-independent executables from objects the host compiler built
+    # without -fPIE, and the link fails.
+    set(CMAKE_HIP_LINKER_PREFERENCE_PROPAGATES OFF)
+
+    # hip::host carries the runtime and the platform define that host code
+    # including smesh_gpu_runtime.h needs, so it is public.
+    list(APPEND SMESH_DEP_LIBRARIES hip::host)
+elseif(SMESH_ENABLE_CUDA)
     if(NOT DEFINED CMAKE_CUDA_HOST_COMPILER AND DEFINED CMAKE_CXX_COMPILER)
         set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}" CACHE FILEPATH "CUDA host compiler")
     endif()
@@ -309,7 +341,10 @@ endif()
 # (Communicator::enable_device). Found with SMESH_ENABLE_MPI and SMESH_ENABLE_CUDA.
 # SMESH_ENABLE_NCCL=OFF leaves it out; ON uses it when found, and is turned off otherwise.
 
-if(SMESH_ENABLE_NCCL AND SMESH_ENABLE_MPI AND SMESH_ENABLE_CUDA)
+if(SMESH_ENABLE_NCCL AND SMESH_ENABLE_HIP)
+    message(STATUS "smesh: NCCL is not used in a HIP build: device communication within a node unavailable")
+    set(SMESH_ENABLE_NCCL OFF)
+elseif(SMESH_ENABLE_NCCL AND SMESH_ENABLE_MPI AND SMESH_ENABLE_CUDA)
     find_path(SMESH_NCCL_INCLUDE_DIR nccl.h
         HINTS ENV NCCL_HOME ENV NCCL_ROOT ${CUDAToolkit_INCLUDE_DIRS}
         PATH_SUFFIXES include)

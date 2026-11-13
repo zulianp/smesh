@@ -19,6 +19,12 @@ SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i64, f32);
 SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i32, f64);
 SMESH_EXPLICIT_INSTANTIATE_MESH_FROM_FOLDER(i64, f64);
 
+// Called directly by Mesh::read (smesh_mesh.cpp). Without these that call relied
+// on mesh_from_folder above leaving an out-of-line copy behind, which g++ 14 at
+// -O3 does not: it inlines the function and nothing links.
+template int mesh_block_from_folder<i32>(const Path &, int *, i32 ***, ptrdiff_t *);
+template int mesh_block_from_folder<i64>(const Path &, int *, i64 ***, ptrdiff_t *);
+
 SMESH_EXPLICIT_INSTANTIATE_ARRAY_READ_FROM_EXTENSION(f16);
 SMESH_EXPLICIT_INSTANTIATE_ARRAY_READ_FROM_EXTENSION(f32);
 SMESH_EXPLICIT_INSTANTIATE_ARRAY_READ_FROM_EXTENSION(f64);
