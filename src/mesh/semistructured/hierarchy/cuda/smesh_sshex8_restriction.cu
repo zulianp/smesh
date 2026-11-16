@@ -8,6 +8,7 @@
 
 #include <cstdio>
 #include <mutex>
+#include <type_traits>
 #include <vector>
 
 namespace smesh {
@@ -591,6 +592,97 @@ namespace smesh {
         }
     }
 
+    // Node-centric restriction FROM_L -> FROM_L / STEP of EB consecutive macro elements per block:
+    // the fine values (divided by their incidence count) are staged in shared memory one component at
+    // a time, reduced in x, y, z with the hat weights, and each coarse value is added once. Level 8 ->
+    // 4, 44^3 macro elements (132 M dofs), standalone: MI300A 2.37 ms against 8.97 for the tile-of-8
+    // kernel above (one element per block of 512: 2.82 ms).
+    constexpr int NODE_CENTRIC_BLOCK_SIZE = 1024;
+
+    // Static shared memory of the kernel below: element indices, fine values, and the x-reduced values.
+    template <typename T, int FROM_L, int STEP>
+    constexpr size_t sshex8_restriction_node_centric_shared_bytes(const int EB) {
+        return size_t(EB) * (FROM_L + 1) * (FROM_L + 1) *
+               ((FROM_L + 1) * (sizeof(idx_t) + sizeof(T)) + (FROM_L / STEP + 1) * sizeof(T));
+    }
+
+    template <typename T, int FROM_L, int STEP, int EB>
+    __global__ void __launch_bounds__(NODE_CENTRIC_BLOCK_SIZE) sshex8_restriction_node_centric_kernel(const ptrdiff_t                                         nelements,
+                                                           const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT from_elements,
+                                                           const u16 *const SMESH_RESTRICT                         count,
+                                                           const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT to_elements,
+                                                           const int                                               vec_size,
+                                                           const T *const SMESH_RESTRICT                           from,
+                                                           T *const SMESH_RESTRICT                                 to) {
+        constexpr int NF  = FROM_L + 1;
+        constexpr int NC  = FROM_L / STEP + 1;
+        constexpr int NF3 = NF * NF * NF;
+        __shared__ idx_t gidx[EB * NF3];           // [f][e]
+        __shared__ T     fine[EB * NF3];           // [e][z][y][x]; after the y pass [e][z][Y][X]
+        __shared__ T     xred[EB * NF * NF * NC];  // [e][z][y][X]
+
+        for (ptrdiff_t e0 = (ptrdiff_t)blockIdx.x * EB; e0 < nelements; e0 += (ptrdiff_t)gridDim.x * EB) {
+            for (int i = threadIdx.x; i < EB * NF3; i += blockDim.x) {
+                const int el = i % EB;
+                gidx[i]      = e0 + el < nelements ? from_elements[i / EB][e0 + el] : -1;
+            }
+            __syncthreads();
+
+            for (int d = 0; d < vec_size; d++) {
+                for (int i = threadIdx.x; i < EB * NF3; i += blockDim.x) {
+                    const idx_t g              = gidx[i];
+                    fine[(i % EB) * NF3 + i / EB] = g < 0 ? T(0) : from[(ptrdiff_t)g * vec_size + d] / count[g];
+                }
+                __syncthreads();
+
+                // Coarse X takes fine STEP X + k, |k| < STEP, with weight 1 - |k| / STEP
+                for (int i = threadIdx.x; i < EB * NF * NF * NC; i += blockDim.x) {
+                    const int      X   = i % NC;
+                    const T *const row = &fine[(i / NC) * NF];
+                    T              acc = 0;
+#pragma unroll
+                    for (int k = 1 - STEP; k < STEP; k++) {
+                        const int x = STEP * X + k;
+                        if (x >= 0 && x <= FROM_L) acc += (T(1) - T(k < 0 ? -k : k) / STEP) * row[x];
+                    }
+                    xred[i] = acc;
+                }
+                __syncthreads();
+
+                for (int i = threadIdx.x; i < EB * NF * NC * NC; i += blockDim.x) {
+                    const int X  = i % NC;
+                    const int Y  = (i / NC) % NC;
+                    const int ez = i / (NC * NC);
+                    T         acc = 0;
+#pragma unroll
+                    for (int k = 1 - STEP; k < STEP; k++) {
+                        const int y = STEP * Y + k;
+                        if (y >= 0 && y <= FROM_L) acc += (T(1) - T(k < 0 ? -k : k) / STEP) * xred[(ez * NF + y) * NC + X];
+                    }
+                    fine[i] = acc;
+                }
+                __syncthreads();
+
+                for (int i = threadIdx.x; i < EB * NC * NC * NC; i += blockDim.x) {
+                    const int el   = i % EB;
+                    const int node = i / EB;
+                    if (e0 + el >= nelements) continue;
+                    const int X   = node % NC;
+                    const int Y   = (node / NC) % NC;
+                    const int Z   = node / (NC * NC);
+                    T         acc = 0;
+#pragma unroll
+                    for (int k = 1 - STEP; k < STEP; k++) {
+                        const int z = STEP * Z + k;
+                        if (z >= 0 && z <= FROM_L) acc += (T(1) - T(k < 0 ? -k : k) / STEP) * fine[((el * NF + z) * NC + Y) * NC + X];
+                    }
+                    atomicAdd(&to[(ptrdiff_t)to_elements[node][e0 + el] * vec_size + d], acc);
+                }
+                __syncthreads();
+            }
+        }
+    }
+
     template <typename From, typename To, typename idx_t>
     int cu_sshex8_restrict_tpl(const ptrdiff_t                                         nelements,
                                const int                                               from_level,
@@ -609,6 +701,28 @@ namespace smesh {
                                To *const SMESH_RESTRICT                                to,
                                void                                                   *stream) {
         SMESH_DEBUG_SYNCHRONIZE();
+
+        if constexpr (std::is_same_v<From, To>) {
+            if (from_level == 8 && to_level == 4 && from_level_stride == 1 && to_level_stride == 1 && from_stride == 1 &&
+                to_stride == 1) {
+                // No blocks to launch on a rank without elements (a grid of 0 is an invalid configuration)
+                if (nelements == 0) return SMESH_SUCCESS;
+
+                // Four macro elements per block, three when 64-bit indices would exceed the 48 KiB of
+                // static shared memory CUDA allows a block (f64 and i64: 59,616 bytes for four)
+                constexpr size_t max_static_shared = 48 * 1024;
+                constexpr int    EB =
+                        sshex8_restriction_node_centric_shared_bytes<To, 8, 2>(4) <= max_static_shared ? 4 : 3;
+                static_assert(sshex8_restriction_node_centric_shared_bytes<To, 8, 2>(EB) <= max_static_shared,
+                              "sshex8_restriction_node_centric_kernel exceeds 48 KiB of static shared memory");
+
+                sshex8_restriction_node_centric_kernel<To, 8, 2, EB>
+                        <<<(nelements + EB - 1) / EB, NODE_CENTRIC_BLOCK_SIZE, 0, (cudaStream_t)stream>>>(
+                                nelements, from_elements, from_element_to_node_incidence_count, to_elements, vec_size, from, to);
+                SMESH_DEBUG_SYNCHRONIZE();
+                return SMESH_SUCCESS;
+            }
+        }
 
         // Hand tuned
         int block_size = 128;
