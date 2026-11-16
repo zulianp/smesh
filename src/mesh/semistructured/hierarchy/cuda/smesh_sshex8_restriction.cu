@@ -597,8 +597,17 @@ namespace smesh {
     // a time, reduced in x, y, z with the hat weights, and each coarse value is added once. Level 8 ->
     // 4, 44^3 macro elements (132 M dofs), standalone: MI300A 2.37 ms against 8.97 for the tile-of-8
     // kernel above (one element per block of 512: 2.82 ms).
+    constexpr int NODE_CENTRIC_BLOCK_SIZE = 1024;
+
+    // Static shared memory of the kernel below: element indices, fine values, and the x-reduced values.
+    template <typename T, int FROM_L, int STEP>
+    constexpr size_t sshex8_restriction_node_centric_shared_bytes(const int EB) {
+        return size_t(EB) * (FROM_L + 1) * (FROM_L + 1) *
+               ((FROM_L + 1) * (sizeof(idx_t) + sizeof(T)) + (FROM_L / STEP + 1) * sizeof(T));
+    }
+
     template <typename T, int FROM_L, int STEP, int EB>
-    __global__ void sshex8_restriction_node_centric_kernel(const ptrdiff_t                                         nelements,
+    __global__ void __launch_bounds__(NODE_CENTRIC_BLOCK_SIZE) sshex8_restriction_node_centric_kernel(const ptrdiff_t                                         nelements,
                                                            const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT from_elements,
                                                            const u16 *const SMESH_RESTRICT                         count,
                                                            const idx_t *const SMESH_RESTRICT *const SMESH_RESTRICT to_elements,
@@ -696,9 +705,19 @@ namespace smesh {
         if constexpr (std::is_same_v<From, To>) {
             if (from_level == 8 && to_level == 4 && from_level_stride == 1 && to_level_stride == 1 && from_stride == 1 &&
                 to_stride == 1) {
-                constexpr int EB = 4;
+                // No blocks to launch on a rank without elements (a grid of 0 is an invalid configuration)
+                if (nelements == 0) return SMESH_SUCCESS;
+
+                // Four macro elements per block, three when 64-bit indices would exceed the 48 KiB of
+                // static shared memory CUDA allows a block (f64 and i64: 59,616 bytes for four)
+                constexpr size_t max_static_shared = 48 * 1024;
+                constexpr int    EB =
+                        sshex8_restriction_node_centric_shared_bytes<To, 8, 2>(4) <= max_static_shared ? 4 : 3;
+                static_assert(sshex8_restriction_node_centric_shared_bytes<To, 8, 2>(EB) <= max_static_shared,
+                              "sshex8_restriction_node_centric_kernel exceeds 48 KiB of static shared memory");
+
                 sshex8_restriction_node_centric_kernel<To, 8, 2, EB>
-                        <<<(nelements + EB - 1) / EB, 1024, 0, (cudaStream_t)stream>>>(
+                        <<<(nelements + EB - 1) / EB, NODE_CENTRIC_BLOCK_SIZE, 0, (cudaStream_t)stream>>>(
                                 nelements, from_elements, from_element_to_node_incidence_count, to_elements, vec_size, from, to);
                 SMESH_DEBUG_SYNCHRONIZE();
                 return SMESH_SUCCESS;
