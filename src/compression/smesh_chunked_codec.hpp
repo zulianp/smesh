@@ -16,6 +16,7 @@
 // escapes fall back to lossless), the lossless codec, and the raw bytes; then the byte stage if
 // it saves at least 5%. Every chunk records what it used, its sizes and an XXH64 checksum.
 
+#include <cstddef>
 #include "smesh_codec_quant.hpp"
 #include "smesh_compression_options.hpp"
 
