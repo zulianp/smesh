@@ -21,7 +21,42 @@
 #include <omp.h>
 #endif
 
+#if defined(__HIP_PLATFORM_SPIRV__)
+#include <algorithm>
+#include <mutex>
+#include <vector>
+#endif
+
 namespace smesh {
+
+#if defined(__HIP_PLATFORM_SPIRV__)
+static std::mutex &teardown_mutex() {
+  static std::mutex m;
+  return m;
+}
+
+static std::vector<void (*)()> &teardown_releases() {
+  static std::vector<void (*)()> releases;
+  return releases;
+}
+
+void at_context_teardown(void (*release)()) {
+  std::lock_guard<std::mutex> lock(teardown_mutex());
+  auto &releases = teardown_releases();
+  if (std::find(releases.begin(), releases.end(), release) == releases.end()) releases.push_back(release);
+}
+
+// The caches' device memory, released in the reverse order of registration. A release may register
+// (a cache first touched there), so they run outside the lock.
+static void release_registered_caches() {
+  std::vector<void (*)()> releases;
+  {
+    std::lock_guard<std::mutex> lock(teardown_mutex());
+    releases = teardown_releases();
+  }
+  for (auto it = releases.rbegin(); it != releases.rend(); ++it) (*it)();
+}
+#endif
 
 #if defined(SMESH_ENABLE_CUDA) && defined(SMESH_ENABLE_MPI)
 // The node-local rank the launcher gives the process, or -1. It is read before MPI_Init because
@@ -134,6 +169,9 @@ Context::Context(int argc, char *argv[]) : impl_(std::make_unique<Impl>()) {
 }
 
 Context::~Context() {
+#if defined(__HIP_PLATFORM_SPIRV__)
+  release_registered_caches();
+#endif
 #ifdef SMESH_ENABLE_MPI
   release_device_communicators();
   unregister_mpi_datatypes();

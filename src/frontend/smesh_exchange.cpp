@@ -56,6 +56,12 @@ static bool mpi_takes_device_memory() {
   // where device-to-device messages then arrive intact); the support is its environment's.
   const char *const enabled = std::getenv("MPICH_GPU_SUPPORT_ENABLED");
   return enabled && std::string(enabled) == "1";
+#elif defined(__HIP_PLATFORM_SPIRV__) && defined(MPIX_GPU_SUPPORT_ZE)
+  // chipStar (HIP on SPIR-V, Intel GPUs) allocates through Level Zero: MPICH's Level Zero
+  // support (Aurora) moves that memory.
+  int supported = 0;
+  MPIX_GPU_query_support(MPIX_GPU_SUPPORT_ZE, &supported);
+  return supported != 0;
 #elif defined(MPIX_GPU_SUPPORT_CUDA)
   int supported = 0;
   MPIX_GPU_query_support(MPIX_GPU_SUPPORT_CUDA, &supported);

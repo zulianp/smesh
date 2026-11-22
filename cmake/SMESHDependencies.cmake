@@ -126,8 +126,9 @@ endif()
 
 if(SMESH_ENABLE_HIP)
     # The .cu sources are compiled as HIP (see CMakeLists.txt). The architectures
-    # must be set before enable_language.
-    if(NOT DEFINED CMAKE_HIP_ARCHITECTURES)
+    # must be set before enable_language; chipStar's SPIR-V (CMAKE_HIP_PLATFORM
+    # spirv, Intel GPUs, CMake 4.3 or later) has none.
+    if(NOT DEFINED CMAKE_HIP_ARCHITECTURES AND NOT CMAKE_HIP_PLATFORM STREQUAL "spirv")
         set(CMAKE_HIP_ARCHITECTURES "${SMESH_HIP_ARCHITECTURES}" CACHE STRING "HIP architectures")
     endif()
 
