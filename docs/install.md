@@ -54,6 +54,14 @@ CMake 4.3 or later and the platform given: `-DCMAKE_HIP_PLATFORM=spirv`. A confi
 finds chipStar (`HIP_PLATFORM=spirv`, or `hipconfig --platform` answering `spirv`) without
 it stops and asks for it.
 
+A device exchange with ranks on other nodes hands device buffers to MPI, which must be
+GPU-aware; smesh asks at run time and stops if it is not. Cray MPICH: set
+`MPICH_GPU_SUPPORT_ENABLED=1`. chipStar: MPICH's Level Zero support (Aurora) moves the memory
+chipStar allocates on its Level Zero backend only, so smesh also asks chipStar for its backend
+(`CHIP_BE=level0` selects it; chipStar 1.2 answers only when it is set).
+`SMESH_MPI_GPU_SUPPORT=0` or `1` overrides the answer under chipStar, for an MPI the query
+misjudges.
+
 ## Tests
 
 Tests are on by default at the top level (`SMESH_ENABLE_TESTING=ON`):

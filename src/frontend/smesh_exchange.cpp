@@ -29,6 +29,11 @@
 #endif
 #endif
 
+#if defined(SMESH_ENABLE_MPI) && defined(SMESH_ENABLE_CUDA) && defined(__HIP_PLATFORM_SPIRV__)
+#include <hip/hip_interop.h>
+#include <hip/hip_runtime.h>
+#endif
+
 namespace smesh {
 
 template <typename T>
@@ -49,6 +54,37 @@ static void ensure_exchange_buffer(SharedBuffer<char> &buffer,
 }
 
 #if defined(SMESH_ENABLE_MPI) && defined(SMESH_ENABLE_CUDA)
+#if defined(__HIP_PLATFORM_SPIRV__) && defined(MPIX_GPU_SUPPORT_ZE)
+// Whether chipStar runs on Level Zero. It runs on Level Zero or OpenCL: CHIP_BE, or by default
+// the first that starts (OpenCL first in recent versions). Its interop API names the backend in
+// the first of a stream's native handles, 6 on Level Zero: "level0" from chipStar 1.3, the CHIP_BE
+// value in 1.2 (unset, "default": not known). chipStar 1.1 refuses the count query. The stream is
+// made for the question: chipStar synchronises a stream whose handles were handed out more
+// conservatively.
+static bool chipstar_runs_on_level_zero() {
+  hipStream_t stream = nullptr;
+  if (hipStreamCreate(&stream) != hipSuccess) {
+    SMESH_ERROR("hipStreamCreate failed: %s\n", hipGetErrorString(hipGetLastError()));
+  }
+  bool level_zero = false;
+  int n = 0;
+  if (hipGetBackendNativeHandles((uintptr_t)stream, nullptr, &n) != hipSuccess) {
+    // The refusal is also the runtime's last error, which smesh's checks would report.
+    (void)hipGetLastError();
+  } else if (n == 6) {
+    std::vector<uintptr_t> handles(n, 0);
+    if (hipGetBackendNativeHandles((uintptr_t)stream, handles.data(), nullptr) != hipSuccess) {
+      SMESH_ERROR("hipGetBackendNativeHandles failed: %s\n", hipGetErrorString(hipGetLastError()));
+    }
+    level_zero = handles[0] && std::string((const char *)handles[0]) == "level0";
+  }
+  if (hipStreamDestroy(stream) != hipSuccess) {
+    SMESH_ERROR("hipStreamDestroy failed: %s\n", hipGetErrorString(hipGetLastError()));
+  }
+  return level_zero;
+}
+#endif
+
 // Whether this MPI moves device memory, at run time.
 static bool mpi_takes_device_memory() {
 #if defined(CRAY_MPICH_VERSION)
@@ -56,12 +92,21 @@ static bool mpi_takes_device_memory() {
   // where device-to-device messages then arrive intact); the support is its environment's.
   const char *const enabled = std::getenv("MPICH_GPU_SUPPORT_ENABLED");
   return enabled && std::string(enabled) == "1";
-#elif defined(__HIP_PLATFORM_SPIRV__) && defined(MPIX_GPU_SUPPORT_ZE)
-  // chipStar (HIP on SPIR-V, Intel GPUs) allocates through Level Zero: MPICH's Level Zero
-  // support (Aurora) moves that memory.
+#elif defined(__HIP_PLATFORM_SPIRV__)
+  // chipStar (HIP on SPIR-V, Intel GPUs): MPICH's Level Zero support (Aurora) moves the memory
+  // chipStar allocates on Level Zero, not on OpenCL. SMESH_MPI_GPU_SUPPORT=1 or 0 overrides the
+  // answer, for an MPI the query misjudges.
+  const char *const forced = std::getenv("SMESH_MPI_GPU_SUPPORT");
+  if (forced && (std::string(forced) == "0" || std::string(forced) == "1")) {
+    return std::string(forced) == "1";
+  }
+#if defined(MPIX_GPU_SUPPORT_ZE)
   int supported = 0;
   MPIX_GPU_query_support(MPIX_GPU_SUPPORT_ZE, &supported);
-  return supported != 0;
+  return supported != 0 && chipstar_runs_on_level_zero();
+#else
+  return false;
+#endif
 #elif defined(MPIX_GPU_SUPPORT_CUDA)
   int supported = 0;
   MPIX_GPU_query_support(MPIX_GPU_SUPPORT_CUDA, &supported);
@@ -187,7 +232,8 @@ Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh,
     if (impl.any_remote && !mpi_takes_device_memory()) {
       SMESH_ERROR("Exchange::create_nodal: a device exchange with ranks on other nodes needs "
                   "GPU-aware MPI, which this MPI does not provide (with Cray MPICH: "
-                  "MPICH_GPU_SUPPORT_ENABLED=1)\n");
+                  "MPICH_GPU_SUPPORT_ENABLED=1; with chipStar: CHIP_BE=level0 and MPICH's Level "
+                  "Zero support, or SMESH_MPI_GPU_SUPPORT=1)\n");
     }
     ret->impl_->execution_space = EXECUTION_SPACE_DEVICE;
     ret->impl_->device_sparse_idx = to_device(ret->impl_->sparse_idx);
