@@ -36,7 +36,9 @@ std::shared_ptr<Context> initialize_serial(int argc, char *argv[]);
 // registers its release here, once, and does not free in its destructor. The destructor of the
 // context that initialized smesh (initialize, not the wrapper of a communicator) runs the releases
 // while the runtime is whole, newest first, with any registered while they run. A cache used after
-// that is not released: its memory goes with the process.
+// that is not released: its memory goes with the process. That context must therefore be destroyed
+// before main returns: one held by a static, or otherwise destroyed at exit, would run the releases,
+// and free, there.
 void at_context_teardown(void (*release)());
 #endif
 
