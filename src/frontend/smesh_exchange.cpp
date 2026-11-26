@@ -189,6 +189,12 @@ Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh,
                        const ExecutionSpace execution_space) {
 #if defined(SMESH_ENABLE_MPI)
   auto dist = mesh->distributed();
+  if (!dist) {
+    // A mesh on one rank is not distributed (distributed() is null): it has nothing to exchange,
+    // and callers create an exchange only for a distributed mesh (as smesh_restrict.cpp does).
+    SMESH_ERROR("Exchange::create_nodal: the mesh is not distributed\n");
+    return nullptr;
+  }
   const bool with_aura = exchange_scope == ExchangeScope::GhostsAndAura;
   const ptrdiff_t n_local_nodes = dist->n_nodes_owned() +
                                   dist->n_nodes_ghosts() +
