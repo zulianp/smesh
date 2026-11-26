@@ -68,7 +68,12 @@ namespace smesh {
 
         bool matches(const int steps_, const int padding_) const { return data && steps == steps_ && padding == padding_; }
 
-        ~ShapeInterpolation() { destroy(); }
+        ~ShapeInterpolation() {
+            // Only the pool's array is destroyed, at exit, where chipStar faults on a free (smesh_context.hpp).
+#if !defined(__HIP_PLATFORM_SPIRV__)
+            destroy();
+#endif
+        }
 
         void destroy() {
             if (data) {
