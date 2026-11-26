@@ -47,6 +47,13 @@ cmake --build build -j
 
 Default `CMAKE_CUDA_ARCHITECTURES` is `90`. Override it for the GPU you have.
 
+HIP (the same device path, for AMD GPUs, or for Intel GPUs through chipStar): add
+`-DSMESH_ENABLE_HIP=ON` to the CUDA configure. For AMD the architectures are
+`SMESH_HIP_ARCHITECTURES` (default `gfx942`). chipStar (HIP compiled to SPIR-V) needs
+CMake 4.3 or later and the platform given: `-DCMAKE_HIP_PLATFORM=spirv`. A configure that
+finds chipStar (`HIP_PLATFORM=spirv`, or `hipconfig --platform` answering `spirv`) without
+it stops and asks for it.
+
 ## Tests
 
 Tests are on by default at the top level (`SMESH_ENABLE_TESTING=ON`):
@@ -68,6 +75,7 @@ Stock defaults are aimed at in-tree development, not a first clone:
 | `SMESH_ENABLE_OPENMP` | `OFF` | |
 | `SMESH_ENABLE_CUDA` | `OFF` | CUDA Toolkit; default arch `90` |
 | `SMESH_ENABLE_CUDA_LINEINFO` | `OFF` | Device-line profiling |
+| `SMESH_ENABLE_HIP` | `OFF` | With `SMESH_ENABLE_CUDA`: the device path through HIP |
 | `CMAKE_BUILD_TYPE` | `Release` if unset | |
 
 For a first build, pass `-DSMESH_ENABLE_MPI=OFF` and `-DSMESH_ENABLE_DEV_MODE=OFF`.
