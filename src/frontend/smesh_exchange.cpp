@@ -217,16 +217,15 @@ Exchange::create_nodal(const std::shared_ptr<Mesh> &mesh,
 #if defined(SMESH_ENABLE_CUDA)
     // Where the run enabled it, peers on this node through NCCL and the others through
     // GPU-aware MPI: NCCL is the faster within a node and not to be trusted between nodes
-    // (smesh_device_communicator.hpp).
+    // (smesh_device_communicator.hpp). A rank with no peer to reach through MPI (one rank, or
+    // only NCCL's peers) hands MPI no device memory and needs no GPU-aware MPI.
     auto &impl = *ret->impl_;
     impl.device_comm = mesh->comm()->device();
-    if (impl.device_comm) {
-      impl.any_remote = false;
-      for (auto *peers : {&impl.gather_sends, &impl.gather_recvs}) {
-        for (auto &peer : *peers) {
-          peer.on_node = impl.device_comm->node_rank(peer.rank) >= 0;
-          impl.any_remote = impl.any_remote || !peer.on_node;
-        }
+    impl.any_remote = false;
+    for (auto *peers : {&impl.gather_sends, &impl.gather_recvs}) {
+      for (auto &peer : *peers) {
+        peer.on_node = impl.device_comm && impl.device_comm->node_rank(peer.rank) >= 0;
+        impl.any_remote = impl.any_remote || !peer.on_node;
       }
     }
     if (impl.any_remote && !mpi_takes_device_memory()) {
