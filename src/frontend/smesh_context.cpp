@@ -185,8 +185,9 @@ Context::~Context() {
 #endif
 #ifdef SMESH_ENABLE_MPI
   release_device_communicators();
-  unregister_mpi_datatypes();
   if (impl_->owns_mpi_context) {
+    // Registered by this context's constructor; a wrapper of a communicator registered none.
+    unregister_mpi_datatypes();
     MPI_Finalize();
   }
 #endif
