@@ -47,7 +47,8 @@
 #define cudaPointerGetAttributes hipPointerGetAttributes
 #define cudaMemoryTypeDevice hipMemoryTypeDevice
 
-#if defined(__HIPCC__)
+// chipStar (HIP on SPIR-V, Intel GPUs) has its own __syncwarp.
+#if defined(__HIPCC__) && !defined(__HIP_PLATFORM_SPIRV__)
 // HIP 6.4 has no __syncwarp (ROCm 7 adds one). smesh uses it as the barrier of
 // a tile of 4 or 8 threads exchanging values through shared memory, and a tile
 // always lies inside one wavefront. The lanes of a wavefront execute together;

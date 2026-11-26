@@ -125,14 +125,56 @@ if(SMESH_ENABLE_HIP AND NOT SMESH_ENABLE_CUDA)
 endif()
 
 if(SMESH_ENABLE_HIP)
-    # The .cu sources are compiled as HIP (see CMakeLists.txt). The architectures
-    # must be set before enable_language.
-    if(NOT DEFINED CMAKE_HIP_ARCHITECTURES)
+    # The platform must be known before the AMD architectures below are cached. Given, it is
+    # CMAKE_HIP_PLATFORM (a parent project that enabled HIP has set it). Not given, enable_language
+    # takes it from `hipconfig --platform` (CMake's CMakeDetermineHIPCompiler.cmake, spirv from
+    # CMake 4.3), which ROCm's hipconfig answers from the HIP_PLATFORM environment variable when that
+    # is set. If either says spirv (chipStar: HIP on SPIR-V, Intel GPUs) the configure stops here and
+    # asks for the platform, as SFEM and SCCD do.
+    set(_smesh_hip_platform_given "${CMAKE_HIP_PLATFORM}")
+    if(NOT CMAKE_HIP_PLATFORM)
+        set(_smesh_hipconfig_platform "")
+        execute_process(COMMAND hipconfig --platform
+            OUTPUT_VARIABLE _smesh_hipconfig_output OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _smesh_hipconfig_result
+            ERROR_QUIET)
+        if(_smesh_hipconfig_result EQUAL 0)
+            set(_smesh_hipconfig_platform "${_smesh_hipconfig_output}")
+        endif()
+        if("$ENV{HIP_PLATFORM}" STREQUAL "spirv" OR _smesh_hipconfig_platform STREQUAL "spirv")
+            message(FATAL_ERROR "The HIP platform is chipStar's SPIR-V (HIP_PLATFORM: '$ENV{HIP_PLATFORM}', "
+                                "hipconfig --platform: '${_smesh_hipconfig_platform}'), but CMAKE_HIP_PLATFORM was "
+                                "not given: configure with -DCMAKE_HIP_PLATFORM=spirv")
+        endif()
+    endif()
+
+    if(CMAKE_HIP_PLATFORM STREQUAL "spirv")
+        # chipStar: one portable SPIR-V binary, no architecture list. CMake knows the platform from 4.3.
+        if(CMAKE_VERSION VERSION_LESS 4.3)
+            message(FATAL_ERROR "CMAKE_HIP_PLATFORM=spirv (chipStar) needs CMake 4.3 or later; this is ${CMAKE_VERSION}")
+        endif()
+        if(CMAKE_HIP_ARCHITECTURES MATCHES "gfx")
+            message(FATAL_ERROR "CMAKE_HIP_ARCHITECTURES (${CMAKE_HIP_ARCHITECTURES}) are AMD targets, left in the cache by "
+                                "a configure for the AMD platform: configure a new build directory with -DCMAKE_HIP_PLATFORM=spirv")
+        endif()
+    elseif(NOT DEFINED CMAKE_HIP_ARCHITECTURES)
+        # The .cu sources are compiled as HIP (see CMakeLists.txt). The architectures
+        # must be set before enable_language.
         set(CMAKE_HIP_ARCHITECTURES "${SMESH_HIP_ARCHITECTURES}" CACHE STRING "HIP architectures")
     endif()
 
     enable_language(HIP)
-    message(STATUS "smesh: building the device path with HIP for ${CMAKE_HIP_ARCHITECTURES}")
+    if(CMAKE_HIP_PLATFORM STREQUAL "spirv" AND NOT _smesh_hip_platform_given STREQUAL "spirv")
+        # Detected as spirv by enable_language after the AMD architectures were cached. The check
+        # above catches this first; this one stays for a CMake that detects the platform otherwise.
+        message(FATAL_ERROR "The HIP compiler is chipStar's (CMAKE_HIP_PLATFORM detected as spirv), but the "
+                            "platform was not given: configure a new build directory with -DCMAKE_HIP_PLATFORM=spirv")
+    endif()
+    if(CMAKE_HIP_PLATFORM STREQUAL "spirv")
+        message(STATUS "smesh: building the device path with HIP for SPIR-V (chipStar)")
+    else()
+        message(STATUS "smesh: building the device path with HIP for ${CMAKE_HIP_ARCHITECTURES}")
+    endif()
 
     if(NOT DEFINED CMAKE_HIP_STANDARD)
       set(CMAKE_HIP_STANDARD 17)

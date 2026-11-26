@@ -10,9 +10,32 @@ void memset(void *ptr, int value, const size_t n) {
 }
 
 bool is_ptr_device(const void *ptr) {
+#if defined(__HIP_PLATFORM_SPIRV__)
+  // The query below fails for host memory under chipStar, and a failure replaces the runtime's last
+  // error, which smesh reads with cudaPeekAtLastError after its kernels: an error already pending
+  // is reported here, not lost.
+  const hipError_t pending = hipPeekAtLastError();
+  if (pending != hipSuccess) {
+    SMESH_ERROR("is_ptr_device: an earlier HIP call failed: %s\n",
+                hipGetErrorString(pending));
+  }
+#endif
+
   cudaPointerAttributes attributes;
   cudaError_t err = cudaPointerGetAttributes(&attributes, ptr);
 
+#if defined(__HIP_PLATFORM_SPIRV__)
+  // chipStar (HIP on SPIR-V) answers from its records of the memory it allocated, which take a
+  // pointer anywhere inside an allocation (an offset device pointer is device memory), and fails
+  // with hipErrorInvalidValue for any other pointer: host memory, memory already freed (which CUDA
+  // reports as unregistered, not device, too) and memory another runtime allocated (Level Zero,
+  // SYCL or OpenCL USM, through interop), which it cannot tell from host memory. Not device memory
+  // of this runtime; any other failure is an error.
+  if (err == hipErrorInvalidValue) {
+    (void)hipGetLastError();
+    return false;
+  }
+#endif
   if (err != cudaSuccess) {
     SMESH_ERROR("cudaPointerGetAttributes failed: %s\n",
                 cudaGetErrorString(err));

@@ -3,6 +3,9 @@
 #include "smesh_cuda_base.cuh"
 
 #include "smesh_macros.hpp"
+#if defined(__HIP_PLATFORM_SPIRV__)
+#include "smesh_context.hpp"
+#endif
 #include "smesh_sshex8.hpp"
 #include "smesh_types.hpp"
 
@@ -19,6 +22,9 @@ namespace smesh {
 
     static inline __device__ int is_even(const int v) { return !(v & 1); }
     static inline __device__ int is_odd(const int v) { return (v & 1); }
+
+    // Each file's own (ssquad4 has one with the same names): an anonymous namespace keeps the two apart.
+    namespace {
 
     template <typename T>
     class ShapeInterpolation {
@@ -62,7 +68,12 @@ namespace smesh {
 
         bool matches(const int steps_, const int padding_) const { return data && steps == steps_ && padding == padding_; }
 
-        ~ShapeInterpolation() { destroy(); }
+        ~ShapeInterpolation() {
+            // Only the pool's array is destroyed, at exit, where chipStar faults on a free (smesh_context.hpp).
+#if !defined(__HIP_PLATFORM_SPIRV__)
+            destroy();
+#endif
+        }
 
         void destroy() {
             if (data) {
@@ -77,6 +88,11 @@ namespace smesh {
     public:
         static ShapeInterpolation<T> *get(const int steps, const int padding) {
             std::lock_guard<std::mutex> lock(mutex());
+#if defined(__HIP_PLATFORM_SPIRV__)
+            // Released at the context's teardown under chipStar (smesh_context.hpp), not at exit.
+            static const bool released_at_teardown = (at_context_teardown(&ShapeInterpolationPool<T>::destroy), true);
+            (void)released_at_teardown;
+#endif
 
             ShapeInterpolation<T> *empty_slot = nullptr;
             for (int i = 0; i < capacity(); ++i) {
@@ -122,6 +138,8 @@ namespace smesh {
             return m;
         }
     };
+
+    }  // namespace
 
     // PROLONGATION
 

@@ -29,6 +29,19 @@ public:
 std::shared_ptr<Context> initialize(int argc, char *argv[]);
 std::shared_ptr<Context> initialize_serial(int argc, char *argv[]);
 
+#if defined(__HIP_PLATFORM_SPIRV__)
+// chipStar (HIP on SPIR-V, Intel GPUs) faults when device memory is freed after main returns: exit
+// destroys the thread_local state of the main thread, chipStar's among it, before any static's
+// destructor or atexit handler runs. A static that keeps device memory for the process (a cache)
+// registers its release here, once, and does not free in its destructor. The destructor of the
+// context that initialized smesh (initialize, not the wrapper of a communicator) runs the releases
+// while the runtime is whole, newest first, with any registered while they run. A cache used after
+// that is not released: its memory goes with the process. That context must therefore be destroyed
+// before main returns: one held by a static, or otherwise destroyed at exit, would run the releases,
+// and free, there.
+void at_context_teardown(void (*release)());
+#endif
+
 #ifdef SMESH_ENABLE_MPI
 std::shared_ptr<Context> initialize(int argc, char *argv[], MPI_Comm comm);
 #endif

@@ -9,6 +9,8 @@ namespace device {
 
 void destroy(void *a);
 void memset(void *ptr, int value, const size_t n);
+// Whether ptr points into device memory the runtime (CUDA or HIP) allocated. Under chipStar
+// (HIP on SPIR-V) memory another runtime allocated is not recognised.
 bool is_ptr_device(const void *ptr);
 
 template <typename T> T *alloc(const size_t n);
