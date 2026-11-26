@@ -23,6 +23,9 @@ namespace smesh {
     static inline __device__ int is_even(const int v) { return !(v & 1); }
     static inline __device__ int is_odd(const int v) { return (v & 1); }
 
+    // Each file's own (ssquad4 has one with the same names): an anonymous namespace keeps the two apart.
+    namespace {
+
     template <typename T>
     class ShapeInterpolation {
     public:
@@ -130,6 +133,8 @@ namespace smesh {
             return m;
         }
     };
+
+    }  // namespace
 
     // PROLONGATION
 

@@ -287,6 +287,9 @@ static const int TILE_SIZE = 4;
 static inline __device__ int is_even(const int v) { return !(v & 1); }
 static inline __device__ int is_odd(const int v) { return (v & 1); }
 
+// Each file's own (sshex8 has one with the same names): an anonymous namespace keeps the two apart.
+namespace {
+
 template <typename T> class ShapeInterpolation {
 public:
   T *data{nullptr};
@@ -385,6 +388,8 @@ private:
     return m;
   }
 };
+
+} // namespace
 
 template <typename From, typename To>
 __global__ void cu_ssquad4_restrict_kernel(
