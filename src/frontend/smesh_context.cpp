@@ -47,14 +47,23 @@ void at_context_teardown(void (*release)()) {
 }
 
 // The caches' device memory, released in the reverse order of registration. A release may register
-// (a cache first touched there), so they run outside the lock.
+// (a cache first touched there), so they run outside the lock, and those registered meanwhile run
+// after them, until none is new. The list is kept: a cache registers once for the process (a
+// static's initialisation), and a release only frees what its cache holds, which the next use
+// allocates again, so a later owning context (one after another, without MPI) releases again.
 static void release_registered_caches() {
-  std::vector<void (*)()> releases;
-  {
-    std::lock_guard<std::mutex> lock(teardown_mutex());
-    releases = teardown_releases();
+  size_t n_run = 0;
+  for (;;) {
+    std::vector<void (*)()> releases;
+    {
+      std::lock_guard<std::mutex> lock(teardown_mutex());
+      const auto &registered = teardown_releases();
+      if (registered.size() == n_run) break;
+      releases.assign(registered.begin() + n_run, registered.end());
+      n_run = registered.size();
+    }
+    for (auto it = releases.rbegin(); it != releases.rend(); ++it) (*it)();
   }
-  for (auto it = releases.rbegin(); it != releases.rend(); ++it) (*it)();
 }
 #endif
 
@@ -170,7 +179,9 @@ Context::Context(int argc, char *argv[]) : impl_(std::make_unique<Impl>()) {
 
 Context::~Context() {
 #if defined(__HIP_PLATFORM_SPIRV__)
-  release_registered_caches();
+  // Only the context that initialized smesh: one wrapping a communicator leaves the caches to the
+  // code that still runs (smesh_context.hpp).
+  if (impl_->owns_mpi_context) release_registered_caches();
 #endif
 #ifdef SMESH_ENABLE_MPI
   release_device_communicators();
